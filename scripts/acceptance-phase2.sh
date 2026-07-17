@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# Phase 2 acceptance test for claudeq.
+#
+# Drives the real claudeq / claudeqd binaries against a fake `claude` (no tokens,
+# deterministic) and checks each Phase-2 requirement, printing PASS/FAIL with the
+# requirement id. Exits non-zero if any check fails.
+#
+# Usage:  ./scripts/acceptance-phase2.sh
+set -u
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
+export CLAUDEQ_HOME="$WORK/home"
+export CQ_FAKE_ARGS="$WORK/args.log"
+export CQ_FAKE_STATE="$WORK/calls"
+REPO_A="$WORK/repoA"; REPO_B="$WORK/repoB"
+mkdir -p "$REPO_A" "$REPO_B"
+
+pass=0; fail=0
+check() { # check "<id> description" <expr...>
+  local desc="$1"; shift
+  if "$@"; then printf '  PASS  %s\n' "$desc"; pass=$((pass + 1))
+  else printf '  FAIL  %s\n' "$desc"; fail=$((fail + 1)); fi
+}
+contains() { grep -q -- "$2" "$1"; }
+num_check() { # num_check "desc" <actual> <op> <expected>
+  local desc="$1"
+  if [ "$2" "$3" "$4" ]; then printf '  PASS  %s\n' "$desc"; pass=$((pass + 1))
+  else printf '  FAIL  %s (got %s, expected %s %s)\n' "$desc" "$2" "$3" "$4"; fail=$((fail + 1)); fi
+}
+lines() { grep -c -- "$2" "$1" 2>/dev/null; :; }
+
+echo "== building binaries =="
+go build -o "$WORK/claudeq"  "$ROOT/cmd/claudeq"  || exit 2
+go build -o "$WORK/claudeqd" "$ROOT/cmd/claudeqd" || exit 2
+CQ="$WORK/claudeq"; CQD="$WORK/claudeqd"
+
+# Fake claude: logs its args, then behaves per $CQ_FAKE_MODE.
+FAKE="$WORK/fakebin"; mkdir -p "$FAKE"
+cat > "$FAKE/claude" <<'EOF'
+#!/bin/sh
+echo "ARGS: $*" >> "$CQ_FAKE_ARGS"
+case "${CQ_FAKE_MODE:-ok}" in
+  ok) echo '{"type":"result","is_error":false,"result":"ok","session_id":"s-ok"}' ;;
+  rl) echo "{\"type\":\"system\",\"subtype\":\"api_retry\",\"error_status\":429,\"error\":\"rate_limit\",\"retry_delay_ms\":${CQ_FAKE_RETRY_MS:-3600000},\"session_id\":\"s-rl\"}"; exit 1 ;;
+  auth) echo '{"type":"result","is_error":true,"error":"authentication_failed"}'; exit 1 ;;
+  resume-once)
+    n=$(cat "$CQ_FAKE_STATE" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$CQ_FAKE_STATE"
+    if [ "$n" -eq 1 ]; then
+      echo '{"type":"system","subtype":"api_retry","error_status":429,"retry_delay_ms":2000,"session_id":"s-r"}'; exit 1
+    else
+      echo '{"type":"result","is_error":false,"result":"ok","session_id":"s-r"}'
+    fi ;;
+esac
+EOF
+chmod +x "$FAKE/claude"
+export PATH="$FAKE:$PATH"
+
+echo
+echo "== Task definition & management =="
+"$CQ" add --id a --name "Build A" --prompt "pa" --dir "$REPO_A" --trigger asap >/dev/null
+"$CQ" add --id b --name "Build B" --prompt "pb" --dir "$REPO_B" --trigger asap --parallel >/dev/null
+check "FA-01 stores prompt/dir/trigger/parallel"     contains "$CLAUDEQ_HOME/config.toml" "$REPO_A"
+check "FA-03 multiple tasks, different contexts"     bash -c '[ "$('"$CQ"' list | grep -c Build)" -eq 2 ]'
+"$CQ" add --id bad --prompt "x" --dir "$REPO_A" --trigger cron --cron "not-a-cron" >/dev/null 2>&1
+check "FA-04/18 invalid cron rejected"               bash -c '! '"$CQ"' list | grep -q "^.*bad"'
+"$CQ" disable a >/dev/null
+check "FA-17 enable/pause without delete"             bash -c ''"$CQ"' list | grep " a " | grep -q false'
+"$CQ" enable a >/dev/null
+"$CQ" move b 0 >/dev/null
+check "FA-11 manual priority reorder (b to top)"      bash -c '[ "$('"$CQ"' list | awk "NR==2{print \$2}")" = "b" ]'
+
+echo
+echo "== Execution (run-now) & result visibility =="
+"$CQ" run-now a >/dev/null
+check "FA-16 run-now executes"                        contains "$CQ_FAKE_ARGS" "ARGS:"
+"$CQ" status | grep -q success
+num_check "FA-15 status shows success"                "$?" -eq 0
+check "FA-15 per-run log file written"                bash -c 'ls "$CLAUDEQ_HOME"/runs/*.log >/dev/null 2>&1'
+
+echo
+echo "== Model & permission flags (per-task / global) =="
+: > "$CQ_FAKE_ARGS"
+"$CQ" add --id sk --prompt "p" --dir "$REPO_A" --trigger asap --skip-permissions --model claude-haiku-4-5-20251001 >/dev/null
+"$CQ" run-now sk >/dev/null
+check "FA-30 per-task model override passed"          contains "$CQ_FAKE_ARGS" "--model claude-haiku-4-5-20251001"
+check "FA-31 per-task skip-permissions passed"        contains "$CQ_FAKE_ARGS" "--dangerously-skip-permissions"
+check "FA-27 headless stream-json invocation"         contains "$CQ_FAKE_ARGS" "--output-format stream-json"
+
+echo
+echo "== Scheduler loop: asap / fixed earliest-start =="
+export CLAUDEQ_HOME="$WORK/home2"; mkdir -p "$CLAUDEQ_HOME"
+FUTURE=$(date -u -v+1H +%Y-%m-%dT%H:%M:%SZ)
+PAST=$(date -u -v-1H +%Y-%m-%dT%H:%M:%SZ)
+"$CQ" add --id now  --prompt "p" --dir "$REPO_A" --trigger asap >/dev/null
+"$CQ" add --id past --prompt "p" --dir "$REPO_A" --trigger fixed --at "$PAST" >/dev/null
+"$CQ" add --id soon --prompt "p" --dir "$REPO_A" --trigger fixed --at "$FUTURE" >/dev/null
+CQ_FAKE_MODE=ok "$CQD" run --interval 300ms >/dev/null 2>&1 &
+DPID=$!; sleep 2; kill -INT $DPID 2>/dev/null; wait $DPID 2>/dev/null
+H="$CLAUDEQ_HOME/history.jsonl"
+now_n=$(lines "$H" '"task_id":"now"');  past_n=$(lines "$H" '"task_id":"past"'); soon_n=$(lines "$H" '"task_id":"soon"')
+num_check "FA-07 asap task ran"                       "${now_n:-0}"  -ge 1
+num_check "FA-08 fixed(past) ran"                     "${past_n:-0}" -ge 1
+num_check "FA-08 fixed(future) did NOT run"           "${soon_n:-0}" -eq 0
+
+echo
+echo "== Reactive limit gate: no spin, then resume =="
+# Rate-limit: exactly one attempt while the gate is blocked.
+export CLAUDEQ_HOME="$WORK/home3"; mkdir -p "$CLAUDEQ_HOME"
+"$CQ" add --id blk --prompt "p" --dir "$REPO_A" --trigger asap >/dev/null
+CQ_FAKE_MODE=rl "$CQD" run --interval 200ms >/dev/null 2>&1 &
+DPID=$!; sleep 2; kill -INT $DPID 2>/dev/null; wait $DPID 2>/dev/null
+H3="$CLAUDEQ_HOME/history.jsonl"
+starts=$(grep '"task_id":"blk"' "$H3" 2>/dev/null | grep -c '"status":"running"')
+num_check "FA-05/06/37 rate-limit → exactly one attempt (no spin)" "${starts:-0}" -eq 1
+check "FA-35 failure/limit visible in status"         bash -c ''"$CQ"' status | grep -q rate_limited_waiting'
+
+# Resume after reset: 1st call 429 (retry 2s), later call succeeds via --resume.
+export CLAUDEQ_HOME="$WORK/home4"; mkdir -p "$CLAUDEQ_HOME"; : > "$CQ_FAKE_ARGS"; : > "$CQ_FAKE_STATE"
+"$CQ" add --id res --prompt "p" --dir "$REPO_A" --trigger asap >/dev/null
+CQ_FAKE_MODE=resume-once "$CQD" run --interval 400ms >/dev/null 2>&1 &
+DPID=$!; sleep 5; kill -INT $DPID 2>/dev/null; wait $DPID 2>/dev/null
+check "D4 second attempt used --resume"               contains "$CQ_FAKE_ARGS" "--resume"
+check "D4 task succeeded after resume"                bash -c ''"$CQ"' status | grep " res " | grep -q success'
+
+echo
+echo "== News/unread persistence =="
+export CLAUDEQ_HOME="$WORK/home5"; mkdir -p "$CLAUDEQ_HOME"
+"$CQ" add --id n --prompt "p" --dir "$REPO_A" --trigger asap >/dev/null
+"$CQ" run-now n >/dev/null
+check "FA-22 new run is unread"                       bash -c ''"$CQ"' status | grep -q "1 unread"'
+"$CQ" read-all >/dev/null
+check "FA-24/26 read status persists (new process)"   bash -c ''"$CQ"' status | grep -q "0 unread"'
+
+echo
+echo "== Concurrency (covered by automated tests) =="
+if go test "$ROOT/internal/schedule/..." "$ROOT/internal/engine/..." -run 'Parallel|Exclusive|Select' -count=1 >/dev/null 2>&1; then
+  printf '  PASS  FA-12/13/14/33 parallelism & priority (go test)\n'; pass=$((pass + 1))
+else
+  printf '  FAIL  FA-12/13/14/33 parallelism & priority (go test)\n'; fail=$((fail + 1))
+fi
+
+echo
+echo "=========================================="
+printf "Result: %d passed, %d failed\n" "$pass" "$fail"
+echo "=========================================="
+[ "$fail" -eq 0 ]
