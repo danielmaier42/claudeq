@@ -62,3 +62,15 @@ If any gate fails, it is fixed before the work is reported — never reported wi
 - Surface **process/design choices and trade-offs** for discussion — the maintainer wants
   those. Keep them non-code-level (behaviour, UX, reliability, install experience).
 - Be honest about limitations and anything skipped or deferred.
+
+## 6. Keep the plan's phase status current
+
+`PLAN.md` §12 holds the build-phase table with a status column (✅ / 🔄 / ⏳ / ⏸). It is a
+living record and must stay accurate:
+
+- Set a phase to 🔄 when work on it starts, ✅ only when it meets the §1 quality bar in full.
+- Never mark a phase ✅ while any of its acceptance work is incomplete — note residual items
+  explicitly instead (honesty over green checkmarks).
+- Update the table in the **same change** that moves the work, so `main` never shows a stale
+  status. If the phase breakdown itself changes, update the table and note why.
+

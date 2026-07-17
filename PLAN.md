@@ -397,16 +397,20 @@ Triggered on tag `v*`:
 
 ---
 
-## 12. Suggested Build Phases (informational)
+## 12. Build Phases & Status
 
-1. **Spike** — resolve the two residual V2 items (§10): real-429 field shape + exit code.
-2. **Core daemon** — store, scheduler, executor, reactive limit gate (headless, CLI-driven).
-3. **Wake & resilience** — launchd integration, pmset wake (sudoers), heartbeat.
-4. **Notifications** — macOS `osascript` + Pushover.
-5. **App (Wails)** — task management, news dashboard, history, logs, settings.
-6. **Packaging & release** — unsigned `.pkg` + postinstall, GitHub Actions release pipeline
-   (notarization-ready stubs), install/uninstall (NFA-05/06).
-7. **Hardening** — unattended-run safety.
+Status legend: ✅ done · 🔄 in progress · ⏳ not started · ⏸ blocked.
+This table is kept current — the phase status is updated as work progresses (see AGENTS.md §6).
+
+| # | Phase | Status | Notes |
+|---|-------|:------:|-------|
+| 1 | **Spike** — verify CLI behaviour & platform mechanisms | ✅ done | V1–V5 resolved (§10). Two residual V2 items (real-429 field shape + exit code) can only be confirmed against an actual 429 → carried into Phase 2. |
+| 2 | **Core daemon** — store, scheduler, executor, reactive limit gate (headless, CLI-driven) | ⏳ not started | Confirm the residual V2 items here when a real rate limit occurs. |
+| 3 | **Wake & resilience** — launchd integration, pmset wake (sudoers), heartbeat | ⏳ not started | |
+| 4 | **Notifications** — macOS `osascript` + Pushover | ⏳ not started | |
+| 5 | **App (Wails)** — task management, news dashboard, history, logs, settings | ⏳ not started | |
+| 6 | **Packaging & release** — unsigned `.pkg` + postinstall, GitHub Actions release pipeline (notarization-ready stubs), install/uninstall (NFA-05/06) | ⏳ not started | |
+| 7 | **Hardening** — unattended-run safety | ⏳ not started | |
 
 ---
 
