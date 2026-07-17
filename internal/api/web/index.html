@@ -423,37 +423,75 @@ async function chooseFolder(){
   }catch(e){ toast('Folder dialog unavailable: '+e.message,'err'); }
 }
 
-async function runNow(id){ try{ await api('POST',`/api/tasks/${id}/run-now`); toast('Started — see Activity'); setTimeout(()=>{if(current==='news')loadRuns()},600);}catch(e){toast(e.message,'err')} }
+async function runNow(id){
+  try{ await api('POST',`/api/tasks/${id}/run-now`); }catch(e){ toast(e.message,'err'); return; }
+  toast('Started');
+  select('news');           // jump to Activity
+  watchNewRun(id);          // find the fresh run and open its live log
+}
+// Poll briefly until the just-started run for this task appears, then open its
+// (live-updating) log.
+function watchNewRun(id){
+  const deadline=Date.now()+12000;
+  const tick=async()=>{
+    let runs=[]; try{ runs=await api('GET','/api/runs'); }catch{}
+    runsSig=''; loadRuns();
+    const run=runs.find(r=>r.task_id===id); // newest-first, so first match is the latest
+    if(run){ showLog(run.run_id, run.task_name); return; }
+    if(Date.now()<deadline) setTimeout(tick,500);
+  };
+  setTimeout(tick,400);
+}
 async function toggle(id,on){ try{ await api('POST',`/api/tasks/${id}/${on?'disable':'enable'}`); toast(on?'Paused':'Enabled','ok'); loadTasks();}catch(e){toast(e.message,'err');loadTasks()} }
 async function move(id,to){ try{ await api('POST',`/api/tasks/${id}/move?to=${to}`); loadTasks();}catch(e){toast(e.message,'err')} }
 async function del_(id,name){ if(await confirmSheetAsk('Delete task “'+name+'”?')){ try{await api('DELETE',`/api/tasks/${id}`);toast('Deleted','ok');loadTasks();}catch(e){toast(e.message,'err')} } }
 
 /* ---- Activity ---- */
+let runsSig='';
 async function loadRuns(){
   let runs; try{ runs=await api('GET','/api/runs'); setConn(true);}catch(e){ setConn(false); return; }
   const unread=runs.filter(r=>r.unread).length; const badge=$('#unreadCount'); badge.hidden=unread===0; badge.textContent=unread;
+  // Re-render only when the data actually changed, so the 5s poll doesn't
+  // rebuild the DOM (and make the buttons flicker) on every tick.
+  const sig=JSON.stringify(runs.map(r=>[r.run_id,r.status,r.unread]));
+  if(sig===runsSig && $('#news').childElementCount) return;
+  runsSig=sig;
   const c=$('#news'); c.innerHTML='';
   if(!runs.length){ c.append(emptyState('No activity yet','Runs will appear here after tasks execute.')); return; }
   const g=el('div','group');
   runs.forEach(r=>{
     const row=el('div','row');
-    if(r.unread){ const d=el('div','unread-dot'); row.append(d); }
+    if(r.unread){ row.append(el('div','unread-dot')); }
     const grow=el('div','grow'); grow.innerHTML=`<div class="title">${esc(r.task_name)}</div><div class="sub">${relTime(r.started_at)}</div>`;
     const pill=el('span','pill '+r.status); pill.innerHTML=`<span class="d"></span>${esc(r.status.replace(/_/g,' '))}`;
-    const log=el('button','btn small','Log'); log.onclick=()=>showLog(r.run_id,r.task_name);
-    row.append(grow,pill,log);
-    if(r.task){ const rp=el('button','btn small iconly',REPLAY); rp.title='Replay this task'; rp.onclick=()=>openReplay(r.task); row.append(rp); }
-    if(r.unread){ const mr=el('button','btn small iconly',EYE); mr.title='Mark read'; mr.onclick=()=>readRun(r.run_id); row.append(mr); }
+    const actions=el('div','row-actions');
+    const log=el('button','btn small','Log'); log.onclick=()=>showLog(r.run_id,r.task_name); actions.append(log);
+    if(r.task){ const rp=el('button','btn small iconly',REPLAY); rp.title='Replay this task'; rp.onclick=()=>openReplay(r.task); actions.append(rp); }
+    if(r.unread){ const mr=el('button','btn small iconly',EYE); mr.title='Mark read'; mr.onclick=()=>readRun(r.run_id); actions.append(mr); }
+    row.append(grow,pill,actions);
     g.append(row);
   });
   c.append(g);
 }
-async function readRun(id){ await api('POST',`/api/runs/${id}/read`); loadRuns(); }
-async function markAllRead(){ try{await api('POST','/api/runs/read-all');toast('All marked read','ok');loadRuns();}catch(e){toast(e.message,'err')} }
-let logRaw='', logMode='chat';
-async function showLog(id,name){ $('#logTitle').textContent='Log · '+name;
-  try{ logRaw=await api('GET',`/api/runs/${id}/log`)||''; }catch(e){ logRaw=''; }
-  renderLog(); $('#logSheet').showModal(); }
+async function readRun(id){ try{ await api('POST',`/api/runs/${id}/read`); }catch{} runsSig=''; loadRuns(); }
+async function markAllRead(){ try{await api('POST','/api/runs/read-all');toast('All marked read','ok'); runsSig=''; loadRuns();}catch(e){toast(e.message,'err')} }
+let logRaw='', logMode='chat', logRunId='', logTimer=null, logPrev=null;
+async function showLog(id,name){ logRunId=id; $('#logTitle').textContent='Log · '+name;
+  logPrev=null; await refreshLog(true); $('#logSheet').showModal(); startLogPolling(); }
+async function refreshLog(force){
+  try{ logRaw=await api('GET',`/api/runs/${logRunId}/log`)||''; }catch(e){ logRaw=''; }
+  if(!force && logRaw===logPrev) return;   // nothing new -> don't re-render (no flicker)
+  logPrev=logRaw; renderLog();
+  const box=$('#logBody'); box.scrollTop=box.scrollHeight; // fast-forward to the newest output
+}
+function startLogPolling(){ stopLogPolling(); logTimer=setInterval(async()=>{
+  let runs=[]; try{ runs=await api('GET','/api/runs'); }catch{}
+  const run=runs.find(r=>r.run_id===logRunId);
+  await refreshLog(false);
+  if(run && run.status!=='running'){ stopLogPolling(); runsSig=''; if(current==='news') loadRuns(); }
+}, 1500); }
+function stopLogPolling(){ if(logTimer){ clearInterval(logTimer); logTimer=null; } }
+$('#logSheet').addEventListener('close',stopLogPolling);
 $('#logMode').querySelectorAll('button').forEach(b=>b.onclick=()=>{ logMode=b.dataset.v;
   $('#logMode').querySelectorAll('button').forEach(x=>x.classList.toggle('active',x.dataset.v===logMode)); renderLog(); });
 function renderLog(){
