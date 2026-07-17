@@ -51,6 +51,7 @@
   .nav svg { width:16px; height:16px; stroke:var(--fg2); stroke-width:1.8; fill:none; flex-shrink:0; }
   .nav .count { margin-left:auto; background:var(--danger); color:#fff; font-size:11px; font-weight:600;
                 min-width:18px; height:18px; border-radius:9px; display:grid; place-items:center; padding:0 5px; }
+  .nav .count[hidden] { display:none; }
   .nav button.active .count { background:rgba(255,255,255,.3); }
   .side-foot { margin-top:auto; display:flex; align-items:center; gap:7px; padding:8px; color:var(--fg2); font-size:12px; }
   .side-foot .dot { width:8px; height:8px; border-radius:50%; background:var(--ok); }
@@ -195,7 +196,7 @@
     <div id="f-at-wrap" hidden><label class="fld">Earliest start</label><input type="text" id="f-at" placeholder="2026-07-18T22:00:00Z"></div>
     <div id="f-cron-wrap" hidden><label class="fld">Cron schedule</label><input type="text" id="f-cron" placeholder="0 20 * * *"></div>
     <div class="form-row">
-      <div><label class="fld">Model (optional)</label><input type="text" id="f-model" placeholder="global default"></div>
+      <div><label class="fld">Model</label><select id="f-model"></select></div>
     </div>
     <div class="group" style="margin-top:14px">
       <div class="row"><div class="grow"><div class="title">Run in parallel</div><div class="sub">May run alongside other parallel tasks</div></div>
@@ -239,6 +240,14 @@ function confirmSheetAsk(text,yesLabel){ return new Promise(res=>{ $('#confirmTe
   const dlg=$('#confirmSheet'); const yes=()=>{cleanup();dlg.close();res(true)}; const no=()=>{cleanup();dlg.close();res(false)};
   function cleanup(){$('#confirmYes').removeEventListener('click',yes);$('#confirmNo').removeEventListener('click',no);}
   $('#confirmYes').addEventListener('click',yes); $('#confirmNo').addEventListener('click',no); dlg.showModal(); }); }
+let MODELS=[];
+async function loadModels(){ try{ MODELS=await api('GET','/api/models'); }catch{ MODELS=[]; } }
+function modelOptions(selected,globalLabel){
+  let h=`<option value="">${esc(globalLabel)}</option>`;
+  MODELS.forEach(m=>{ h+=`<option value="${esc(m.id)}"${m.id===selected?' selected':''}>${esc(m.label)}</option>`; });
+  if(selected && !MODELS.some(m=>m.id===selected)) h+=`<option value="${esc(selected)}" selected>${esc(selected)} (custom)</option>`;
+  return h;
+}
 function relTime(iso){ const d=new Date(iso), s=(Date.now()-d)/1000;
   if(s<60)return 'just now'; if(s<3600)return Math.floor(s/60)+' min ago'; if(s<86400)return Math.floor(s/3600)+' h ago';
   if(s<604800)return Math.floor(s/86400)+' d ago'; return d.toLocaleDateString(); }
@@ -281,7 +290,8 @@ async function loadTasks(){
 }
 function emptyState(big,sub){ const d=el('div','empty'); d.innerHTML=`<div class="big">${esc(big)}</div><div>${esc(sub)}</div>`; return d; }
 
-function openAdd(){ $('#addErr').textContent=''; ['f-id','f-name','f-prompt','f-dir','f-at','f-cron','f-model'].forEach(x=>$('#'+x).value='');
+function openAdd(){ $('#addErr').textContent=''; ['f-id','f-name','f-prompt','f-dir','f-at','f-cron'].forEach(x=>$('#'+x).value='');
+  $('#f-model').innerHTML=modelOptions('','Global default');
   $('#f-parallel').checked=false; $('#f-skip').checked=false; setSeg('asap'); $('#addSheet').showModal(); }
 $('#f-trigger').querySelectorAll('button').forEach(b=>b.onclick=()=>setSeg(b.dataset.v));
 function setSeg(v){ $('#f-trigger').querySelectorAll('button').forEach(b=>b.classList.toggle('active',b.dataset.v===v));
@@ -331,37 +341,45 @@ async function showLog(id,name){ $('#logTitle').textContent='Log · '+name;
 async function loadSettings(){
   let s; try{ s=await api('GET','/api/settings'); setConn(true);}catch(e){ setConn(false); return; }
   const c=$('#settings');
+  const hbOpts=[[15,'Every 15 minutes'],[30,'Every 30 minutes'],[60,'Every hour'],[120,'Every 2 hours'],[180,'Every 3 hours'],[360,'Every 6 hours']];
+  const hbVal=s.heartbeat_minutes||60;
+  let hbHtml=hbOpts.map(([v,l])=>`<option value="${v}"${v===hbVal?' selected':''}>${l}</option>`).join('');
+  if(!hbOpts.some(([v])=>v===hbVal)) hbHtml=`<option value="${hbVal}" selected>Every ${hbVal} minutes</option>`+hbHtml;
+  const poOn=!!s.pushover?.enabled;
   c.innerHTML=`
     <div class="section-label">General</div>
     <div class="group">
       <div class="row"><div class="grow"><div class="title">Default model</div><div class="sub">Used unless a task overrides it</div></div>
-        <input type="text" id="s-model" style="max-width:230px" placeholder="Claude default"></div>
+        <select id="s-model" style="max-width:230px">${modelOptions(s.default_model||'','Claude default')}</select></div>
       <div class="row"><div class="grow"><div class="title">Skip permission prompts by default</div><div class="sub">Global “may do anything”</div></div>
         <label class="switch"><input type="checkbox" id="s-skip"><span class="sl"></span></label></div>
-      <div class="row"><div class="grow"><div class="title">Wake heartbeat</div><div class="sub">Safety-net wake interval (minutes)</div></div>
-        <input type="number" id="s-hb" min="0" style="max-width:90px"></div>
+      <div class="row"><div class="grow"><div class="title">Check for due tasks every</div><div class="sub">How often the daemon wakes to look for work</div></div>
+        <select id="s-hb" style="max-width:170px">${hbHtml}</select></div>
     </div>
     <div class="section-label">Notifications · Pushover</div>
     <div class="group">
+      <div class="row"><div class="grow"><div class="title">Send to Pushover</div><div class="sub">Push run alerts to your phone</div></div>
+        <label class="switch"><input type="checkbox" id="s-po-enabled"><span class="sl"></span></label></div>
       <div class="row"><div class="grow"><div class="title">API token</div></div><input type="text" id="s-po-token" style="max-width:230px"></div>
       <div class="row"><div class="grow"><div class="title">User key</div></div><input type="text" id="s-po-user" style="max-width:230px"></div>
     </div>
     <button class="btn primary" id="s-save">Save changes</button> <span id="setMsg" class="hint"></span>`;
-  $('#s-model').value=s.default_model||''; $('#s-skip').checked=!!s.skip_permissions_default;
-  $('#s-hb').value=s.heartbeat_minutes||''; $('#s-po-token').value=s.pushover?.token||''; $('#s-po-user').value=s.pushover?.user_key||'';
+  $('#s-skip').checked=!!s.skip_permissions_default;
+  $('#s-po-enabled').checked=poOn; $('#s-po-token').value=s.pushover?.token||''; $('#s-po-user').value=s.pushover?.user_key||'';
   $('#s-save').onclick=saveSettings;
 }
 async function saveSettings(){
   const body={default_model:$('#s-model').value,skip_permissions_default:$('#s-skip').checked,
-    heartbeat_minutes:parseInt($('#s-hb').value||'0',10),pushover:{token:$('#s-po-token').value,user_key:$('#s-po-user').value}};
+    heartbeat_minutes:parseInt($('#s-hb').value||'60',10),
+    pushover:{enabled:$('#s-po-enabled').checked,token:$('#s-po-token').value,user_key:$('#s-po-user').value}};
   try{ await api('PUT','/api/settings',body); toast('Settings saved','ok'); }catch(e){ toast(e.message,'err'); }
 }
 
 function setConn(ok){ $('#connDot').style.background=ok?'var(--ok)':'var(--danger)'; $('#connText').textContent=ok?'connected':'disconnected'; }
 
 // Poll activity for the unread badge + live updates.
-setInterval(()=>{ loadRuns.badgeOnly=current!=='news'; loadRuns(); }, 5000);
-select('tasks');
+setInterval(()=>{ loadRuns(); }, 5000);
+loadModels().then(()=>select('tasks'));
 </script>
 </body>
 </html>

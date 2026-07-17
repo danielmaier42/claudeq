@@ -122,7 +122,7 @@ func buildNotifier(st *store.Store) notify.Notifier {
 	notifiers := []notify.Notifier{notify.Mac{Runner: system.Real{}}}
 	if cfg, err := st.LoadConfig(); err == nil {
 		po := notify.Pushover{Token: cfg.Settings.Pushover.Token, UserKey: cfg.Settings.Pushover.UserKey}
-		if po.Configured() {
+		if cfg.Settings.Pushover.Enabled && po.Configured() {
 			notifiers = append(notifiers, po)
 		}
 	}

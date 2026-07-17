@@ -319,8 +319,9 @@ func (s Settings) HeartbeatOrDefault() time.Duration {
 	return time.Duration(m) * time.Minute
 }
 
-// Pushover holds Pushover API credentials.
+// Pushover holds Pushover API credentials and whether the channel is enabled.
 type Pushover struct {
+	Enabled bool   `toml:"enabled" json:"enabled"`
 	Token   string `toml:"token" json:"token"`
 	UserKey string `toml:"user_key" json:"user_key"`
 }

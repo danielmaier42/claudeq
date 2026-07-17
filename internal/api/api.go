@@ -50,6 +50,7 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/runs/{id}/log", s.runLog)
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("PUT /api/settings", s.putSettings)
+	mux.HandleFunc("GET /api/models", s.listModels)
 
 	sub, _ := fs.Sub(webFS, "web")
 	mux.Handle("GET /", http.FileServer(http.FS(sub)))
@@ -213,6 +214,10 @@ func (s *server) putSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, cfg.Settings)
+}
+
+func (s *server) listModels(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, knownModels)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

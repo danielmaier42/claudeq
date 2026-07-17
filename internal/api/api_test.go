@@ -170,6 +170,20 @@ func TestRunNowInvokesRunner(t *testing.T) {
 	}
 }
 
+func TestListModels(t *testing.T) {
+	srv, _ := newServer(t, nil)
+	var models []Model
+	do(t, srv, "GET", "/api/models", nil).into(t, &models)
+	if len(models) == 0 {
+		t.Fatal("expected at least one model")
+	}
+	for _, m := range models {
+		if m.ID == "" || m.Label == "" {
+			t.Fatalf("model missing id/label: %+v", m)
+		}
+	}
+}
+
 func TestServesDashboard(t *testing.T) {
 	srv, _ := newServer(t, nil)
 	r := do(t, srv, "GET", "/", nil)
