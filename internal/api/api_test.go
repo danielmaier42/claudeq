@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -189,29 +188,28 @@ func TestAddTaskGeneratesID(t *testing.T) {
 	}
 }
 
-func TestListDir(t *testing.T) {
-	srv, _ := newServer(t, nil)
-	dir := t.TempDir()
-	if err := os.MkdirAll(dir+"/sub-a", 0o755); err != nil {
+func TestChooseFolder(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(dir+"/.hidden", 0o755); err != nil {
-		t.Fatal(err)
-	}
-	var listing dirListing
-	do(t, srv, "GET", "/api/fs?path="+dir, nil).into(t, &listing)
-	if listing.Path != dir {
-		t.Fatalf("path = %q, want %q", listing.Path, dir)
-	}
-	if len(listing.Dirs) != 1 || listing.Dirs[0] != "sub-a" {
-		t.Fatalf("dirs = %v, want [sub-a] (hidden excluded)", listing.Dirs)
-	}
-}
+	chooser := func(_ context.Context, _ string) (string, bool, error) { return "/Users/me/proj", true, nil }
+	srv := httptest.NewServer(Handler(Deps{Store: st, ChooseFolder: chooser}))
+	t.Cleanup(srv.Close)
 
-func TestListDirBadPath(t *testing.T) {
-	srv, _ := newServer(t, nil)
-	if r := do(t, srv, "GET", "/api/fs?path=/no/such/path/xyz", nil); r.Status != http.StatusBadRequest {
-		t.Fatalf("expected 400 for missing path, got %d", r.Status)
+	var res struct {
+		Path string `json:"path"`
+	}
+	do(t, srv, "POST", "/api/fs/choose", nil).into(t, &res)
+	if res.Path != "/Users/me/proj" {
+		t.Fatalf("path = %q, want /Users/me/proj", res.Path)
+	}
+
+	// Cancellation -> 204.
+	cancelSrv := httptest.NewServer(Handler(Deps{Store: st, ChooseFolder: func(_ context.Context, _ string) (string, bool, error) { return "", false, nil }}))
+	t.Cleanup(cancelSrv.Close)
+	if r := do(t, cancelSrv, "POST", "/api/fs/choose", nil); r.Status != http.StatusNoContent {
+		t.Fatalf("cancel should be 204, got %d", r.Status)
 	}
 }
 

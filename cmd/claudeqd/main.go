@@ -92,8 +92,11 @@ func cmdRun(args []string) error {
 	defer stop()
 
 	httpSrv := &http.Server{
-		Addr:              *addr,
-		Handler:           api.Handler(api.Deps{Store: st, Runner: eng, Models: api.BinaryModelLister("claude"), Refresher: eng}),
+		Addr: *addr,
+		Handler: api.Handler(api.Deps{
+			Store: st, Runner: eng, Models: api.BinaryModelLister("claude"),
+			Refresher: eng, ChooseFolder: api.OSAScriptFolderChooser(system.Real{}),
+		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() {

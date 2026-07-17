@@ -22,6 +22,10 @@
       --shadow:0 1px 3px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
     }
   }
+  /* Follow the user's macOS accent color when the browser exposes it. */
+  @supports (color: AccentColor) {
+    :root { --accent: AccentColor; --accent-fg: AccentColorText; }
+  }
   * { box-sizing:border-box; }
   html,body { height:100%; }
   body {
@@ -230,16 +234,6 @@
   <div class="sheet-ft"><button class="btn" onclick="logSheet.close()">Done</button></div>
 </dialog>
 
-<!-- Folder picker -->
-<dialog id="fsSheet">
-  <div class="sheet-hd"><b>Choose folder</b></div>
-  <div class="sheet-bd">
-    <div id="fsPath" class="mono" style="color:var(--fg2);margin-bottom:10px;word-break:break-all"></div>
-    <div class="group" id="fsList" style="max-height:44vh;overflow:auto"></div>
-  </div>
-  <div class="sheet-ft"><button class="btn" onclick="fsSheet.close()">Cancel</button><button class="btn primary" id="fsChoose">Choose this folder</button></div>
-</dialog>
-
 <!-- Confirm sheet -->
 <dialog id="confirmSheet">
   <div class="sheet-bd" style="padding-top:20px"><b id="confirmText">Are you sure?</b></div>
@@ -411,22 +405,14 @@ async function submitTask(){
   try{ await api('POST','/api/tasks',t); $('#addSheet').close(); toast('Task added','ok'); loadTasks(); }
   catch(e){ $('#addErr').textContent=e.message; }
 }
-/* ---- Folder picker ---- */
-let fsCur='';
-$('#f-dir-btn').onclick=()=>openFs($('#f-dir').value);
-$('#fsChoose').onclick=()=>{ $('#f-dir').value=fsCur; $('#fsSheet').close(); };
-async function openFs(start){ await loadDir(start||''); $('#fsSheet').showModal(); }
-async function loadDir(path){
-  let d; try{ d=await api('GET','/api/fs?path='+encodeURIComponent(path||'')); }
-  catch(e){ toast(e.message,'err'); return; }
-  fsCur=d.path; $('#fsPath').textContent=d.path;
-  const list=$('#fsList'); list.innerHTML='';
-  if(d.parent && d.parent!==d.path){ const up=el('div','row'); up.style.cursor='pointer';
-    up.innerHTML='<div class="grow"><div class="title">⬆︎ Parent folder</div></div>'; up.onclick=()=>loadDir(d.parent); list.append(up); }
-  if(!d.dirs.length){ const e=el('div','row'); e.innerHTML='<div class="grow sub">No sub-folders</div>'; list.append(e); }
-  d.dirs.forEach(name=>{ const row=el('div','row'); row.style.cursor='pointer';
-    row.innerHTML=`<div class="grow"><div class="title">📁 ${esc(name)}</div></div>`;
-    row.onclick=()=>loadDir(d.path.replace(/\/$/,'')+'/'+name); list.append(row); });
+/* ---- Folder picker (native macOS dialog) ---- */
+$('#f-dir-btn').onclick=chooseFolder;
+async function chooseFolder(){
+  try{
+    const q=$('#f-dir').value?('?path='+encodeURIComponent($('#f-dir').value)):'';
+    const r=await api('POST','/api/fs/choose'+q);
+    if(r && typeof r!=='string' && r.path) $('#f-dir').value=r.path; // 204/empty => cancelled
+  }catch(e){ toast('Folder dialog unavailable: '+e.message,'err'); }
 }
 
 async function runNow(id){ try{ await api('POST',`/api/tasks/${id}/run-now`); toast('Started — see Activity'); setTimeout(()=>{if(current==='news')loadRuns()},600);}catch(e){toast(e.message,'err')} }

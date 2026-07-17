@@ -13,8 +13,6 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
-	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -37,12 +35,17 @@ type UsageRefresher interface {
 	RefreshUsage(ctx context.Context) error
 }
 
+// FolderChooser opens a native folder-selection dialog and returns the chosen
+// POSIX path (chosen=false if the user cancelled). Optional.
+type FolderChooser func(ctx context.Context, start string) (path string, chosen bool, err error)
+
 // Deps are the API server's dependencies.
 type Deps struct {
-	Store     *store.Store
-	Runner    RunNower       // optional; enables the run-now endpoint
-	Models    func() []Model // optional; enables dynamic model listing
-	Refresher UsageRefresher // optional; enables the live usage probe
+	Store        *store.Store
+	Runner       RunNower       // optional; enables the run-now endpoint
+	Models       func() []Model // optional; enables dynamic model listing
+	Refresher    UsageRefresher // optional; enables the live usage probe
+	ChooseFolder FolderChooser  // optional; enables the native folder dialog
 }
 
 // Handler builds the HTTP handler (REST API under /api + dashboard at /).
@@ -64,7 +67,7 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("PUT /api/settings", s.putSettings)
 	mux.HandleFunc("GET /api/models", s.listModels)
-	mux.HandleFunc("GET /api/fs", s.listDir)
+	mux.HandleFunc("POST /api/fs/choose", s.chooseFolder)
 	mux.HandleFunc("GET /api/usage", s.getUsage)
 	mux.HandleFunc("POST /api/usage/refresh", s.refreshUsage)
 	mux.HandleFunc("GET /api/stats", s.getStats)
@@ -280,39 +283,23 @@ func (s *server) listModels(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, fallbackModels)
 }
 
-// dirListing is a directory and its immediate sub-directories, for the folder
-// picker.
-type dirListing struct {
-	Path   string   `json:"path"`
-	Parent string   `json:"parent"`
-	Dirs   []string `json:"dirs"`
-}
-
-func (s *server) listDir(w http.ResponseWriter, r *http.Request) {
-	p := r.URL.Query().Get("path")
-	if p == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err)
-			return
-		}
-		p = home
-	}
-	p = filepath.Clean(p)
-	entries, err := os.ReadDir(p)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+func (s *server) chooseFolder(w http.ResponseWriter, r *http.Request) {
+	if s.d.ChooseFolder == nil {
+		writeErr(w, http.StatusServiceUnavailable, errors.New("folder dialog not available"))
 		return
 	}
-	dirs := []string{}
-	for _, e := range entries {
-		if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
-			dirs = append(dirs, e.Name())
-		}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+	defer cancel()
+	path, chosen, err := s.d.ChooseFolder(ctx, r.URL.Query().Get("path"))
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err)
+		return
 	}
-	sort.Strings(dirs)
-	parent := filepath.Dir(p)
-	writeJSON(w, http.StatusOK, dirListing{Path: p, Parent: parent, Dirs: dirs})
+	if !chosen {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"path": path})
 }
 
 // genTaskID builds a URL-safe id from a name plus a short random suffix, so the
