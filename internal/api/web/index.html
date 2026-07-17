@@ -338,11 +338,11 @@ async function loadUsage(){
     <div class="group"><div class="row" style="display:block">
       <div class="sub">Tokens</div>
       <div class="usage-num">${fmtTok(totalTok)}</div>
-      <div class="sub" style="margin-top:6px">${fmtTok(tot.input_tokens)} in · ${fmtTok(tot.output_tokens)} out · ${fmtCost(tot.cost_usd)} · ${tot.runs} runs · ${fmtDur(tot.duration_ms)}</div>
+      <div class="sub" style="margin-top:6px">${fmtTok(tot.input_tokens)} in · ${fmtTok(tot.output_tokens)} out · ${fmtCost(tot.cost_usd)} API-equiv. · ${tot.runs} runs · ${fmtDur(tot.duration_ms)}</div>
     </div></div>
     <div class="section-label">Last 7 days</div>
     <div class="group"><div class="row" style="gap:18px;flex-wrap:wrap">
-      ${statCell('tokens',fmtTok(w.input_tokens+w.output_tokens))}${statCell('cost',fmtCost(w.cost_usd))}${statCell('runs',w.runs)}${statCell('succeeded',w.success)}${statCell('failed',w.failed)}${statCell('runtime',fmtDur(w.duration_ms))}
+      ${statCell('tokens',fmtTok(w.input_tokens+w.output_tokens))}${statCell('API-equiv. cost',fmtCost(w.cost_usd))}${statCell('runs',w.runs)}${statCell('succeeded',w.success)}${statCell('failed',w.failed)}${statCell('runtime',fmtDur(w.duration_ms))}
     </div></div>`;
   c.append(head);
 
@@ -356,7 +356,7 @@ async function loadUsage(){
   const chart=el('div');
   chart.innerHTML=`<div class="section-label">Tokens per day (14d)</div>
     <div class="group"><div class="row" style="align-items:flex-end;gap:2px">${bars}</div></div>
-    <p class="hint">Counts only what claudeq itself consumed (input + output tokens recorded per run). It is not your overall Claude account usage.</p>`;
+    <p class="hint">Counts only what claudeq's own runs consumed (tokens recorded per run) — not your overall Claude account usage. <b>Cost is the API-equivalent price</b> Claude Code reports (what these requests would cost at pay-as-you-go API rates); on a subscription you're not billed for it — it just draws on your usage limit.</p>`;
   c.append(chart);
 }
 
