@@ -192,7 +192,7 @@
   <div class="brand"><img class="logo" src="/logo.svg" alt="claudeq"><b>claudeq</b></div>
   <nav class="nav">
     <button data-tab="tasks" class="active">
-      <svg viewBox="0 0 20 20"><path d="M4 6h12M4 10h12M4 14h12"/></svg> Tasks</button>
+      <svg viewBox="0 0 20 20"><path d="M4 6h12M4 10h12M4 14h12"/></svg> Queue</button>
     <button data-tab="news">
       <svg viewBox="0 0 20 20"><path d="M10 3a4 4 0 0 1 4 4v3l1.5 2.5H4.5L6 10V7a4 4 0 0 1 4-4zM8 15a2 2 0 0 0 4 0"/></svg>
       Activity <span id="unreadCount" class="count" hidden>0</span></button>
@@ -308,7 +308,7 @@ function relTime(iso){ const d=new Date(iso), s=(Date.now()-d)/1000, a=Math.abs(
   if(a<60)return 'just now'; if(a<3600)return f(Math.floor(a/60),'min'); if(a<86400)return f(Math.floor(a/3600),'h');
   if(a<604800)return f(Math.floor(a/86400),'d'); return d.toLocaleDateString(); }
 
-const TITLES={tasks:'Tasks',news:'Activity',usage:'Usage',settings:'Settings'};
+const TITLES={tasks:'Queue',news:'Activity',usage:'Usage',settings:'Settings'};
 let current='tasks';
 document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>select(b.dataset.tab));
 function select(tab){ current=tab;
@@ -365,8 +365,12 @@ async function loadUsage(){
 }
 
 /* ---- Tasks ---- */
+let tasksSig='';
 async function loadTasks(){
   let tasks; try{ tasks=await api('GET','/api/tasks'); setConn(true);}catch(e){ setConn(false); return; }
+  const sig=JSON.stringify((tasks||[]).map(t=>[t.id,t.name,t.trigger,t.enabled,t.parallel,t.fixed_at,t.cron]));
+  if(sig===tasksSig && $('#tasks').childElementCount) return;   // avoid flicker on poll
+  tasksSig=sig;
   const c=$('#tasks'); c.innerHTML='';
   if(!tasks||!tasks.length){ c.append(emptyState('No tasks yet','Create your first task to queue work for Claude.')); return; }
   const label=el('div','section-label',tasks.length+' task'+(tasks.length>1?'s':'')+' · top = highest priority'); c.append(label);
@@ -594,7 +598,7 @@ async function saveSettings(){
 function setConn(ok){ $('#connDot').style.background=ok?'var(--ok)':'var(--danger)'; $('#connText').textContent=ok?'connected':'disconnected'; }
 
 // Poll activity for the unread badge + live updates.
-setInterval(()=>{ loadRuns(); }, 5000);
+setInterval(()=>{ if(current==='tasks') loadTasks(); loadRuns(); }, 5000);
 loadModels().then(()=>select('tasks'));
 </script>
 </body>

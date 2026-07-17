@@ -38,9 +38,10 @@ type FolderChooser func(ctx context.Context, start string) (path string, chosen 
 // Deps are the API server's dependencies.
 type Deps struct {
 	Store        *store.Store
-	Runner       RunNower       // optional; enables the run-now endpoint
-	Models       func() []Model // optional; enables dynamic model listing
-	ChooseFolder FolderChooser  // optional; enables the native folder dialog
+	Runner       RunNower        // optional; enables the run-now endpoint
+	Models       func() []Model  // optional; enables dynamic model listing
+	ChooseFolder FolderChooser   // optional; enables the native folder dialog
+	ActiveTasks  func() []string // optional; ids of currently-running tasks (hidden from the queue)
 }
 
 // Handler builds the HTTP handler (REST API under /api + dashboard at /).
@@ -79,7 +80,20 @@ func (s *server) listTasks(w http.ResponseWriter, _ *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, cfg.Tasks)
+	// A running task lives in Activity, not the queue — hide it here.
+	active := map[string]bool{}
+	if s.d.ActiveTasks != nil {
+		for _, id := range s.d.ActiveTasks() {
+			active[id] = true
+		}
+	}
+	out := make([]task.Task, 0, len(cfg.Tasks))
+	for _, t := range cfg.Tasks {
+		if !active[t.ID] {
+			out = append(out, t)
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *server) addTask(w http.ResponseWriter, r *http.Request) {

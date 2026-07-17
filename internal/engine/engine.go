@@ -381,6 +381,17 @@ func (e *Engine) notifyOutcome(t task.Task, rec store.Run, resultText string) {
 // WaitIdle blocks until all in-flight runs have completed.
 func (e *Engine) WaitIdle() { e.wg.Wait() }
 
+// ActiveTaskIDs returns the ids of tasks currently running.
+func (e *Engine) ActiveTaskIDs() []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	ids := make([]string, 0, len(e.active))
+	for id := range e.active {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // Loop runs Tick repeatedly until ctx is cancelled, then waits for in-flight
 // runs to finish. Ticks no-op while the limit gate is closed. After each tick it
 // plans the next wake (if a Waker is set), so the machine can sleep between runs

@@ -75,6 +75,23 @@ func TestAddAndListTasks(t *testing.T) {
 	}
 }
 
+func TestListTasksHidesRunning(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(Handler(Deps{Store: st, ActiveTasks: func() []string { return []string{"a"} }}))
+	t.Cleanup(srv.Close)
+	do(t, srv, "POST", "/api/tasks", sampleTask("a"))
+	do(t, srv, "POST", "/api/tasks", sampleTask("b"))
+
+	var tasks []task.Task
+	do(t, srv, "GET", "/api/tasks", nil).into(t, &tasks)
+	if len(tasks) != 1 || tasks[0].ID != "b" {
+		t.Fatalf("running task 'a' should be hidden from the queue, got %v", tasks)
+	}
+}
+
 func TestAddInvalidTaskRejected(t *testing.T) {
 	srv, _ := newServer(t, nil)
 	bad := sampleTask("x")
