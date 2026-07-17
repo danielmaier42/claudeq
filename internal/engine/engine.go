@@ -6,6 +6,7 @@ package engine
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -315,6 +316,20 @@ func (e *Engine) finish(t task.Task, rec store.Run, res executor.Result, runErr 
 	}
 
 	_ = e.store.AppendRun(rec)
+
+	// Record the final status/reason into the log so it shows in both the raw
+	// and chat views (especially useful for failures and interruptions).
+	if rec.Status != store.StatusSuccess {
+		reason := rec.Error
+		if reason == "" {
+			reason = string(rec.Status)
+		}
+		if line, err := json.Marshal(map[string]string{
+			"type": "claudeq_status", "status": string(rec.Status), "message": reason,
+		}); err == nil {
+			_ = e.store.AppendRunLog(rec.RunID, append(line, '\n'))
+		}
+	}
 
 	// Notify outside any lock so channel I/O never blocks other finishing runs.
 	e.notifyOutcome(t, rec, res.ResultText)

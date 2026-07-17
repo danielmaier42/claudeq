@@ -173,6 +173,20 @@ func (s *Store) AppendRun(r Run) error {
 	return nil
 }
 
+// AppendRunLog appends a line to a run's log file (used to record the final
+// status/error into the log so it shows in both raw and chat views).
+func (s *Store) AppendRunLog(runID string, data []byte) error {
+	f, err := os.OpenFile(s.LogPath(runID), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return fmt.Errorf("open run log: %w", err)
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("write run log: %w", err)
+	}
+	return f.Close()
+}
+
 // Runs returns the run history collapsed so the latest event per run id wins,
 // preserving first-seen order.
 func (s *Store) Runs() ([]Run, error) {

@@ -41,8 +41,8 @@
     -webkit-backdrop-filter:saturate(180%) blur(20px);
     border-right:.5px solid var(--hairline); padding:14px 10px; display:flex; flex-direction:column;
   }
-  .brand { display:flex; align-items:center; gap:8px; padding:4px 8px 14px; }
-  .brand .logo { width:24px; height:24px; border-radius:6px; display:block; }
+  .brand { display:flex; align-items:center; gap:9px; padding:4px 6px 14px; }
+  .brand .logo { width:32px; height:32px; border-radius:7px; display:block; flex:none; }
   .brand b { font-size:14px; letter-spacing:.2px; }
   .nav { display:flex; flex-direction:column; gap:2px; }
   .nav button {
@@ -165,6 +165,8 @@
   .msg.user { align-self:flex-end; background:color-mix(in srgb, var(--accent) 14%, var(--card-2)); border:.5px solid var(--hairline); }
   .msg.assistant { background:var(--card-2); border:.5px solid var(--hairline); }
   .msg.result { background:color-mix(in srgb, var(--accent) 12%, var(--card-2)); border:.5px solid var(--hairline); }
+  .msg.err-msg { background:color-mix(in srgb, var(--danger) 14%, var(--card-2)); border:.5px solid var(--hairline); }
+  .msg.err-msg .who { color:var(--danger); }
   .msg .who { font-size:10px; font-weight:700; color:var(--fg2); margin-bottom:4px; text-transform:uppercase; letter-spacing:.4px; }
   .tool { font-size:12px; background:var(--seg-bg); border-radius:8px; padding:7px 11px; }
   .tool .tname { font-weight:600; color:var(--accent); font-family:"SF Mono",ui-monospace,monospace; }
@@ -300,6 +302,7 @@ function modelOptions(selected,globalLabel){
   if(selected && !MODELS.some(m=>m.id===selected)) h+=`<option value="${esc(selected)}" selected>${esc(selected)} (custom)</option>`;
   return h;
 }
+function baseName(p){ const parts=String(p).replace(/\/+$/,'').split('/').filter(Boolean); return parts.length?parts[parts.length-1]:p; }
 function relTime(iso){ const d=new Date(iso), s=(Date.now()-d)/1000, a=Math.abs(s), fut=s<0;
   const f=(n,u)=> fut ? ('in '+n+' '+u) : (n+' '+u+' ago');
   if(a<60)return 'just now'; if(a<3600)return f(Math.floor(a/60),'min'); if(a<86400)return f(Math.floor(a/3600),'h');
@@ -475,7 +478,8 @@ async function loadRuns(){
     const line=el('div','act-line');
     const gl=el('div','act-gl'); if(r.unread) gl.append(el('div','unread-dot'));
     const card=el('div','act-card');
-    const grow=el('div','grow'); grow.innerHTML=`<div class="title">${esc(r.task_name)}</div><div class="sub">${relTime(r.started_at)}</div>`;
+    const dir=r.task&&r.task.working_dir?baseName(r.task.working_dir):'';
+    const grow=el('div','grow'); grow.innerHTML=`<div class="title">${esc(r.task_name)}</div><div class="sub">${relTime(r.started_at)}${dir?' · <span class="mono">'+esc(dir)+'</span>':''}</div>`;
     const pill=el('span','pill '+r.status); pill.innerHTML=`<span class="d"></span>${esc(r.status.replace(/_/g,' '))}`;
     const actions=el('div','row-actions');
     if(r.task){ const rp=el('button','btn small iconly',REPLAY); rp.title='Re-run this task'; rp.onclick=()=>openReplay(r.task); actions.append(rp); }
@@ -544,6 +548,7 @@ function appendLogEvent(box, ev){
     box.append(el('div','msg user','<div class="who">You</div>'+esc(ev.message.content))); return 1;
   }
   if(ev.type==='result'){ box.append(el('div','msg result','<div class="who">Result'+(ev.is_error?' · error':'')+'</div>'+esc(ev.result||'(no text)'))); return 1; }
+  if(ev.type==='claudeq_status'){ box.append(el('div','msg err-msg','<div class="who">'+esc((ev.status||'error').replace(/_/g,' '))+'</div>'+esc(ev.message||''))); return 1; }
   if(ev.type==='system' && ev.subtype==='init'){ box.append(el('div','rawline','session started'+(ev.model?' · '+esc(ev.model):''))); return 0; }
   return 0;
 }
