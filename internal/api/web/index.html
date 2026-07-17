@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>claudeq</title>
+<link rel="icon" type="image/svg+xml" href="/logo.svg">
 <style>
   :root {
     --accent:#007aff; --accent-fg:#fff;
@@ -41,8 +42,7 @@
     border-right:.5px solid var(--hairline); padding:14px 10px; display:flex; flex-direction:column;
   }
   .brand { display:flex; align-items:center; gap:8px; padding:4px 8px 14px; }
-  .brand .logo { width:22px; height:22px; border-radius:6px; background:linear-gradient(135deg,var(--accent),#5e5ce6);
-                 display:grid; place-items:center; color:#fff; font-weight:700; font-size:12px; }
+  .brand .logo { width:24px; height:24px; border-radius:6px; display:block; }
   .brand b { font-size:14px; letter-spacing:.2px; }
   .nav { display:flex; flex-direction:column; gap:2px; }
   .nav button {
@@ -89,7 +89,7 @@
   .group { background:var(--card); border-radius:11px; box-shadow:var(--shadow); overflow:hidden; margin-bottom:18px; }
   .row { display:flex; align-items:center; gap:12px; padding:11px 15px; border-bottom:.5px solid var(--hairline); }
   .row:last-child { border-bottom:none; }
-  .row .grow { flex:1; min-width:0; }
+  .grow { flex:1; min-width:0; }
   .row .title { font-weight:500; }
   .row .sub { color:var(--fg2); font-size:12px; margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .row .mono { font-family:"SF Mono",ui-monospace,Menlo,monospace; }
@@ -185,7 +185,7 @@
 </head>
 <body>
 <aside class="sidebar">
-  <div class="brand"><span class="logo">cq</span><b>claudeq</b></div>
+  <div class="brand"><img class="logo" src="/logo.svg" alt="claudeq"><b>claudeq</b></div>
   <nav class="nav">
     <button data-tab="tasks" class="active">
       <svg viewBox="0 0 20 20"><path d="M4 6h12M4 10h12M4 14h12"/></svg> Tasks</button>
@@ -478,7 +478,7 @@ async function loadRuns(){
     const actions=el('div','row-actions');
     const log=el('button','btn small','Log'); log.onclick=()=>showLog(r.run_id,r.task_name); actions.append(log);
     if(r.task){ const rp=el('button','btn small iconly',REPLAY); rp.title='Replay this task'; rp.onclick=()=>openReplay(r.task); actions.append(rp); }
-    card.append(grow,pill,actions);
+    card.append(grow,actions,pill);   // status pill right-aligned (last)
     const gr=el('div','act-gr'); if(r.unread){ const mr=el('button','eye-btn',EYE); mr.title='Mark read'; mr.onclick=()=>readRun(r.run_id); gr.append(mr); }
     line.append(gl,card,gr);
     list.append(line);
