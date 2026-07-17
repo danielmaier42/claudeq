@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/danielmaier42/claudeq/internal/app"
 	"github.com/danielmaier42/claudeq/internal/store"
@@ -31,11 +32,17 @@ type RunNower interface {
 	RunTaskNow(ctx context.Context, taskID string) error
 }
 
+// UsageRefresher probes the CLI for a fresh usage snapshot. Optional.
+type UsageRefresher interface {
+	RefreshUsage(ctx context.Context) error
+}
+
 // Deps are the API server's dependencies.
 type Deps struct {
-	Store  *store.Store
-	Runner RunNower       // optional; enables the run-now endpoint
-	Models func() []Model // optional; enables dynamic model listing
+	Store     *store.Store
+	Runner    RunNower       // optional; enables the run-now endpoint
+	Models    func() []Model // optional; enables dynamic model listing
+	Refresher UsageRefresher // optional; enables the live usage probe
 }
 
 // Handler builds the HTTP handler (REST API under /api + dashboard at /).
@@ -59,6 +66,8 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/models", s.listModels)
 	mux.HandleFunc("GET /api/fs", s.listDir)
 	mux.HandleFunc("GET /api/usage", s.getUsage)
+	mux.HandleFunc("POST /api/usage/refresh", s.refreshUsage)
+	mux.HandleFunc("GET /api/stats", s.getStats)
 
 	sub, _ := fs.Sub(webFS, "web")
 	mux.Handle("GET /", http.FileServer(http.FS(sub)))
@@ -238,6 +247,29 @@ func (s *server) getUsage(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, u)
+}
+
+func (s *server) refreshUsage(w http.ResponseWriter, r *http.Request) {
+	if s.d.Refresher == nil {
+		writeErr(w, http.StatusServiceUnavailable, errors.New("usage probe not available"))
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	defer cancel()
+	if err := s.d.Refresher.RefreshUsage(ctx); err != nil {
+		writeErr(w, http.StatusBadGateway, err)
+		return
+	}
+	s.getUsage(w, r)
+}
+
+func (s *server) getStats(w http.ResponseWriter, _ *http.Request) {
+	runs, err := s.d.Store.Runs()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, computeStats(runs, time.Now()))
 }
 
 func (s *server) listModels(w http.ResponseWriter, _ *http.Request) {

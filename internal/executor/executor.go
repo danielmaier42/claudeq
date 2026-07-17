@@ -50,6 +50,16 @@ type Result struct {
 	RetryAfter time.Duration // set when Status == StatusRateLimited
 	Message    string        // short human-readable detail
 	Usage      *UsageInfo    // latest rate-limit/usage info seen, if any
+	Metrics    *Metrics      // cost/token/timing from the result event, if any
+}
+
+// Metrics are the cost/token/timing figures from the CLI's result event.
+type Metrics struct {
+	CostUSD      float64
+	InputTokens  int
+	OutputTokens int
+	NumTurns     int
+	DurationMS   int64
 }
 
 // UsageInfo is the rate_limit_info the CLI reports in stream-json.
@@ -155,6 +165,15 @@ type streamEvent struct {
 	RetryDelayMS   *int           `json:"retry_delay_ms"`
 	SessionID      string         `json:"session_id"`
 	RateLimitInfo  *rateLimitInfo `json:"rate_limit_info"`
+	TotalCostUSD   float64        `json:"total_cost_usd"`
+	NumTurns       int            `json:"num_turns"`
+	DurationMS     int64          `json:"duration_ms"`
+	Usage          *usageTokens   `json:"usage"`
+}
+
+type usageTokens struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
 }
 
 type rateLimitInfo struct {
@@ -173,6 +192,7 @@ type classifier struct {
 	authError  bool
 	retryDelay time.Duration
 	usage      *UsageInfo
+	metrics    *Metrics
 }
 
 func (c *classifier) consume(line []byte) {
@@ -210,11 +230,17 @@ func (c *classifier) consume(line []byte) {
 	if ev.Type == "result" {
 		c.sawResult = true
 		c.resultErr = ev.IsError
+		m := &Metrics{CostUSD: ev.TotalCostUSD, NumTurns: ev.NumTurns, DurationMS: ev.DurationMS}
+		if ev.Usage != nil {
+			m.InputTokens = ev.Usage.InputTokens
+			m.OutputTokens = ev.Usage.OutputTokens
+		}
+		c.metrics = m
 	}
 }
 
 func (c *classifier) result(exitCode int) Result {
-	res := Result{SessionID: c.sessionID, ExitCode: exitCode, RetryAfter: c.retryDelay, Usage: c.usage}
+	res := Result{SessionID: c.sessionID, ExitCode: exitCode, RetryAfter: c.retryDelay, Usage: c.usage, Metrics: c.metrics}
 	switch {
 	case c.authError:
 		res.Status = store.StatusAuthError

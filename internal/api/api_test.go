@@ -235,6 +235,46 @@ func TestGetUsage(t *testing.T) {
 	}
 }
 
+func TestRefreshUsageEndpoint(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := &stubRefresher{store: st, usage: store.Usage{Utilization: 0.6, Status: "allowed"}}
+	srv := httptest.NewServer(Handler(Deps{Store: st, Refresher: ref}))
+	t.Cleanup(srv.Close)
+
+	var u store.Usage
+	r := do(t, srv, "POST", "/api/usage/refresh", nil)
+	if r.Status != http.StatusOK {
+		t.Fatalf("refresh status = %d (%s)", r.Status, r.Body)
+	}
+	if !ref.called {
+		t.Fatal("refresher was not invoked")
+	}
+	r.into(t, &u)
+	if u.Utilization != 0.6 {
+		t.Fatalf("expected refreshed usage, got %+v", u)
+	}
+}
+
+func TestRefreshUsageUnavailable(t *testing.T) {
+	srv, _ := newServer(t, nil) // no refresher
+	if r := do(t, srv, "POST", "/api/usage/refresh", nil); r.Status != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 without a refresher, got %d", r.Status)
+	}
+}
+
+func TestGetStatsEndpoint(t *testing.T) {
+	srv, st := newServer(t, nil)
+	_ = st.AppendRun(store.Run{RunID: "r1", TaskName: "a", StartedAt: time.Now(), Status: store.StatusSuccess, CostUSD: 0.2, InputTokens: 10, OutputTokens: 5})
+	var s Stats
+	do(t, srv, "GET", "/api/stats", nil).into(t, &s)
+	if s.Totals.Runs != 1 || s.Totals.Success != 1 {
+		t.Fatalf("unexpected stats: %+v", s.Totals)
+	}
+}
+
 func TestListModels(t *testing.T) {
 	srv, _ := newServer(t, nil)
 	var models []Model

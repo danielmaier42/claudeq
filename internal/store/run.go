@@ -42,4 +42,11 @@ type Run struct {
 	ExitCode   int        `json:"exit_code"`
 	LogPath    string     `json:"log_path"`
 	Error      string     `json:"error,omitempty"`
+
+	// Metrics reported by the CLI's result event (zero when unavailable).
+	CostUSD      float64 `json:"cost_usd,omitempty"`
+	InputTokens  int     `json:"input_tokens,omitempty"`
+	OutputTokens int     `json:"output_tokens,omitempty"`
+	NumTurns     int     `json:"num_turns,omitempty"`
+	DurationMS   int64   `json:"duration_ms,omitempty"`
 }

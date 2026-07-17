@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"sync"
@@ -257,6 +258,13 @@ func (e *Engine) finish(t task.Task, rec store.Run, res executor.Result, runErr 
 	} else if res.Message != "" {
 		rec.Error = res.Message
 	}
+	if m := res.Metrics; m != nil {
+		rec.CostUSD = m.CostUSD
+		rec.InputTokens = m.InputTokens
+		rec.OutputTokens = m.OutputTokens
+		rec.NumTurns = m.NumTurns
+		rec.DurationMS = m.DurationMS
+	}
 
 	// Targeted state update: touch only this task's keys so a concurrent API
 	// read-status change is preserved.
@@ -451,6 +459,39 @@ func (e *Engine) RunTaskNow(ctx context.Context, taskID string) error {
 
 	e.WaitIdle()
 	return startErr
+}
+
+// UsageProbeModel is the cheap, fast model used for the on-demand usage probe.
+const UsageProbeModel = "haiku"
+
+// RefreshUsage runs a minimal Claude invocation purely to capture the current
+// rate-limit/usage snapshot, and saves it. It does not create a task or a run
+// history entry. It uses the cheapest model and a trivial prompt.
+func (e *Engine) RefreshUsage(ctx context.Context) error {
+	probe := task.Task{
+		ID: "__usage_probe__", Name: "usage probe",
+		Prompt: "Reply with exactly: OK", WorkingDir: os.TempDir(),
+		Trigger: task.TriggerASAP, Permissions: task.PermissionsDefault,
+	}
+	req := executor.Request{
+		Task: probe, SessionID: e.newSessionID(),
+		Model: UsageProbeModel, Log: io.Discard,
+	}
+	res, err := e.run.Run(ctx, req)
+	if err != nil {
+		return fmt.Errorf("usage probe: %w", err)
+	}
+	if res.Usage == nil {
+		return nil // nothing reported; leave any prior snapshot in place
+	}
+	snap := store.Usage{
+		Utilization: res.Usage.Utilization, Status: res.Usage.Status, LimitType: res.Usage.LimitType,
+		IsUsingOverage: res.Usage.IsUsingOverage, CapturedAt: e.clock.Now(),
+	}
+	if res.Usage.ResetsAtUnix > 0 {
+		snap.ResetsAt = time.Unix(res.Usage.ResetsAtUnix, 0)
+	}
+	return e.store.SaveUsage(snap)
 }
 
 // effectiveModel resolves the model: a task override wins over the global
