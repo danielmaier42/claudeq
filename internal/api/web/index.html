@@ -149,6 +149,16 @@
   .sheet-ft { display:flex; justify-content:flex-end; gap:8px; padding:12px 18px; border-top:.5px solid var(--hairline); }
   pre.log { font-family:"SF Mono",ui-monospace,Menlo,monospace; font-size:12px; background:var(--card-2);
             border:.5px solid var(--hairline); border-radius:8px; padding:12px; overflow:auto; max-height:62vh; white-space:pre-wrap; word-break:break-word; }
+  .chat { display:flex; flex-direction:column; gap:10px; max-height:64vh; overflow:auto; padding:2px 2px 8px; }
+  .msg { border-radius:10px; padding:9px 12px; font-size:13px; white-space:pre-wrap; word-break:break-word; line-height:1.5; }
+  .msg.assistant { background:var(--card-2); border:.5px solid var(--hairline); }
+  .msg.result { background:color-mix(in srgb, var(--accent) 12%, var(--card-2)); border:.5px solid var(--hairline); }
+  .msg .who { font-size:10px; font-weight:700; color:var(--fg2); margin-bottom:4px; text-transform:uppercase; letter-spacing:.4px; }
+  .tool { font-size:12px; background:var(--seg-bg); border-radius:8px; padding:7px 11px; }
+  .tool .tname { font-weight:600; color:var(--accent); font-family:"SF Mono",ui-monospace,monospace; }
+  .tool pre { margin:5px 0 0; white-space:pre-wrap; word-break:break-word; color:var(--fg2);
+              font-family:"SF Mono",ui-monospace,monospace; font-size:11px; max-height:150px; overflow:auto; }
+  .rawline { font-family:"SF Mono",ui-monospace,monospace; font-size:11px; color:var(--fg2); white-space:pre-wrap; word-break:break-word; opacity:.65; }
 
   /* Toasts */
   #toasts { position:fixed; bottom:18px; right:18px; display:flex; flex-direction:column; gap:8px; z-index:50; }
@@ -229,8 +239,9 @@
 
 <!-- Log sheet -->
 <dialog id="logSheet">
-  <div class="sheet-hd"><b id="logTitle">Log</b></div>
-  <div class="sheet-bd"><pre class="log" id="logBody"></pre></div>
+  <div class="sheet-hd"><b id="logTitle">Log</b><div class="spacer" style="flex:1"></div>
+    <div class="seg" id="logMode"><button data-v="chat" class="active">Chat</button><button data-v="raw">Raw</button></div></div>
+  <div class="sheet-bd"><div id="logBody"></div></div>
   <div class="sheet-ft"><button class="btn" onclick="logSheet.close()">Done</button></div>
 </dialog>
 
@@ -317,12 +328,13 @@ async function loadUsage(){
     const pct=Math.round((u.utilization||0)*100), barPct=Math.min(pct,100);
     const col = pct>=100?'var(--danger)':pct>=80?'var(--warn)':'var(--accent)';
     const reset=u.resets_at&&!u.resets_at.startsWith('0001')?`${new Date(u.resets_at).toLocaleString()} · ${relTime(u.resets_at)}`:'unknown';
+    const typeLabel = ({overage:'usage credits',five_hour:'5-hour limit',weekly:'weekly limit'}[u.limit_type]) || (u.limit_type||'limit');
     const card=el('div');
     card.innerHTML=`<div class="group"><div class="row" style="display:block">
-        <div class="sub" style="margin-bottom:2px">Current utilization · ${esc((u.status||'').replace(/_/g,' '))}</div>
+        <div class="sub" style="margin-bottom:2px">Currently binding limit · ${esc(typeLabel)} · ${esc((u.status||'').replace(/_/g,' '))}</div>
         <div class="usage-num" style="color:${col}">${pct}%</div>
         <div class="meter"><span style="width:${barPct}%;background:${col}"></span></div>
-        <div class="sub" style="margin-top:8px">Resets ${esc(reset)} · ${esc(u.limit_type||'')}${u.is_using_overage?' · in overage':''}</div>
+        <div class="sub" style="margin-top:8px">Resets ${esc(reset)}${u.is_using_overage?' · in overage':''}</div>
         <div class="sub">Checked ${relTime(u.captured_at)}</div>
       </div></div>`;
     c.append(card);
@@ -357,7 +369,7 @@ async function loadUsage(){
     const chart=el('div');
     chart.innerHTML=`<div class="section-label">Runs per day (14d)</div>
       <div class="group"><div class="row" style="align-items:flex-end;gap:2px">${bars}</div></div>
-      <p class="hint">Live status is the rate-limit info the Claude CLI reports; the full interactive /usage panel isn't available headlessly. Statistics are computed from your run history (cost/tokens are recorded per run).</p>`;
+      <p class="hint">The Claude CLI only exposes the <b>currently binding</b> limit here — the full per-window breakdown (5-hour, weekly, usage credits) is only in the interactive <code>/usage</code> panel and isn't available to scripts. The statistics below come from your own run history (cost/tokens recorded per run).</p>`;
     c.append(chart);
   }
 }
@@ -441,9 +453,44 @@ async function loadRuns(){
 }
 async function readRun(id){ await api('POST',`/api/runs/${id}/read`); loadRuns(); }
 async function markAllRead(){ try{await api('POST','/api/runs/read-all');toast('All marked read','ok');loadRuns();}catch(e){toast(e.message,'err')} }
+let logRaw='', logMode='chat';
 async function showLog(id,name){ $('#logTitle').textContent='Log · '+name;
-  try{ $('#logBody').textContent=await api('GET',`/api/runs/${id}/log`)||'(empty)'; }catch(e){ $('#logBody').textContent='(no log available)'; }
-  $('#logSheet').showModal(); }
+  try{ logRaw=await api('GET',`/api/runs/${id}/log`)||''; }catch(e){ logRaw=''; }
+  renderLog(); $('#logSheet').showModal(); }
+$('#logMode').querySelectorAll('button').forEach(b=>b.onclick=()=>{ logMode=b.dataset.v;
+  $('#logMode').querySelectorAll('button').forEach(x=>x.classList.toggle('active',x.dataset.v===logMode)); renderLog(); });
+function renderLog(){
+  const box=$('#logBody');
+  if(logMode==='raw'){ box.className=''; box.innerHTML='<pre class="log">'+esc(logRaw||'(empty log)')+'</pre>'; return; }
+  box.className='chat'; box.innerHTML='';
+  let shown=0;
+  for(const raw of logRaw.split('\n')){ const line=raw.trim(); if(!line) continue;
+    let ev; try{ ev=JSON.parse(line); }catch{ box.append(el('div','rawline',esc(line))); shown++; continue; }
+    shown += appendLogEvent(box, ev);
+  }
+  if(!shown) box.append(el('div','rawline','(empty log)'));
+}
+const shortJSON=o=>{ let s; try{ s=JSON.stringify(o); }catch{ s=String(o); } return s.length>800?s.slice(0,800)+' …':s; };
+function toolResultText(c){ if(typeof c==='string') return c; if(Array.isArray(c)) return c.map(x=>x&&x.text?x.text:(typeof x==='string'?x:JSON.stringify(x))).join('\n'); return c==null?'':JSON.stringify(c); }
+function appendLogEvent(box, ev){
+  if(ev.type==='assistant' && ev.message && Array.isArray(ev.message.content)){
+    let n=0;
+    for(const b of ev.message.content){
+      if(b.type==='text' && b.text && b.text.trim()){ const m=el('div','msg assistant','<div class="who">Claude</div>'+esc(b.text)); box.append(m); n++; }
+      else if(b.type==='tool_use'){ const d=el('div','tool','<span class="tname">🔧 '+esc(b.name||'tool')+'</span><pre>'+esc(shortJSON(b.input))+'</pre>'); box.append(d); n++; }
+    }
+    return n;
+  }
+  if(ev.type==='user' && ev.message && Array.isArray(ev.message.content)){
+    let n=0;
+    for(const b of ev.message.content){ if(b.type==='tool_result'){ const txt=toolResultText(b.content);
+      const d=el('div','tool','<span class="tname">↳ result</span><pre>'+esc(txt.length>800?txt.slice(0,800)+' …':txt)+'</pre>'); box.append(d); n++; } }
+    return n;
+  }
+  if(ev.type==='result'){ box.append(el('div','msg result','<div class="who">Result'+(ev.is_error?' · error':'')+'</div>'+esc(ev.result||'(no text)'))); return 1; }
+  if(ev.type==='system' && ev.subtype==='init'){ box.append(el('div','rawline','session started'+(ev.model?' · '+esc(ev.model):''))); return 0; }
+  return 0;
+}
 
 /* ---- Settings ---- */
 async function loadSettings(){
