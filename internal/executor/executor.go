@@ -225,6 +225,11 @@ func (c *classifier) result(exitCode int) Result {
 		res.Message = "rate limit hit; waiting for reset"
 	case c.sawResult && !c.resultErr && exitCode == 0:
 		res.Status = store.StatusSuccess
+	case exitCode == -1:
+		// Terminated by a signal (e.g. the daemon was stopped) before it could
+		// finish. Not a task failure per se, but the run did not complete.
+		res.Status = store.StatusFailed
+		res.Message = "run was interrupted before completing (the process was terminated — e.g. the daemon stopped)"
 	default:
 		res.Status = store.StatusFailed
 		res.Message = fmt.Sprintf("run failed (exit %d)", exitCode)

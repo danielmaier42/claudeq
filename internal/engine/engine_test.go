@@ -230,6 +230,32 @@ func TestParallelTasksRunConcurrently(t *testing.T) {
 	}
 }
 
+func TestGracefulShutdownLetsRunFinish(t *testing.T) {
+	fc := clock.NewFake(time.Now())
+	r := &stub{block: make(chan struct{})}
+	e, st := newTestEngine(t, r, fc)
+	saveTasks(t, st, asapTask("a", false))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	loopDone := make(chan error, 1)
+	go func() { loopDone <- e.Loop(ctx, 10*time.Millisecond) }()
+
+	waitFor(t, func() bool { r.mu.Lock(); defer r.mu.Unlock(); return r.active == 1 })
+	cancel()                          // stop the daemon while the run is in flight
+	time.Sleep(50 * time.Millisecond) // let Loop enter drain
+	close(r.block)                    // the run finishes within the grace window
+
+	select {
+	case <-loopDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Loop did not return after shutdown")
+	}
+	runs, _ := st.Runs()
+	if len(runs) != 1 || runs[0].Status != store.StatusSuccess {
+		t.Fatalf("in-flight run should finish successfully on graceful shutdown, got %+v", runs)
+	}
+}
+
 func TestExclusiveTaskRunsAlone(t *testing.T) {
 	fc := clock.NewFake(time.Now())
 	r := &stub{block: make(chan struct{})}

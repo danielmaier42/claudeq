@@ -58,12 +58,19 @@ type Engine struct {
 	lastWakeErr  string
 	notifier     notify.Notifier
 
+	runCtx    context.Context
+	runCancel context.CancelFunc
+
 	mu                sync.Mutex
 	active            map[string]bool // taskID -> currently running
 	nonParallelActive int
 	parallelActive    int
 	wg                sync.WaitGroup
 }
+
+// ShutdownGrace is how long Loop lets in-flight runs finish on shutdown before
+// terminating them, so a normal stop/restart doesn't fail running tasks.
+const ShutdownGrace = 30 * time.Second
 
 // New builds an Engine with production defaults (real UUIDs and run ids).
 func New(st *store.Store, gate *limit.Gate, r Runner, c clock.Clock) *Engine {
@@ -75,6 +82,9 @@ func New(st *store.Store, gate *limit.Gate, r Runner, c clock.Clock) *Engine {
 		backoff: DefaultRateLimitBackoff,
 		active:  map[string]bool{},
 	}
+	// Runs use their own context so that cancelling the loop (SIGINT) does not
+	// immediately kill in-flight Claude processes; shutdown drains them first.
+	e.runCtx, e.runCancel = context.WithCancel(context.Background())
 	e.newRunID = func() string {
 		return e.clock.Now().UTC().Format("20060102T150405") + "-" + shortHex(4)
 	}
@@ -84,7 +94,7 @@ func New(st *store.Store, gate *limit.Gate, r Runner, c clock.Clock) *Engine {
 
 // Tick starts every task that is due and permitted right now. Started tasks run
 // asynchronously; use [Engine.WaitIdle] to await their completion.
-func (e *Engine) Tick(ctx context.Context) error {
+func (e *Engine) Tick(_ context.Context) error {
 	if !e.gate.Open() {
 		return nil
 	}
@@ -147,7 +157,7 @@ func (e *Engine) Tick(ctx context.Context) error {
 
 	for _, t := range toStart {
 		sessionID, resume := e.sessionFor(t, st)
-		if err := e.launchTask(ctx, t, cfg.Settings, sessionID, resume, now); err != nil {
+		if err := e.launchTask(t, cfg.Settings, sessionID, resume, now); err != nil {
 			return err
 		}
 	}
@@ -179,7 +189,7 @@ func (e *Engine) runningState() schedule.Running {
 
 // launchTask starts a run for t. The caller must hold e.mu and have already
 // persisted the RecordStart. sessionID/resume come from the caller's snapshot.
-func (e *Engine) launchTask(ctx context.Context, t task.Task, settings store.Settings, sessionID string, resume bool, started time.Time) error {
+func (e *Engine) launchTask(t task.Task, settings store.Settings, sessionID string, resume bool, started time.Time) error {
 	runID := e.newRunID()
 
 	logFile, err := os.Create(e.store.LogPath(runID))
@@ -220,7 +230,7 @@ func (e *Engine) launchTask(ctx context.Context, t task.Task, settings store.Set
 	go func() {
 		defer e.wg.Done()
 		defer func() { _ = logFile.Close() }()
-		res, runErr := e.run.Run(ctx, req)
+		res, runErr := e.run.Run(e.runCtx, req)
 		e.finish(t, rec, res, runErr)
 	}()
 	return nil
@@ -380,10 +390,23 @@ func (e *Engine) Loop(ctx context.Context, interval time.Duration) error {
 		}
 		select {
 		case <-ctx.Done():
-			e.WaitIdle()
+			e.drain()
 			return ctx.Err()
 		case <-time.After(interval):
 		}
+	}
+}
+
+// drain lets in-flight runs finish (up to ShutdownGrace) on shutdown, then
+// terminates any stragglers — so a normal stop/restart doesn't fail runs.
+func (e *Engine) drain() {
+	done := make(chan struct{})
+	go func() { e.wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(ShutdownGrace):
+		e.runCancel() // terminate remaining runs
+		e.wg.Wait()
 	}
 }
 
@@ -438,7 +461,7 @@ func (e *Engine) wakeCandidates(cfg store.Config, st *store.State, now time.Time
 // RunTaskNow runs a specific task once, synchronously, ignoring its trigger and
 // completion state — the manual "run now" test trigger (FA-16). It still
 // records history and honours resume-after-limit for that run.
-func (e *Engine) RunTaskNow(ctx context.Context, taskID string) error {
+func (e *Engine) RunTaskNow(_ context.Context, taskID string) error {
 	cfg, err := e.store.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -473,7 +496,7 @@ func (e *Engine) RunTaskNow(ctx context.Context, taskID string) error {
 		e.mu.Unlock()
 		return fmt.Errorf("record run start: %w", err)
 	}
-	startErr := e.launchTask(ctx, *target, cfg.Settings, sessionID, resume, now)
+	startErr := e.launchTask(*target, cfg.Settings, sessionID, resume, now)
 	e.mu.Unlock()
 
 	e.WaitIdle()
