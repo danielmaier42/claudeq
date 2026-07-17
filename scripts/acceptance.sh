@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 2 acceptance test for claudeq.
+# Acceptance test for claudeq (Phases 2-3).
 #
 # Drives the real claudeq / claudeqd binaries against a fake `claude` (no tokens,
 # deterministic) and checks each Phase-2 requirement, printing PASS/FAIL with the
@@ -56,6 +56,17 @@ case "${CQ_FAKE_MODE:-ok}" in
 esac
 EOF
 chmod +x "$FAKE/claude"
+
+# Fake system tools (launchctl/sudo/pmset) log their args instead of touching
+# the real system, so Phase 3 install/wake can be checked safely.
+for tool in launchctl sudo pmset; do
+  cat > "$FAKE/$tool" <<EOF
+#!/bin/sh
+echo "\$*" >> "$WORK/$tool.log"
+exit 0
+EOF
+  chmod +x "$FAKE/$tool"
+done
 export PATH="$FAKE:$PATH"
 
 echo
@@ -133,6 +144,26 @@ export CLAUDEQ_HOME="$WORK/home5"; mkdir -p "$CLAUDEQ_HOME"
 check "FA-22 new run is unread"                       bash -c ''"$CQ"' status | grep -q "1 unread"'
 "$CQ" read-all >/dev/null
 check "FA-24/26 read status persists (new process)"   bash -c ''"$CQ"' status | grep -q "0 unread"'
+
+echo
+echo "== Resilience & wake (Phase 3; fake launchctl/sudo/pmset) =="
+FAKEHOME="$WORK/fakehome"; mkdir -p "$FAKEHOME"
+export CLAUDEQ_HOME="$WORK/home6"; mkdir -p "$CLAUDEQ_HOME"
+HOME="$FAKEHOME" "$CQD" install >/dev/null 2>&1
+PLIST="$FAKEHOME/Library/LaunchAgents/ag.dc.claudeq.plist"
+check "NFA-03 install writes LaunchAgent plist"       test -f "$PLIST"
+check "NFA-03 plist has RunAtLoad (autostart)"        contains "$PLIST" "<key>RunAtLoad</key>"
+check "NFA-03 install bootstraps via launchctl"       contains "$WORK/launchctl.log" "bootstrap"
+
+"$CQ" add --id wk --prompt "p" --dir "$REPO_A" --trigger asap >/dev/null
+: > "$WORK/sudo.log"
+CQ_FAKE_MODE=ok "$CQD" run --interval 300ms >/dev/null 2>&1 &
+DPID=$!; sleep 2; kill -INT $DPID 2>/dev/null; wait $DPID 2>/dev/null
+check "FA-32 daemon schedules a pmset wake"           contains "$WORK/sudo.log" "pmset schedule wake"
+
+HOME="$FAKEHOME" "$CQD" uninstall >/dev/null 2>&1
+check "NFA-03 uninstall removes plist"                bash -c '[ ! -f "'"$PLIST"'" ]'
+check "NFA-03 uninstall boots out via launchctl"      contains "$WORK/launchctl.log" "bootout"
 
 echo
 echo "== Concurrency (covered by automated tests) =="

@@ -1,10 +1,13 @@
 // Command claudeqd is the claudeq background daemon: it runs the scheduling
-// loop that executes due tasks via the Claude Code CLI (PLAN.md build phase 2).
+// loop that executes due tasks via the Claude Code CLI, and can install itself
+// as a launchd LaunchAgent (PLAN.md build phases 2–3).
 //
 // Usage:
 //
 //	claudeqd --version
 //	claudeqd run [--interval 5s]
+//	claudeqd install     # install & start the LaunchAgent (autostart)
+//	claudeqd uninstall    # stop & remove the LaunchAgent
 package main
 
 import (
@@ -14,15 +17,19 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/danielmaier42/claudeq/internal/clock"
 	"github.com/danielmaier42/claudeq/internal/engine"
 	"github.com/danielmaier42/claudeq/internal/executor"
+	"github.com/danielmaier42/claudeq/internal/launchd"
 	"github.com/danielmaier42/claudeq/internal/limit"
 	"github.com/danielmaier42/claudeq/internal/store"
+	"github.com/danielmaier42/claudeq/internal/system"
 	"github.com/danielmaier42/claudeq/internal/version"
+	"github.com/danielmaier42/claudeq/internal/wake"
 )
 
 func main() {
@@ -33,18 +40,31 @@ func main() {
 }
 
 func run(args []string) error {
-	if len(args) > 0 && (args[0] == "--version" || args[0] == "-version") {
+	if len(args) == 0 {
+		fmt.Println("usage: claudeqd run [--interval 5s] | install | uninstall | --version")
+		return nil
+	}
+	switch args[0] {
+	case "--version", "-version":
 		fmt.Println(version.String())
 		return nil
+	case "run":
+		return cmdRun(args[1:])
+	case "install":
+		return cmdInstall()
+	case "uninstall":
+		return cmdUninstall()
+	default:
+		fmt.Println("usage: claudeqd run [--interval 5s] | install | uninstall | --version")
+		return fmt.Errorf("unknown command %q", args[0])
 	}
-	if len(args) == 0 || args[0] != "run" {
-		fmt.Println("usage: claudeqd run [--interval 5s] | claudeqd --version")
-		return nil
-	}
+}
 
+func cmdRun(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	interval := fs.Duration("interval", 5*time.Second, "scheduler tick interval")
-	if err := fs.Parse(args[1:]); err != nil {
+	noWake := fs.Bool("no-wake", false, "do not schedule pmset wakes")
+	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
@@ -59,14 +79,92 @@ func run(args []string) error {
 
 	c := clock.Real{}
 	eng := engine.New(st, limit.New(c), &executor.Executor{}, c)
+	if !*noWake {
+		eng.SetWaker(&wake.Scheduler{Runner: system.Real{}, Sudo: true})
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	fmt.Printf("claudeqd %s: watching %s (tick %s)\n", version.String(), home, *interval)
+	fmt.Printf("claudeqd %s: watching %s (tick %s, wake %t)\n", version.String(), home, *interval, !*noWake)
 	if err := eng.Loop(ctx, *interval); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
 	fmt.Println("claudeqd: stopped")
 	return nil
+}
+
+func cmdInstall() error {
+	self, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("locate executable: %w", err)
+	}
+	home, err := store.DefaultHome()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		return err
+	}
+
+	cfg := launchd.Config{
+		Label:      launchd.DefaultLabel,
+		BinPath:    self,
+		Args:       []string{"run"},
+		StdoutPath: filepath.Join(home, "claudeqd.out.log"),
+		StderrPath: filepath.Join(home, "claudeqd.err.log"),
+	}
+	plist, err := launchd.Plist(cfg)
+	if err != nil {
+		return err
+	}
+
+	agentsDir, err := launchAgentsDir()
+	if err != nil {
+		return err
+	}
+	agent := launchd.Agent{Runner: system.Real{}, Dir: agentsDir, Label: launchd.DefaultLabel, UID: os.Getuid()}
+	if err := agent.Install(context.Background(), plist); err != nil {
+		return err
+	}
+
+	fmt.Printf("installed LaunchAgent %s (%s)\n", launchd.DefaultLabel, agent2path(agentsDir))
+	fmt.Println("claudeqd will now start at login and restart on exit.")
+	fmt.Println()
+	fmt.Println("To enable wake-from-sleep, pmset must run as root. Add a sudoers entry once:")
+	fmt.Printf("  echo '%s ALL=(root) NOPASSWD: /usr/bin/pmset' | sudo tee /etc/sudoers.d/claudeq\n", currentUser())
+	return nil
+}
+
+func cmdUninstall() error {
+	agentsDir, err := launchAgentsDir()
+	if err != nil {
+		return err
+	}
+	agent := launchd.Agent{Runner: system.Real{}, Dir: agentsDir, Label: launchd.DefaultLabel, UID: os.Getuid()}
+	if err := agent.Uninstall(context.Background()); err != nil {
+		return err
+	}
+	fmt.Printf("removed LaunchAgent %s\n", launchd.DefaultLabel)
+	fmt.Println("If you added the pmset sudoers entry, remove it with: sudo rm -f /etc/sudoers.d/claudeq")
+	return nil
+}
+
+func launchAgentsDir() (string, error) {
+	h, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home dir: %w", err)
+	}
+	return filepath.Join(h, "Library", "LaunchAgents"), nil
+}
+
+func agent2path(dir string) string {
+	return filepath.Join(dir, launchd.DefaultLabel+".plist")
+}
+
+func currentUser() string {
+	if u := os.Getenv("USER"); u != "" {
+		return u
+	}
+	return "<your-username>"
 }

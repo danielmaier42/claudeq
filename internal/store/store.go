@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	toml "github.com/pelletier/go-toml/v2"
 
@@ -264,8 +265,23 @@ type Settings struct {
 	DefaultModel string `toml:"default_model"`
 	// SkipPermissionsDefault is the global "may do anything" default (FA-29).
 	SkipPermissionsDefault bool `toml:"skip_permissions_default"`
+	// HeartbeatMinutes is the safety-net wake interval in minutes (PLAN.md D8).
+	// Zero means use the default (see HeartbeatOrDefault).
+	HeartbeatMinutes int `toml:"heartbeat_minutes"`
 	// Pushover holds mobile-notification credentials (FA-41). Used from Phase 4.
 	Pushover Pushover `toml:"pushover"`
+}
+
+// DefaultHeartbeatMinutes is the wake safety-net interval when unset.
+const DefaultHeartbeatMinutes = 60
+
+// HeartbeatOrDefault returns the configured heartbeat, or the default if unset.
+func (s Settings) HeartbeatOrDefault() time.Duration {
+	m := s.HeartbeatMinutes
+	if m <= 0 {
+		m = DefaultHeartbeatMinutes
+	}
+	return time.Duration(m) * time.Minute
 }
 
 // Pushover holds Pushover API credentials.

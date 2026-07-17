@@ -17,6 +17,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/schedule"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
+	"github.com/danielmaier42/claudeq/internal/wake"
 )
 
 // DefaultRateLimitBackoff is used when a rate-limit event does not carry a
@@ -29,6 +30,15 @@ type Runner interface {
 	Run(ctx context.Context, req executor.Request) (executor.Result, error)
 }
 
+// Waker schedules the machine to wake at a future time. *wake.Scheduler
+// satisfies it. It is optional; when nil the engine does not plan wakes.
+type Waker interface {
+	Schedule(ctx context.Context, at time.Time) error
+}
+
+// SetWaker enables wake planning after each loop tick.
+func (e *Engine) SetWaker(w Waker) { e.waker = w }
+
 // Engine orchestrates task execution. Construct it with [New].
 type Engine struct {
 	store *store.Store
@@ -39,6 +49,8 @@ type Engine struct {
 	newRunID     func() string
 	newSessionID func() string
 	backoff      time.Duration
+	waker        Waker
+	lastWakeErr  string
 
 	mu                sync.Mutex
 	active            map[string]bool // taskID -> currently running
@@ -264,13 +276,26 @@ func (e *Engine) finish(t task.Task, rec store.Run, res executor.Result, runErr 
 func (e *Engine) WaitIdle() { e.wg.Wait() }
 
 // Loop runs Tick repeatedly until ctx is cancelled, then waits for in-flight
-// runs to finish. Ticks no-op while the limit gate is closed. This is the
-// daemon's foreground runtime for Phase 2; wake-from-sleep is added in Phase 3.
+// runs to finish. Ticks no-op while the limit gate is closed. After each tick it
+// plans the next wake (if a Waker is set), so the machine can sleep between runs
+// and be woken when the next task is due (PLAN.md D8).
 func (e *Engine) Loop(ctx context.Context, interval time.Duration) error {
 	for {
 		if err := e.Tick(ctx); err != nil {
 			e.WaitIdle()
 			return err
+		}
+		if e.waker != nil {
+			// Wake scheduling is best-effort (needs root); never fatal. Log a
+			// given failure only once to avoid spamming on every tick.
+			if err := e.planWake(ctx); err != nil {
+				if msg := err.Error(); msg != e.lastWakeErr {
+					fmt.Fprintln(os.Stderr, "claudeqd: wake scheduling failed:", err)
+					e.lastWakeErr = msg
+				}
+			} else {
+				e.lastWakeErr = ""
+			}
 		}
 		select {
 		case <-ctx.Done():
@@ -279,6 +304,54 @@ func (e *Engine) Loop(ctx context.Context, interval time.Duration) error {
 		case <-time.After(interval):
 		}
 	}
+}
+
+// planWake computes the next relevant wake time and registers it via the Waker.
+func (e *Engine) planWake(ctx context.Context) error {
+	cfg, err := e.store.LoadConfig()
+	if err != nil {
+		return err
+	}
+	st, err := e.store.LoadState()
+	if err != nil {
+		return err
+	}
+	now := e.clock.Now()
+	cands := e.wakeCandidates(cfg, st, now)
+	if bu := e.gate.BlockedUntil(); !bu.IsZero() {
+		cands = append(cands, bu)
+	}
+	at, ok := wake.NextWakeTime(now, cands, cfg.Settings.HeartbeatOrDefault())
+	if !ok {
+		return nil
+	}
+	return e.waker.Schedule(ctx, at)
+}
+
+// wakeCandidates returns concrete future times at which pending tasks want to
+// run: future fixed starts and the next cron occurrences.
+func (e *Engine) wakeCandidates(cfg store.Config, st *store.State, now time.Time) []time.Time {
+	var out []time.Time
+	for _, t := range cfg.Tasks {
+		if !t.Enabled {
+			continue
+		}
+		switch t.Trigger {
+		case task.TriggerFixed:
+			if !st.IsCompletedOnce(t.ID) && t.FixedAt.After(now) {
+				out = append(out, t.FixedAt)
+			}
+		case task.TriggerCron:
+			if sched, err := t.CronSchedule(); err == nil {
+				anchor, ok := st.LastStart(t.ID)
+				if !ok {
+					anchor = now
+				}
+				out = append(out, sched.Next(anchor))
+			}
+		}
+	}
+	return out
 }
 
 // RunTaskNow runs a specific task once, synchronously, ignoring its trigger and
