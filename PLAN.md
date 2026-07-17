@@ -43,7 +43,7 @@ These refine/override the catalog where noted.
 
 | # | Topic | Decision |
 |---|-------|----------|
-| **D1** | Limit detection | **Purely reactive.** Start the task; if it hits the rate limit, parse the reset timestamp from the CLI output and remember it **globally**. Block all starts until that reset. No pre-flight estimation / no undocumented endpoint. FA-05 is realized via this reactive gate. |
+| **D1** | Limit detection | **Purely reactive.** Start the task; if it hits the rate limit, remember it **globally** and block all starts until it clears. No pre-flight estimation / no undocumented endpoint. FA-05 is realized via this reactive gate. **Revised by V2 (§10):** an absolute reset timestamp is *not* reliably exposed by the CLI — the block duration is derived from the per-attempt `retry_delay_ms` in `stream-json` output (and/or delegated to the CLI's own retry watchdog). |
 | **D2** | GUI form factor | **Native window app**, implemented with **Wails** (Go core + WebView UI) — chosen over Fyne because the dashboard/log/history UI is far easier in HTML/CSS. |
 | **D3** | Process architecture | **Headless background daemon (launchd)** does all the work; a **thin native app** is only the UI. They talk over a **local 127.0.0.1** channel. Daemon runs regardless of whether the app window is open. |
 | **D4** | Resume after limit | **Resume the session** via `claude --resume <session-id>`. Marked *verification-required*; **fallback = restart the task** if resume fails, so a task never gets stuck. |
@@ -51,6 +51,7 @@ These refine/override the catalog where noted.
 | **D6** | Git | **Not managed by claudeq.** FA-34/FA-19 (branch discipline) become a **prompt convention**, not tool-enforced. claudeq only invokes the CLI in the task's working directory. |
 | **D7** | Triggers & repetition | **Three trigger modes**: (1) *as-soon-as-possible*, (2) *fixed time (one-shot)*, (3) *recurring (crontab)*. For recurring tasks, if a new occurrence is due while the previous run is still active, it is **skipped**. |
 | **D8** | Wake & notifications | Wake via `pmset schedule wake` at **concrete timestamps** (fixed times, cron times, known reset time) **plus an hourly heartbeat wake** as a safety net for "as-soon-as-possible". Notifications delivered by the daemon via a **small user-session helper** for native macOS notifications. |
+| **D9** | Signing & distribution | **No Apple Developer ID for now** → ship an **unsigned `.pkg`** installer built by CI. `pmset` privileges via a **`sudoers.d` entry** written by the root postinstall (SMAppService needs signing, so deferred). Colleagues do a one-time Gatekeeper bypass. Pipeline is built **notarization-ready** so adding a Developer ID later is additive (secrets + 2 steps), no rework. |
 
 ---
 
@@ -220,38 +221,55 @@ Thin client over the daemon's local API:
 3. `parallel = yes` tasks may run concurrently with other `parallel = yes` tasks, unbounded,
    still honoring priority order and the limit gate (FA-13/14/33).
 
-### Limit handling (D1)
+### Limit handling (D1, revised per V2 in §10)
+Runs use `--output-format stream-json` so claudeq can observe `api_retry` events
+(`error_status: 429`, error category `rate_limit`) as they occur. An absolute reset time is
+not exposed, so the block duration comes from the event's `retry_delay_ms`.
+
 ```
-start task
+start task (stream-json)
   └─ run claude CLI
        ├─ finishes → record success/failure, notify on failure
-       └─ rate limit hit
-             ├─ parse reset timestamp from CLI output
-             ├─ set global blocked-until = reset
-             ├─ mark run "rate_limited_waiting"
-             ├─ plan wake at reset
-             └─ at reset: gate reopens → resume via `claude --resume`
+       ├─ auth_error (error "authentication_failed") → mark auth_error, notify, no retry
+       └─ rate limit observed (api_retry, 429, "rate_limit")
+             ├─ read retry_delay_ms → derive blocked-until
+             ├─ set global blocked-until, mark run "rate_limited_waiting"
+             ├─ end the process, plan wake at blocked-until (§ Wake)
+             └─ at wake: gate reopens → resume via `claude --resume <session-id>`
                           (fallback: restart task) — D4
 ```
+Alternative considered: let the CLI's own retry watchdog wait in-process
+(`CLAUDE_CODE_MAX_RETRIES`, `CLAUDE_CODE_RETRY_WATCHDOG=1`). Simpler, but the process stays
+alive and the machine cannot sleep during the wait → rejected as default; the detach-and-wake
+flow above is preferred for the nightly power profile.
 
 ### Wake (D8)
 - Next concrete wake = min(next fixed_at, next cron occurrence, blocked-until) if any.
-- Plus recurring hourly heartbeat.
-- Registered with `pmset schedule wake`; re-planned after every scheduling pass.
+- Plus a re-armed hourly heartbeat (individual `pmset schedule wake` events, **not**
+  `pmset repeat`, to avoid the single-repeat-slot clash — see V4 in §10).
+- Registered with `pmset schedule wake` (**requires root** → passwordless `sudoers.d` entry for
+  `/usr/bin/pmset`, installed by the postinstall, D9); re-planned after every scheduling pass.
 
 ---
 
 ## 8. Claude CLI Invocation
 
 - Executed exclusively via **Claude Code CLI**, headless/non-interactive, in `working_dir`
-  (FA-27, catalog §2).
-- **Model**: per-task `model` overrides `default_model` (FA-28/30).
-- **Permissions**: if effective setting is "skip", pass the CLI's skip-permissions flag so the
-  unattended run is not blocked by interactive prompts (FA-29/31). Otherwise default behavior.
-- **Session capture**: record the session id from the run so `--resume` can continue it after a
-  limit wait (D4).
-- **Auth detection**: if the CLI reports a login/expired-auth error, mark the run `auth_error`
-  and notify (FA-38); do not silently retry.
+  (FA-27, catalog §2). Verified against CLI **v2.1.212**.
+- **Invocation shape** (verified):
+  `claude -p "<prompt>" --output-format stream-json --model <model> [permission flags] --session-id <uuid>`
+- **Session id**: claudeq **assigns** the UUID via `--session-id <uuid>` up front (no need to
+  parse it out), and reuses it for `--resume <uuid>` after a limit wait (D4).
+- **Model** (FA-28/30): `--model <name>`; per-task `model` overrides `default_model`.
+- **Permissions** (FA-29/31): "skip" → `--dangerously-skip-permissions` (≡
+  `--permission-mode bypassPermissions`). A safer non-default option exists for later:
+  `--permission-mode dontAsk` + `--allowedTools "…"`.
+- **Auth detection** (FA-38): auth failures exit non-zero with category
+  `authentication_failed` (message e.g. `Login expired · Please run /login`); mark the run
+  `auth_error` and notify; do not silently retry.
+- **Output**: `stream-json` gives per-event visibility (needed for rate-limit detection, §7);
+  the final `result` event carries `session_id`, `is_error`, `api_error_status`, `usage`,
+  `total_cost_usd` (envelope verified empirically).
 - claudeq performs **no Git operations** (D6); any branch/commit behavior must be instructed
   through the repo's system prompt and the task's user prompt.
 
@@ -281,35 +299,118 @@ start task
 
 ---
 
-## 10. Open Technical Verification Points
+## 10. Verification Findings
 
-To be validated during a spike before/at the start of implementation:
+Verified 2026-07-17 against Claude Code CLI **v2.1.212** (empirical runs on this machine +
+official docs). Verdicts: ✅ confirmed · ⚠️ confirmed with constraint · ◐ partially confirmed.
 
-1. **Headless resume (D4):** Does `claude --resume <session-id>` reliably continue a run that
-   was interrupted by a rate limit in non-interactive mode? Confirm session-id capture and
-   define the exact restart fallback.
-2. **Rate-limit output parsing (D1):** Confirm the exact CLI signal (exit code and/or message
-   text) for rate limiting and how the reset time is expressed, so parsing is robust.
-3. **Native notifications from a daemon (D8/FA-39):** Confirm the user-session helper approach
-   for Notification Center delivery and how the daemon signals it.
-4. **`pmset schedule wake` behavior (D8/FA-32):** Confirm reliability, permissions, and how
-   multiple scheduled wakes coexist (concrete times + recurring heartbeat).
-5. **Auth-error detection (FA-38):** Confirm the CLI signal for expired/invalid login.
+### V1 — Headless resume (D4) · ✅ confirmed
+- `--output-format json`/`stream-json` returns `session_id`; **or** claudeq assigns it via
+  `--session-id <uuid>` (chosen — no parsing needed).
+- `--resume <id>` and `--continue` both work in `-p` mode; resume restores conversation
+  history, model, and permission mode. Resume/continue must run from the **same working
+  directory**; `--mcp-config`, `--settings`, `--add-dir` are **not** restored (must be
+  re-passed).
+- After a mid-task interruption the session resumes from the interruption point. Resume must be
+  re-invoked by claudeq after the process exits (it does not auto-continue). Fallback = restart
+  the task (D4) stays as the safety net.
+
+### V2 — Rate-limit signaling (D1) · ◐ partial → design adjusted
+- Detection **works**: `stream-json` emits `api_retry` events with `error_status: 429` and
+  error category `rate_limit`; the json envelope exposes `is_error` + `api_error_status`.
+- **An absolute reset timestamp is NOT reliably exposed** (no `Retry-After` surfaced). Only a
+  per-attempt `retry_delay_ms` is available. → **D1 adjusted**: derive the block window from
+  `retry_delay_ms` rather than an absolute reset time.
+- Exact non-zero exit code on exhausted retries is not documented.
+- Built-in retry knobs exist (`CLAUDE_CODE_MAX_RETRIES`, `CLAUDE_CODE_RETRY_WATCHDOG=1`) —
+  considered and rejected as default (keeps machine awake); see §7.
+- **Residual item for the spike:** confirm the exact `api_retry`/envelope field shape against a
+  *real* 429 (the above is doc-derived), and pin down the exit code.
+
+### V3 — Native notifications (D8/FA-39) · ✅ confirmed
+- `osascript -e 'display notification …'` works (returns 0; test notification fired).
+  `terminal-notifier` is **not** installed → rely on built-in `osascript`.
+- Works because the daemon is a **LaunchAgent** in the user's Aqua session (D3); a system
+  LaunchDaemon could not post. Requires Notification Center permission; notifications appear
+  under the invoking app (e.g. "Script Editor") unless claudeq ships a signed app bundle.
+
+### V4 — `pmset schedule wake` (D8/FA-32) · ⚠️ confirmed, needs root
+- Scheduling works and multiple one-shot events coexist. **`pmset` must run as root** →
+  passwordless sudoers entry for `/usr/bin/pmset` or a small privileged helper (setup step).
+- `pmset repeat wake` has only **one** system-wide slot → use re-armed individual
+  `pmset schedule wake` events for the heartbeat instead (§7 Wake).
+- Wakes from sleep only (not shutdown/hibernate); the machine must actually reach sleep.
+
+### V5 — Auth-error detection (FA-38) · ✅ confirmed
+- Auth failures exit non-zero with category `authentication_failed`
+  (messages: `Login expired · Please run /login`, `Not logged in`, invalid-key →
+  `authentication_failed`). Cleanly distinguishable from `rate_limit` and from task failures
+  (which carry a normal `result`). → mark run `auth_error`, notify, no retry.
+
+**Net:** all five resolved. Only two residual spike items remain, both under V2: confirm the
+real-429 field shape and the exit code. Everything else is ready to build.
 
 ---
 
-## 11. Suggested Build Phases (informational)
+## 11. Distribution, Installation & Release Pipeline (D9)
 
-1. **Spike** — resolve the five verification points (§10).
+Goal: a colleague on any Mac downloads one installer from GitHub Releases, runs it, and
+everything (app + background service + wake privileges) is set up automatically. Target
+audience is Mac-using developers who already run Claude Code.
+
+### 11.1 Signing posture (D9)
+- **v1: unsigned.** No Apple Developer ID yet. The `.pkg` and app are not notarized.
+- **Consequence (Gatekeeper):** first run needs a one-time bypass — either right-click → **Open**,
+  "Open Anyway" in *System Settings → Privacy & Security*, or install via Terminal
+  (`sudo installer -pkg claudeq-<ver>.pkg -target /`, which is not GUI-Gatekeeper-blocked).
+- **Upgrade path:** the pipeline is written notarization-ready. Adding a Developer ID later =
+  provide certs + App Store Connect key as secrets and enable the (already-stubbed) sign +
+  `notarytool` + `staple` steps. No structural rework; the Gatekeeper friction then disappears.
+
+### 11.2 Installer (`.pkg`) contents & postinstall
+Built with `pkgbuild`/`productbuild`. The **root postinstall** script performs the auto-setup:
+- Install the Wails **app** to `/Applications`.
+- Install the **LaunchAgent** plist (user daemon) and bootstrap it (`launchctl bootstrap`).
+- Write a **`/etc/sudoers.d/claudeq`** entry granting the user passwordless `/usr/bin/pmset`
+  (NOPASSWD, restricted to `pmset`) — enables wake scheduling without a signed helper (D9/V4).
+- Provide a matching **uninstall** script (remove app, LaunchAgent, sudoers entry, data opt-in).
+
+**Standard dialogs the user sees (by design):**
+| When | Dialog |
+|------|--------|
+| Install | macOS Installer + **admin password** (postinstall runs as root) |
+| First app launch | **Allow notifications?** (TCC) for native notifications (FA-39) |
+
+### 11.3 GitHub Actions release pipeline
+Triggered on tag `v*`:
+1. **Build** on `macos-14` runner: compile the Go daemon + helper as a **universal binary**
+   (arm64 + amd64 via `lipo`) → supports Apple Silicon *and* Intel colleagues; build the Wails
+   `.app`.
+2. **(Stub, disabled without Developer ID)** sign app + `.pkg` with Developer ID.
+3. **Package**: `pkgbuild`/`productbuild` → `claudeq-<ver>.pkg` (+ optional `.dmg`).
+4. **(Stub)** notarize via `notarytool` + `staple`.
+5. **Release**: create the GitHub Release and upload the `.pkg` (and `.dmg`) as assets.
+
+### 11.4 Per-colleague prerequisites (documented, not installed by us)
+- Claude Code installed, in `PATH`, and **logged in** (catalog §2/§8 assumption).
+- One-time Gatekeeper bypass (11.1) until notarization is enabled.
+
+---
+
+## 12. Suggested Build Phases (informational)
+
+1. **Spike** — resolve the two residual V2 items (§10): real-429 field shape + exit code.
 2. **Core daemon** — store, scheduler, executor, reactive limit gate (headless, CLI-driven).
-3. **Wake & resilience** — launchd integration, pmset wake, heartbeat.
-4. **Notifications** — macOS helper + Pushover.
+3. **Wake & resilience** — launchd integration, pmset wake (sudoers), heartbeat.
+4. **Notifications** — macOS `osascript` + Pushover.
 5. **App (Wails)** — task management, news dashboard, history, logs, settings.
-6. **Hardening** — unattended-run safety, install/uninstall (NFA-05/06).
+6. **Packaging & release** — unsigned `.pkg` + postinstall, GitHub Actions release pipeline
+   (notarization-ready stubs), install/uninstall (NFA-05/06).
+7. **Hardening** — unattended-run safety.
 
 ---
 
-## 12. Next Step
+## 13. Next Step
 
 Review this plan. On approval, proceed to the spike (§10) or directly to implementation of the
-core daemon (§11), as directed. No code is written until explicitly commissioned.
+core daemon (§12), as directed. No code is written until explicitly commissioned.
