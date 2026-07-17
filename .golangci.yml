@@ -1,0 +1,28 @@
+# golangci-lint v2 configuration for claudeq.
+# See AGENTS.md §1 for the quality bar this enforces.
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  # Start from the curated default set (errcheck, govet, ineffassign,
+  # staticcheck, unused) and add a few high-signal extras.
+  default: standard
+  enable:
+    - revive        # style / best-practice lint
+    - misspell      # spelling in comments and strings
+    - unconvert     # redundant type conversions
+    - bodyclose     # HTTP response bodies must be closed (local API + Pushover)
+    - errorlint     # correct error wrapping / comparisons
+  # NOTE: gosec is intentionally deferred to the hardening phase; it needs
+  # tuned rules for the deliberate exec of `claude`/`pmset` (G204).
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/danielmaier42/claudeq

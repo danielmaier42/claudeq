@@ -1,0 +1,15 @@
+# Build output
+/bin/
+/dist/
+
+# Test / coverage artifacts
+*.out
+coverage.*
+
+# macOS
+.DS_Store
+
+# Wails / frontend (added in build phase 5)
+build/bin/
+frontend/node_modules/
+frontend/dist/

@@ -404,6 +404,7 @@ This table is kept current — the phase status is updated as work progresses (s
 
 | # | Phase | Status | Notes |
 |---|-------|:------:|-------|
+| 0 | **Bootstrap** — toolchain, repo scaffold, CI | ✅ done | Go module, `cmd/claudeqd` skeleton + tested `internal/version`, golangci-lint v2 config, Makefile, `.gitignore`, GitHub Actions CI (build/fmt/vet/lint/test-race on macOS). Dev tools installed: golangci-lint, goimports. |
 | 1 | **Spike** — verify CLI behaviour & platform mechanisms | ✅ done | V1–V5 resolved (§10). Two residual V2 items (real-429 field shape + exit code) can only be confirmed against an actual 429 → carried into Phase 2. |
 | 2 | **Core daemon** — store, scheduler, executor, reactive limit gate (headless, CLI-driven) | ⏳ not started | Confirm the residual V2 items here when a real rate limit occurs. |
 | 3 | **Wake & resilience** — launchd integration, pmset wake (sudoers), heartbeat | ⏳ not started | |
