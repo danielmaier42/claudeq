@@ -161,7 +161,8 @@
   pre.log { font-family:"SF Mono",ui-monospace,Menlo,monospace; font-size:12px; background:var(--card-2);
             border:.5px solid var(--hairline); border-radius:8px; padding:12px; overflow:auto; max-height:62vh; white-space:pre-wrap; word-break:break-word; }
   .chat { display:flex; flex-direction:column; gap:10px; max-height:64vh; overflow:auto; padding:2px 2px 8px; }
-  .msg { border-radius:10px; padding:9px 12px; font-size:13px; white-space:pre-wrap; word-break:break-word; line-height:1.5; }
+  .msg { border-radius:10px; padding:9px 12px; font-size:13px; white-space:pre-wrap; word-break:break-word; line-height:1.5; max-width:92%; align-self:flex-start; }
+  .msg.user { align-self:flex-end; background:color-mix(in srgb, var(--accent) 14%, var(--card-2)); border:.5px solid var(--hairline); }
   .msg.assistant { background:var(--card-2); border:.5px solid var(--hairline); }
   .msg.result { background:color-mix(in srgb, var(--accent) 12%, var(--card-2)); border:.5px solid var(--hairline); }
   .msg .who { font-size:10px; font-weight:700; color:var(--fg2); margin-bottom:4px; text-transform:uppercase; letter-spacing:.4px; }
@@ -448,7 +449,7 @@ function watchNewRun(id){
     let runs=[]; try{ runs=await api('GET','/api/runs'); }catch{}
     runsSig=''; loadRuns();
     const run=runs.find(r=>r.task_id===id); // newest-first, so first match is the latest
-    if(run){ showLog(run.run_id, run.task_name); return; }
+    if(run){ showLog(run.run_id, run.task_name, run.task&&run.task.prompt); return; }
     if(Date.now()<deadline) setTimeout(tick,500);
   };
   setTimeout(tick,400);
@@ -478,7 +479,7 @@ async function loadRuns(){
     const pill=el('span','pill '+r.status); pill.innerHTML=`<span class="d"></span>${esc(r.status.replace(/_/g,' '))}`;
     const actions=el('div','row-actions');
     if(r.task){ const rp=el('button','btn small iconly',REPLAY); rp.title='Re-run this task'; rp.onclick=()=>openReplay(r.task); actions.append(rp); }
-    const log=el('button','btn small','Log'); log.onclick=()=>showLog(r.run_id,r.task_name); actions.append(log);
+    const log=el('button','btn small','Log'); log.onclick=()=>showLog(r.run_id,r.task_name,r.task&&r.task.prompt); actions.append(log);
     card.append(grow,actions,pill);   // status pill right-aligned (last)
     const gr=el('div','act-gr'); if(r.unread){ const mr=el('button','eye-btn',EYE); mr.title='Mark read'; mr.onclick=()=>readRun(r.run_id); gr.append(mr); }
     line.append(gl,card,gr);
@@ -488,8 +489,8 @@ async function loadRuns(){
 }
 async function readRun(id){ try{ await api('POST',`/api/runs/${id}/read`); }catch{} runsSig=''; loadRuns(); }
 async function markAllRead(){ try{await api('POST','/api/runs/read-all');toast('All marked read','ok'); runsSig=''; loadRuns();}catch(e){toast(e.message,'err')} }
-let logRaw='', logMode='chat', logRunId='', logTimer=null, logPrev=null;
-async function showLog(id,name){ logRunId=id; $('#logTitle').textContent='Log · '+name;
+let logRaw='', logMode='chat', logRunId='', logTimer=null, logPrev=null, logPrompt='';
+async function showLog(id,name,prompt){ logRunId=id; logPrompt=prompt||''; $('#logTitle').textContent='Log · '+name;
   logPrev=null; await refreshLog(true); $('#logSheet').showModal(); startLogPolling(); }
 async function refreshLog(force){
   try{ logRaw=await api('GET',`/api/runs/${logRunId}/log`)||''; }catch(e){ logRaw=''; }
@@ -512,6 +513,7 @@ function renderLog(){
   if(logMode==='raw'){ box.className=''; box.innerHTML='<pre class="log">'+esc(logRaw||'(empty log)')+'</pre>'; return; }
   box.className='chat'; box.innerHTML='';
   let shown=0;
+  if(logPrompt && logPrompt.trim()){ box.append(el('div','msg user','<div class="who">You</div>'+esc(logPrompt))); shown++; }
   for(const raw of logRaw.split('\n')){ const line=raw.trim(); if(!line) continue;
     let ev; try{ ev=JSON.parse(line); }catch{ box.append(el('div','rawline',esc(line))); shown++; continue; }
     shown += appendLogEvent(box, ev);
@@ -531,9 +533,15 @@ function appendLogEvent(box, ev){
   }
   if(ev.type==='user' && ev.message && Array.isArray(ev.message.content)){
     let n=0;
-    for(const b of ev.message.content){ if(b.type==='tool_result'){ const txt=toolResultText(b.content);
-      const d=el('div','tool','<span class="tname">↳ result</span><pre>'+esc(txt.length>800?txt.slice(0,800)+' …':txt)+'</pre>'); box.append(d); n++; } }
+    for(const b of ev.message.content){
+      if(b.type==='tool_result'){ const txt=toolResultText(b.content);
+        const d=el('div','tool','<span class="tname">↳ result</span><pre>'+esc(txt.length>800?txt.slice(0,800)+' …':txt)+'</pre>'); box.append(d); n++; }
+      else if(b.type==='text' && b.text && b.text.trim()){ box.append(el('div','msg user','<div class="who">You</div>'+esc(b.text))); n++; }
+    }
     return n;
+  }
+  if(ev.type==='user' && typeof ev.message?.content==='string' && ev.message.content.trim()){
+    box.append(el('div','msg user','<div class="who">You</div>'+esc(ev.message.content))); return 1;
   }
   if(ev.type==='result'){ box.append(el('div','msg result','<div class="who">Result'+(ev.is_error?' · error':'')+'</div>'+esc(ev.result||'(no text)'))); return 1; }
   if(ev.type==='system' && ev.subtype==='init'){ box.append(el('div','rawline','session started'+(ev.model?' · '+esc(ev.model):''))); return 0; }
