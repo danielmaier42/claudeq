@@ -84,6 +84,27 @@ func TestAddInvalidTaskRejected(t *testing.T) {
 	}
 }
 
+func TestUpdateTask(t *testing.T) {
+	srv, st := newServer(t, nil)
+	do(t, srv, "POST", "/api/tasks", sampleTask("a"))
+
+	edited := sampleTask("a")
+	edited.Name = "Renamed"
+	edited.Prompt = "new prompt"
+	if r := do(t, srv, "PUT", "/api/tasks/a", edited); r.Status != http.StatusOK {
+		t.Fatalf("update status = %d (%s)", r.Status, r.Body)
+	}
+	cfg, _ := st.LoadConfig()
+	if len(cfg.Tasks) != 1 || cfg.Tasks[0].Name != "Renamed" || cfg.Tasks[0].Prompt != "new prompt" {
+		t.Fatalf("task not updated: %+v", cfg.Tasks)
+	}
+
+	// Updating a missing task fails.
+	if r := do(t, srv, "PUT", "/api/tasks/missing", sampleTask("missing")); r.Status != http.StatusBadRequest {
+		t.Fatalf("expected 400 updating missing task, got %d", r.Status)
+	}
+}
+
 func TestEnableDisableMoveDelete(t *testing.T) {
 	srv, st := newServer(t, nil)
 	do(t, srv, "POST", "/api/tasks", sampleTask("a"))

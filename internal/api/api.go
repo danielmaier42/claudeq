@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
@@ -55,6 +56,7 @@ func Handler(d Deps) http.Handler {
 
 	mux.HandleFunc("GET /api/tasks", s.listTasks)
 	mux.HandleFunc("POST /api/tasks", s.addTask)
+	mux.HandleFunc("PUT /api/tasks/{id}", s.updateTask)
 	mux.HandleFunc("DELETE /api/tasks/{id}", s.deleteTask)
 	mux.HandleFunc("POST /api/tasks/{id}/enable", s.enableTask(true))
 	mux.HandleFunc("POST /api/tasks/{id}/disable", s.enableTask(false))
@@ -112,6 +114,39 @@ func (s *server) addTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, t)
+}
+
+func (s *server) updateTask(w http.ResponseWriter, r *http.Request) {
+	var t task.Task
+	if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	t.ID = r.PathValue("id") // the id is fixed by the URL
+	if t.Permissions == "" {
+		t.Permissions = task.PermissionsDefault
+	}
+	if t.Name == "" {
+		t.Name = t.ID
+	}
+	if err := t.Validate(); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	err := s.d.Store.UpdateConfig(func(cfg *store.Config) error {
+		for i := range cfg.Tasks {
+			if cfg.Tasks[i].ID == t.ID {
+				cfg.Tasks[i] = t
+				return nil
+			}
+		}
+		return fmt.Errorf("task %q not found", t.ID)
+	})
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
 }
 
 func (s *server) deleteTask(w http.ResponseWriter, r *http.Request) {

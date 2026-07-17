@@ -134,6 +134,17 @@ func TestTickRunsAsapTaskOnce(t *testing.T) {
 	if got := len(r.requests()); got != 1 {
 		t.Fatalf("completed task re-ran: %d total runs", got)
 	}
+
+	// A finished one-shot task leaves the queue but stays in history with a
+	// replayable snapshot.
+	cfg, _ := st.LoadConfig()
+	if len(cfg.Tasks) != 0 {
+		t.Fatalf("finished one-shot task should be removed from the queue, still have %d", len(cfg.Tasks))
+	}
+	hist, _ := st.Runs()
+	if len(hist) != 1 || hist[0].Task == nil || hist[0].Task.Prompt == "" {
+		t.Fatalf("run should carry a replayable task snapshot: %+v", hist)
+	}
 }
 
 func TestRateLimitThenResumeAfterReset(t *testing.T) {

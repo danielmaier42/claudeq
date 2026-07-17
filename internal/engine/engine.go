@@ -188,10 +188,12 @@ func (e *Engine) launchTask(ctx context.Context, t task.Task, settings store.Set
 		return fmt.Errorf("create log for run %s: %w", runID, err)
 	}
 
+	snapshot := t
 	rec := store.Run{
 		RunID: runID, TaskID: t.ID, TaskName: t.Name,
 		StartedAt: started, Status: store.StatusRunning,
 		SessionID: sessionID, LogPath: e.store.LogPath(runID),
+		Task: &snapshot,
 	}
 	// Record the start before marking the task active, so a failure here leaves
 	// no task stuck in the running set (which would block the scheduler).
@@ -288,6 +290,19 @@ func (e *Engine) finish(t task.Task, rec store.Run, res executor.Result, runErr 
 			}
 			return nil
 		})
+		// A finished one-shot task leaves the queue; it stays in history and can
+		// be replayed from there. Recurring (cron) tasks remain.
+		if oneShot {
+			_ = e.store.UpdateConfig(func(cfg *store.Config) error {
+				for i := range cfg.Tasks {
+					if cfg.Tasks[i].ID == t.ID {
+						cfg.Tasks = append(cfg.Tasks[:i], cfg.Tasks[i+1:]...)
+						break
+					}
+				}
+				return nil
+			})
+		}
 	}
 
 	_ = e.store.AppendRun(rec)

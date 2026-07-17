@@ -178,7 +178,9 @@ check "FA-35/39 failure triggers a macOS notification" contains "$WORK/osascript
 echo
 echo "== Dashboard API (Phase 5) =="
 export CLAUDEQ_HOME="$WORK/home8"; mkdir -p "$CLAUDEQ_HOME"
-"$CQ" add --id web --prompt "p" --dir "$REPO_A" --trigger asap >/dev/null
+FUT=$(date -u -v+1H +%Y-%m-%dT%H:%M:%SZ)
+"$CQ" add --id web --prompt "p" --dir "$REPO_A" --trigger fixed --at "$FUT" >/dev/null  # stays listed (not due)
+"$CQ" add --id ran --prompt "p" --dir "$REPO_A" --trigger asap >/dev/null               # runs then leaves the queue
 CQ_FAKE_MODE=ok "$CQD" run --interval 500ms --no-wake --addr 127.0.0.1:8791 >/dev/null 2>&1 &
 DPID=$!; sleep 2
 tasks_json=$(curl -s http://127.0.0.1:8791/api/tasks)
@@ -187,10 +189,14 @@ runs_json=$(curl -s http://127.0.0.1:8791/api/runs)
 kill -INT $DPID 2>/dev/null; wait $DPID 2>/dev/null
 case "$tasks_json" in *'"id":"web"'*) t1=0;; *) t1=1;; esac
 num_check "FA-02 API lists tasks (lowercase JSON keys)"  "$t1" -eq 0
+case "$tasks_json" in *'"id":"ran"'*) t1b=1;; *) t1b=0;; esac
+num_check "finished one-shot task leaves the queue"      "$t1b" -eq 0
 case "$dash_html" in *"<title>claudeq</title>"*) t2=0;; *) t2=1;; esac
 num_check "FA-25 dashboard HTML served"                  "$t2" -eq 0
 case "$runs_json" in *'"status":"success"'*) t3=0;; *) t3=1;; esac
 num_check "FA-15/22 API exposes run history/status"      "$t3" -eq 0
+case "$runs_json" in *'"task":'*) t4=0;; *) t4=1;; esac
+num_check "runs carry a replayable task snapshot"        "$t4" -eq 0
 
 echo
 echo "== Concurrency (covered by automated tests) =="

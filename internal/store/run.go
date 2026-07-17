@@ -1,6 +1,10 @@
 package store
 
-import "time"
+import (
+	"time"
+
+	"github.com/danielmaier42/claudeq/internal/task"
+)
 
 // RunStatus is the outcome (or current state) of a run.
 type RunStatus string
@@ -42,6 +46,10 @@ type Run struct {
 	ExitCode   int        `json:"exit_code"`
 	LogPath    string     `json:"log_path"`
 	Error      string     `json:"error,omitempty"`
+
+	// Task is a snapshot of the definition this run used, so the run can be
+	// replayed from history even after the task leaves the queue.
+	Task *task.Task `json:"task,omitempty"`
 
 	// Metrics reported by the CLI's result event (zero when unavailable).
 	CostUSD      float64 `json:"cost_usd,omitempty"`

@@ -208,7 +208,7 @@
 
 <!-- Add task sheet -->
 <dialog id="addSheet">
-  <div class="sheet-hd"><b>New task</b></div>
+  <div class="sheet-hd"><b id="addSheetTitle">New task</b></div>
   <div class="sheet-bd">
     <label class="fld">Name</label><input type="text" id="f-name" placeholder="Nightly build">
     <label class="fld">Prompt</label><textarea id="f-prompt" rows="3" placeholder="What should Claude do?"></textarea>
@@ -234,7 +234,7 @@
     </div>
     <p id="addErr" class="hint" style="color:var(--danger)"></p>
   </div>
-  <div class="sheet-ft"><button class="btn" onclick="addSheet.close()">Cancel</button><button class="btn primary" onclick="submitTask()">Add task</button></div>
+  <div class="sheet-ft"><button class="btn" onclick="addSheet.close()">Cancel</button><button class="btn primary" id="addSubmitBtn" onclick="submitTask()">Add task</button></div>
 </dialog>
 
 <!-- Log sheet -->
@@ -258,6 +258,8 @@ const $=s=>document.querySelector(s);
 const el=(t,c,h)=>{const e=document.createElement(t); if(c)e.className=c; if(h!=null)e.innerHTML=h; return e;};
 const esc=s=>(s??'').toString().replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const EYE='<svg viewBox="0 0 20 20"><path d="M1.5 10S5 4.5 10 4.5 18.5 10 18.5 10 15 15.5 10 15.5 1.5 10 1.5 10z"/><circle cx="10" cy="10" r="2.3"/></svg>';
+const PENCIL='<svg viewBox="0 0 20 20"><path d="M13.2 3.4l3.4 3.4L7.3 16 3.5 16.5 4 12.7z"/></svg>';
+const REPLAY='<svg viewBox="0 0 20 20"><path d="M5 10a5 5 0 1 1 1.6 3.7"/><path d="M5 6.2V10h3.8"/></svg>';
 
 async function api(m,path,body){
   const r=await fetch(path,{method:m,headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});
@@ -389,19 +391,36 @@ async function loadTasks(){
     row.append(grow);
     const up=el('button','btn small','↑'); up.disabled=i===0; up.title='Move up'; up.onclick=()=>move(t.id,i-1);
     const run=el('button','btn small','Run now'); run.onclick=()=>runNow(t.id);
+    const edit=el('button','btn small iconly',PENCIL); edit.title='Edit'; edit.onclick=()=>openEdit(t);
     const sw=el('label','switch'); sw.innerHTML=`<input type="checkbox" ${t.enabled?'checked':''}><span class="sl"></span>`;
     sw.querySelector('input').onchange=()=>toggle(t.id,t.enabled);
     const del=el('button','btn small danger','✕'); del.title='Delete'; del.onclick=()=>del_(t.id,t.name);
-    row.append(up,run,sw,del);
+    row.append(up,run,edit,sw,del);
     g.append(row);
   });
   c.append(g);
 }
 function emptyState(big,sub){ const d=el('div','empty'); d.innerHTML=`<div class="big">${esc(big)}</div><div>${esc(sub)}</div>`; return d; }
 
-function openAdd(){ $('#addErr').textContent=''; ['f-name','f-prompt','f-dir','f-at','f-cron'].forEach(x=>$('#'+x).value='');
+let taskMode='add', taskEditId='';
+function pad2(n){ return String(n).padStart(2,'0'); }
+function toLocalDT(iso){ const d=new Date(iso); return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate())+'T'+pad2(d.getHours())+':'+pad2(d.getMinutes()); }
+function prefillTask(t){
+  $('#f-name').value=t.name||''; $('#f-prompt').value=t.prompt||''; $('#f-dir').value=t.working_dir||'';
+  $('#f-model').innerHTML=modelOptions(t.model||'','Global default');
+  $('#f-parallel').checked=!!t.parallel; $('#f-skip').checked=(t.permissions==='skip');
+  setSeg(t.trigger||'asap');
+  $('#f-at').value=(t.trigger==='fixed'&&t.fixed_at&&!String(t.fixed_at).startsWith('0001'))?toLocalDT(t.fixed_at):'';
+  $('#f-cron').value=t.trigger==='cron'?(t.cron||''):'';
+}
+function openSheet(title,submitLabel){ $('#addErr').textContent=''; $('#addSheetTitle').textContent=title; $('#addSubmitBtn').textContent=submitLabel; $('#addSheet').showModal(); }
+function openAdd(){ taskMode='add'; taskEditId='';
+  ['f-name','f-prompt','f-dir','f-at','f-cron'].forEach(x=>$('#'+x).value='');
   $('#f-model').innerHTML=modelOptions('','Global default');
-  $('#f-parallel').checked=false; $('#f-skip').checked=false; setSeg('asap'); $('#addSheet').showModal(); }
+  $('#f-parallel').checked=false; $('#f-skip').checked=false; setSeg('asap');
+  openSheet('New task','Add task'); }
+function openEdit(t){ taskMode='edit'; taskEditId=t.id; prefillTask(t); openSheet('Edit task','Save changes'); }
+function openReplay(t){ if(!t){ toast('No saved definition to replay','err'); return; } taskMode='add'; taskEditId=''; prefillTask(t); openSheet('Replay task','Schedule again'); }
 $('#f-trigger').querySelectorAll('button').forEach(b=>b.onclick=()=>setSeg(b.dataset.v));
 function setSeg(v){ $('#f-trigger').querySelectorAll('button').forEach(b=>b.classList.toggle('active',b.dataset.v===v));
   $('#f-trigger').dataset.value=v; $('#f-at-wrap').hidden=v!=='fixed'; $('#f-cron-wrap').hidden=v!=='cron'; }
@@ -414,8 +433,11 @@ async function submitTask(){
     cron: trig==='cron'?$('#f-cron').value.trim():undefined, model:$('#f-model').value||undefined,
     parallel:$('#f-parallel').checked, enabled:true, permissions:$('#f-skip').checked?'skip':'default'};
   if(!t.working_dir){ $('#addErr').textContent='Please choose a working directory.'; return; }
-  try{ await api('POST','/api/tasks',t); $('#addSheet').close(); toast('Task added','ok'); loadTasks(); }
-  catch(e){ $('#addErr').textContent=e.message; }
+  try{
+    if(taskMode==='edit'){ await api('PUT','/api/tasks/'+encodeURIComponent(taskEditId),t); toast('Task updated','ok'); }
+    else { await api('POST','/api/tasks',t); toast('Task added','ok'); }
+    $('#addSheet').close(); loadTasks(); if(current==='news') loadRuns();
+  }catch(e){ $('#addErr').textContent=e.message; }
 }
 /* ---- Folder picker (native macOS dialog) ---- */
 $('#f-dir-btn').onclick=chooseFolder;
@@ -446,6 +468,7 @@ async function loadRuns(){
     const pill=el('span','pill '+r.status); pill.innerHTML=`<span class="d"></span>${esc(r.status.replace(/_/g,' '))}`;
     const log=el('button','btn small','Log'); log.onclick=()=>showLog(r.run_id,r.task_name);
     row.append(grow,pill,log);
+    if(r.task){ const rp=el('button','btn small iconly',REPLAY); rp.title='Replay this task'; rp.onclick=()=>openReplay(r.task); row.append(rp); }
     if(r.unread){ const mr=el('button','btn small iconly',EYE); mr.title='Mark read'; mr.onclick=()=>readRun(r.run_id); row.append(mr); }
     g.append(row);
   });
