@@ -52,6 +52,8 @@ These refine/override the catalog where noted.
 | **D7** | Triggers & repetition | **Three trigger modes**: (1) *as-soon-as-possible*, (2) *fixed time (one-shot)*, (3) *recurring (crontab)*. For recurring tasks, if a new occurrence is due while the previous run is still active, it is **skipped**. |
 | **D8** | Wake & notifications | Wake via `pmset schedule wake` at **concrete timestamps** (fixed times, cron times, known reset time) **plus an hourly heartbeat wake** as a safety net for "as-soon-as-possible". Notifications delivered by the daemon via a **small user-session helper** for native macOS notifications. |
 | **D9** | Signing & distribution | **No Apple Developer ID for now** → ship an **unsigned `.pkg`** installer built by CI. `pmset` privileges via a **`sudoers.d` entry** written by the root postinstall (SMAppService needs signing, so deferred). Colleagues do a one-time Gatekeeper bypass. Pipeline is built **notarization-ready** so adding a Developer ID later is additive (secrets + 2 steps), no rework. |
+| **D10** | Data location | Data lives in **`~/Library/Application Support/claudeq/`** (`config.toml`, `history.jsonl`, `runs/<id>.log`, `state.json`), overridable via **`CLAUDEQ_HOME`** (used by tests). macOS-native, human-readable (NFA-04/07). |
+| **D11** | Control surface (v1) | `claudeqd` (loop) and the `claudeq` CLI share the **file-based store**; the daemon re-reads the store each tick — **no IPC yet**. The local **HTTP API for the GUI is deferred to Phase 5**. Keeps Phase 2 verifiable end-to-end without prematurely fixing the API. |
 
 ---
 
@@ -406,7 +408,7 @@ This table is kept current — the phase status is updated as work progresses (s
 |---|-------|:------:|-------|
 | 0 | **Bootstrap** — toolchain, repo scaffold, CI | ✅ done | Go module, `cmd/claudeqd` skeleton + tested `internal/version`, golangci-lint v2 config, Makefile, `.gitignore`, GitHub Actions CI (build/fmt/vet/lint/test-race on macOS). Dev tools installed: golangci-lint, goimports. |
 | 1 | **Spike** — verify CLI behaviour & platform mechanisms | ✅ done | V1–V5 resolved (§10). Two residual V2 items (real-429 field shape + exit code) can only be confirmed against an actual 429 → carried into Phase 2. |
-| 2 | **Core daemon** — store, scheduler, executor, reactive limit gate (headless, CLI-driven) | ⏳ not started | Confirm the residual V2 items here when a real rate limit occurs. |
+| 2 | **Core daemon** — store, scheduler, executor, reactive limit gate (headless, CLI-driven) | ✅ done | Packages: task, store (TOML/JSONL/state), clock, limit, schedule, executor, engine; plus `claudeqd run` loop and the `claudeq` control CLI (add/list/rm/enable/move/run-now/status/read/settings). Unit + integration tests (fake `claude`, injected clock), all gates green, verified end-to-end. Residual V2 (real-429 field shape + exit code) is handled defensively but still doc-derived — to confirm against an actual 429. See D10–D11. |
 | 3 | **Wake & resilience** — launchd integration, pmset wake (sudoers), heartbeat | ⏳ not started | |
 | 4 | **Notifications** — macOS `osascript` + Pushover | ⏳ not started | |
 | 5 | **App (Wails)** — task management, news dashboard, history, logs, settings | ⏳ not started | |

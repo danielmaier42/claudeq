@@ -1,0 +1,131 @@
+package app
+
+import (
+	"testing"
+
+	"github.com/danielmaier42/claudeq/internal/store"
+	"github.com/danielmaier42/claudeq/internal/task"
+)
+
+func openStore(t *testing.T) *store.Store {
+	t.Helper()
+	s, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	return s
+}
+
+func mk(id string) task.Task {
+	return task.Task{
+		ID: id, Name: id, Prompt: "p", WorkingDir: "/r",
+		Trigger: task.TriggerASAP, Enabled: true, Permissions: task.PermissionsDefault,
+	}
+}
+
+func ids(s *store.Store, t *testing.T) []string {
+	t.Helper()
+	cfg, err := s.LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	out := make([]string, len(cfg.Tasks))
+	for i, tk := range cfg.Tasks {
+		out[i] = tk.ID
+	}
+	return out
+}
+
+func TestAddRejectsDuplicate(t *testing.T) {
+	s := openStore(t)
+	if err := AddTask(s, mk("a")); err != nil {
+		t.Fatalf("AddTask: %v", err)
+	}
+	if err := AddTask(s, mk("a")); err == nil {
+		t.Fatal("expected duplicate id error")
+	}
+}
+
+func TestRemove(t *testing.T) {
+	s := openStore(t)
+	_ = AddTask(s, mk("a"))
+	_ = AddTask(s, mk("b"))
+	if err := RemoveTask(s, "a"); err != nil {
+		t.Fatalf("RemoveTask: %v", err)
+	}
+	if got := ids(s, t); len(got) != 1 || got[0] != "b" {
+		t.Fatalf("after remove got %v, want [b]", got)
+	}
+	if err := RemoveTask(s, "missing"); err == nil {
+		t.Fatal("expected not-found error")
+	}
+}
+
+func TestSetEnabled(t *testing.T) {
+	s := openStore(t)
+	_ = AddTask(s, mk("a"))
+	if err := SetEnabled(s, "a", false); err != nil {
+		t.Fatalf("SetEnabled: %v", err)
+	}
+	cfg, _ := s.LoadConfig()
+	if cfg.Tasks[0].Enabled {
+		t.Fatal("task should be disabled")
+	}
+}
+
+func TestMoveReordersPriority(t *testing.T) {
+	s := openStore(t)
+	_ = AddTask(s, mk("a"))
+	_ = AddTask(s, mk("b"))
+	_ = AddTask(s, mk("c"))
+
+	// Move c to the top (highest priority).
+	if err := Move(s, "c", 0); err != nil {
+		t.Fatalf("Move: %v", err)
+	}
+	if got, want := ids(s, t), []string{"c", "a", "b"}; !equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+
+	// Move a to the bottom (clamped).
+	if err := Move(s, "a", 99); err != nil {
+		t.Fatalf("Move: %v", err)
+	}
+	if got, want := ids(s, t), []string{"c", "b", "a"}; !equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestMarkReadAndAll(t *testing.T) {
+	s := openStore(t)
+	_ = s.AppendRun(store.Run{RunID: "r1", TaskID: "a", Status: store.StatusSuccess})
+	_ = s.AppendRun(store.Run{RunID: "r2", TaskID: "b", Status: store.StatusSuccess})
+
+	if err := MarkRead(s, "r1"); err != nil {
+		t.Fatalf("MarkRead: %v", err)
+	}
+	st, _ := s.LoadState()
+	if !st.IsRead("r1") || st.IsRead("r2") {
+		t.Fatal("MarkRead should mark only r1")
+	}
+
+	if err := MarkAllRead(s); err != nil {
+		t.Fatalf("MarkAllRead: %v", err)
+	}
+	st, _ = s.LoadState()
+	if !st.IsRead("r1") || !st.IsRead("r2") {
+		t.Fatal("MarkAllRead should mark every run")
+	}
+}
+
+func equal(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}

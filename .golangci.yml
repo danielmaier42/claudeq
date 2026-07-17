@@ -17,6 +17,13 @@ linters:
     - errorlint     # correct error wrapping / comparisons
   # NOTE: gosec is intentionally deferred to the hardening phase; it needs
   # tuned rules for the deliberate exec of `claude`/`pmset` (G204).
+  settings:
+    errcheck:
+      # Writes to stdout / in-memory tabwriters: conventional not to check.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
 
 formatters:
   enable:

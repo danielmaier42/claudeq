@@ -1,0 +1,45 @@
+package store
+
+import "time"
+
+// RunStatus is the outcome (or current state) of a run.
+type RunStatus string
+
+const (
+	// StatusRunning means the run is currently executing.
+	StatusRunning RunStatus = "running"
+	// StatusSuccess means Claude Code finished successfully.
+	StatusSuccess RunStatus = "success"
+	// StatusFailed means the run failed (non-auth, non-rate-limit).
+	StatusFailed RunStatus = "failed"
+	// StatusRateLimited means the run stopped on a rate limit and is waiting
+	// for the gate to reopen (PLAN.md D1).
+	StatusRateLimited RunStatus = "rate_limited_waiting"
+	// StatusAuthError means Claude Code reported a login/authentication problem.
+	StatusAuthError RunStatus = "auth_error"
+)
+
+// Terminal reports whether the status is a final outcome.
+func (s RunStatus) Terminal() bool {
+	switch s {
+	case StatusSuccess, StatusFailed, StatusAuthError:
+		return true
+	default:
+		return false
+	}
+}
+
+// Run is one execution of a task. History is an append-only event log; the
+// latest event for a run id is authoritative (see Store.Runs).
+type Run struct {
+	RunID      string     `json:"run_id"`
+	TaskID     string     `json:"task_id"`
+	TaskName   string     `json:"task_name"`
+	StartedAt  time.Time  `json:"started_at"`
+	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	Status     RunStatus  `json:"status"`
+	SessionID  string     `json:"session_id,omitempty"`
+	ExitCode   int        `json:"exit_code"`
+	LogPath    string     `json:"log_path"`
+	Error      string     `json:"error,omitempty"`
+}
