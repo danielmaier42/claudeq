@@ -46,6 +46,7 @@ case "${CQ_FAKE_MODE:-ok}" in
   ok) echo '{"type":"result","is_error":false,"result":"ok","session_id":"s-ok"}' ;;
   rl) echo "{\"type\":\"system\",\"subtype\":\"api_retry\",\"error_status\":429,\"error\":\"rate_limit\",\"retry_delay_ms\":${CQ_FAKE_RETRY_MS:-3600000},\"session_id\":\"s-rl\"}"; exit 1 ;;
   auth) echo '{"type":"result","is_error":true,"error":"authentication_failed"}'; exit 1 ;;
+  fail) echo '{"type":"result","is_error":true,"result":"boom"}'; exit 2 ;;
   resume-once)
     n=$(cat "$CQ_FAKE_STATE" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$CQ_FAKE_STATE"
     if [ "$n" -eq 1 ]; then
@@ -59,7 +60,7 @@ chmod +x "$FAKE/claude"
 
 # Fake system tools (launchctl/sudo/pmset) log their args instead of touching
 # the real system, so Phase 3 install/wake can be checked safely.
-for tool in launchctl sudo pmset; do
+for tool in launchctl sudo pmset osascript; do
   cat > "$FAKE/$tool" <<EOF
 #!/bin/sh
 echo "\$*" >> "$WORK/$tool.log"
@@ -164,6 +165,32 @@ check "FA-32 daemon schedules a pmset wake"           contains "$WORK/sudo.log" 
 HOME="$FAKEHOME" "$CQD" uninstall >/dev/null 2>&1
 check "NFA-03 uninstall removes plist"                bash -c '[ ! -f "'"$PLIST"'" ]'
 check "NFA-03 uninstall boots out via launchctl"      contains "$WORK/launchctl.log" "bootout"
+
+echo
+echo "== Notifications (Phase 4; fake osascript) =="
+export CLAUDEQ_HOME="$WORK/home7"; mkdir -p "$CLAUDEQ_HOME"
+"$CQ" add --id failer --prompt "p" --dir "$REPO_A" --trigger asap >/dev/null
+: > "$WORK/osascript.log"
+CQ_FAKE_MODE=fail "$CQD" run --interval 300ms --no-wake >/dev/null 2>&1 &
+DPID=$!; sleep 2; kill -INT $DPID 2>/dev/null; wait $DPID 2>/dev/null
+check "FA-35/39 failure triggers a macOS notification" contains "$WORK/osascript.log" "display notification"
+
+echo
+echo "== Dashboard API (Phase 5) =="
+export CLAUDEQ_HOME="$WORK/home8"; mkdir -p "$CLAUDEQ_HOME"
+"$CQ" add --id web --prompt "p" --dir "$REPO_A" --trigger asap >/dev/null
+CQ_FAKE_MODE=ok "$CQD" run --interval 500ms --no-wake --addr 127.0.0.1:8791 >/dev/null 2>&1 &
+DPID=$!; sleep 2
+tasks_json=$(curl -s http://127.0.0.1:8791/api/tasks)
+dash_html=$(curl -s http://127.0.0.1:8791/)
+runs_json=$(curl -s http://127.0.0.1:8791/api/runs)
+kill -INT $DPID 2>/dev/null; wait $DPID 2>/dev/null
+case "$tasks_json" in *'"id":"web"'*) t1=0;; *) t1=1;; esac
+num_check "FA-02 API lists tasks (lowercase JSON keys)"  "$t1" -eq 0
+case "$dash_html" in *"<title>claudeq</title>"*) t2=0;; *) t2=1;; esac
+num_check "FA-25 dashboard HTML served"                  "$t2" -eq 0
+case "$runs_json" in *'"status":"success"'*) t3=0;; *) t3=1;; esac
+num_check "FA-15/22 API exposes run history/status"      "$t3" -eq 0
 
 echo
 echo "== Concurrency (covered by automated tests) =="

@@ -37,8 +37,9 @@ const (
 
 // Store provides serialized access to the on-disk data directory.
 type Store struct {
-	home string
-	mu   sync.Mutex
+	home    string
+	mu      sync.Mutex // guards individual file reads/writes
+	writeMu sync.Mutex // serializes read-modify-write updates
 }
 
 // DefaultHome resolves the data directory: $CLAUDEQ_HOME if set, otherwise
@@ -111,6 +112,40 @@ func (s *Store) SaveConfig(cfg Config) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return writeAtomic(s.path(configFile), data)
+}
+
+// UpdateConfig atomically applies fn to the config: it serializes with other
+// updates, loads the current config, applies fn, and saves the result. This
+// prevents lost updates when several callers (e.g. concurrent API requests)
+// modify tasks at once.
+func (s *Store) UpdateConfig(fn func(*Config) error) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	cfg, err := s.LoadConfig()
+	if err != nil {
+		return err
+	}
+	if err := fn(&cfg); err != nil {
+		return err
+	}
+	return s.SaveConfig(cfg)
+}
+
+// UpdateState atomically applies fn to the state, serialized with other
+// updates. fn should mutate only the fields it owns so concurrent writers do
+// not clobber each other's keys (e.g. the daemon must not overwrite read-status
+// set via the API).
+func (s *Store) UpdateState(fn func(*State) error) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	st, err := s.LoadState()
+	if err != nil {
+		return err
+	}
+	if err := fn(st); err != nil {
+		return err
+	}
+	return s.SaveState(st)
 }
 
 // AppendRun appends a run event to history.jsonl. Later events for the same
@@ -262,14 +297,14 @@ func (c Config) checkUniqueIDs() error {
 // Settings holds global configuration.
 type Settings struct {
 	// DefaultModel is used for runs unless a task overrides it (FA-28).
-	DefaultModel string `toml:"default_model"`
+	DefaultModel string `toml:"default_model" json:"default_model"`
 	// SkipPermissionsDefault is the global "may do anything" default (FA-29).
-	SkipPermissionsDefault bool `toml:"skip_permissions_default"`
+	SkipPermissionsDefault bool `toml:"skip_permissions_default" json:"skip_permissions_default"`
 	// HeartbeatMinutes is the safety-net wake interval in minutes (PLAN.md D8).
 	// Zero means use the default (see HeartbeatOrDefault).
-	HeartbeatMinutes int `toml:"heartbeat_minutes"`
+	HeartbeatMinutes int `toml:"heartbeat_minutes" json:"heartbeat_minutes"`
 	// Pushover holds mobile-notification credentials (FA-41). Used from Phase 4.
-	Pushover Pushover `toml:"pushover"`
+	Pushover Pushover `toml:"pushover" json:"pushover"`
 }
 
 // DefaultHeartbeatMinutes is the wake safety-net interval when unset.
@@ -286,6 +321,6 @@ func (s Settings) HeartbeatOrDefault() time.Duration {
 
 // Pushover holds Pushover API credentials.
 type Pushover struct {
-	Token   string `toml:"token"`
-	UserKey string `toml:"user_key"`
+	Token   string `toml:"token" json:"token"`
+	UserKey string `toml:"user_key" json:"user_key"`
 }

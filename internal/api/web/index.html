@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>claudeq</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --fg: #1c1e21; --muted: #6b7280;
+    --border: #e5e7eb; --accent: #2563eb; --danger: #dc2626; --ok: #16a34a; --warn: #d97706;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#15171c; --panel:#1e2128; --fg:#e6e8eb; --muted:#9aa3af;
+            --border:#2c313a; --accent:#5b9dff; --danger:#f87171; --ok:#4ade80; --warn:#fbbf24; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+         background:var(--bg); color:var(--fg); }
+  header { display:flex; align-items:center; gap:16px; padding:14px 20px;
+           border-bottom:1px solid var(--border); background:var(--panel); position:sticky; top:0; }
+  header h1 { font-size:16px; margin:0; letter-spacing:.5px; }
+  nav { display:flex; gap:4px; }
+  nav button { background:none; border:none; color:var(--muted); padding:6px 12px; border-radius:6px;
+               cursor:pointer; font-size:14px; }
+  nav button.active { background:var(--bg); color:var(--fg); font-weight:600; }
+  .badge { background:var(--danger); color:#fff; border-radius:10px; padding:0 6px; font-size:11px; margin-left:4px; }
+  main { padding:20px; max-width:1000px; margin:0 auto; }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:10px;
+           padding:16px; margin-bottom:16px; }
+  table { width:100%; border-collapse:collapse; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.4px; }
+  tr.unread td { font-weight:600; }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; }
+  .s-success{color:var(--ok)} .s-failed{color:var(--danger)} .s-auth_error{color:var(--danger)}
+  .s-rate_limited_waiting{color:var(--warn)} .s-running{color:var(--accent)}
+  button.act { background:var(--panel); border:1px solid var(--border); color:var(--fg);
+               padding:4px 10px; border-radius:6px; cursor:pointer; font-size:13px; }
+  button.act:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); color:#fff; border:none; }
+  input,select,textarea { width:100%; padding:7px 9px; border:1px solid var(--border); border-radius:6px;
+           background:var(--bg); color:var(--fg); font:inherit; }
+  label { display:block; font-size:12px; color:var(--muted); margin:8px 0 3px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .row-actions { display:flex; gap:6px; flex-wrap:wrap; }
+  .muted { color:var(--muted); }
+  dialog { border:1px solid var(--border); border-radius:10px; background:var(--panel); color:var(--fg);
+           max-width:80vw; width:800px; }
+  pre { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:12px;
+        overflow:auto; max-height:60vh; font-size:12px; }
+  .hint { font-size:12px; color:var(--muted); margin-top:4px; }
+  .toolbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>claudeq</h1>
+  <nav>
+    <button data-tab="tasks" class="active">Tasks</button>
+    <button data-tab="news">News <span id="unreadBadge" class="badge" hidden>0</span></button>
+    <button data-tab="settings">Settings</button>
+  </nav>
+</header>
+<main>
+  <section id="tasks" class="tab">
+    <div class="panel">
+      <div class="toolbar"><strong>Tasks</strong><button class="act" onclick="loadTasks()">Refresh</button></div>
+      <table><thead><tr><th>#</th><th>Name</th><th>Trigger</th><th>When</th><th>Parallel</th><th>Enabled</th><th></th></tr></thead>
+        <tbody id="taskRows"></tbody></table>
+    </div>
+    <div class="panel">
+      <strong>Add task</strong>
+      <div class="grid">
+        <div><label>ID</label><input id="f-id"></div>
+        <div><label>Name</label><input id="f-name"></div>
+      </div>
+      <label>Prompt</label><textarea id="f-prompt" rows="2"></textarea>
+      <div class="grid">
+        <div><label>Working directory</label><input id="f-dir"></div>
+        <div><label>Trigger</label><select id="f-trigger" onchange="triggerChanged()">
+          <option value="asap">asap</option><option value="fixed">fixed</option><option value="cron">cron</option>
+        </select></div>
+      </div>
+      <div class="grid">
+        <div id="f-at-wrap" hidden><label>At (RFC3339)</label><input id="f-at" placeholder="2026-07-18T22:00:00Z"></div>
+        <div id="f-cron-wrap" hidden><label>Cron</label><input id="f-cron" placeholder="0 20 * * *"></div>
+      </div>
+      <div class="grid">
+        <div><label>Model (optional)</label><input id="f-model" placeholder="global default"></div>
+        <div><label><input type="checkbox" id="f-parallel" style="width:auto"> parallel &nbsp;
+             <input type="checkbox" id="f-skip" style="width:auto"> skip permissions</label></div>
+      </div>
+      <p id="addErr" class="hint" style="color:var(--danger)"></p>
+      <button class="act primary" onclick="addTask()">Add</button>
+    </div>
+  </section>
+
+  <section id="news" class="tab" hidden>
+    <div class="panel">
+      <div class="toolbar"><strong>Runs</strong>
+        <span><button class="act" onclick="markAllRead()">Mark all read</button>
+        <button class="act" onclick="loadRuns()">Refresh</button></span></div>
+      <table><thead><tr><th></th><th>Task</th><th>Status</th><th>Started</th><th></th></tr></thead>
+        <tbody id="runRows"></tbody></table>
+      <p id="runsEmpty" class="muted" hidden>No runs yet.</p>
+    </div>
+  </section>
+
+  <section id="settings" class="tab" hidden>
+    <div class="panel">
+      <strong>Settings</strong>
+      <label>Default model</label><input id="s-model">
+      <label><input type="checkbox" id="s-skip" style="width:auto"> skip permissions by default</label>
+      <label>Heartbeat (minutes)</label><input id="s-hb" type="number" min="0">
+      <div class="grid">
+        <div><label>Pushover token</label><input id="s-po-token"></div>
+        <div><label>Pushover user key</label><input id="s-po-user"></div>
+      </div>
+      <p id="setMsg" class="hint"></p>
+      <button class="act primary" onclick="saveSettings()" style="margin-top:10px">Save</button>
+    </div>
+  </section>
+</main>
+
+<dialog id="logDlg"><div class="toolbar"><strong id="logTitle">Log</strong><button class="act" onclick="logDlg.close()">Close</button></div><pre id="logBody"></pre></dialog>
+
+<script>
+const $ = s => document.querySelector(s);
+const api = async (m, path, body) => {
+  const r = await fetch(path, { method:m, headers:body?{'Content-Type':'application/json'}:{}, body:body?JSON.stringify(body):undefined });
+  if (!r.ok && r.status!==204) { let e; try{e=(await r.json()).error}catch{e=r.statusText}; throw new Error(e); }
+  const ct = r.headers.get('content-type')||''; return ct.includes('json') ? r.json() : r.text();
+};
+const esc = s => (s??'').toString().replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  document.querySelectorAll('.tab').forEach(t=>t.hidden=true);
+  $('#'+b.dataset.tab).hidden=false;
+  if (b.dataset.tab==='news') loadRuns();
+  if (b.dataset.tab==='settings') loadSettings();
+});
+function triggerChanged(){ const t=$('#f-trigger').value;
+  $('#f-at-wrap').hidden = t!=='fixed'; $('#f-cron-wrap').hidden = t!=='cron'; }
+
+async function loadTasks(){
+  const tasks = await api('GET','/api/tasks');
+  $('#taskRows').innerHTML = (tasks||[]).map((t,i)=>{
+    const when = t.trigger==='fixed'?esc(t.fixed_at):t.trigger==='cron'?esc(t.cron):'-';
+    return `<tr><td>${i}</td><td>${esc(t.name)}<div class="muted" style="font-size:12px">${esc(t.id)}</div></td>
+      <td>${esc(t.trigger)}</td><td>${when}</td><td>${t.parallel?'yes':'no'}</td><td>${t.enabled?'on':'off'}</td>
+      <td class="row-actions">
+        <button class="act" onclick="runNow('${esc(t.id)}')">Run now</button>
+        <button class="act" onclick="toggle('${esc(t.id)}',${t.enabled})">${t.enabled?'Pause':'Enable'}</button>
+        <button class="act" onclick="move('${esc(t.id)}',${i-1})" ${i===0?'disabled':''}>↑</button>
+        <button class="act" onclick="del('${esc(t.id)}')">✕</button>
+      </td></tr>`;
+  }).join('');
+}
+async function addTask(){
+  $('#addErr').textContent='';
+  const t={ id:$('#f-id').value.trim(), name:$('#f-name').value.trim(), prompt:$('#f-prompt').value,
+    working_dir:$('#f-dir').value.trim(), trigger:$('#f-trigger').value,
+    fixed_at: $('#f-at').value?new Date($('#f-at').value).toISOString():undefined,
+    cron:$('#f-cron').value.trim()||undefined, model:$('#f-model').value.trim()||undefined,
+    parallel:$('#f-parallel').checked, enabled:true,
+    permissions: $('#f-skip').checked?'skip':'default' };
+  try { await api('POST','/api/tasks',t); ['f-id','f-name','f-prompt','f-dir','f-at','f-cron','f-model'].forEach(x=>$('#'+x).value='');
+        loadTasks(); } catch(e){ $('#addErr').textContent=e.message; }
+}
+const runNow=async id=>{ await api('POST',`/api/tasks/${id}/run-now`); setTimeout(loadRuns,300); alert('Started. Check News for the result.'); };
+const toggle=async (id,on)=>{ await api('POST',`/api/tasks/${id}/${on?'disable':'enable'}`); loadTasks(); };
+const move=async (id,to)=>{ await api('POST',`/api/tasks/${id}/move?to=${to}`); loadTasks(); };
+const del=async id=>{ if(confirm('Delete task '+id+'?')){ await api('DELETE',`/api/tasks/${id}`); loadTasks(); } };
+
+async function loadRuns(){
+  const runs = await api('GET','/api/runs'); const rows=$('#runRows');
+  $('#runsEmpty').hidden = runs.length>0;
+  const unread = runs.filter(r=>r.unread).length;
+  const badge=$('#unreadBadge'); badge.hidden=unread===0; badge.textContent=unread;
+  rows.innerHTML = runs.map(r=>`<tr class="${r.unread?'unread':''}">
+    <td>${r.unread?'●':''}</td><td>${esc(r.task_name)}</td>
+    <td class="s-${r.status}">${esc(r.status)}</td>
+    <td class="muted">${new Date(r.started_at).toLocaleString()}</td>
+    <td class="row-actions">
+      <button class="act" onclick="showLog('${esc(r.run_id)}','${esc(r.task_name)}')">Log</button>
+      ${r.unread?`<button class="act" onclick="readRun('${esc(r.run_id)}')">Mark read</button>`:''}
+    </td></tr>`).join('');
+}
+const readRun=async id=>{ await api('POST',`/api/runs/${id}/read`); loadRuns(); };
+const markAllRead=async ()=>{ await api('POST','/api/runs/read-all'); loadRuns(); };
+async function showLog(id,name){ $('#logTitle').textContent='Log · '+name;
+  try{ $('#logBody').textContent=await api('GET',`/api/runs/${id}/log`); }catch(e){ $('#logBody').textContent='(no log) '+e.message; }
+  $('#logDlg').showModal(); }
+
+async function loadSettings(){ const s=await api('GET','/api/settings');
+  $('#s-model').value=s.default_model||''; $('#s-skip').checked=!!s.skip_permissions_default;
+  $('#s-hb').value=s.heartbeat_minutes||''; $('#s-po-token').value=s.pushover?.token||''; $('#s-po-user').value=s.pushover?.user_key||''; }
+async function saveSettings(){ const body={ default_model:$('#s-model').value, skip_permissions_default:$('#s-skip').checked,
+    heartbeat_minutes:parseInt($('#s-hb').value||'0',10), pushover:{ token:$('#s-po-token').value, user_key:$('#s-po-user').value } };
+  await api('PUT','/api/settings',body); $('#setMsg').textContent='Saved.'; setTimeout(()=>$('#setMsg').textContent='',1500); }
+
+loadTasks(); loadRuns();
+</script>
+</body>
+</html>

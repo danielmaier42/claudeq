@@ -15,17 +15,20 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
 	"time"
 
+	"github.com/danielmaier42/claudeq/internal/api"
 	"github.com/danielmaier42/claudeq/internal/clock"
 	"github.com/danielmaier42/claudeq/internal/engine"
 	"github.com/danielmaier42/claudeq/internal/executor"
 	"github.com/danielmaier42/claudeq/internal/launchd"
 	"github.com/danielmaier42/claudeq/internal/limit"
+	"github.com/danielmaier42/claudeq/internal/notify"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/system"
 	"github.com/danielmaier42/claudeq/internal/version"
@@ -64,6 +67,7 @@ func cmdRun(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	interval := fs.Duration("interval", 5*time.Second, "scheduler tick interval")
 	noWake := fs.Bool("no-wake", false, "do not schedule pmset wakes")
+	addr := fs.String("addr", "127.0.0.1:8765", "dashboard/API listen address (loopback only)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -82,16 +86,47 @@ func cmdRun(args []string) error {
 	if !*noWake {
 		eng.SetWaker(&wake.Scheduler{Runner: system.Real{}, Sudo: true})
 	}
+	eng.SetNotifier(buildNotifier(st))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	fmt.Printf("claudeqd %s: watching %s (tick %s, wake %t)\n", version.String(), home, *interval, !*noWake)
+	httpSrv := &http.Server{
+		Addr:              *addr,
+		Handler:           api.Handler(api.Deps{Store: st, Runner: eng}),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	go func() {
+		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			fmt.Fprintln(os.Stderr, "claudeqd: http server:", err)
+		}
+	}()
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = httpSrv.Shutdown(shutCtx)
+	}()
+
+	fmt.Printf("claudeqd %s: watching %s\n  dashboard: http://%s  (tick %s, wake %t)\n",
+		version.String(), home, *addr, *interval, !*noWake)
 	if err := eng.Loop(ctx, *interval); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
 	fmt.Println("claudeqd: stopped")
 	return nil
+}
+
+// buildNotifier assembles the notification channels: native macOS always, plus
+// Pushover when credentials are configured (FA-39/40).
+func buildNotifier(st *store.Store) notify.Notifier {
+	notifiers := []notify.Notifier{notify.Mac{Runner: system.Real{}}}
+	if cfg, err := st.LoadConfig(); err == nil {
+		po := notify.Pushover{Token: cfg.Settings.Pushover.Token, UserKey: cfg.Settings.Pushover.UserKey}
+		if po.Configured() {
+			notifiers = append(notifiers, po)
+		}
+	}
+	return notify.Multi{Notifiers: notifiers}
 }
 
 func cmdInstall() error {

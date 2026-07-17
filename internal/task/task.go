@@ -42,30 +42,30 @@ var CronParser = cron.NewParser(
 // Task is a single queued unit of work for Claude Code.
 type Task struct {
 	// ID is a stable unique identifier.
-	ID string `toml:"id"`
+	ID string `toml:"id" json:"id"`
 	// Name is a human-readable label.
-	Name string `toml:"name"`
+	Name string `toml:"name" json:"name"`
 	// Prompt is the instruction sent to Claude Code.
-	Prompt string `toml:"prompt"`
+	Prompt string `toml:"prompt" json:"prompt"`
 	// WorkingDir is the directory Claude Code runs in (the task's context).
-	WorkingDir string `toml:"working_dir"`
+	WorkingDir string `toml:"working_dir" json:"working_dir"`
 
 	// Trigger selects how the task becomes eligible.
-	Trigger Trigger `toml:"trigger"`
+	Trigger Trigger `toml:"trigger" json:"trigger"`
 	// FixedAt is the earliest start time for TriggerFixed.
-	FixedAt time.Time `toml:"fixed_at,omitempty"`
+	FixedAt time.Time `toml:"fixed_at,omitempty" json:"fixed_at,omitempty"`
 	// Cron is the crontab expression for TriggerCron.
-	Cron string `toml:"cron,omitempty"`
+	Cron string `toml:"cron,omitempty" json:"cron,omitempty"`
 
 	// Parallel allows this task to run alongside other parallel tasks.
-	Parallel bool `toml:"parallel"`
+	Parallel bool `toml:"parallel" json:"parallel"`
 	// Enabled toggles the task without deleting it.
-	Enabled bool `toml:"enabled"`
+	Enabled bool `toml:"enabled" json:"enabled"`
 
 	// Model overrides the global default model when non-empty.
-	Model string `toml:"model,omitempty"`
+	Model string `toml:"model,omitempty" json:"model,omitempty"`
 	// Permissions overrides the global default permission behaviour.
-	Permissions Permissions `toml:"permissions"`
+	Permissions Permissions `toml:"permissions" json:"permissions"`
 }
 
 // ErrInvalidTask is the base error for validation failures.

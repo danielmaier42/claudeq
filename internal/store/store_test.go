@@ -1,6 +1,8 @@
 package store
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -146,6 +148,50 @@ func TestStateReadStatusPersists(t *testing.T) {
 	}
 	if _, ok := reloaded.LastStart("taskA"); !ok {
 		t.Fatal("last-start did not persist")
+	}
+}
+
+func TestUpdateConfigConcurrentAddsNoLoss(t *testing.T) {
+	s := openTemp(t)
+	const n = 20
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_ = s.UpdateConfig(func(cfg *Config) error {
+				cfg.Tasks = append(cfg.Tasks, sampleTask(fmt.Sprintf("t%02d", i)))
+				return nil
+			})
+		}(i)
+	}
+	wg.Wait()
+
+	cfg, err := s.LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if len(cfg.Tasks) != n {
+		t.Fatalf("lost updates under concurrency: got %d tasks, want %d", len(cfg.Tasks), n)
+	}
+}
+
+func TestUpdateStatePreservesOtherKeys(t *testing.T) {
+	s := openTemp(t)
+	// One writer sets read-status (as the API would)...
+	if err := s.UpdateState(func(st *State) error { st.MarkRead("r1"); return nil }); err != nil {
+		t.Fatalf("UpdateState: %v", err)
+	}
+	// ...another touches only scheduling keys (as the engine would).
+	if err := s.UpdateState(func(st *State) error { st.RecordStart("taskA", time.Now()); return nil }); err != nil {
+		t.Fatalf("UpdateState: %v", err)
+	}
+	st, _ := s.LoadState()
+	if !st.IsRead("r1") {
+		t.Fatal("read-status was clobbered by an unrelated state update")
+	}
+	if _, ok := st.LastStart("taskA"); !ok {
+		t.Fatal("last-start not persisted")
 	}
 }
 

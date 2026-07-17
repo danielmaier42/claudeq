@@ -8,12 +8,14 @@ import (
 	"crypto/rand"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/danielmaier42/claudeq/internal/clock"
 	"github.com/danielmaier42/claudeq/internal/executor"
 	"github.com/danielmaier42/claudeq/internal/limit"
+	"github.com/danielmaier42/claudeq/internal/notify"
 	"github.com/danielmaier42/claudeq/internal/schedule"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
@@ -39,6 +41,9 @@ type Waker interface {
 // SetWaker enables wake planning after each loop tick.
 func (e *Engine) SetWaker(w Waker) { e.waker = w }
 
+// SetNotifier enables outcome notifications (failure / auth error).
+func (e *Engine) SetNotifier(n notify.Notifier) { e.notifier = n }
+
 // Engine orchestrates task execution. Construct it with [New].
 type Engine struct {
 	store *store.Store
@@ -51,6 +56,7 @@ type Engine struct {
 	backoff      time.Duration
 	waker        Waker
 	lastWakeErr  string
+	notifier     notify.Notifier
 
 	mu                sync.Mutex
 	active            map[string]bool // taskID -> currently running
@@ -97,11 +103,9 @@ func (e *Engine) Tick(ctx context.Context) error {
 	}
 
 	now := e.clock.Now()
-	if e.seedCronAnchors(cfg, st, now) {
-		if err := e.store.SaveState(st); err != nil {
-			return fmt.Errorf("seed cron anchors: %w", err)
-		}
-	}
+	// Seed the in-memory snapshot so freshly-added cron tasks have an anchor for
+	// the due check below (their first run is the next occurrence, not now).
+	seeded := e.seedCronAnchors(cfg, st, now)
 
 	due := make([]task.Task, 0, len(cfg.Tasks))
 	for _, t := range cfg.Tasks {
@@ -122,12 +126,32 @@ func (e *Engine) Tick(ctx context.Context) error {
 	}
 
 	toStart := schedule.Select(due, e.runningState())
+
+	// Persist scheduling state only when something changed, and via a targeted
+	// update so we never clobber read-status set concurrently through the API.
+	if seeded || len(toStart) > 0 {
+		startIDs := make([]string, len(toStart))
+		for i, t := range toStart {
+			startIDs[i] = t.ID
+		}
+		if err := e.store.UpdateState(func(cur *store.State) error {
+			e.seedCronAnchors(cfg, cur, now)
+			for _, id := range startIDs {
+				cur.RecordStart(id, now)
+			}
+			return nil
+		}); err != nil {
+			return fmt.Errorf("persist scheduling state: %w", err)
+		}
+	}
+
 	for _, t := range toStart {
-		if err := e.startLocked(ctx, t, cfg.Settings, st); err != nil {
+		sessionID, resume := e.sessionFor(t, st)
+		if err := e.launchTask(ctx, t, cfg.Settings, sessionID, resume, now); err != nil {
 			return err
 		}
 	}
-	return e.store.SaveState(st)
+	return nil
 }
 
 // seedCronAnchors gives every not-yet-seen cron task an anchor of now, so its
@@ -153,12 +177,10 @@ func (e *Engine) runningState() schedule.Running {
 	}
 }
 
-// startLocked launches a task. The caller must hold e.mu. State mutations
-// (RecordStart) are applied to st and persisted by the caller.
-func (e *Engine) startLocked(ctx context.Context, t task.Task, settings store.Settings, st *store.State) error {
+// launchTask starts a run for t. The caller must hold e.mu and have already
+// persisted the RecordStart. sessionID/resume come from the caller's snapshot.
+func (e *Engine) launchTask(ctx context.Context, t task.Task, settings store.Settings, sessionID string, resume bool, started time.Time) error {
 	runID := e.newRunID()
-	sessionID, resume := e.sessionFor(t, st)
-	started := e.clock.Now()
 
 	logFile, err := os.Create(e.store.LogPath(runID))
 	if err != nil {
@@ -177,7 +199,6 @@ func (e *Engine) startLocked(ctx context.Context, t task.Task, settings store.Se
 		return fmt.Errorf("record run start: %w", err)
 	}
 
-	st.RecordStart(t.ID, started)
 	e.active[t.ID] = true
 	if t.Parallel {
 		e.parallelActive++
@@ -215,20 +236,13 @@ func (e *Engine) sessionFor(t task.Task, st *store.State) (string, bool) {
 // finish records a completed run and updates scheduling state.
 func (e *Engine) finish(t task.Task, rec store.Run, res executor.Result, runErr error) {
 	e.mu.Lock()
-	defer e.mu.Unlock()
-
 	delete(e.active, t.ID)
 	if t.Parallel {
 		e.parallelActive--
 	} else {
 		e.nonParallelActive--
 	}
-
-	st, err := e.store.LoadState()
-	if err != nil {
-		// Best-effort: without state we can still record the run below.
-		st = nil
-	}
+	e.mu.Unlock()
 
 	finished := e.clock.Now()
 	rec.FinishedAt = &finished
@@ -237,7 +251,6 @@ func (e *Engine) finish(t task.Task, rec store.Run, res executor.Result, runErr 
 	if res.SessionID != "" {
 		rec.SessionID = res.SessionID
 	}
-
 	if runErr != nil {
 		rec.Status = store.StatusFailed
 		rec.Error = runErr.Error()
@@ -245,31 +258,60 @@ func (e *Engine) finish(t task.Task, rec store.Run, res executor.Result, runErr 
 		rec.Error = res.Message
 	}
 
+	// Targeted state update: touch only this task's keys so a concurrent API
+	// read-status change is preserved.
 	switch rec.Status {
 	case store.StatusRateLimited:
-		// Wait for reset, then resume this session.
 		delay := res.RetryAfter
 		if delay <= 0 {
 			delay = e.backoff
 		}
-		e.gate.BlockFor(delay)
-		if st != nil {
+		e.gate.BlockFor(delay) // wait for reset, then resume this session
+		_ = e.store.UpdateState(func(st *store.State) error {
 			st.SetPendingResume(t.ID, res.SessionID)
-		}
+			return nil
+		})
 	default:
-		// Terminal outcome: clear any pending resume; one-shot tasks are done.
-		if st != nil {
+		oneShot := t.Trigger == task.TriggerASAP || t.Trigger == task.TriggerFixed
+		_ = e.store.UpdateState(func(st *store.State) error {
 			st.ClearPendingResume(t.ID)
-			if t.Trigger == task.TriggerASAP || t.Trigger == task.TriggerFixed {
+			if oneShot {
 				st.MarkCompletedOnce(t.ID)
 			}
-		}
+			return nil
+		})
 	}
 
 	_ = e.store.AppendRun(rec)
-	if st != nil {
-		_ = e.store.SaveState(st)
+
+	// Notify outside any lock so channel I/O never blocks other finishing runs.
+	e.notifyOutcome(rec)
+}
+
+// notifyOutcome sends a best-effort notification for failure / auth outcomes
+// (FA-35/FA-38). Rate-limit waits and successes are not notified by default.
+func (e *Engine) notifyOutcome(rec store.Run) {
+	if e.notifier == nil {
+		return
 	}
+	var n notify.Notification
+	switch rec.Status {
+	case store.StatusFailed:
+		n = notify.Notification{
+			Title:   "claudeq: task failed",
+			Message: strings.TrimSpace(rec.TaskName + " failed. " + rec.Error),
+		}
+	case store.StatusAuthError:
+		n = notify.Notification{
+			Title:   "claudeq: login problem",
+			Message: rec.TaskName + ": Claude Code authentication problem — please re-login.",
+		}
+	default:
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	_ = e.notifier.Notify(ctx, n)
 }
 
 // WaitIdle blocks until all in-flight runs have completed.
@@ -374,15 +416,25 @@ func (e *Engine) RunTaskNow(ctx context.Context, taskID string) error {
 	}
 
 	e.mu.Lock()
+	if e.active[taskID] {
+		e.mu.Unlock()
+		return fmt.Errorf("task %q is already running", taskID)
+	}
 	st, err := e.store.LoadState()
 	if err != nil {
 		e.mu.Unlock()
 		return fmt.Errorf("load state: %w", err)
 	}
-	startErr := e.startLocked(ctx, *target, cfg.Settings, st)
-	if startErr == nil {
-		startErr = e.store.SaveState(st)
+	sessionID, resume := e.sessionFor(*target, st)
+	now := e.clock.Now()
+	if err := e.store.UpdateState(func(cur *store.State) error {
+		cur.RecordStart(taskID, now)
+		return nil
+	}); err != nil {
+		e.mu.Unlock()
+		return fmt.Errorf("record run start: %w", err)
 	}
+	startErr := e.launchTask(ctx, *target, cfg.Settings, sessionID, resume, now)
 	e.mu.Unlock()
 
 	e.WaitIdle()
