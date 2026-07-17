@@ -93,7 +93,7 @@ func cmdRun(args []string) error {
 
 	httpSrv := &http.Server{
 		Addr:              *addr,
-		Handler:           api.Handler(api.Deps{Store: st, Runner: eng}),
+		Handler:           api.Handler(api.Deps{Store: st, Runner: eng, Models: api.BinaryModelLister("claude")}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() {

@@ -5,13 +5,18 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io/fs"
 	"net/http"
 	"os"
+	"path/filepath"
+	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/danielmaier42/claudeq/internal/app"
 	"github.com/danielmaier42/claudeq/internal/store"
@@ -29,7 +34,8 @@ type RunNower interface {
 // Deps are the API server's dependencies.
 type Deps struct {
 	Store  *store.Store
-	Runner RunNower // optional; enables the run-now endpoint
+	Runner RunNower       // optional; enables the run-now endpoint
+	Models func() []Model // optional; enables dynamic model listing
 }
 
 // Handler builds the HTTP handler (REST API under /api + dashboard at /).
@@ -51,6 +57,7 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("PUT /api/settings", s.putSettings)
 	mux.HandleFunc("GET /api/models", s.listModels)
+	mux.HandleFunc("GET /api/fs", s.listDir)
 
 	sub, _ := fs.Sub(webFS, "web")
 	mux.Handle("GET /", http.FileServer(http.FS(sub)))
@@ -76,6 +83,9 @@ func (s *server) addTask(w http.ResponseWriter, r *http.Request) {
 	}
 	if t.Permissions == "" {
 		t.Permissions = task.PermissionsDefault
+	}
+	if t.ID == "" {
+		t.ID = genTaskID(t.Name)
 	}
 	if t.Name == "" {
 		t.Name = t.ID
@@ -217,7 +227,75 @@ func (s *server) putSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) listModels(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, knownModels)
+	if s.d.Models != nil {
+		writeJSON(w, http.StatusOK, s.d.Models())
+		return
+	}
+	writeJSON(w, http.StatusOK, fallbackModels)
+}
+
+// dirListing is a directory and its immediate sub-directories, for the folder
+// picker.
+type dirListing struct {
+	Path   string   `json:"path"`
+	Parent string   `json:"parent"`
+	Dirs   []string `json:"dirs"`
+}
+
+func (s *server) listDir(w http.ResponseWriter, r *http.Request) {
+	p := r.URL.Query().Get("path")
+	if p == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		p = home
+	}
+	p = filepath.Clean(p)
+	entries, err := os.ReadDir(p)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	dirs := []string{}
+	for _, e := range entries {
+		if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
+			dirs = append(dirs, e.Name())
+		}
+	}
+	sort.Strings(dirs)
+	parent := filepath.Dir(p)
+	writeJSON(w, http.StatusOK, dirListing{Path: p, Parent: parent, Dirs: dirs})
+}
+
+// genTaskID builds a URL-safe id from a name plus a short random suffix, so the
+// user never has to supply one.
+func genTaskID(name string) string {
+	slug := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r + 32
+		case r == ' ' || r == '-' || r == '_':
+			return '-'
+		default:
+			return -1
+		}
+	}, name)
+	slug = strings.Trim(slug, "-")
+	if slug == "" {
+		slug = "task"
+	}
+	if len(slug) > 24 {
+		slug = strings.Trim(slug[:24], "-")
+	}
+	b := make([]byte, 3)
+	if _, err := rand.Read(b); err != nil {
+		return slug
+	}
+	return slug + "-" + hex.EncodeToString(b)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -167,6 +169,49 @@ func TestRunNowInvokesRunner(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("runner was not invoked")
+	}
+}
+
+func TestAddTaskGeneratesID(t *testing.T) {
+	srv, _ := newServer(t, nil)
+	// No id supplied — the server must generate one.
+	body := map[string]any{"name": "My Nightly Build", "prompt": "p", "working_dir": "/r", "trigger": "asap"}
+	if r := do(t, srv, "POST", "/api/tasks", body); r.Status != http.StatusCreated {
+		t.Fatalf("add status = %d (%s)", r.Status, r.Body)
+	}
+	var tasks []task.Task
+	do(t, srv, "GET", "/api/tasks", nil).into(t, &tasks)
+	if len(tasks) != 1 || tasks[0].ID == "" {
+		t.Fatalf("expected a task with a generated id, got %+v", tasks)
+	}
+	if !strings.HasPrefix(tasks[0].ID, "my-nightly-build-") {
+		t.Fatalf("generated id %q should derive from the name", tasks[0].ID)
+	}
+}
+
+func TestListDir(t *testing.T) {
+	srv, _ := newServer(t, nil)
+	dir := t.TempDir()
+	if err := os.MkdirAll(dir+"/sub-a", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir+"/.hidden", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var listing dirListing
+	do(t, srv, "GET", "/api/fs?path="+dir, nil).into(t, &listing)
+	if listing.Path != dir {
+		t.Fatalf("path = %q, want %q", listing.Path, dir)
+	}
+	if len(listing.Dirs) != 1 || listing.Dirs[0] != "sub-a" {
+		t.Fatalf("dirs = %v, want [sub-a] (hidden excluded)", listing.Dirs)
+	}
+}
+
+func TestListDirBadPath(t *testing.T) {
+	srv, _ := newServer(t, nil)
+	if r := do(t, srv, "GET", "/api/fs?path=/no/such/path/xyz", nil); r.Status != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing path, got %d", r.Status)
 	}
 }
 
