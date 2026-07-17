@@ -284,6 +284,18 @@ func (e *Engine) finish(t task.Task, rec store.Run, res executor.Result, runErr 
 
 	_ = e.store.AppendRun(rec)
 
+	// Persist the latest usage snapshot the CLI reported, if any.
+	if u := res.Usage; u != nil {
+		snap := store.Usage{
+			Utilization: u.Utilization, Status: u.Status, LimitType: u.LimitType,
+			IsUsingOverage: u.IsUsingOverage, CapturedAt: finished,
+		}
+		if u.ResetsAtUnix > 0 {
+			snap.ResetsAt = time.Unix(u.ResetsAtUnix, 0)
+		}
+		_ = e.store.SaveUsage(snap)
+	}
+
 	// Notify outside any lock so channel I/O never blocks other finishing runs.
 	e.notifyOutcome(rec)
 }

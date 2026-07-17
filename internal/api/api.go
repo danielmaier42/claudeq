@@ -58,6 +58,7 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("PUT /api/settings", s.putSettings)
 	mux.HandleFunc("GET /api/models", s.listModels)
 	mux.HandleFunc("GET /api/fs", s.listDir)
+	mux.HandleFunc("GET /api/usage", s.getUsage)
 
 	sub, _ := fs.Sub(webFS, "web")
 	mux.Handle("GET /", http.FileServer(http.FS(sub)))
@@ -224,6 +225,19 @@ func (s *server) putSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, cfg.Settings)
+}
+
+func (s *server) getUsage(w http.ResponseWriter, _ *http.Request) {
+	u, ok, err := s.d.Store.LoadUsage()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if !ok {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	writeJSON(w, http.StatusOK, u)
 }
 
 func (s *server) listModels(w http.ResponseWriter, _ *http.Request) {

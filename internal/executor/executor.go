@@ -49,6 +49,16 @@ type Result struct {
 	ExitCode   int
 	RetryAfter time.Duration // set when Status == StatusRateLimited
 	Message    string        // short human-readable detail
+	Usage      *UsageInfo    // latest rate-limit/usage info seen, if any
+}
+
+// UsageInfo is the rate_limit_info the CLI reports in stream-json.
+type UsageInfo struct {
+	Status         string
+	LimitType      string
+	Utilization    float64
+	IsUsingOverage bool
+	ResetsAtUnix   int64
 }
 
 // Args returns the CLI arguments for a request (excluding the binary name).
@@ -136,14 +146,23 @@ func cloneLine(b []byte) []byte {
 // streamEvent covers the fields we read from both the final `result` envelope
 // and intermediate `api_retry` system events. Unknown fields are ignored.
 type streamEvent struct {
-	Type           string `json:"type"`
-	Subtype        string `json:"subtype"`
-	IsError        bool   `json:"is_error"`
-	APIErrorStatus *int   `json:"api_error_status"`
-	ErrorStatus    *int   `json:"error_status"`
-	Error          string `json:"error"`
-	RetryDelayMS   *int   `json:"retry_delay_ms"`
-	SessionID      string `json:"session_id"`
+	Type           string         `json:"type"`
+	Subtype        string         `json:"subtype"`
+	IsError        bool           `json:"is_error"`
+	APIErrorStatus *int           `json:"api_error_status"`
+	ErrorStatus    *int           `json:"error_status"`
+	Error          string         `json:"error"`
+	RetryDelayMS   *int           `json:"retry_delay_ms"`
+	SessionID      string         `json:"session_id"`
+	RateLimitInfo  *rateLimitInfo `json:"rate_limit_info"`
+}
+
+type rateLimitInfo struct {
+	Status         string  `json:"status"`
+	ResetsAt       int64   `json:"resetsAt"`
+	RateLimitType  string  `json:"rateLimitType"`
+	Utilization    float64 `json:"utilization"`
+	IsUsingOverage bool    `json:"isUsingOverage"`
 }
 
 type classifier struct {
@@ -153,6 +172,7 @@ type classifier struct {
 	rateLimit  bool
 	authError  bool
 	retryDelay time.Duration
+	usage      *UsageInfo
 }
 
 func (c *classifier) consume(line []byte) {
@@ -178,6 +198,15 @@ func (c *classifier) consume(line []byte) {
 	if ev.RetryDelayMS != nil && *ev.RetryDelayMS > 0 {
 		c.retryDelay = time.Duration(*ev.RetryDelayMS) * time.Millisecond
 	}
+	if ev.RateLimitInfo != nil {
+		c.usage = &UsageInfo{
+			Status:         ev.RateLimitInfo.Status,
+			LimitType:      ev.RateLimitInfo.RateLimitType,
+			Utilization:    ev.RateLimitInfo.Utilization,
+			IsUsingOverage: ev.RateLimitInfo.IsUsingOverage,
+			ResetsAtUnix:   ev.RateLimitInfo.ResetsAt,
+		}
+	}
 	if ev.Type == "result" {
 		c.sawResult = true
 		c.resultErr = ev.IsError
@@ -185,7 +214,7 @@ func (c *classifier) consume(line []byte) {
 }
 
 func (c *classifier) result(exitCode int) Result {
-	res := Result{SessionID: c.sessionID, ExitCode: exitCode, RetryAfter: c.retryDelay}
+	res := Result{SessionID: c.sessionID, ExitCode: exitCode, RetryAfter: c.retryDelay, Usage: c.usage}
 	switch {
 	case c.authError:
 		res.Status = store.StatusAuthError

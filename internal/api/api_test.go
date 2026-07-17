@@ -215,6 +215,26 @@ func TestListDirBadPath(t *testing.T) {
 	}
 }
 
+func TestGetUsage(t *testing.T) {
+	srv, st := newServer(t, nil)
+	// No snapshot yet -> 204.
+	if r := do(t, srv, "GET", "/api/usage", nil); r.Status != http.StatusNoContent {
+		t.Fatalf("expected 204 when no usage, got %d", r.Status)
+	}
+	if err := st.SaveUsage(store.Usage{Utilization: 0.5, Status: "allowed", LimitType: "overage"}); err != nil {
+		t.Fatal(err)
+	}
+	var u store.Usage
+	r := do(t, srv, "GET", "/api/usage", nil)
+	if r.Status != http.StatusOK {
+		t.Fatalf("expected 200, got %d", r.Status)
+	}
+	r.into(t, &u)
+	if u.Utilization != 0.5 || u.LimitType != "overage" {
+		t.Fatalf("unexpected usage: %+v", u)
+	}
+}
+
 func TestListModels(t *testing.T) {
 	srv, _ := newServer(t, nil)
 	var models []Model

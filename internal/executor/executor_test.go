@@ -149,6 +149,23 @@ func TestRunFailure(t *testing.T) {
 	}
 }
 
+func TestRunCapturesUsage(t *testing.T) {
+	out := strings.Join([]string{
+		`{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning","resetsAt":1785542400,"rateLimitType":"overage","utilization":0.42,"isUsingOverage":false}}`,
+		`{"type":"result","subtype":"success","is_error":false,"result":"OK","session_id":"s"}`,
+	}, "\n")
+	res := runFake(t, out, 0)
+	if res.Status != store.StatusSuccess {
+		t.Fatalf("status = %q, want success", res.Status)
+	}
+	if res.Usage == nil {
+		t.Fatal("expected usage info to be captured")
+	}
+	if res.Usage.Utilization != 0.42 || res.Usage.ResetsAtUnix != 1785542400 || res.Usage.LimitType != "overage" {
+		t.Fatalf("unexpected usage: %+v", res.Usage)
+	}
+}
+
 func TestRunRateLimitWinsOverPartialResult(t *testing.T) {
 	// A rate-limit event followed by an errored result must classify as
 	// rate-limited (so the gate waits), not a plain failure.
