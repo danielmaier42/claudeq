@@ -97,6 +97,10 @@ func (s *server) addTask(w http.ResponseWriter, r *http.Request) {
 	if t.Name == "" {
 		t.Name = t.ID
 	}
+	// A newly queued task is active by default; pausing is an explicit action
+	// via the enable/disable endpoint. This avoids a silently-disabled task that
+	// never runs on schedule (only via "run now").
+	t.Enabled = true
 	if err := t.Validate(); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return

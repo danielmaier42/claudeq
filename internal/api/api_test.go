@@ -207,6 +207,11 @@ func TestAddTaskGeneratesID(t *testing.T) {
 	if !strings.HasPrefix(tasks[0].ID, "my-nightly-build-") {
 		t.Fatalf("generated id %q should derive from the name", tasks[0].ID)
 	}
+	// A new task must be enabled by default even if the client omits the flag,
+	// otherwise the scheduler would skip it (only "run now" would work).
+	if !tasks[0].Enabled {
+		t.Fatal("newly added task should be enabled by default")
+	}
 }
 
 func TestChooseFolder(t *testing.T) {
