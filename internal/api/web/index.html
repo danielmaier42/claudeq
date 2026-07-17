@@ -120,6 +120,16 @@
   .pill.success .d{background:var(--ok)} .pill.failed .d,.pill.auth_error .d{background:var(--danger)}
   .pill.rate_limited_waiting .d{background:var(--warn)} .pill.running .d{background:var(--running)}
   .unread-dot { width:8px; height:8px; border-radius:50%; background:var(--accent); flex-shrink:0; }
+  /* Activity rows: unread dot in a left gutter, mark-read eye in a right gutter — both outside the card. */
+  .act-list { display:flex; flex-direction:column; gap:8px; }
+  .act-line { display:flex; align-items:center; gap:8px; }
+  .act-gl { width:10px; flex:none; display:flex; justify-content:center; }
+  .act-gr { width:24px; flex:none; display:flex; justify-content:center; }
+  .act-card { flex:1; min-width:0; display:flex; align-items:center; gap:12px;
+              background:var(--card); border:.5px solid var(--hairline); border-radius:11px; padding:11px 15px; box-shadow:var(--shadow); }
+  .eye-btn { background:none; border:none; padding:2px; cursor:pointer; color:var(--fg2); line-height:0; }
+  .eye-btn:hover { color:var(--accent); }
+  .eye-btn svg { width:18px; height:18px; stroke:currentColor; stroke-width:1.7; fill:none; }
 
   /* Forms */
   label.fld { display:block; font-size:12px; color:var(--fg2); margin:12px 0 4px; }
@@ -458,20 +468,22 @@ async function loadRuns(){
   runsSig=sig;
   const c=$('#news'); c.innerHTML='';
   if(!runs.length){ c.append(emptyState('No activity yet','Runs will appear here after tasks execute.')); return; }
-  const g=el('div','group');
+  const list=el('div','act-list');
   runs.forEach(r=>{
-    const row=el('div','row');
-    if(r.unread){ row.append(el('div','unread-dot')); }
+    const line=el('div','act-line');
+    const gl=el('div','act-gl'); if(r.unread) gl.append(el('div','unread-dot'));
+    const card=el('div','act-card');
     const grow=el('div','grow'); grow.innerHTML=`<div class="title">${esc(r.task_name)}</div><div class="sub">${relTime(r.started_at)}</div>`;
     const pill=el('span','pill '+r.status); pill.innerHTML=`<span class="d"></span>${esc(r.status.replace(/_/g,' '))}`;
     const actions=el('div','row-actions');
     const log=el('button','btn small','Log'); log.onclick=()=>showLog(r.run_id,r.task_name); actions.append(log);
     if(r.task){ const rp=el('button','btn small iconly',REPLAY); rp.title='Replay this task'; rp.onclick=()=>openReplay(r.task); actions.append(rp); }
-    if(r.unread){ const mr=el('button','btn small iconly',EYE); mr.title='Mark read'; mr.onclick=()=>readRun(r.run_id); actions.append(mr); }
-    row.append(grow,pill,actions);
-    g.append(row);
+    card.append(grow,pill,actions);
+    const gr=el('div','act-gr'); if(r.unread){ const mr=el('button','eye-btn',EYE); mr.title='Mark read'; mr.onclick=()=>readRun(r.run_id); gr.append(mr); }
+    line.append(gl,card,gr);
+    list.append(line);
   });
-  c.append(g);
+  c.append(list);
 }
 async function readRun(id){ try{ await api('POST',`/api/runs/${id}/read`); }catch{} runsSig=''; loadRuns(); }
 async function markAllRead(){ try{await api('POST','/api/runs/read-all');toast('All marked read','ok'); runsSig=''; loadRuns();}catch(e){toast(e.message,'err')} }
