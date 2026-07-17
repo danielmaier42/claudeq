@@ -6,202 +6,362 @@
 <title>claudeq</title>
 <style>
   :root {
-    --bg: #f6f7f9; --panel: #fff; --fg: #1c1e21; --muted: #6b7280;
-    --border: #e5e7eb; --accent: #2563eb; --danger: #dc2626; --ok: #16a34a; --warn: #d97706;
+    --accent:#007aff; --accent-fg:#fff;
+    --bg:#f2f2f7; --sidebar:rgba(245,245,247,.8); --card:#ffffff; --card-2:#fbfbfd;
+    --fg:#1d1d1f; --fg2:#6e6e73; --hairline:rgba(0,0,0,.10);
+    --seg-bg:rgba(120,120,128,.12); --seg-active:#fff; --switch-off:rgba(120,120,128,.32);
+    --ok:#34c759; --warn:#ff9f0a; --danger:#ff3b30; --running:#007aff;
+    --shadow:0 1px 3px rgba(0,0,0,.08),0 6px 20px rgba(0,0,0,.06);
   }
   @media (prefers-color-scheme: dark) {
-    :root { --bg:#15171c; --panel:#1e2128; --fg:#e6e8eb; --muted:#9aa3af;
-            --border:#2c313a; --accent:#5b9dff; --danger:#f87171; --ok:#4ade80; --warn:#fbbf24; }
+    :root {
+      --accent:#0a84ff; --bg:#1c1c1e; --sidebar:rgba(30,30,32,.72); --card:#2c2c2e; --card-2:#252527;
+      --fg:#f5f5f7; --fg2:#98989d; --hairline:rgba(255,255,255,.12);
+      --seg-bg:rgba(120,120,128,.24); --seg-active:#636366; --switch-off:rgba(120,120,128,.5);
+      --ok:#30d158; --warn:#ff9f0a; --danger:#ff453a; --running:#0a84ff;
+      --shadow:0 1px 3px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
+    }
   }
-  * { box-sizing: border-box; }
-  body { margin:0; font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-         background:var(--bg); color:var(--fg); }
-  header { display:flex; align-items:center; gap:16px; padding:14px 20px;
-           border-bottom:1px solid var(--border); background:var(--panel); position:sticky; top:0; }
-  header h1 { font-size:16px; margin:0; letter-spacing:.5px; }
-  nav { display:flex; gap:4px; }
-  nav button { background:none; border:none; color:var(--muted); padding:6px 12px; border-radius:6px;
-               cursor:pointer; font-size:14px; }
-  nav button.active { background:var(--bg); color:var(--fg); font-weight:600; }
-  .badge { background:var(--danger); color:#fff; border-radius:10px; padding:0 6px; font-size:11px; margin-left:4px; }
-  main { padding:20px; max-width:1000px; margin:0 auto; }
-  .panel { background:var(--panel); border:1px solid var(--border); border-radius:10px;
-           padding:16px; margin-bottom:16px; }
-  table { width:100%; border-collapse:collapse; }
-  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); vertical-align:middle; }
-  th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.4px; }
-  tr.unread td { font-weight:600; }
-  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; }
-  .s-success{color:var(--ok)} .s-failed{color:var(--danger)} .s-auth_error{color:var(--danger)}
-  .s-rate_limited_waiting{color:var(--warn)} .s-running{color:var(--accent)}
-  button.act { background:var(--panel); border:1px solid var(--border); color:var(--fg);
-               padding:4px 10px; border-radius:6px; cursor:pointer; font-size:13px; }
-  button.act:hover { border-color:var(--accent); }
-  button.primary { background:var(--accent); color:#fff; border:none; }
-  input,select,textarea { width:100%; padding:7px 9px; border:1px solid var(--border); border-radius:6px;
-           background:var(--bg); color:var(--fg); font:inherit; }
-  label { display:block; font-size:12px; color:var(--muted); margin:8px 0 3px; }
-  .grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-  .row-actions { display:flex; gap:6px; flex-wrap:wrap; }
-  .muted { color:var(--muted); }
-  dialog { border:1px solid var(--border); border-radius:10px; background:var(--panel); color:var(--fg);
-           max-width:80vw; width:800px; }
-  pre { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:12px;
-        overflow:auto; max-height:60vh; font-size:12px; }
-  .hint { font-size:12px; color:var(--muted); margin-top:4px; }
-  .toolbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+  * { box-sizing:border-box; }
+  html,body { height:100%; }
+  body {
+    margin:0; display:flex; height:100vh; overflow:hidden;
+    font:13px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;
+    color:var(--fg); background:var(--bg);
+    -webkit-font-smoothing:antialiased;
+  }
+  /* Sidebar (source list) */
+  .sidebar {
+    width:220px; flex-shrink:0; background:var(--sidebar); backdrop-filter:saturate(180%) blur(20px);
+    -webkit-backdrop-filter:saturate(180%) blur(20px);
+    border-right:.5px solid var(--hairline); padding:14px 10px; display:flex; flex-direction:column;
+  }
+  .brand { display:flex; align-items:center; gap:8px; padding:4px 8px 14px; }
+  .brand .logo { width:22px; height:22px; border-radius:6px; background:linear-gradient(135deg,var(--accent),#5e5ce6);
+                 display:grid; place-items:center; color:#fff; font-weight:700; font-size:12px; }
+  .brand b { font-size:14px; letter-spacing:.2px; }
+  .nav { display:flex; flex-direction:column; gap:2px; }
+  .nav button {
+    display:flex; align-items:center; gap:9px; width:100%; text-align:left; border:none; cursor:pointer;
+    background:none; color:var(--fg); padding:6px 8px; border-radius:7px; font-size:13px; font-weight:500;
+  }
+  .nav button:hover { background:rgba(120,120,128,.12); }
+  .nav button.active { background:var(--accent); color:var(--accent-fg); }
+  .nav button.active svg { stroke:var(--accent-fg); }
+  .nav svg { width:16px; height:16px; stroke:var(--fg2); stroke-width:1.8; fill:none; flex-shrink:0; }
+  .nav .count { margin-left:auto; background:var(--danger); color:#fff; font-size:11px; font-weight:600;
+                min-width:18px; height:18px; border-radius:9px; display:grid; place-items:center; padding:0 5px; }
+  .nav button.active .count { background:rgba(255,255,255,.3); }
+  .side-foot { margin-top:auto; display:flex; align-items:center; gap:7px; padding:8px; color:var(--fg2); font-size:12px; }
+  .side-foot .dot { width:8px; height:8px; border-radius:50%; background:var(--ok); }
+
+  /* Main */
+  .main { flex:1; display:flex; flex-direction:column; min-width:0; }
+  .toolbar { height:52px; flex-shrink:0; display:flex; align-items:center; gap:12px; padding:0 22px;
+             border-bottom:.5px solid var(--hairline); background:var(--card); }
+  .toolbar h1 { font-size:15px; font-weight:600; margin:0; }
+  .toolbar .spacer { flex:1; }
+  .content { flex:1; overflow:auto; padding:22px; }
+  .wrap { max-width:760px; margin:0 auto; }
+  .section-label { font-size:12px; font-weight:600; color:var(--fg2); text-transform:uppercase;
+                   letter-spacing:.4px; margin:0 0 8px 14px; }
+
+  /* Buttons */
+  .btn { font:inherit; font-size:13px; border:.5px solid var(--hairline); background:var(--card);
+         color:var(--fg); padding:5px 12px; border-radius:7px; cursor:pointer; box-shadow:0 1px 1px rgba(0,0,0,.04);
+         display:inline-flex; align-items:center; gap:6px; }
+  .btn:hover { background:var(--card-2); }
+  .btn:active { transform:translateY(.5px); }
+  .btn.primary { background:var(--accent); color:#fff; border-color:transparent; }
+  .btn.primary:hover { filter:brightness(1.06); }
+  .btn.danger { color:var(--danger); }
+  .btn.small { padding:3px 9px; font-size:12px; }
+  .btn:disabled { opacity:.4; cursor:default; }
+
+  /* Grouped inset list */
+  .group { background:var(--card); border-radius:11px; box-shadow:var(--shadow); overflow:hidden; margin-bottom:18px; }
+  .row { display:flex; align-items:center; gap:12px; padding:11px 15px; border-bottom:.5px solid var(--hairline); }
+  .row:last-child { border-bottom:none; }
+  .row .grow { flex:1; min-width:0; }
+  .row .title { font-weight:500; }
+  .row .sub { color:var(--fg2); font-size:12px; margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .row .mono { font-family:"SF Mono",ui-monospace,Menlo,monospace; }
+
+  /* Switch */
+  .switch { position:relative; display:inline-block; width:38px; height:22px; flex-shrink:0; }
+  .switch input { opacity:0; width:0; height:0; }
+  .switch .sl { position:absolute; inset:0; background:var(--switch-off); border-radius:22px; transition:.2s; }
+  .switch .sl:before { content:""; position:absolute; height:18px; width:18px; left:2px; top:2px; background:#fff;
+                       border-radius:50%; transition:.2s; box-shadow:0 1px 2px rgba(0,0,0,.35); }
+  .switch input:checked + .sl { background:var(--accent); }
+  .switch input:checked + .sl:before { transform:translateX(16px); }
+
+  /* Segmented control */
+  .seg { display:inline-flex; background:var(--seg-bg); border-radius:8px; padding:2px; }
+  .seg button { border:none; background:none; color:var(--fg); font:inherit; font-size:12px; font-weight:500;
+                padding:4px 12px; border-radius:6px; cursor:pointer; }
+  .seg button.active { background:var(--seg-active); box-shadow:0 1px 2px rgba(0,0,0,.18); }
+
+  /* Chips / pills */
+  .chip { font-size:11px; font-weight:600; padding:2px 8px; border-radius:20px; background:var(--seg-bg); color:var(--fg2); }
+  .pill { font-size:11px; font-weight:600; padding:3px 9px; border-radius:20px; display:inline-flex; align-items:center; gap:5px; }
+  .pill .d { width:6px; height:6px; border-radius:50%; }
+  .pill.success{ background:color-mix(in srgb,var(--ok) 16%,transparent); color:var(--ok); }
+  .pill.failed,.pill.auth_error{ background:color-mix(in srgb,var(--danger) 16%,transparent); color:var(--danger); }
+  .pill.rate_limited_waiting{ background:color-mix(in srgb,var(--warn) 18%,transparent); color:var(--warn); }
+  .pill.running{ background:color-mix(in srgb,var(--running) 16%,transparent); color:var(--running); }
+  .pill.success .d{background:var(--ok)} .pill.failed .d,.pill.auth_error .d{background:var(--danger)}
+  .pill.rate_limited_waiting .d{background:var(--warn)} .pill.running .d{background:var(--running)}
+  .unread-dot { width:8px; height:8px; border-radius:50%; background:var(--accent); flex-shrink:0; }
+
+  /* Forms */
+  label.fld { display:block; font-size:12px; color:var(--fg2); margin:12px 0 4px; }
+  input[type=text], input[type=number], textarea, select {
+    width:100%; font:inherit; padding:7px 10px; border:.5px solid var(--hairline); border-radius:7px;
+    background:var(--card-2); color:var(--fg); }
+  input:focus, textarea:focus, select:focus { outline:2px solid color-mix(in srgb,var(--accent) 50%,transparent); outline-offset:-1px; }
+  textarea { resize:vertical; }
+  .form-row { display:flex; gap:12px; } .form-row > div { flex:1; }
+
+  /* Empty state */
+  .empty { text-align:center; color:var(--fg2); padding:48px 20px; }
+  .empty .big { font-size:15px; color:var(--fg); font-weight:600; margin-bottom:4px; }
+
+  /* Sheet (dialog) */
+  dialog { border:none; border-radius:14px; padding:0; background:var(--card); color:var(--fg);
+           box-shadow:0 20px 60px rgba(0,0,0,.35); width:520px; max-width:92vw; }
+  dialog::backdrop { background:rgba(0,0,0,.35); backdrop-filter:blur(2px); }
+  .sheet-hd { display:flex; align-items:center; padding:14px 18px; border-bottom:.5px solid var(--hairline); }
+  .sheet-hd b { font-size:14px; } .sheet-bd { padding:16px 18px; max-height:70vh; overflow:auto; }
+  .sheet-ft { display:flex; justify-content:flex-end; gap:8px; padding:12px 18px; border-top:.5px solid var(--hairline); }
+  pre.log { font-family:"SF Mono",ui-monospace,Menlo,monospace; font-size:12px; background:var(--card-2);
+            border:.5px solid var(--hairline); border-radius:8px; padding:12px; overflow:auto; max-height:62vh; white-space:pre-wrap; word-break:break-word; }
+
+  /* Toasts */
+  #toasts { position:fixed; bottom:18px; right:18px; display:flex; flex-direction:column; gap:8px; z-index:50; }
+  .toast { background:var(--card); border:.5px solid var(--hairline); box-shadow:var(--shadow); border-radius:10px;
+           padding:10px 14px; font-size:13px; min-width:200px; animation:slidein .18s ease; display:flex; gap:8px; align-items:center; }
+  .toast .bar { width:3px; align-self:stretch; border-radius:3px; background:var(--accent); }
+  .toast.err .bar { background:var(--danger); } .toast.ok .bar { background:var(--ok); }
+  @keyframes slidein { from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none} }
+  .hint { font-size:12px; color:var(--fg2); margin-top:6px; }
 </style>
 </head>
 <body>
-<header>
-  <h1>claudeq</h1>
-  <nav>
-    <button data-tab="tasks" class="active">Tasks</button>
-    <button data-tab="news">News <span id="unreadBadge" class="badge" hidden>0</span></button>
-    <button data-tab="settings">Settings</button>
+<aside class="sidebar">
+  <div class="brand"><span class="logo">cq</span><b>claudeq</b></div>
+  <nav class="nav">
+    <button data-tab="tasks" class="active">
+      <svg viewBox="0 0 20 20"><path d="M4 6h12M4 10h12M4 14h12"/></svg> Tasks</button>
+    <button data-tab="news">
+      <svg viewBox="0 0 20 20"><path d="M10 3a4 4 0 0 1 4 4v3l1.5 2.5H4.5L6 10V7a4 4 0 0 1 4-4zM8 15a2 2 0 0 0 4 0"/></svg>
+      Activity <span id="unreadCount" class="count" hidden>0</span></button>
+    <button data-tab="settings">
+      <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="2.5"/><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5.5 5.5l1.4 1.4M13.1 13.1l1.4 1.4M14.5 5.5l-1.4 1.4M6.9 13.1l-1.4 1.4"/></svg>
+      Settings</button>
   </nav>
-</header>
-<main>
-  <section id="tasks" class="tab">
-    <div class="panel">
-      <div class="toolbar"><strong>Tasks</strong><button class="act" onclick="loadTasks()">Refresh</button></div>
-      <table><thead><tr><th>#</th><th>Name</th><th>Trigger</th><th>When</th><th>Parallel</th><th>Enabled</th><th></th></tr></thead>
-        <tbody id="taskRows"></tbody></table>
-    </div>
-    <div class="panel">
-      <strong>Add task</strong>
-      <div class="grid">
-        <div><label>ID</label><input id="f-id"></div>
-        <div><label>Name</label><input id="f-name"></div>
-      </div>
-      <label>Prompt</label><textarea id="f-prompt" rows="2"></textarea>
-      <div class="grid">
-        <div><label>Working directory</label><input id="f-dir"></div>
-        <div><label>Trigger</label><select id="f-trigger" onchange="triggerChanged()">
-          <option value="asap">asap</option><option value="fixed">fixed</option><option value="cron">cron</option>
-        </select></div>
-      </div>
-      <div class="grid">
-        <div id="f-at-wrap" hidden><label>At (RFC3339)</label><input id="f-at" placeholder="2026-07-18T22:00:00Z"></div>
-        <div id="f-cron-wrap" hidden><label>Cron</label><input id="f-cron" placeholder="0 20 * * *"></div>
-      </div>
-      <div class="grid">
-        <div><label>Model (optional)</label><input id="f-model" placeholder="global default"></div>
-        <div><label><input type="checkbox" id="f-parallel" style="width:auto"> parallel &nbsp;
-             <input type="checkbox" id="f-skip" style="width:auto"> skip permissions</label></div>
-      </div>
-      <p id="addErr" class="hint" style="color:var(--danger)"></p>
-      <button class="act primary" onclick="addTask()">Add</button>
-    </div>
-  </section>
+  <div class="side-foot"><span class="dot" id="connDot"></span><span id="connText">connected</span></div>
+</aside>
 
-  <section id="news" class="tab" hidden>
-    <div class="panel">
-      <div class="toolbar"><strong>Runs</strong>
-        <span><button class="act" onclick="markAllRead()">Mark all read</button>
-        <button class="act" onclick="loadRuns()">Refresh</button></span></div>
-      <table><thead><tr><th></th><th>Task</th><th>Status</th><th>Started</th><th></th></tr></thead>
-        <tbody id="runRows"></tbody></table>
-      <p id="runsEmpty" class="muted" hidden>No runs yet.</p>
-    </div>
-  </section>
+<div class="main">
+  <div class="toolbar">
+    <h1 id="pageTitle">Tasks</h1>
+    <div class="spacer"></div>
+    <div id="toolbarActions"></div>
+  </div>
+  <div class="content"><div class="wrap">
+    <section id="tasks" class="tab"></section>
+    <section id="news" class="tab" hidden></section>
+    <section id="settings" class="tab" hidden></section>
+  </div></div>
+</div>
 
-  <section id="settings" class="tab" hidden>
-    <div class="panel">
-      <strong>Settings</strong>
-      <label>Default model</label><input id="s-model">
-      <label><input type="checkbox" id="s-skip" style="width:auto"> skip permissions by default</label>
-      <label>Heartbeat (minutes)</label><input id="s-hb" type="number" min="0">
-      <div class="grid">
-        <div><label>Pushover token</label><input id="s-po-token"></div>
-        <div><label>Pushover user key</label><input id="s-po-user"></div>
-      </div>
-      <p id="setMsg" class="hint"></p>
-      <button class="act primary" onclick="saveSettings()" style="margin-top:10px">Save</button>
+<!-- Add task sheet -->
+<dialog id="addSheet">
+  <div class="sheet-hd"><b>New task</b></div>
+  <div class="sheet-bd">
+    <div class="form-row">
+      <div><label class="fld">ID</label><input type="text" id="f-id" placeholder="nightly-build"></div>
+      <div><label class="fld">Name</label><input type="text" id="f-name" placeholder="Nightly build"></div>
     </div>
-  </section>
-</main>
+    <label class="fld">Prompt</label><textarea id="f-prompt" rows="3" placeholder="What should Claude do?"></textarea>
+    <label class="fld">Working directory</label><input type="text" id="f-dir" placeholder="/Users/you/project">
+    <label class="fld">Trigger</label>
+    <div class="seg" id="f-trigger">
+      <button data-v="asap" class="active">As soon as possible</button>
+      <button data-v="fixed">Fixed time</button>
+      <button data-v="cron">Recurring</button>
+    </div>
+    <div id="f-at-wrap" hidden><label class="fld">Earliest start</label><input type="text" id="f-at" placeholder="2026-07-18T22:00:00Z"></div>
+    <div id="f-cron-wrap" hidden><label class="fld">Cron schedule</label><input type="text" id="f-cron" placeholder="0 20 * * *"></div>
+    <div class="form-row">
+      <div><label class="fld">Model (optional)</label><input type="text" id="f-model" placeholder="global default"></div>
+    </div>
+    <div class="group" style="margin-top:14px">
+      <div class="row"><div class="grow"><div class="title">Run in parallel</div><div class="sub">May run alongside other parallel tasks</div></div>
+        <label class="switch"><input type="checkbox" id="f-parallel"><span class="sl"></span></label></div>
+      <div class="row"><div class="grow"><div class="title">Skip permission prompts</div><div class="sub">Needed for unattended writes</div></div>
+        <label class="switch"><input type="checkbox" id="f-skip"><span class="sl"></span></label></div>
+    </div>
+    <p id="addErr" class="hint" style="color:var(--danger)"></p>
+  </div>
+  <div class="sheet-ft"><button class="btn" onclick="addSheet.close()">Cancel</button><button class="btn primary" onclick="submitTask()">Add task</button></div>
+</dialog>
 
-<dialog id="logDlg"><div class="toolbar"><strong id="logTitle">Log</strong><button class="act" onclick="logDlg.close()">Close</button></div><pre id="logBody"></pre></dialog>
+<!-- Log sheet -->
+<dialog id="logSheet">
+  <div class="sheet-hd"><b id="logTitle">Log</b></div>
+  <div class="sheet-bd"><pre class="log" id="logBody"></pre></div>
+  <div class="sheet-ft"><button class="btn" onclick="logSheet.close()">Done</button></div>
+</dialog>
+
+<!-- Confirm sheet -->
+<dialog id="confirmSheet">
+  <div class="sheet-bd" style="padding-top:20px"><b id="confirmText">Are you sure?</b></div>
+  <div class="sheet-ft"><button class="btn" id="confirmNo">Cancel</button><button class="btn danger" id="confirmYes">Delete</button></div>
+</dialog>
+
+<div id="toasts"></div>
 
 <script>
-const $ = s => document.querySelector(s);
-const api = async (m, path, body) => {
-  const r = await fetch(path, { method:m, headers:body?{'Content-Type':'application/json'}:{}, body:body?JSON.stringify(body):undefined });
-  if (!r.ok && r.status!==204) { let e; try{e=(await r.json()).error}catch{e=r.statusText}; throw new Error(e); }
-  const ct = r.headers.get('content-type')||''; return ct.includes('json') ? r.json() : r.text();
-};
-const esc = s => (s??'').toString().replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const $=s=>document.querySelector(s);
+const el=(t,c,h)=>{const e=document.createElement(t); if(c)e.className=c; if(h!=null)e.innerHTML=h; return e;};
+const esc=s=>(s??'').toString().replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
-document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
-  document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));
-  b.classList.add('active');
-  document.querySelectorAll('.tab').forEach(t=>t.hidden=true);
-  $('#'+b.dataset.tab).hidden=false;
-  if (b.dataset.tab==='news') loadRuns();
-  if (b.dataset.tab==='settings') loadSettings();
-});
-function triggerChanged(){ const t=$('#f-trigger').value;
-  $('#f-at-wrap').hidden = t!=='fixed'; $('#f-cron-wrap').hidden = t!=='cron'; }
+async function api(m,path,body){
+  const r=await fetch(path,{method:m,headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});
+  if(!r.ok&&r.status!==204){let e;try{e=(await r.json()).error}catch{e=r.statusText} throw new Error(e);}
+  const ct=r.headers.get('content-type')||''; return ct.includes('json')?r.json():r.text();
+}
+function toast(msg,kind){ const t=el('div','toast'+(kind?' '+kind:'')); t.append(el('div','bar'),el('div',null,esc(msg)));
+  $('#toasts').append(t); setTimeout(()=>{t.style.opacity='0';t.style.transition='.3s';setTimeout(()=>t.remove(),300)},2600); }
+function confirmSheetAsk(text,yesLabel){ return new Promise(res=>{ $('#confirmText').textContent=text; $('#confirmYes').textContent=yesLabel||'Delete';
+  const dlg=$('#confirmSheet'); const yes=()=>{cleanup();dlg.close();res(true)}; const no=()=>{cleanup();dlg.close();res(false)};
+  function cleanup(){$('#confirmYes').removeEventListener('click',yes);$('#confirmNo').removeEventListener('click',no);}
+  $('#confirmYes').addEventListener('click',yes); $('#confirmNo').addEventListener('click',no); dlg.showModal(); }); }
+function relTime(iso){ const d=new Date(iso), s=(Date.now()-d)/1000;
+  if(s<60)return 'just now'; if(s<3600)return Math.floor(s/60)+' min ago'; if(s<86400)return Math.floor(s/3600)+' h ago';
+  if(s<604800)return Math.floor(s/86400)+' d ago'; return d.toLocaleDateString(); }
 
+const TITLES={tasks:'Tasks',news:'Activity',settings:'Settings'};
+let current='tasks';
+document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>select(b.dataset.tab));
+function select(tab){ current=tab;
+  document.querySelectorAll('.nav button').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));
+  document.querySelectorAll('.tab').forEach(t=>t.hidden=t.id!==tab);
+  $('#pageTitle').textContent=TITLES[tab];
+  const ta=$('#toolbarActions'); ta.innerHTML='';
+  if(tab==='tasks'){ const b=el('button','btn primary','+ New task'); b.onclick=openAdd; ta.append(b); loadTasks(); }
+  if(tab==='news'){ const b=el('button','btn','Mark all read'); b.onclick=markAllRead; ta.append(b); loadRuns(); }
+  if(tab==='settings') loadSettings();
+}
+
+/* ---- Tasks ---- */
 async function loadTasks(){
-  const tasks = await api('GET','/api/tasks');
-  $('#taskRows').innerHTML = (tasks||[]).map((t,i)=>{
-    const when = t.trigger==='fixed'?esc(t.fixed_at):t.trigger==='cron'?esc(t.cron):'-';
-    return `<tr><td>${i}</td><td>${esc(t.name)}<div class="muted" style="font-size:12px">${esc(t.id)}</div></td>
-      <td>${esc(t.trigger)}</td><td>${when}</td><td>${t.parallel?'yes':'no'}</td><td>${t.enabled?'on':'off'}</td>
-      <td class="row-actions">
-        <button class="act" onclick="runNow('${esc(t.id)}')">Run now</button>
-        <button class="act" onclick="toggle('${esc(t.id)}',${t.enabled})">${t.enabled?'Pause':'Enable'}</button>
-        <button class="act" onclick="move('${esc(t.id)}',${i-1})" ${i===0?'disabled':''}>↑</button>
-        <button class="act" onclick="del('${esc(t.id)}')">✕</button>
-      </td></tr>`;
-  }).join('');
+  let tasks; try{ tasks=await api('GET','/api/tasks'); setConn(true);}catch(e){ setConn(false); return; }
+  const c=$('#tasks'); c.innerHTML='';
+  if(!tasks||!tasks.length){ c.append(emptyState('No tasks yet','Create your first task to queue work for Claude.')); return; }
+  const label=el('div','section-label',tasks.length+' task'+(tasks.length>1?'s':'')+' · top = highest priority'); c.append(label);
+  const g=el('div','group');
+  tasks.forEach((t,i)=>{
+    const when=t.trigger==='fixed'?new Date(t.fixed_at).toLocaleString():t.trigger==='cron'?t.cron:'as soon as possible';
+    const row=el('div','row');
+    const grow=el('div','grow'); grow.innerHTML=`<div class="title">${esc(t.name)} ${t.parallel?'<span class="chip">parallel</span>':''}</div>
+      <div class="sub"><span class="mono">${esc(t.id)}</span> · ${esc(t.trigger)} · ${esc(when)}</div>`;
+    row.append(grow);
+    const up=el('button','btn small','↑'); up.disabled=i===0; up.title='Move up'; up.onclick=()=>move(t.id,i-1);
+    const run=el('button','btn small','Run now'); run.onclick=()=>runNow(t.id);
+    const sw=el('label','switch'); sw.innerHTML=`<input type="checkbox" ${t.enabled?'checked':''}><span class="sl"></span>`;
+    sw.querySelector('input').onchange=()=>toggle(t.id,t.enabled);
+    const del=el('button','btn small danger','✕'); del.title='Delete'; del.onclick=()=>del_(t.id,t.name);
+    row.append(up,run,sw,del);
+    g.append(row);
+  });
+  c.append(g);
 }
-async function addTask(){
+function emptyState(big,sub){ const d=el('div','empty'); d.innerHTML=`<div class="big">${esc(big)}</div><div>${esc(sub)}</div>`; return d; }
+
+function openAdd(){ $('#addErr').textContent=''; ['f-id','f-name','f-prompt','f-dir','f-at','f-cron','f-model'].forEach(x=>$('#'+x).value='');
+  $('#f-parallel').checked=false; $('#f-skip').checked=false; setSeg('asap'); $('#addSheet').showModal(); }
+$('#f-trigger').querySelectorAll('button').forEach(b=>b.onclick=()=>setSeg(b.dataset.v));
+function setSeg(v){ $('#f-trigger').querySelectorAll('button').forEach(b=>b.classList.toggle('active',b.dataset.v===v));
+  $('#f-trigger').dataset.value=v; $('#f-at-wrap').hidden=v!=='fixed'; $('#f-cron-wrap').hidden=v!=='cron'; }
+async function submitTask(){
   $('#addErr').textContent='';
-  const t={ id:$('#f-id').value.trim(), name:$('#f-name').value.trim(), prompt:$('#f-prompt').value,
-    working_dir:$('#f-dir').value.trim(), trigger:$('#f-trigger').value,
-    fixed_at: $('#f-at').value?new Date($('#f-at').value).toISOString():undefined,
-    cron:$('#f-cron').value.trim()||undefined, model:$('#f-model').value.trim()||undefined,
-    parallel:$('#f-parallel').checked, enabled:true,
-    permissions: $('#f-skip').checked?'skip':'default' };
-  try { await api('POST','/api/tasks',t); ['f-id','f-name','f-prompt','f-dir','f-at','f-cron','f-model'].forEach(x=>$('#'+x).value='');
-        loadTasks(); } catch(e){ $('#addErr').textContent=e.message; }
+  const trig=$('#f-trigger').dataset.value||'asap';
+  const t={id:$('#f-id').value.trim(),name:$('#f-name').value.trim()||$('#f-id').value.trim(),prompt:$('#f-prompt').value,
+    working_dir:$('#f-dir').value.trim(),trigger:trig,
+    fixed_at: trig==='fixed'&&$('#f-at').value?new Date($('#f-at').value).toISOString():undefined,
+    cron: trig==='cron'?$('#f-cron').value.trim():undefined, model:$('#f-model').value.trim()||undefined,
+    parallel:$('#f-parallel').checked, enabled:true, permissions:$('#f-skip').checked?'skip':'default'};
+  try{ await api('POST','/api/tasks',t); $('#addSheet').close(); toast('Task added','ok'); loadTasks(); }
+  catch(e){ $('#addErr').textContent=e.message; }
 }
-const runNow=async id=>{ await api('POST',`/api/tasks/${id}/run-now`); setTimeout(loadRuns,300); alert('Started. Check News for the result.'); };
-const toggle=async (id,on)=>{ await api('POST',`/api/tasks/${id}/${on?'disable':'enable'}`); loadTasks(); };
-const move=async (id,to)=>{ await api('POST',`/api/tasks/${id}/move?to=${to}`); loadTasks(); };
-const del=async id=>{ if(confirm('Delete task '+id+'?')){ await api('DELETE',`/api/tasks/${id}`); loadTasks(); } };
+async function runNow(id){ try{ await api('POST',`/api/tasks/${id}/run-now`); toast('Started — see Activity'); setTimeout(()=>{if(current==='news')loadRuns()},600);}catch(e){toast(e.message,'err')} }
+async function toggle(id,on){ try{ await api('POST',`/api/tasks/${id}/${on?'disable':'enable'}`); toast(on?'Paused':'Enabled','ok'); loadTasks();}catch(e){toast(e.message,'err');loadTasks()} }
+async function move(id,to){ try{ await api('POST',`/api/tasks/${id}/move?to=${to}`); loadTasks();}catch(e){toast(e.message,'err')} }
+async function del_(id,name){ if(await confirmSheetAsk('Delete task “'+name+'”?')){ try{await api('DELETE',`/api/tasks/${id}`);toast('Deleted','ok');loadTasks();}catch(e){toast(e.message,'err')} } }
 
+/* ---- Activity ---- */
 async function loadRuns(){
-  const runs = await api('GET','/api/runs'); const rows=$('#runRows');
-  $('#runsEmpty').hidden = runs.length>0;
-  const unread = runs.filter(r=>r.unread).length;
-  const badge=$('#unreadBadge'); badge.hidden=unread===0; badge.textContent=unread;
-  rows.innerHTML = runs.map(r=>`<tr class="${r.unread?'unread':''}">
-    <td>${r.unread?'●':''}</td><td>${esc(r.task_name)}</td>
-    <td class="s-${r.status}">${esc(r.status)}</td>
-    <td class="muted">${new Date(r.started_at).toLocaleString()}</td>
-    <td class="row-actions">
-      <button class="act" onclick="showLog('${esc(r.run_id)}','${esc(r.task_name)}')">Log</button>
-      ${r.unread?`<button class="act" onclick="readRun('${esc(r.run_id)}')">Mark read</button>`:''}
-    </td></tr>`).join('');
+  let runs; try{ runs=await api('GET','/api/runs'); setConn(true);}catch(e){ setConn(false); return; }
+  const unread=runs.filter(r=>r.unread).length; const badge=$('#unreadCount'); badge.hidden=unread===0; badge.textContent=unread;
+  const c=$('#news'); c.innerHTML='';
+  if(!runs.length){ c.append(emptyState('No activity yet','Runs will appear here after tasks execute.')); return; }
+  const g=el('div','group');
+  runs.forEach(r=>{
+    const row=el('div','row');
+    if(r.unread){ const d=el('div','unread-dot'); row.append(d); }
+    const grow=el('div','grow'); grow.innerHTML=`<div class="title">${esc(r.task_name)}</div><div class="sub">${relTime(r.started_at)}</div>`;
+    const pill=el('span','pill '+r.status); pill.innerHTML=`<span class="d"></span>${esc(r.status.replace(/_/g,' '))}`;
+    const log=el('button','btn small','Log'); log.onclick=()=>showLog(r.run_id,r.task_name);
+    row.append(grow,pill,log);
+    if(r.unread){ const mr=el('button','btn small','Read'); mr.onclick=()=>readRun(r.run_id); row.append(mr); }
+    g.append(row);
+  });
+  c.append(g);
 }
-const readRun=async id=>{ await api('POST',`/api/runs/${id}/read`); loadRuns(); };
-const markAllRead=async ()=>{ await api('POST','/api/runs/read-all'); loadRuns(); };
+async function readRun(id){ await api('POST',`/api/runs/${id}/read`); loadRuns(); }
+async function markAllRead(){ try{await api('POST','/api/runs/read-all');toast('All marked read','ok');loadRuns();}catch(e){toast(e.message,'err')} }
 async function showLog(id,name){ $('#logTitle').textContent='Log · '+name;
-  try{ $('#logBody').textContent=await api('GET',`/api/runs/${id}/log`); }catch(e){ $('#logBody').textContent='(no log) '+e.message; }
-  $('#logDlg').showModal(); }
+  try{ $('#logBody').textContent=await api('GET',`/api/runs/${id}/log`)||'(empty)'; }catch(e){ $('#logBody').textContent='(no log available)'; }
+  $('#logSheet').showModal(); }
 
-async function loadSettings(){ const s=await api('GET','/api/settings');
+/* ---- Settings ---- */
+async function loadSettings(){
+  let s; try{ s=await api('GET','/api/settings'); setConn(true);}catch(e){ setConn(false); return; }
+  const c=$('#settings');
+  c.innerHTML=`
+    <div class="section-label">General</div>
+    <div class="group">
+      <div class="row"><div class="grow"><div class="title">Default model</div><div class="sub">Used unless a task overrides it</div></div>
+        <input type="text" id="s-model" style="max-width:230px" placeholder="Claude default"></div>
+      <div class="row"><div class="grow"><div class="title">Skip permission prompts by default</div><div class="sub">Global “may do anything”</div></div>
+        <label class="switch"><input type="checkbox" id="s-skip"><span class="sl"></span></label></div>
+      <div class="row"><div class="grow"><div class="title">Wake heartbeat</div><div class="sub">Safety-net wake interval (minutes)</div></div>
+        <input type="number" id="s-hb" min="0" style="max-width:90px"></div>
+    </div>
+    <div class="section-label">Notifications · Pushover</div>
+    <div class="group">
+      <div class="row"><div class="grow"><div class="title">API token</div></div><input type="text" id="s-po-token" style="max-width:230px"></div>
+      <div class="row"><div class="grow"><div class="title">User key</div></div><input type="text" id="s-po-user" style="max-width:230px"></div>
+    </div>
+    <button class="btn primary" id="s-save">Save changes</button> <span id="setMsg" class="hint"></span>`;
   $('#s-model').value=s.default_model||''; $('#s-skip').checked=!!s.skip_permissions_default;
-  $('#s-hb').value=s.heartbeat_minutes||''; $('#s-po-token').value=s.pushover?.token||''; $('#s-po-user').value=s.pushover?.user_key||''; }
-async function saveSettings(){ const body={ default_model:$('#s-model').value, skip_permissions_default:$('#s-skip').checked,
-    heartbeat_minutes:parseInt($('#s-hb').value||'0',10), pushover:{ token:$('#s-po-token').value, user_key:$('#s-po-user').value } };
-  await api('PUT','/api/settings',body); $('#setMsg').textContent='Saved.'; setTimeout(()=>$('#setMsg').textContent='',1500); }
+  $('#s-hb').value=s.heartbeat_minutes||''; $('#s-po-token').value=s.pushover?.token||''; $('#s-po-user').value=s.pushover?.user_key||'';
+  $('#s-save').onclick=saveSettings;
+}
+async function saveSettings(){
+  const body={default_model:$('#s-model').value,skip_permissions_default:$('#s-skip').checked,
+    heartbeat_minutes:parseInt($('#s-hb').value||'0',10),pushover:{token:$('#s-po-token').value,user_key:$('#s-po-user').value}};
+  try{ await api('PUT','/api/settings',body); toast('Settings saved','ok'); }catch(e){ toast(e.message,'err'); }
+}
 
-loadTasks(); loadRuns();
+function setConn(ok){ $('#connDot').style.background=ok?'var(--ok)':'var(--danger)'; $('#connText').textContent=ok?'connected':'disconnected'; }
+
+// Poll activity for the unread badge + live updates.
+setInterval(()=>{ loadRuns.badgeOnly=current!=='news'; loadRuns(); }, 5000);
+select('tasks');
 </script>
 </body>
 </html>
