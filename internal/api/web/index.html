@@ -82,8 +82,9 @@
   .btn.danger { color:var(--danger); }
   .btn.small { padding:3px 9px; font-size:12px; }
   .btn:disabled { opacity:.4; cursor:default; }
-  .btn svg { width:14px; height:14px; stroke:currentColor; stroke-width:1.7; fill:none; flex:none; }
-  .btn.iconly { padding:4px 7px; }
+  .btn svg { width:14px; height:14px; stroke:currentColor; stroke-width:1.7; fill:none; flex:none; display:block; }
+  .btn.iconly { padding:5px 7px; justify-content:center; }
+  .row-actions { display:flex; align-items:center; gap:6px; }
 
   /* Grouped inset list */
   .group { background:var(--card); border-radius:11px; box-shadow:var(--shadow); overflow:hidden; margin-bottom:18px; }
@@ -476,8 +477,8 @@ async function loadRuns(){
     const grow=el('div','grow'); grow.innerHTML=`<div class="title">${esc(r.task_name)}</div><div class="sub">${relTime(r.started_at)}</div>`;
     const pill=el('span','pill '+r.status); pill.innerHTML=`<span class="d"></span>${esc(r.status.replace(/_/g,' '))}`;
     const actions=el('div','row-actions');
+    if(r.task){ const rp=el('button','btn small iconly',REPLAY); rp.title='Re-run this task'; rp.onclick=()=>openReplay(r.task); actions.append(rp); }
     const log=el('button','btn small','Log'); log.onclick=()=>showLog(r.run_id,r.task_name); actions.append(log);
-    if(r.task){ const rp=el('button','btn small iconly',REPLAY); rp.title='Replay this task'; rp.onclick=()=>openReplay(r.task); actions.append(rp); }
     card.append(grow,actions,pill);   // status pill right-aligned (last)
     const gr=el('div','act-gr'); if(r.unread){ const mr=el('button','eye-btn',EYE); mr.title='Mark read'; mr.onclick=()=>readRun(r.run_id); gr.append(mr); }
     line.append(gl,card,gr);
