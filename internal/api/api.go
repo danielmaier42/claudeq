@@ -31,11 +31,6 @@ type RunNower interface {
 	RunTaskNow(ctx context.Context, taskID string) error
 }
 
-// UsageRefresher probes the CLI for a fresh usage snapshot. Optional.
-type UsageRefresher interface {
-	RefreshUsage(ctx context.Context) error
-}
-
 // FolderChooser opens a native folder-selection dialog and returns the chosen
 // POSIX path (chosen=false if the user cancelled). Optional.
 type FolderChooser func(ctx context.Context, start string) (path string, chosen bool, err error)
@@ -45,7 +40,6 @@ type Deps struct {
 	Store        *store.Store
 	Runner       RunNower       // optional; enables the run-now endpoint
 	Models       func() []Model // optional; enables dynamic model listing
-	Refresher    UsageRefresher // optional; enables the live usage probe
 	ChooseFolder FolderChooser  // optional; enables the native folder dialog
 }
 
@@ -70,8 +64,6 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("PUT /api/settings", s.putSettings)
 	mux.HandleFunc("GET /api/models", s.listModels)
 	mux.HandleFunc("POST /api/fs/choose", s.chooseFolder)
-	mux.HandleFunc("GET /api/usage", s.getUsage)
-	mux.HandleFunc("POST /api/usage/refresh", s.refreshUsage)
 	mux.HandleFunc("GET /api/stats", s.getStats)
 
 	sub, _ := fs.Sub(webFS, "web")
@@ -272,33 +264,6 @@ func (s *server) putSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, cfg.Settings)
-}
-
-func (s *server) getUsage(w http.ResponseWriter, _ *http.Request) {
-	u, ok, err := s.d.Store.LoadUsage()
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	if !ok {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	writeJSON(w, http.StatusOK, u)
-}
-
-func (s *server) refreshUsage(w http.ResponseWriter, r *http.Request) {
-	if s.d.Refresher == nil {
-		writeErr(w, http.StatusServiceUnavailable, errors.New("usage probe not available"))
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
-	defer cancel()
-	if err := s.d.Refresher.RefreshUsage(ctx); err != nil {
-		writeErr(w, http.StatusBadGateway, err)
-		return
-	}
-	s.getUsage(w, r)
 }
 
 func (s *server) getStats(w http.ResponseWriter, _ *http.Request) {

@@ -66,6 +66,9 @@ type Task struct {
 	Model string `toml:"model,omitempty" json:"model,omitempty"`
 	// Permissions overrides the global default permission behaviour.
 	Permissions Permissions `toml:"permissions" json:"permissions"`
+	// NotifyOnResult sends a notification with the outcome and last result
+	// message when the run finishes (success or failure), not just on failures.
+	NotifyOnResult bool `toml:"notify_on_result,omitempty" json:"notify_on_result,omitempty"`
 }
 
 // ErrInvalidTask is the base error for validation failures.

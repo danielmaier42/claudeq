@@ -234,56 +234,6 @@ func TestChooseFolder(t *testing.T) {
 	}
 }
 
-func TestGetUsage(t *testing.T) {
-	srv, st := newServer(t, nil)
-	// No snapshot yet -> 204.
-	if r := do(t, srv, "GET", "/api/usage", nil); r.Status != http.StatusNoContent {
-		t.Fatalf("expected 204 when no usage, got %d", r.Status)
-	}
-	if err := st.SaveUsage(store.Usage{Utilization: 0.5, Status: "allowed", LimitType: "overage"}); err != nil {
-		t.Fatal(err)
-	}
-	var u store.Usage
-	r := do(t, srv, "GET", "/api/usage", nil)
-	if r.Status != http.StatusOK {
-		t.Fatalf("expected 200, got %d", r.Status)
-	}
-	r.into(t, &u)
-	if u.Utilization != 0.5 || u.LimitType != "overage" {
-		t.Fatalf("unexpected usage: %+v", u)
-	}
-}
-
-func TestRefreshUsageEndpoint(t *testing.T) {
-	st, err := store.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	ref := &stubRefresher{store: st, usage: store.Usage{Utilization: 0.6, Status: "allowed"}}
-	srv := httptest.NewServer(Handler(Deps{Store: st, Refresher: ref}))
-	t.Cleanup(srv.Close)
-
-	var u store.Usage
-	r := do(t, srv, "POST", "/api/usage/refresh", nil)
-	if r.Status != http.StatusOK {
-		t.Fatalf("refresh status = %d (%s)", r.Status, r.Body)
-	}
-	if !ref.called {
-		t.Fatal("refresher was not invoked")
-	}
-	r.into(t, &u)
-	if u.Utilization != 0.6 {
-		t.Fatalf("expected refreshed usage, got %+v", u)
-	}
-}
-
-func TestRefreshUsageUnavailable(t *testing.T) {
-	srv, _ := newServer(t, nil) // no refresher
-	if r := do(t, srv, "POST", "/api/usage/refresh", nil); r.Status != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 without a refresher, got %d", r.Status)
-	}
-}
-
 func TestGetStatsEndpoint(t *testing.T) {
 	srv, st := newServer(t, nil)
 	_ = st.AppendRun(store.Run{RunID: "r1", TaskName: "a", StartedAt: time.Now(), Status: store.StatusSuccess, CostUSD: 0.2, InputTokens: 10, OutputTokens: 5})

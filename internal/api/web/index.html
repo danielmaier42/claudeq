@@ -231,6 +231,8 @@
         <label class="switch"><input type="checkbox" id="f-parallel"><span class="sl"></span></label></div>
       <div class="row"><div class="grow"><div class="title">Skip permission prompts</div><div class="sub">Needed for unattended writes</div></div>
         <label class="switch"><input type="checkbox" id="f-skip"><span class="sl"></span></label></div>
+      <div class="row"><div class="grow"><div class="title">Notify me with the result</div><div class="sub">Send outcome + last message when it finishes</div></div>
+        <label class="switch"><input type="checkbox" id="f-notify"><span class="sl"></span></label></div>
     </div>
     <p id="addErr" class="hint" style="color:var(--danger)"></p>
   </div>
@@ -301,79 +303,50 @@ function select(tab){ current=tab;
   const ta=$('#toolbarActions'); ta.innerHTML='';
   if(tab==='tasks'){ const b=el('button','btn primary','+ New task'); b.onclick=openAdd; ta.append(b); loadTasks(); }
   if(tab==='news'){ const b=el('button','btn',EYE+'<span>Mark all read</span>'); b.onclick=markAllRead; ta.append(b); loadRuns(); }
-  if(tab==='usage'){ const b=el('button','btn','Check now'); b.onclick=refreshUsage; ta.append(b); }
+  if(tab==='usage'){ const b=el('button','btn','Refresh'); b.onclick=loadUsage; ta.append(b); }
   if(tab==='usage') loadUsage();
   if(tab==='settings') loadSettings();
 }
 
-/* ---- Usage & statistics ---- */
-let usageAutoTried=false, usageBusy=false;
+/* ---- Consumption statistics (tokens used via claudeq) ---- */
 const fmtCost=n=>'$'+(n||0).toFixed(2);
-const fmtTok=n=>{ n=n||0; return n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'k':(''+n); };
+const fmtTok=n=>{ n=n||0; return n>=1e6?(n/1e6).toFixed(2)+'M':n>=1e3?(n/1e3).toFixed(1)+'k':(''+n); };
 const fmtDur=ms=>{ const s=Math.round((ms||0)/1000); if(s<60)return s+'s'; const m=Math.floor(s/60); if(m<60)return m+'m'; return Math.floor(m/60)+'h '+(m%60)+'m'; };
-
-async function refreshUsage(){
-  if(usageBusy) return; usageBusy=true;
-  toast('Checking usage… (uses a little quota)');
-  try{ await api('POST','/api/usage/refresh'); toast('Usage updated','ok'); }
-  catch(e){ toast('Could not check usage: '+e.message,'err'); }
-  finally{ usageBusy=false; if(current==='usage') loadUsage(); }
-}
+const statCell=(label,val)=>`<div style="flex:1;min-width:84px"><div class="usage-num" style="font-size:20px">${val}</div><div class="sub">${label}</div></div>`;
 
 async function loadUsage(){
-  let u,stats;
-  try{ u=await api('GET','/api/usage'); stats=await api('GET','/api/stats'); setConn(true);}catch(e){ setConn(false); return; }
-  const hasU = u && typeof u!=='string';
+  let stats; try{ stats=await api('GET','/api/stats'); setConn(true);}catch(e){ setConn(false); return; }
   const c=$('#usage'); c.innerHTML='';
+  if(!stats) return;
+  const tot=stats.totals, w=stats.last_7d;
+  if(tot.runs===0){ c.append(emptyState('Nothing consumed yet','Token usage appears here after claudeq has run some tasks.')); return; }
 
-  if(hasU){
-    const pct=Math.round((u.utilization||0)*100), barPct=Math.min(pct,100);
-    const col = pct>=100?'var(--danger)':pct>=80?'var(--warn)':'var(--accent)';
-    const reset=u.resets_at&&!u.resets_at.startsWith('0001')?`${new Date(u.resets_at).toLocaleString()} · ${relTime(u.resets_at)}`:'unknown';
-    const typeLabel = ({overage:'usage credits',five_hour:'5-hour limit',weekly:'weekly limit'}[u.limit_type]) || (u.limit_type||'limit');
-    const card=el('div');
-    card.innerHTML=`<div class="group"><div class="row" style="display:block">
-        <div class="sub" style="margin-bottom:2px">Currently binding limit · ${esc(typeLabel)} · ${esc((u.status||'').replace(/_/g,' '))}</div>
-        <div class="usage-num" style="color:${col}">${pct}%</div>
-        <div class="meter"><span style="width:${barPct}%;background:${col}"></span></div>
-        <div class="sub" style="margin-top:8px">Resets ${esc(reset)}${u.is_using_overage?' · in overage':''}</div>
-        <div class="sub">Checked ${relTime(u.captured_at)}</div>
-      </div></div>`;
-    c.append(card);
-  } else {
-    const empty=el('div','empty');
-    empty.innerHTML='<div class="big">No live usage yet</div><div>Check your current rate-limit status now (runs a tiny Haiku request).</div>';
-    const b=el('button','btn primary','Check usage now'); b.style.marginTop='12px'; b.onclick=refreshUsage;
-    empty.append(b); c.append(empty);
-    if(!usageAutoTried){ usageAutoTried=true; refreshUsage(); }
-  }
+  const totalTok=tot.input_tokens+tot.output_tokens;
+  const head=el('div');
+  head.innerHTML=`<div class="section-label">Total consumed via claudeq</div>
+    <div class="group"><div class="row" style="display:block">
+      <div class="sub">Tokens</div>
+      <div class="usage-num">${fmtTok(totalTok)}</div>
+      <div class="sub" style="margin-top:6px">${fmtTok(tot.input_tokens)} in · ${fmtTok(tot.output_tokens)} out · ${fmtCost(tot.cost_usd)} · ${tot.runs} runs · ${fmtDur(tot.duration_ms)}</div>
+    </div></div>
+    <div class="section-label">Last 7 days</div>
+    <div class="group"><div class="row" style="gap:18px;flex-wrap:wrap">
+      ${statCell('tokens',fmtTok(w.input_tokens+w.output_tokens))}${statCell('cost',fmtCost(w.cost_usd))}${statCell('runs',w.runs)}${statCell('succeeded',w.success)}${statCell('failed',w.failed)}${statCell('runtime',fmtDur(w.duration_ms))}
+    </div></div>`;
+  c.append(head);
 
-  // Consumption statistics from run history.
-  if(stats){
-    const t=stats.last_7d;
-    const stat=(label,val)=>`<div style="flex:1;min-width:90px"><div class="usage-num" style="font-size:20px">${val}</div><div class="sub">${label}</div></div>`;
-    const totals=el('div');
-    totals.innerHTML=`<div class="section-label">Last 7 days</div>
-      <div class="group"><div class="row" style="gap:18px;flex-wrap:wrap">
-        ${stat('runs',t.runs)}${stat('succeeded',t.success)}${stat('failed',t.failed)}
-        ${stat('cost',fmtCost(t.cost_usd))}${stat('tokens',fmtTok(t.input_tokens+t.output_tokens))}${stat('runtime',fmtDur(t.duration_ms))}
-      </div></div>`;
-    c.append(totals);
-
-    const maxRuns=Math.max(1,...stats.per_day.map(d=>d.runs));
-    const bars=stats.per_day.map(d=>{
-      const h=Math.round((d.runs/maxRuns)*54);
-      const lbl=d.date.slice(5); // MM-DD
-      return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px" title="${esc(d.date)}: ${d.runs} runs · ${fmtCost(d.cost_usd)}">
-        <div style="width:100%;display:flex;align-items:flex-end;height:56px"><div style="width:70%;margin:0 auto;height:${h||2}px;border-radius:3px 3px 0 0;background:${d.runs?'var(--accent)':'var(--seg-bg)'}"></div></div>
-        <div class="sub" style="font-size:10px">${esc(lbl)}</div></div>`;
-    }).join('');
-    const chart=el('div');
-    chart.innerHTML=`<div class="section-label">Runs per day (14d)</div>
-      <div class="group"><div class="row" style="align-items:flex-end;gap:2px">${bars}</div></div>
-      <p class="hint">The Claude CLI only exposes the <b>currently binding</b> limit here — the full per-window breakdown (5-hour, weekly, usage credits) is only in the interactive <code>/usage</code> panel and isn't available to scripts. The statistics below come from your own run history (cost/tokens recorded per run).</p>`;
-    c.append(chart);
-  }
+  const maxTok=Math.max(1,...stats.per_day.map(d=>d.tokens));
+  const bars=stats.per_day.map(d=>{
+    const h=Math.round((d.tokens/maxTok)*54);
+    return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px" title="${esc(d.date)}: ${fmtTok(d.tokens)} tokens · ${d.runs} runs · ${fmtCost(d.cost_usd)}">
+      <div style="width:100%;display:flex;align-items:flex-end;height:56px"><div style="width:70%;margin:0 auto;height:${d.tokens?(h||2):0}px;border-radius:3px 3px 0 0;background:${d.tokens?'var(--accent)':'var(--seg-bg)'}"></div></div>
+      <div class="sub" style="font-size:10px">${esc(d.date.slice(5))}</div></div>`;
+  }).join('');
+  const chart=el('div');
+  chart.innerHTML=`<div class="section-label">Tokens per day (14d)</div>
+    <div class="group"><div class="row" style="align-items:flex-end;gap:2px">${bars}</div></div>
+    <p class="hint">Counts only what claudeq itself consumed (input + output tokens recorded per run). It is not your overall Claude account usage.</p>`;
+  c.append(chart);
 }
 
 /* ---- Tasks ---- */
@@ -408,7 +381,7 @@ function toLocalDT(iso){ const d=new Date(iso); return d.getFullYear()+'-'+pad2(
 function prefillTask(t){
   $('#f-name').value=t.name||''; $('#f-prompt').value=t.prompt||''; $('#f-dir').value=t.working_dir||'';
   $('#f-model').innerHTML=modelOptions(t.model||'','Global default');
-  $('#f-parallel').checked=!!t.parallel; $('#f-skip').checked=(t.permissions==='skip');
+  $('#f-parallel').checked=!!t.parallel; $('#f-skip').checked=(t.permissions==='skip'); $('#f-notify').checked=!!t.notify_on_result;
   setSeg(t.trigger||'asap');
   $('#f-at').value=(t.trigger==='fixed'&&t.fixed_at&&!String(t.fixed_at).startsWith('0001'))?toLocalDT(t.fixed_at):'';
   $('#f-cron').value=t.trigger==='cron'?(t.cron||''):'';
@@ -417,7 +390,7 @@ function openSheet(title,submitLabel){ $('#addErr').textContent=''; $('#addSheet
 function openAdd(){ taskMode='add'; taskEditId='';
   ['f-name','f-prompt','f-dir','f-at','f-cron'].forEach(x=>$('#'+x).value='');
   $('#f-model').innerHTML=modelOptions('','Global default');
-  $('#f-parallel').checked=false; $('#f-skip').checked=false; setSeg('asap');
+  $('#f-parallel').checked=false; $('#f-skip').checked=false; $('#f-notify').checked=false; setSeg('asap');
   openSheet('New task','Add task'); }
 function openEdit(t){ taskMode='edit'; taskEditId=t.id; prefillTask(t); openSheet('Edit task','Save changes'); }
 function openReplay(t){ if(!t){ toast('No saved definition to replay','err'); return; } taskMode='add'; taskEditId=''; prefillTask(t); openSheet('Replay task','Schedule again'); }
@@ -431,7 +404,8 @@ async function submitTask(){
     working_dir:$('#f-dir').value.trim(),trigger:trig,
     fixed_at: trig==='fixed'&&$('#f-at').value?new Date($('#f-at').value).toISOString():undefined,
     cron: trig==='cron'?$('#f-cron').value.trim():undefined, model:$('#f-model').value||undefined,
-    parallel:$('#f-parallel').checked, enabled:true, permissions:$('#f-skip').checked?'skip':'default'};
+    parallel:$('#f-parallel').checked, enabled:true, permissions:$('#f-skip').checked?'skip':'default',
+    notify_on_result:$('#f-notify').checked};
   if(!t.working_dir){ $('#addErr').textContent='Please choose a working directory.'; return; }
   try{
     if(taskMode==='edit'){ await api('PUT','/api/tasks/'+encodeURIComponent(taskEditId),t); toast('Task updated','ok'); }

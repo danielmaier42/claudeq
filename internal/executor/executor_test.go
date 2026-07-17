@@ -149,20 +149,17 @@ func TestRunFailure(t *testing.T) {
 	}
 }
 
-func TestRunCapturesUsage(t *testing.T) {
-	out := strings.Join([]string{
-		`{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning","resetsAt":1785542400,"rateLimitType":"overage","utilization":0.42,"isUsingOverage":false}}`,
-		`{"type":"result","subtype":"success","is_error":false,"result":"OK","session_id":"s"}`,
-	}, "\n")
+func TestRunCapturesMetricsAndResultText(t *testing.T) {
+	out := `{"type":"result","subtype":"success","is_error":false,"result":"All done.","session_id":"s","total_cost_usd":0.012,"num_turns":2,"duration_ms":3400,"usage":{"input_tokens":1200,"output_tokens":300}}`
 	res := runFake(t, out, 0)
 	if res.Status != store.StatusSuccess {
 		t.Fatalf("status = %q, want success", res.Status)
 	}
-	if res.Usage == nil {
-		t.Fatal("expected usage info to be captured")
+	if res.ResultText != "All done." {
+		t.Fatalf("result text = %q, want %q", res.ResultText, "All done.")
 	}
-	if res.Usage.Utilization != 0.42 || res.Usage.ResetsAtUnix != 1785542400 || res.Usage.LimitType != "overage" {
-		t.Fatalf("unexpected usage: %+v", res.Usage)
+	if res.Metrics == nil || res.Metrics.CostUSD != 0.012 || res.Metrics.InputTokens != 1200 || res.Metrics.OutputTokens != 300 {
+		t.Fatalf("unexpected metrics: %+v", res.Metrics)
 	}
 }
 

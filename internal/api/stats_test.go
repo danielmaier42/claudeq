@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -35,19 +34,4 @@ func TestComputeStats(t *testing.T) {
 	if last.Runs != 2 {
 		t.Fatalf("today's runs = %d, want 2", last.Runs)
 	}
-}
-
-type stubRefresher struct {
-	called bool
-	err    error
-	usage  store.Usage
-	store  *store.Store
-}
-
-func (s *stubRefresher) RefreshUsage(_ context.Context) error {
-	s.called = true
-	if s.err != nil {
-		return s.err
-	}
-	return s.store.SaveUsage(s.usage)
 }

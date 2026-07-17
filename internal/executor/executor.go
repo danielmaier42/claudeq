@@ -49,7 +49,7 @@ type Result struct {
 	ExitCode   int
 	RetryAfter time.Duration // set when Status == StatusRateLimited
 	Message    string        // short human-readable detail
-	Usage      *UsageInfo    // latest rate-limit/usage info seen, if any
+	ResultText string        // the final result text from the CLI, if any
 	Metrics    *Metrics      // cost/token/timing from the result event, if any
 }
 
@@ -60,15 +60,6 @@ type Metrics struct {
 	OutputTokens int
 	NumTurns     int
 	DurationMS   int64
-}
-
-// UsageInfo is the rate_limit_info the CLI reports in stream-json.
-type UsageInfo struct {
-	Status         string
-	LimitType      string
-	Utilization    float64
-	IsUsingOverage bool
-	ResetsAtUnix   int64
 }
 
 // Args returns the CLI arguments for a request (excluding the binary name).
@@ -156,32 +147,24 @@ func cloneLine(b []byte) []byte {
 // streamEvent covers the fields we read from both the final `result` envelope
 // and intermediate `api_retry` system events. Unknown fields are ignored.
 type streamEvent struct {
-	Type           string         `json:"type"`
-	Subtype        string         `json:"subtype"`
-	IsError        bool           `json:"is_error"`
-	APIErrorStatus *int           `json:"api_error_status"`
-	ErrorStatus    *int           `json:"error_status"`
-	Error          string         `json:"error"`
-	RetryDelayMS   *int           `json:"retry_delay_ms"`
-	SessionID      string         `json:"session_id"`
-	RateLimitInfo  *rateLimitInfo `json:"rate_limit_info"`
-	TotalCostUSD   float64        `json:"total_cost_usd"`
-	NumTurns       int            `json:"num_turns"`
-	DurationMS     int64          `json:"duration_ms"`
-	Usage          *usageTokens   `json:"usage"`
+	Type           string       `json:"type"`
+	Subtype        string       `json:"subtype"`
+	IsError        bool         `json:"is_error"`
+	APIErrorStatus *int         `json:"api_error_status"`
+	ErrorStatus    *int         `json:"error_status"`
+	Error          string       `json:"error"`
+	RetryDelayMS   *int         `json:"retry_delay_ms"`
+	SessionID      string       `json:"session_id"`
+	ResultText     string       `json:"result"`
+	TotalCostUSD   float64      `json:"total_cost_usd"`
+	NumTurns       int          `json:"num_turns"`
+	DurationMS     int64        `json:"duration_ms"`
+	Usage          *usageTokens `json:"usage"`
 }
 
 type usageTokens struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
-}
-
-type rateLimitInfo struct {
-	Status         string  `json:"status"`
-	ResetsAt       int64   `json:"resetsAt"`
-	RateLimitType  string  `json:"rateLimitType"`
-	Utilization    float64 `json:"utilization"`
-	IsUsingOverage bool    `json:"isUsingOverage"`
 }
 
 type classifier struct {
@@ -191,7 +174,7 @@ type classifier struct {
 	rateLimit  bool
 	authError  bool
 	retryDelay time.Duration
-	usage      *UsageInfo
+	resultText string
 	metrics    *Metrics
 }
 
@@ -218,18 +201,10 @@ func (c *classifier) consume(line []byte) {
 	if ev.RetryDelayMS != nil && *ev.RetryDelayMS > 0 {
 		c.retryDelay = time.Duration(*ev.RetryDelayMS) * time.Millisecond
 	}
-	if ev.RateLimitInfo != nil {
-		c.usage = &UsageInfo{
-			Status:         ev.RateLimitInfo.Status,
-			LimitType:      ev.RateLimitInfo.RateLimitType,
-			Utilization:    ev.RateLimitInfo.Utilization,
-			IsUsingOverage: ev.RateLimitInfo.IsUsingOverage,
-			ResetsAtUnix:   ev.RateLimitInfo.ResetsAt,
-		}
-	}
 	if ev.Type == "result" {
 		c.sawResult = true
 		c.resultErr = ev.IsError
+		c.resultText = ev.ResultText
 		m := &Metrics{CostUSD: ev.TotalCostUSD, NumTurns: ev.NumTurns, DurationMS: ev.DurationMS}
 		if ev.Usage != nil {
 			m.InputTokens = ev.Usage.InputTokens
@@ -240,7 +215,7 @@ func (c *classifier) consume(line []byte) {
 }
 
 func (c *classifier) result(exitCode int) Result {
-	res := Result{SessionID: c.sessionID, ExitCode: exitCode, RetryAfter: c.retryDelay, Usage: c.usage, Metrics: c.metrics}
+	res := Result{SessionID: c.sessionID, ExitCode: exitCode, RetryAfter: c.retryDelay, ResultText: c.resultText, Metrics: c.metrics}
 	switch {
 	case c.authError:
 		res.Status = store.StatusAuthError

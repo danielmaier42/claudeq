@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 	"sync"
@@ -307,40 +306,45 @@ func (e *Engine) finish(t task.Task, rec store.Run, res executor.Result, runErr 
 
 	_ = e.store.AppendRun(rec)
 
-	// Persist the latest usage snapshot the CLI reported, if any.
-	if u := res.Usage; u != nil {
-		snap := store.Usage{
-			Utilization: u.Utilization, Status: u.Status, LimitType: u.LimitType,
-			IsUsingOverage: u.IsUsingOverage, CapturedAt: finished,
-		}
-		if u.ResetsAtUnix > 0 {
-			snap.ResetsAt = time.Unix(u.ResetsAtUnix, 0)
-		}
-		_ = e.store.SaveUsage(snap)
-	}
-
 	// Notify outside any lock so channel I/O never blocks other finishing runs.
-	e.notifyOutcome(rec)
+	e.notifyOutcome(t, rec, res.ResultText)
 }
 
-// notifyOutcome sends a best-effort notification for failure / auth outcomes
-// (FA-35/FA-38). Rate-limit waits and successes are not notified by default.
-func (e *Engine) notifyOutcome(rec store.Run) {
+// notifyOutcome sends a best-effort notification. Failures and auth problems
+// always notify (FA-35/FA-38); successes notify only when the task opted in via
+// NotifyOnResult. When opted in, the last result message is included.
+func (e *Engine) notifyOutcome(t task.Task, rec store.Run, resultText string) {
 	if e.notifier == nil {
 		return
 	}
+	msg := strings.TrimSpace(resultText)
+	if len(msg) > 300 {
+		msg = msg[:300] + "…"
+	}
+
 	var n notify.Notification
 	switch rec.Status {
+	case store.StatusSuccess:
+		if !t.NotifyOnResult {
+			return
+		}
+		n.Title = "claudeq ✓ " + rec.TaskName
+		n.Message = msg
+		if n.Message == "" {
+			n.Message = "Completed successfully."
+		}
 	case store.StatusFailed:
-		n = notify.Notification{
-			Title:   "claudeq: task failed",
-			Message: strings.TrimSpace(rec.TaskName + " failed. " + rec.Error),
+		n.Title = "claudeq ✗ " + rec.TaskName + " failed"
+		if t.NotifyOnResult && msg != "" {
+			n.Message = msg
+		} else if rec.Error != "" {
+			n.Message = rec.Error
+		} else {
+			n.Message = "Task failed."
 		}
 	case store.StatusAuthError:
-		n = notify.Notification{
-			Title:   "claudeq: login problem",
-			Message: rec.TaskName + ": Claude Code authentication problem — please re-login.",
-		}
+		n.Title = "claudeq: login problem"
+		n.Message = rec.TaskName + ": Claude Code authentication problem — please re-login."
 	default:
 		return
 	}
@@ -474,39 +478,6 @@ func (e *Engine) RunTaskNow(ctx context.Context, taskID string) error {
 
 	e.WaitIdle()
 	return startErr
-}
-
-// UsageProbeModel is the cheap, fast model used for the on-demand usage probe.
-const UsageProbeModel = "haiku"
-
-// RefreshUsage runs a minimal Claude invocation purely to capture the current
-// rate-limit/usage snapshot, and saves it. It does not create a task or a run
-// history entry. It uses the cheapest model and a trivial prompt.
-func (e *Engine) RefreshUsage(ctx context.Context) error {
-	probe := task.Task{
-		ID: "__usage_probe__", Name: "usage probe",
-		Prompt: "Reply with exactly: OK", WorkingDir: os.TempDir(),
-		Trigger: task.TriggerASAP, Permissions: task.PermissionsDefault,
-	}
-	req := executor.Request{
-		Task: probe, SessionID: e.newSessionID(),
-		Model: UsageProbeModel, Log: io.Discard,
-	}
-	res, err := e.run.Run(ctx, req)
-	if err != nil {
-		return fmt.Errorf("usage probe: %w", err)
-	}
-	if res.Usage == nil {
-		return nil // nothing reported; leave any prior snapshot in place
-	}
-	snap := store.Usage{
-		Utilization: res.Usage.Utilization, Status: res.Usage.Status, LimitType: res.Usage.LimitType,
-		IsUsingOverage: res.Usage.IsUsingOverage, CapturedAt: e.clock.Now(),
-	}
-	if res.Usage.ResetsAtUnix > 0 {
-		snap.ResetsAt = time.Unix(res.Usage.ResetsAtUnix, 0)
-	}
-	return e.store.SaveUsage(snap)
 }
 
 // effectiveModel resolves the model: a task override wins over the global

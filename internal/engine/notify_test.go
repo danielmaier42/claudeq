@@ -71,6 +71,33 @@ func TestNoNotifyOnSuccess(t *testing.T) {
 	}
 }
 
+func TestNotifyOnResultSuccessOptIn(t *testing.T) {
+	fc := clock.NewFake(time.Now())
+	r := &stub{result: func(_ executor.Request, _ int) executor.Result {
+		return executor.Result{Status: store.StatusSuccess, ResultText: "All checks passed."}
+	}}
+	e, st := newTestEngine(t, r, fc)
+	n := &capturingNotifier{}
+	e.SetNotifier(n)
+
+	task := asapTask("notify-me", false)
+	task.NotifyOnResult = true
+	saveTasks(t, st, task)
+
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	e.WaitIdle()
+
+	msgs := n.all()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 success notification when opted in, got %d", len(msgs))
+	}
+	if msgs[0].Message != "All checks passed." {
+		t.Fatalf("notification should carry the result message, got %q", msgs[0].Message)
+	}
+}
+
 func TestNotifyOnAuthError(t *testing.T) {
 	fc := clock.NewFake(time.Now())
 	r := &stub{result: func(_ executor.Request, _ int) executor.Result {
