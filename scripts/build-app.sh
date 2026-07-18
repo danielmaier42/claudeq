@@ -70,6 +70,15 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 </plist>
 PLIST
 
+# Ad-hoc code-sign the whole bundle under the bundle identifier. The Go linker
+# only ad-hoc-signs the individual executables with a generic "a.out" identity;
+# UNUserNotificationCenter needs a stable bundle-level identity to register the
+# app and deliver notifications with its icon. A real Developer ID signature, if
+# configured, is applied later by build-pkg.sh and overrides this.
+echo "==> Ad-hoc signing bundle"
+codesign --force --deep --sign - --identifier ag.dc.claudeq "$APP" || \
+  echo "   codesign failed; notifications may fall back to a generic icon"
+
 # Refresh Launch Services / Finder so the new icon and metadata show immediately.
 touch "$APP"
 echo "==> Built $APP (version $VERSION)"
