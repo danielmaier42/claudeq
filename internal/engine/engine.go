@@ -372,13 +372,13 @@ func (e *Engine) notifyOutcome(t task.Task, rec store.Run, resultText string) {
 		if !t.NotifyOnResult {
 			return
 		}
-		n.Title = "claudeq ✓ " + rec.TaskName
+		n.Title = "ClaudeQ ✓ " + rec.TaskName
 		n.Message = msg
 		if n.Message == "" {
 			n.Message = "Completed successfully."
 		}
 	case store.StatusFailed:
-		n.Title = "claudeq ✗ " + rec.TaskName + " failed"
+		n.Title = "ClaudeQ ✗ " + rec.TaskName + " failed"
 		if t.NotifyOnResult && msg != "" {
 			n.Message = msg
 		} else if rec.Error != "" {
@@ -387,7 +387,7 @@ func (e *Engine) notifyOutcome(t task.Task, rec store.Run, resultText string) {
 			n.Message = "Task failed."
 		}
 	case store.StatusAuthError:
-		n.Title = "claudeq: login problem"
+		n.Title = "ClaudeQ: login problem"
 		n.Message = rec.TaskName + ": Claude Code authentication problem — please re-login."
 	default:
 		return

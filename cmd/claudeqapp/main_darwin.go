@@ -27,7 +27,7 @@ func main() {
 
 	w := webview.New(false)
 	defer w.Destroy()
-	w.SetTitle("claudeq")
+	w.SetTitle("ClaudeQ")
 	w.SetSize(1120, 760, webview.HintNone)
 
 	// Native menu bar (webview_go creates none). Custom items drive the dashboard

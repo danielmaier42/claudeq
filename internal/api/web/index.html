@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>claudeq</title>
+<title>ClaudeQ</title>
 <link rel="icon" type="image/svg+xml" href="/logo.svg">
 <style>
   :root {
@@ -113,6 +113,7 @@
 
   /* Chips / pills */
   .chip { font-size:11px; font-weight:600; padding:2px 8px; border-radius:20px; background:var(--seg-bg); color:var(--fg2); }
+  .hint-time { cursor:help; text-decoration:underline dotted; text-underline-offset:2px; text-decoration-color:var(--fg2); }
   .chip.running { background:color-mix(in srgb, var(--accent) 18%, transparent); color:var(--accent); }
   .chip.running::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--accent); margin-right:5px; vertical-align:middle; animation:cqpulse 1.2s ease-in-out infinite; }
   @keyframes cqpulse { 0%,100%{opacity:1} 50%{opacity:.35} }
@@ -202,7 +203,7 @@
 </head>
 <body>
 <aside class="sidebar">
-  <div class="brand"><img class="logo" src="/logo.svg" alt="claudeq"><b>claudeq</b></div>
+  <div class="brand"><img class="logo" src="/logo.svg" alt="ClaudeQ"><b>ClaudeQ</b></div>
   <nav class="nav">
     <button data-tab="tasks" class="active">
       <svg viewBox="0 0 20 20"><path d="M4 6h12M4 10h12M4 14h12"/></svg> Queue</button>
@@ -332,6 +333,17 @@ function relTime(iso){ const d=new Date(iso), s=(Date.now()-d)/1000, a=Math.abs(
   const f=(n,u)=> fut ? ('in '+n+' '+u) : (n+' '+u+' ago');
   if(a<60)return 'just now'; if(a<3600)return f(Math.floor(a/60),'min'); if(a<86400)return f(Math.floor(a/3600),'h');
   if(a<604800)return f(Math.floor(a/86400),'d'); return d.toLocaleDateString(); }
+// exactTime: "18:00:00 Uhr", prefixed with the date if it was on an earlier day.
+function exactTime(iso){ const d=new Date(iso), n=new Date();
+  const clock=pad2(d.getHours())+':'+pad2(d.getMinutes())+':'+pad2(d.getSeconds())+' Uhr';
+  const sameDay=d.getFullYear()===n.getFullYear()&&d.getMonth()===n.getMonth()&&d.getDate()===n.getDate();
+  return sameDay?clock:(pad2(d.getDate())+'.'+pad2(d.getMonth()+1)+'.'+d.getFullYear()+' '+clock); }
+function fmtRunDur(ms){ const s=Math.max(0,Math.round(ms/1000)), h=Math.floor(s/3600), m=Math.floor((s%3600)/60), sec=s%60;
+  return h?(h+'h '+m+'m '+sec+'s'):(m?(m+'m '+sec+'s'):(sec+'s')); }
+// Tooltip for a run's time: exact start + how long it ran.
+function runTimeTitle(r){ let t=exactTime(r.started_at);
+  if(r.finished_at) t+=' - '+fmtRunDur(new Date(r.finished_at)-new Date(r.started_at));
+  return t; }
 
 const TITLES={tasks:'Queue',news:'Activity',usage:'Usage',settings:'Settings'};
 let current='tasks';
@@ -520,7 +532,7 @@ async function loadRuns(){
     const gl=el('div','act-gl'); if(r.unread) gl.append(el('div','unread-dot'));
     const card=el('div','act-card');
     const dir=r.task&&r.task.working_dir?baseName(r.task.working_dir):'';
-    const grow=el('div','grow'); grow.innerHTML=`<div class="title">${esc(r.task_name)}</div><div class="sub">${relTime(r.started_at)}${dir?' · <span class="mono">'+esc(dir)+'</span>':''}</div>`;
+    const grow=el('div','grow'); grow.innerHTML=`<div class="title">${esc(r.task_name)}</div><div class="sub"><span class="hint-time" title="${esc(runTimeTitle(r))}">${relTime(r.started_at)}</span>${dir?' · <span class="mono">'+esc(dir)+'</span>':''}</div>`;
     const pill=el('span','pill '+r.status); pill.innerHTML=`<span class="d"></span>${esc(r.status.replace(/_/g,' '))}`;
     const actions=el('div','row-actions');
     if(r.task){ const rp=el('button','btn small iconly',REPLAY); rp.title='Re-run this task'; rp.onclick=()=>openReplay(r.task); actions.append(rp); }
@@ -637,8 +649,8 @@ async function loadSettings(){
     </div>
     <div class="section-label" style="margin-top:26px">About</div>
     <div class="group"><div class="row">
-      <img src="/logo.svg" alt="claudeq" style="width:34px;height:34px;border-radius:7px;flex:none">
-      <div class="grow"><div class="title">claudeq</div>
+      <img src="/logo.svg" alt="ClaudeQ" style="width:34px;height:34px;border-radius:7px;flex:none">
+      <div class="grow"><div class="title">ClaudeQ</div>
         <div class="sub">Queue Claude Code tasks by day, run them by night — free &amp; open source.</div></div>
       <a class="btn primary" href="https://github.com/danielmaier42/claudeq" target="_blank" rel="noopener">★ Star on GitHub</a>
     </div></div>

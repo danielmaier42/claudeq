@@ -38,7 +38,7 @@ static NSMenuItem *cqAdd(NSMenu *m, NSString *title, SEL action, NSString *key, 
 }
 
 static void cqBuildMenu(void) {
-    NSString *app = @"claudeq";
+    NSString *app = @"ClaudeQ";
     gMenuTarget = [[CQMenuTarget alloc] init];
 
     NSMenu *main = [[NSMenu alloc] init];

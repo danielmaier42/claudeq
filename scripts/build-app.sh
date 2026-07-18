@@ -53,8 +53,8 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleName</key><string>claudeq</string>
-	<key>CFBundleDisplayName</key><string>claudeq</string>
+	<key>CFBundleName</key><string>ClaudeQ</string>
+	<key>CFBundleDisplayName</key><string>ClaudeQ</string>
 	<key>CFBundleIdentifier</key><string>ag.dc.claudeq</string>
 	<key>CFBundleExecutable</key><string>claudeqapp</string>
 	<key>CFBundlePackageType</key><string>APPL</string>

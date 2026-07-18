@@ -1,10 +1,10 @@
 <div align="center">
-  <img src="internal/api/web/logo.svg" width="96" height="96" alt="claudeq">
-  <h1>claudeq</h1>
+  <img src="internal/api/web/logo.svg" width="96" height="96" alt="ClaudeQ">
+  <h1>ClaudeQ</h1>
   <p>Queue Claude Code tasks during the day, run them at night.</p>
 </div>
 
-claudeq is a small, local-only macOS tool. You add tasks — a prompt and a working
+ClaudeQ is a small, local-only macOS tool. You add tasks — a prompt and a working
 folder — to a queue during the day; a background daemon runs them with the
 [Claude Code](https://claude.com/claude-code) CLI at night, when your usage
 allowance resets. A native menu-bar app shows the queue, activity, and usage.
@@ -18,15 +18,15 @@ Everything stays on your Mac: tasks, config, and run history live under
    [Releases](https://github.com/danielmaier42/claudeq/releases) page.
 2. Open it and follow the installer.
 
-The package installs **claudeq.app** to `/Applications` and sets up a per-user
-LaunchAgent so the daemon starts at login. Open **claudeq** from Applications to
+The package installs **ClaudeQ** to `/Applications` and sets up a per-user
+LaunchAgent so the daemon starts at login. Open **ClaudeQ** from Applications to
 add tasks.
 
 > The package is not notarized, so on first launch macOS may warn that it is from
-> an unidentified developer. Right-click **claudeq.app → Open**, then confirm — or
+> an unidentified developer. Right-click **ClaudeQ → Open**, then confirm — or
 > allow it under **System Settings → Privacy & Security**.
 
-To run tasks past a scheduled sleep, claudeq can schedule a wake with `pmset`,
+To run tasks past a scheduled sleep, ClaudeQ can schedule a wake with `pmset`,
 which needs one sudoers entry (the daemon prints the exact line on install).
 
 ## Uninstall

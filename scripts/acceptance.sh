@@ -194,7 +194,7 @@ case "$tasks_json" in *'"id":"web"'*) t1=0;; *) t1=1;; esac
 num_check "FA-02 API lists tasks (lowercase JSON keys)"  "$t1" -eq 0
 case "$tasks_json" in *'"id":"ran"'*) t1b=1;; *) t1b=0;; esac
 num_check "finished one-shot task leaves the queue"      "$t1b" -eq 0
-case "$dash_html" in *"<title>claudeq</title>"*) t2=0;; *) t2=1;; esac
+case "$dash_html" in *"<title>ClaudeQ</title>"*) t2=0;; *) t2=1;; esac
 num_check "FA-25 dashboard HTML served"                  "$t2" -eq 0
 case "$runs_json" in *'"status":"success"'*) t3=0;; *) t3=1;; esac
 num_check "FA-15/22 API exposes run history/status"      "$t3" -eq 0
