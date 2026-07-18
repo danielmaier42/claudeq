@@ -36,12 +36,6 @@ rm -f "$userHome/Library/LaunchAgents/ag.dc.claudeq.plist"
 # one keeps serving — so a reinstall would appear to have no effect.
 pkill -f 'claudeqd run' 2>/dev/null || true
 
-# Migration: an older build installed the bundle as claudeq.app (lowercase).
-# Remove it so only /Applications/ClaudeQ.app remains.
-if [ "$APP" != "/Applications/claudeq.app" ] && [ -d "/Applications/claudeq.app" ]; then
-	rm -rf "/Applications/claudeq.app"
-fi
-
 # `launchctl asuser` enters the user's GUI launchd domain; `sudo -u` adopts the
 # user's identity and HOME so the plist lands in their LaunchAgents directory.
 if ! launchctl asuser "$uid" sudo -u "$consoleUser" "$DAEMON" install; then
