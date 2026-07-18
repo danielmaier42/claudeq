@@ -178,6 +178,12 @@ func (e *Executor) Run(ctx context.Context, req Request) (Result, error) {
 // idleWatch cancels the run's context (killing the process) when no output has
 // arrived for timeout. A working run keeps resetting lastActivity, so only a
 // genuinely stalled process is killed.
+//
+// It is sleep-aware: if far more wall-clock time elapses between ticks than the
+// tick interval, the machine was asleep (or the process suspended) — that gap is
+// not real inactivity, so we rebase the activity clock instead of counting it.
+// Without this, a run frozen across a 2-hour system sleep would be killed on
+// wake even though it never actually hung.
 func idleWatch(timeout time.Duration, lastActivity *atomic.Int64, killed *atomic.Bool, cancel context.CancelFunc, done <-chan struct{}) {
 	interval := timeout / 4
 	if interval < time.Second {
@@ -188,18 +194,33 @@ func idleWatch(timeout time.Duration, lastActivity *atomic.Int64, killed *atomic
 	}
 	t := time.NewTicker(interval)
 	defer t.Stop()
+	lastTick := time.Now().UnixNano()
 	for {
 		select {
 		case <-done:
 			return
 		case <-t.C:
-			if time.Duration(time.Now().UnixNano()-lastActivity.Load()) > timeout {
+			var kill bool
+			lastTick, kill = idleStep(time.Now().UnixNano(), lastTick, interval, timeout, lastActivity)
+			if kill {
 				killed.Store(true)
 				cancel()
 				return
 			}
 		}
 	}
+}
+
+// idleStep processes one watchdog tick: it returns the new lastTick and whether
+// the run should be killed for inactivity. A gap far larger than the tick
+// interval means the machine slept, so it rebases the activity clock (that gap
+// is not real inactivity) instead of killing.
+func idleStep(now, lastTick int64, interval, timeout time.Duration, lastActivity *atomic.Int64) (int64, bool) {
+	if time.Duration(now-lastTick) > 2*interval {
+		lastActivity.Store(now)
+		return now, false
+	}
+	return now, time.Duration(now-lastActivity.Load()) > timeout
 }
 
 // cloneLine copies a scanner slice, whose backing array is reused on the next

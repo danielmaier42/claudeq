@@ -67,6 +67,7 @@ type Engine struct {
 	nonParallelActive int
 	parallelActive    int
 	wg                sync.WaitGroup
+	awake             sleepGuard // keeps the Mac awake while runs are in flight
 }
 
 // ShutdownGrace is how long Loop lets in-flight runs finish on shutdown before
@@ -218,6 +219,7 @@ func (e *Engine) launchTask(t task.Task, settings store.Settings, sessionID stri
 	} else {
 		e.nonParallelActive++
 	}
+	e.awake.acquire() // hold off idle system sleep until this run finishes
 
 	req := executor.Request{
 		Task:            t,
@@ -270,6 +272,7 @@ func (e *Engine) finish(t task.Task, rec store.Run, res executor.Result, runErr 
 		e.nonParallelActive--
 	}
 	e.mu.Unlock()
+	e.awake.release()
 
 	finished := e.clock.Now()
 	rec.FinishedAt = &finished
