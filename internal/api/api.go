@@ -42,8 +42,6 @@ type Deps struct {
 	Models       func() []Model  // optional; enables dynamic model listing
 	ChooseFolder FolderChooser   // optional; enables the native folder dialog
 	ActiveTasks  func() []string // optional; ids of currently-running tasks (hidden from the queue)
-	Accent       func() string   // optional; the macOS accent color as a hex string
-	Theme        *ThemeHub       // optional; live accent updates over SSE
 }
 
 // Handler builds the HTTP handler (REST API under /api + dashboard at /).
@@ -68,8 +66,6 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/models", s.listModels)
 	mux.HandleFunc("POST /api/fs/choose", s.chooseFolder)
 	mux.HandleFunc("GET /api/stats", s.getStats)
-	mux.HandleFunc("GET /api/theme", s.getTheme)
-	mux.HandleFunc("GET /api/theme/stream", s.themeStream)
 
 	sub, _ := fs.Sub(webFS, "web")
 	mux.Handle("GET /", http.FileServer(http.FS(sub)))
@@ -286,37 +282,6 @@ func (s *server) putSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, cfg.Settings)
-}
-
-func (s *server) getTheme(w http.ResponseWriter, _ *http.Request) {
-	accent := ""
-	if s.d.Accent != nil {
-		accent = s.d.Accent()
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"accent": accent})
-}
-
-func (s *server) themeStream(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if s.d.Theme == nil || !ok {
-		writeErr(w, http.StatusServiceUnavailable, errors.New("theme stream not available"))
-		return
-	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
-	ch, cancel := s.d.Theme.subscribe()
-	defer cancel()
-	for {
-		select {
-		case <-r.Context().Done():
-			return
-		case accent := <-ch:
-			fmt.Fprintf(w, "data: {\"accent\":%q}\n\n", accent)
-			flusher.Flush()
-		}
-	}
 }
 
 func (s *server) getStats(w http.ResponseWriter, _ *http.Request) {

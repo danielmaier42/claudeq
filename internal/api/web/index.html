@@ -307,27 +307,9 @@ function confirmSheetAsk(text,yesLabel){ return new Promise(res=>{ $('#confirmTe
   dlg.showModal(); }); }
 // Click on the dimmed backdrop closes any open modal.
 document.querySelectorAll('dialog').forEach(d=>d.addEventListener('click',e=>{ if(e.target===d) d.close(); }));
-let accentApplied=null;
-function applyAccent(accent){
-  accent=accent||'';
-  if(accent===accentApplied) return;
-  accentApplied=accent;
-  const root=document.documentElement.style;
-  if(accent){ root.setProperty('--accent',accent); }
-  else { root.removeProperty('--accent'); }  // back to default
-}
-// Live accent via Server-Sent Events (event-driven, no polling). The stream
-// delivers the current value on connect and pushes changes instantly.
-function startThemeStream(){
-  try{
-    const es=new EventSource('/api/theme/stream');
-    es.onmessage=e=>{ try{ applyAccent(JSON.parse(e.data).accent); }catch{} };
-    // EventSource auto-reconnects on error; no action needed.
-  }catch{
-    // Fallback for browsers without EventSource: one-shot fetch.
-    api('GET','/api/theme').then(t=>applyAccent(t&&t.accent)).catch(()=>{});
-  }
-}
+// The accent color comes from the CSS `AccentColor` system color (see the
+// @supports rule) — WebKit (Wails' WKWebView, and Safari) reflects the macOS
+// accent live and instantly, with a blue fallback where unsupported.
 
 let MODELS=[];
 async function loadModels(){ try{ MODELS=await api('GET','/api/models'); }catch{ MODELS=[]; } }
@@ -649,7 +631,6 @@ function setConn(ok){ $('#connDot').style.background=ok?'var(--ok)':'var(--dange
 
 // Poll activity for the unread badge + live updates.
 setInterval(()=>{ if(current==='tasks') loadTasks(); loadRuns(); }, 5000);
-startThemeStream();
 loadModels().then(()=>select('tasks'));
 </script>
 </body>
