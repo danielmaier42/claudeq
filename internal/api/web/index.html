@@ -197,16 +197,14 @@
   .meter { height:8px; border-radius:6px; background:var(--seg-bg); overflow:hidden; width:100%; margin-top:8px; }
   .meter > span { display:block; height:100%; border-radius:6px; background:var(--accent); transition:width .3s; }
   .usage-num { font-size:30px; font-weight:700; letter-spacing:-.5px; }
-  .bar-col { flex:1; min-width:0; display:flex; flex-direction:column; align-items:center; gap:4px; position:relative; padding-top:28px; }
-  .bar-col .track { width:100%; display:flex; align-items:flex-end; height:56px; }
-  .bar-col .bar { width:70%; margin:0 auto; border-radius:3px 3px 0 0; }
-  .bar-col:hover .bar { filter:brightness(1.12); }
-  .bar-col.empty:hover .bar { filter:none; }
-  /* tooltip sits in the reserved padding above the bar, so it never clips */
-  .bartip { position:absolute; top:0; left:50%; transform:translateX(-50%); background:var(--fg); color:var(--bg);
-            font-size:12px; font-weight:600; padding:3px 9px; border-radius:6px; white-space:nowrap; box-shadow:var(--shadow);
-            opacity:0; pointer-events:none; transition:opacity .12s; z-index:2; }
-  .bar-col:hover .bartip { opacity:1; }
+  /* Bars and x-labels are two separate grids sharing the same columns, so a bar's
+     height can never shift a label — labels live in their own single row. */
+  .chart { padding:16px 16px 12px; }
+  .plot { display:grid; align-items:end; gap:3px; height:78px; }
+  .plot .bar { width:58%; justify-self:center; border-radius:3px 3px 0 0; background:var(--accent); transition:filter .12s; }
+  .plot .bar:hover { filter:brightness(1.15); }
+  .xlabels { display:grid; gap:3px; margin-top:8px; }
+  .xl { text-align:center; font-size:10px; color:var(--fg2); white-space:nowrap; min-width:0; }
   /* cursor-following tooltip (native title= tooltips don't render in WKWebView) */
   .tip { position:fixed; z-index:1000; pointer-events:none; background:var(--fg); color:var(--bg);
          font-size:12px; font-weight:500; padding:5px 9px; border-radius:7px; white-space:nowrap; box-shadow:0 4px 14px rgba(0,0,0,.28); }
@@ -431,16 +429,17 @@ async function loadUsage(){
 // Renders a 14-day bar chart. valueOf(day)->number; fmt(value)->tooltip label.
 function barChart(days, valueOf, fmt){
   const max=Math.max(1,...days.map(valueOf));
+  const cols=`repeat(${days.length},minmax(0,1fr))`;
   const bars=days.map(d=>{
-    const v=valueOf(d), h=Math.round((v/max)*54);
-    // No tooltip / hover for empty days — only real bars react.
-    const tip = v ? `<div class="bartip">${esc(fmt(v))}</div>` : '';
-    return `<div class="bar-col${v?'':' empty'}">
-      ${tip}
-      <div class="track"><div class="bar" style="height:${v?(h||2):0}px;background:${v?'var(--accent)':'var(--seg-bg)'}"></div></div>
-      <div class="sub" style="font-size:10px">${esc(d.date.slice(5))}</div></div>`;
+    const v=valueOf(d);
+    if(!v) return '<div></div>';   // empty day: no bar, no tooltip
+    const h=Math.max(2,Math.round((v/max)*74));
+    return `<div class="bar" data-tip="${esc(fmt(v)+' · '+d.date)}" style="height:${h}px"></div>`;
   }).join('');
-  return `<div class="group"><div class="row" style="align-items:flex-end;gap:2px">${bars}</div></div>`;
+  const labels=days.map(d=>`<div class="xl">${esc(d.date.slice(5))}</div>`).join('');
+  return `<div class="group"><div class="chart">
+    <div class="plot" style="grid-template-columns:${cols}">${bars}</div>
+    <div class="xlabels" style="grid-template-columns:${cols}">${labels}</div></div></div>`;
 }
 
 /* ---- Tasks ---- */
