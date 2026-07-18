@@ -7,7 +7,7 @@
 <link rel="icon" type="image/svg+xml" href="/logo.svg">
 <style>
   :root {
-    --accent:#007aff; --accent-fg:#fff;
+    --accent:#007aff;
     --bg:#f2f2f7; --sidebar:rgba(245,245,247,.8); --card:#ffffff; --card-2:#fbfbfd;
     --fg:#1d1d1f; --fg2:#6e6e73; --hairline:rgba(0,0,0,.10);
     --seg-bg:rgba(120,120,128,.12); --seg-active:#fff; --switch-off:rgba(120,120,128,.32);
@@ -25,7 +25,7 @@
   }
   /* Follow the user's macOS accent color when the browser exposes it. */
   @supports (color: AccentColor) {
-    :root { --accent: AccentColor; --accent-fg: AccentColorText; }
+    :root { --accent: AccentColor; }
   }
   * { box-sizing:border-box; }
   html,body { height:100%; }
@@ -50,8 +50,8 @@
     background:none; color:var(--fg); padding:6px 8px; border-radius:7px; font-size:13px; font-weight:500;
   }
   .nav button:hover { background:rgba(120,120,128,.12); }
-  .nav button.active { background:var(--accent); color:var(--accent-fg); }
-  .nav button.active svg { stroke:var(--accent-fg); }
+  .nav button.active { background:var(--accent); color:#fff; }        /* always white, like macOS */
+  .nav button.active svg { stroke:#fff; }
   .nav svg { width:16px; height:16px; stroke:var(--fg2); stroke-width:1.8; fill:none; flex-shrink:0; }
   .nav .count { margin-left:auto; background:var(--danger); color:#fff; font-size:11px; font-weight:600;
                 min-width:18px; height:18px; border-radius:9px; display:grid; place-items:center; padding:0 5px; }
@@ -186,12 +186,14 @@
   .meter { height:8px; border-radius:6px; background:var(--seg-bg); overflow:hidden; width:100%; margin-top:8px; }
   .meter > span { display:block; height:100%; border-radius:6px; background:var(--accent); transition:width .3s; }
   .usage-num { font-size:30px; font-weight:700; letter-spacing:-.5px; }
-  .bar-col { flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; position:relative; }
+  .bar-col { flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; position:relative; padding-top:20px; }
   .bar-col .track { width:100%; display:flex; align-items:flex-end; height:56px; }
   .bar-col .bar { width:70%; margin:0 auto; border-radius:3px 3px 0 0; }
   .bar-col:hover .bar { filter:brightness(1.12); }
-  .bartip { position:absolute; bottom:74px; background:var(--fg); color:var(--bg); font-size:10px; font-weight:600;
-            padding:2px 6px; border-radius:5px; white-space:nowrap; opacity:0; pointer-events:none; transition:opacity .12s; z-index:2; }
+  /* tooltip sits in the reserved padding above the bar, so it never clips */
+  .bartip { position:absolute; top:0; left:50%; transform:translateX(-50%); background:var(--fg); color:var(--bg);
+            font-size:10px; font-weight:600; padding:1px 6px; border-radius:5px; white-space:nowrap;
+            opacity:0; pointer-events:none; transition:opacity .12s; z-index:2; }
   .bar-col:hover .bartip { opacity:1; }
 </style>
 </head>
@@ -286,6 +288,7 @@ const esc=s=>(s??'').toString().replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>
 const EYE='<svg viewBox="0 0 20 20"><path d="M1.5 10S5 4.5 10 4.5 18.5 10 18.5 10 15 15.5 10 15.5 1.5 10 1.5 10z"/><circle cx="10" cy="10" r="2.3"/></svg>';
 const PENCIL='<svg viewBox="0 0 20 20"><path d="M13.2 3.4l3.4 3.4L7.3 16 3.5 16.5 4 12.7z"/></svg>';
 const REPLAY='<svg viewBox="0 0 20 20"><path d="M5 10a5 5 0 1 1 1.6 3.7"/><path d="M5 6.2V10h3.8"/></svg>';
+const SAVE='<svg viewBox="0 0 20 20"><path d="M4 10.5l3.5 3.5L16 5.5"/></svg>';
 
 async function api(m,path,body){
   const r=await fetch(path,{method:m,headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});
@@ -310,8 +313,8 @@ function applyAccent(accent){
   if(accent===accentApplied) return;
   accentApplied=accent;
   const root=document.documentElement.style;
-  if(accent){ root.setProperty('--accent',accent); root.setProperty('--accent-fg',textOn(accent)); }
-  else { root.removeProperty('--accent'); root.removeProperty('--accent-fg'); }  // back to default
+  if(accent){ root.setProperty('--accent',accent); }
+  else { root.removeProperty('--accent'); }  // back to default
 }
 // Live accent via Server-Sent Events (event-driven, no polling). The stream
 // delivers the current value on connect and pushes changes instantly.
@@ -325,8 +328,6 @@ function startThemeStream(){
     api('GET','/api/theme').then(t=>applyAccent(t&&t.accent)).catch(()=>{});
   }
 }
-function textOn(hex){ const c=hex.replace('#',''); const r=parseInt(c.slice(0,2),16),g=parseInt(c.slice(2,4),16),b=parseInt(c.slice(4,6),16);
-  return (0.299*r+0.587*g+0.114*b)/255>0.62?'#000':'#fff'; }
 
 let MODELS=[];
 async function loadModels(){ try{ MODELS=await api('GET','/api/models'); }catch{ MODELS=[]; } }
@@ -353,7 +354,7 @@ function select(tab){ current=tab;
   if(tab==='tasks'){ const b=el('button','btn primary','+ New task'); b.onclick=openAdd; ta.append(b); loadTasks(); }
   if(tab==='news'){ const b=el('button','btn',EYE+'<span>Mark all read</span>'); b.onclick=markAllRead; ta.append(b); loadRuns(); }
   if(tab==='usage') loadUsage();
-  if(tab==='settings') loadSettings();
+  if(tab==='settings'){ const b=el('button','btn primary',SAVE+'<span>Save</span>'); b.onclick=saveSettings; ta.append(b); loadSettings(); }
 }
 
 /* ---- Consumption statistics (tokens used via claudeq) ---- */
@@ -383,20 +384,27 @@ async function loadUsage(){
     </div></div>`;
   c.append(head);
 
-  const maxTok=Math.max(1,...stats.per_day.map(d=>d.tokens));
-  const bars=stats.per_day.map(d=>{
-    const h=Math.round((d.tokens/maxTok)*54);
-    const tip=d.tokens?`${fmtTok(d.tokens)} tokens · ${d.runs} run${d.runs===1?'':'s'} · ${fmtCost(d.cost_usd)}`:'no runs';
+  const tokChart=el('div');
+  tokChart.innerHTML=`<div class="section-label">Tokens per day (14d)</div>`+barChart(stats.per_day, d=>d.tokens, fmtTok);
+  c.append(tokChart);
+
+  const runChart=el('div');
+  runChart.innerHTML=`<div class="section-label">Runs per day (14d)</div>`+barChart(stats.per_day, d=>d.runs, v=>String(v));
+  c.append(runChart);
+
+  c.append(el('p','hint','Counts only what claudeq\'s own runs consumed (tokens recorded per run) — not your overall Claude account usage. Cost is the API-equivalent price Claude Code reports (what these requests would cost at pay-as-you-go API rates); on a subscription you\'re not billed for it — it just draws on your usage limit.'));
+}
+// Renders a 14-day bar chart. valueOf(day)->number; fmt(value)->tooltip label.
+function barChart(days, valueOf, fmt){
+  const max=Math.max(1,...days.map(valueOf));
+  const bars=days.map(d=>{
+    const v=valueOf(d), h=Math.round((v/max)*54);
     return `<div class="bar-col">
-      <div class="bartip">${esc(d.date.slice(5))}: ${esc(tip)}</div>
-      <div class="track"><div class="bar" style="height:${d.tokens?(h||2):0}px;background:${d.tokens?'var(--accent)':'var(--seg-bg)'}"></div></div>
+      <div class="bartip">${esc(fmt(v))}</div>
+      <div class="track"><div class="bar" style="height:${v?(h||2):0}px;background:${v?'var(--accent)':'var(--seg-bg)'}"></div></div>
       <div class="sub" style="font-size:10px">${esc(d.date.slice(5))}</div></div>`;
   }).join('');
-  const chart=el('div');
-  chart.innerHTML=`<div class="section-label">Tokens per day (14d)</div>
-    <div class="group"><div class="row" style="align-items:flex-end;gap:2px">${bars}</div></div>
-    <p class="hint">Counts only what claudeq's own runs consumed (tokens recorded per run) — not your overall Claude account usage. <b>Cost is the API-equivalent price</b> Claude Code reports (what these requests would cost at pay-as-you-go API rates); on a subscription you're not billed for it — it just draws on your usage limit.</p>`;
-  c.append(chart);
+  return `<div class="group"><div class="row" style="align-items:flex-end;gap:2px">${bars}</div></div>`;
 }
 
 /* ---- Tasks ---- */
@@ -618,7 +626,6 @@ async function loadSettings(){
       <div class="row"><div class="grow"><div class="title">API token</div></div><input type="text" id="s-po-token" style="max-width:230px"></div>
       <div class="row"><div class="grow"><div class="title">User key</div></div><input type="text" id="s-po-user" style="max-width:230px"></div>
     </div>
-    <button class="btn primary" id="s-save">Save changes</button> <span id="setMsg" class="hint"></span>
     <div class="section-label" style="margin-top:26px">About</div>
     <div class="group"><div class="row">
       <img src="/logo.svg" alt="claudeq" style="width:34px;height:34px;border-radius:7px;flex:none">
@@ -630,7 +637,6 @@ async function loadSettings(){
       <a href="https://github.com/danielmaier42" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">danielmaier42</a></div>`;
   $('#s-skip').checked=!!s.skip_permissions_default;
   $('#s-po-enabled').checked=poOn; $('#s-po-token').value=s.pushover?.token||''; $('#s-po-user').value=s.pushover?.user_key||'';
-  $('#s-save').onclick=saveSettings;
 }
 async function saveSettings(){
   const body={default_model:$('#s-model').value,skip_permissions_default:$('#s-skip').checked,
