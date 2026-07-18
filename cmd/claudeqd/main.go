@@ -96,6 +96,10 @@ func cmdRun(args []string) error {
 
 	accentFn := api.MacAccent(system.Real{})
 	themeHub := api.NewThemeHub(accentFn())
+	// Instant path: the system posts a distributed notification the moment the
+	// accent changes (before the preferences file is flushed).
+	startAccentNotifications(func() { go themeHub.Publish(accentFn()) })
+	// Fallback path: a preferences file watch, in case the notification is missed.
 	go watchAccent(ctx, themeHub, accentFn)
 
 	httpSrv := &http.Server{
@@ -168,7 +172,7 @@ func watchAccent(ctx context.Context, hub *api.ThemeHub, read func() string) {
 			if debounce != nil {
 				debounce.Stop()
 			}
-			debounce = time.AfterFunc(400*time.Millisecond, fire)
+			debounce = time.AfterFunc(150*time.Millisecond, fire)
 		case _, ok := <-w.Errors:
 			if !ok {
 				return
