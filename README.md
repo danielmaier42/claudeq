@@ -105,3 +105,7 @@ Releases are built automatically: pushing a `v*` tag runs
 - macOS 12 or newer
 - The [Claude Code](https://claude.com/claude-code) CLI, installed and
   authenticated
+
+## License
+
+[MIT](LICENSE) © 2026 Daniel Maier
