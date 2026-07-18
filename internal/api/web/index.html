@@ -322,6 +322,11 @@ function modelOptions(selected,globalLabel){
   if(selected && !MODELS.some(m=>m.id===selected)) h+=`<option value="${esc(selected)}" selected>${esc(selected)} (custom)</option>`;
   return h;
 }
+function optionsFor(list,val,customLabel){
+  let h=list.map(([v,l])=>`<option value="${v}"${v===val?' selected':''}>${esc(l)}</option>`).join('');
+  if(!list.some(([v])=>v===val)) h=`<option value="${val}" selected>${esc(customLabel(val))}</option>`+h;
+  return h;
+}
 function baseName(p){ const parts=String(p).replace(/\/+$/,'').split('/').filter(Boolean); return parts.length?parts[parts.length-1]:p; }
 function relTime(iso){ const d=new Date(iso), s=(Date.now()-d)/1000, a=Math.abs(s), fut=s<0;
   const f=(n,u)=> fut ? ('in '+n+' '+u) : (n+' '+u+' ago');
@@ -598,6 +603,8 @@ async function loadSettings(){
   let hbHtml=hbOpts.map(([v,l])=>`<option value="${v}"${v===hbVal?' selected':''}>${l}</option>`).join('');
   if(!hbOpts.some(([v])=>v===hbVal)) hbHtml=`<option value="${hbVal}" selected>Every ${hbVal} minutes</option>`+hbHtml;
   const poOn=!!s.pushover?.enabled;
+  const idleVal=s.idle_timeout_minutes===0?30:s.idle_timeout_minutes; // 0 = default 30
+  const histVal=s.max_run_history===0?500:s.max_run_history;          // 0 = default 500
   c.innerHTML=`
     <div class="section-label">General</div>
     <div class="group">
@@ -613,6 +620,13 @@ async function loadSettings(){
       <div class="row"><div class="grow"><div class="title">Claude binary</div>
         <div class="sub">Absolute path to the <code>claude</code> executable. The background daemon can't see your shell's PATH, so this must be a full path. Leave empty to auto-detect.</div></div>
         <input type="text" id="s-claude" placeholder="/path/to/claude" style="max-width:260px"></div>
+    </div>
+    <div class="section-label">Reliability</div>
+    <div class="group">
+      <div class="row"><div class="grow"><div class="title">Stop a run with no output for</div><div class="sub">Kills a hung run; a working run keeps streaming, so it's unaffected</div></div>
+        <select id="s-idle" style="max-width:170px">${optionsFor([[-1,'Off'],[15,'15 minutes'],[30,'30 minutes'],[60,'1 hour'],[120,'2 hours'],[240,'4 hours']], idleVal, m=>m+' minutes')}</select></div>
+      <div class="row"><div class="grow"><div class="title">Keep run history</div><div class="sub">Older runs and their logs are pruned</div></div>
+        <select id="s-hist" style="max-width:170px">${optionsFor([[100,'100 runs'],[500,'500 runs'],[1000,'1000 runs'],[-1,'Unlimited']], histVal, n=>n+' runs')}</select></div>
     </div>
     <div class="section-label">Notifications · Pushover</div>
     <div class="group">
@@ -640,6 +654,8 @@ async function saveSettings(){
   const body={default_model:$('#s-model').value,skip_permissions_default:$('#s-skip').checked,
     heartbeat_minutes:parseInt($('#s-hb').value||'60',10),
     claude_path:$('#s-claude').value.trim(),
+    idle_timeout_minutes:parseInt($('#s-idle').value||'30',10),
+    max_run_history:parseInt($('#s-hist').value||'500',10),
     pushover:{enabled:$('#s-po-enabled').checked,token:$('#s-po-token').value,user_key:$('#s-po-user').value}};
   try{ await api('PUT','/api/settings',body); toast('Settings saved','ok'); }catch(e){ toast(e.message,'err'); }
 }

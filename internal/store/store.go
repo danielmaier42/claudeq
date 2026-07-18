@@ -12,6 +12,7 @@ package store
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -231,6 +232,104 @@ func (s *Store) Runs() ([]Run, error) {
 	return out, nil
 }
 
+// ReconcileRunningRuns marks any run still recorded as "running" as failed. It
+// is meant to run at startup: a fresh process means nothing is actually running,
+// so such entries are leftovers from a hard stop (crash, power loss, SIGKILL)
+// that never got to record an outcome. Returns how many it reconciled.
+func (s *Store) ReconcileRunningRuns(now time.Time) (int, error) {
+	runs, err := s.Runs()
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, r := range runs {
+		if r.Status != StatusRunning {
+			continue
+		}
+		r.Status = StatusFailed
+		fin := now
+		r.FinishedAt = &fin
+		if r.Error == "" {
+			r.Error = "interrupted before completing (daemon stopped unexpectedly)"
+		}
+		if err := s.AppendRun(r); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
+// PruneHistory keeps only the most recent `limit` runs: it compacts
+// history.jsonl to one latest event per kept run and deletes the log files of
+// the dropped runs. limit <= 0 keeps everything.
+func (s *Store) PruneHistory(limit int) error {
+	if limit <= 0 {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	f, err := os.Open(s.path(historyFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("open history: %w", err)
+	}
+	latest := map[string]Run{}
+	var order []string
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		line := sc.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var r Run
+		if err := json.Unmarshal(line, &r); err != nil {
+			_ = f.Close()
+			return fmt.Errorf("parse history line: %w", err)
+		}
+		if _, seen := latest[r.RunID]; !seen {
+			order = append(order, r.RunID)
+		}
+		latest[r.RunID] = r
+	}
+	scErr := sc.Err()
+	_ = f.Close()
+	if scErr != nil {
+		return fmt.Errorf("read history: %w", scErr)
+	}
+
+	if len(order) <= limit {
+		return nil
+	}
+	drop := order[:len(order)-limit]
+	keep := order[len(order)-limit:]
+
+	var buf bytes.Buffer
+	for _, id := range keep {
+		b, err := json.Marshal(latest[id])
+		if err != nil {
+			return fmt.Errorf("marshal run: %w", err)
+		}
+		buf.Write(b)
+		buf.WriteByte('\n')
+	}
+	if err := writeAtomic(s.path(historyFile), buf.Bytes()); err != nil {
+		return fmt.Errorf("rewrite history: %w", err)
+	}
+	for _, id := range drop {
+		p := latest[id].LogPath
+		if p == "" {
+			p = s.LogPath(id)
+		}
+		_ = os.Remove(p)
+	}
+	return nil
+}
+
 // LoadState reads state.json. A missing file yields a ready-to-use zero State.
 func (s *Store) LoadState() (*State, error) {
 	s.mu.Lock()
@@ -323,6 +422,13 @@ type Settings struct {
 	// claudeq auto-detects it (the daemon's launchd PATH excludes ~/.local/bin,
 	// so an explicit path is often needed). The GUI pre-fills this via detection.
 	ClaudePath string `toml:"claude_path" json:"claude_path"`
+	// IdleTimeoutMinutes kills a run that produces no output for this many
+	// minutes — a hung/deadlocked process. A working run keeps streaming events,
+	// so it is not affected. 0 = use the default; negative = never kill.
+	IdleTimeoutMinutes int `toml:"idle_timeout_minutes" json:"idle_timeout_minutes"`
+	// MaxRunHistory caps how many runs are kept; older runs (and their log files)
+	// are pruned. 0 = use the default; negative = keep everything.
+	MaxRunHistory int `toml:"max_run_history" json:"max_run_history"`
 }
 
 // DefaultHeartbeatMinutes is the wake safety-net interval when unset.
@@ -335,6 +441,38 @@ func (s Settings) HeartbeatOrDefault() time.Duration {
 		m = DefaultHeartbeatMinutes
 	}
 	return time.Duration(m) * time.Minute
+}
+
+// DefaultIdleTimeoutMinutes is the no-output kill threshold when unset.
+const DefaultIdleTimeoutMinutes = 30
+
+// IdleTimeout returns the no-output duration after which a run is killed, or 0
+// when disabled. Unset (0) uses the default; a negative setting disables it.
+func (s Settings) IdleTimeout() time.Duration {
+	m := s.IdleTimeoutMinutes
+	if m == 0 {
+		m = DefaultIdleTimeoutMinutes
+	}
+	if m < 0 {
+		return 0
+	}
+	return time.Duration(m) * time.Minute
+}
+
+// DefaultMaxRunHistory is the retained-run count when unset.
+const DefaultMaxRunHistory = 500
+
+// RunHistoryLimit returns how many runs to keep, or 0 for unlimited. Unset (0)
+// uses the default; a negative setting keeps everything.
+func (s Settings) RunHistoryLimit() int {
+	n := s.MaxRunHistory
+	if n == 0 {
+		n = DefaultMaxRunHistory
+	}
+	if n < 0 {
+		return 0
+	}
+	return n
 }
 
 // Pushover holds Pushover API credentials and whether the channel is enabled.

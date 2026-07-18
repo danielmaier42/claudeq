@@ -81,6 +81,15 @@ func cmdRun(args []string) error {
 		return err
 	}
 
+	// A fresh process means nothing is actually running: mark any run left as
+	// "running" (from a crash/power loss) as interrupted, and prune old history.
+	if n, err := st.ReconcileRunningRuns(time.Now()); err == nil && n > 0 {
+		fmt.Fprintf(os.Stdout, "claudeqd: reconciled %d interrupted run(s)\n", n)
+	}
+	if cfg, err := st.LoadConfig(); err == nil {
+		_ = st.PruneHistory(cfg.Settings.RunHistoryLimit())
+	}
+
 	// Resolve the Claude Code binary. An explicit setting wins; otherwise detect
 	// it (the daemon's launchd PATH excludes ~/.local/bin, so a plain lookup at
 	// exec time would fail). Per-run, the engine still prefers the live setting.

@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -203,5 +204,88 @@ func TestDefaultHomeHonoursEnv(t *testing.T) {
 	}
 	if home != "/tmp/claudeq-test-home" {
 		t.Fatalf("DefaultHome = %q, want override", home)
+	}
+}
+
+func TestReconcileRunningRuns(t *testing.T) {
+	s := openTemp(t)
+	now := time.Now()
+	if err := s.AppendRun(Run{RunID: "r1", TaskID: "a", Status: StatusRunning, StartedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AppendRun(Run{RunID: "r2", TaskID: "b", Status: StatusSuccess, StartedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	n, err := s.ReconcileRunningRuns(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("reconciled %d, want 1", n)
+	}
+	runs, _ := s.Runs()
+	got := map[string]Run{}
+	for _, r := range runs {
+		got[r.RunID] = r
+	}
+	if got["r1"].Status != StatusFailed || got["r1"].FinishedAt == nil {
+		t.Fatalf("r1 = %+v, want failed with finish time", got["r1"])
+	}
+	if got["r2"].Status != StatusSuccess {
+		t.Fatalf("r2 status = %q, want untouched success", got["r2"].Status)
+	}
+}
+
+func TestPruneHistoryKeepsRecentAndDeletesLogs(t *testing.T) {
+	s := openTemp(t)
+	for i := 0; i < 5; i++ {
+		id := fmt.Sprintf("r%d", i)
+		if err := s.AppendRun(Run{RunID: id, TaskID: "a", Status: StatusSuccess, LogPath: s.LogPath(id)}); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(s.LogPath(id), []byte("log"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.PruneHistory(2); err != nil {
+		t.Fatal(err)
+	}
+	runs, _ := s.Runs()
+	if len(runs) != 2 || runs[0].RunID != "r3" || runs[1].RunID != "r4" {
+		t.Fatalf("kept %v, want [r3 r4]", runs)
+	}
+	if _, err := os.Stat(s.LogPath("r0")); !os.IsNotExist(err) {
+		t.Fatal("dropped run's log should be deleted")
+	}
+	if _, err := os.Stat(s.LogPath("r4")); err != nil {
+		t.Fatal("kept run's log should remain")
+	}
+}
+
+func TestIdleTimeoutAndHistoryDefaults(t *testing.T) {
+	var s Settings
+	if s.IdleTimeout() != 30*time.Minute {
+		t.Fatalf("default idle = %v, want 30m", s.IdleTimeout())
+	}
+	s.IdleTimeoutMinutes = -1
+	if s.IdleTimeout() != 0 {
+		t.Fatal("negative idle should disable")
+	}
+	s.IdleTimeoutMinutes = 45
+	if s.IdleTimeout() != 45*time.Minute {
+		t.Fatalf("explicit idle = %v, want 45m", s.IdleTimeout())
+	}
+
+	var h Settings
+	if h.RunHistoryLimit() != 500 {
+		t.Fatalf("default history = %d, want 500", h.RunHistoryLimit())
+	}
+	h.MaxRunHistory = -1
+	if h.RunHistoryLimit() != 0 {
+		t.Fatal("negative history should mean unlimited (0)")
+	}
+	h.MaxRunHistory = 100
+	if h.RunHistoryLimit() != 100 {
+		t.Fatalf("explicit history = %d, want 100", h.RunHistoryLimit())
 	}
 }

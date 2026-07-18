@@ -226,16 +226,29 @@ func (e *Engine) launchTask(t task.Task, settings store.Settings, sessionID stri
 		Model:           effectiveModel(t, settings),
 		SkipPermissions: skipPermissions(t, settings),
 		Bin:             settings.ClaudePath,
+		IdleTimeout:     settings.IdleTimeout(),
 		Log:             logFile,
 	}
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()
 		defer func() { _ = logFile.Close() }()
-		res, runErr := e.run.Run(e.runCtx, req)
+		res, runErr := e.runGuarded(req)
 		e.finish(t, rec, res, runErr)
 	}()
 	return nil
+}
+
+// runGuarded runs the request and turns a panic into a failed result instead of
+// crashing the daemon, so one bad run never takes the whole queue down.
+func (e *Engine) runGuarded(req executor.Request) (res executor.Result, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			res = executor.Result{Status: store.StatusFailed, Message: fmt.Sprintf("internal error: %v", r)}
+			err = nil
+		}
+	}()
+	return e.run.Run(e.runCtx, req)
 }
 
 // sessionFor returns the session id to use and whether it is a resume. A task
@@ -317,6 +330,11 @@ func (e *Engine) finish(t task.Task, rec store.Run, res executor.Result, runErr 
 	}
 
 	_ = e.store.AppendRun(rec)
+
+	// Bound disk usage: prune old runs/logs beyond the configured limit.
+	if cfg, err := e.store.LoadConfig(); err == nil {
+		_ = e.store.PruneHistory(cfg.Settings.RunHistoryLimit())
+	}
 
 	// Record the final status/reason into the log so it shows in both the raw
 	// and chat views (especially useful for failures and interruptions).

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
@@ -122,6 +123,53 @@ func TestRequestBinOverridesExecutorDefault(t *testing.T) {
 	}
 	if res.Status != store.StatusSuccess {
 		t.Fatalf("status = %q, want success (override binary should have run)", res.Status)
+	}
+}
+
+func TestRunIdleTimeoutKillsHungRun(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX-only fake")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "claude")
+	// Produces no output and sleeps well past the idle timeout: a hung run.
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nsleep 10\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	e := &Executor{Bin: path}
+	tk := sampleTask()
+	tk.WorkingDir = t.TempDir()
+	var log bytes.Buffer
+	start := time.Now()
+	res, err := e.Run(context.Background(), Request{
+		Task: tk, SessionID: "sid", IdleTimeout: 150 * time.Millisecond, Log: &log,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Status != store.StatusFailed {
+		t.Fatalf("status = %q, want failed", res.Status)
+	}
+	if !strings.Contains(res.Message, "no output") {
+		t.Fatalf("message = %q, want an inactivity note", res.Message)
+	}
+	if d := time.Since(start); d > 3*time.Second {
+		t.Fatalf("watchdog took %s, expected to kill quickly", d)
+	}
+}
+
+func TestRunNoIdleTimeoutCompletesNormally(t *testing.T) {
+	// A quick run with the watchdog enabled must still succeed (no false kill).
+	e := &Executor{Bin: fakeClaude(t, `{"type":"result","is_error":false,"result":"ok","session_id":"s"}`, 0)}
+	tk := sampleTask()
+	tk.WorkingDir = t.TempDir()
+	var log bytes.Buffer
+	res, err := e.Run(context.Background(), Request{Task: tk, SessionID: "sid", IdleTimeout: time.Hour, Log: &log})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Status != store.StatusSuccess {
+		t.Fatalf("status = %q, want success", res.Status)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"io"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/danielmaier42/claudeq/internal/store"
@@ -41,6 +42,9 @@ type Request struct {
 	// Bin overrides the Claude Code binary for this run (an absolute path from
 	// settings). Empty falls back to the Executor's configured binary.
 	Bin string
+	// IdleTimeout kills the run if it produces no output for this long — a
+	// hung/deadlocked process. Zero disables the watchdog.
+	IdleTimeout time.Duration
 	// Log receives the raw CLI output (stdout + stderr), streamed live.
 	Log io.Writer
 }
@@ -106,8 +110,11 @@ func (e *Executor) binFor(req Request) string {
 // at all (as opposed to the CLI reporting a task failure, which is a Result).
 func (e *Executor) Run(ctx context.Context, req Request) (Result, error) {
 	bin := e.binFor(req)
-	cmd := exec.CommandContext(ctx, bin, e.Args(req)...)
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	cmd := exec.CommandContext(runCtx, bin, e.Args(req)...)
 	cmd.Dir = req.Task.WorkingDir
+	configureProcessGroup(cmd) // so a killed run takes its child processes with it
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -120,11 +127,22 @@ func (e *Executor) Run(ctx context.Context, req Request) (Result, error) {
 		return Result{}, fmt.Errorf("start %s: %w", bin, err)
 	}
 
+	// Idle watchdog: kill the process if it stops producing output for too long.
+	var idleKilled atomic.Bool
+	var lastActivity atomic.Int64
+	lastActivity.Store(time.Now().UnixNano())
+	if req.IdleTimeout > 0 {
+		done := make(chan struct{})
+		defer close(done)
+		go idleWatch(req.IdleTimeout, &lastActivity, &idleKilled, cancel, done)
+	}
+
 	cls := classifier{sessionID: req.SessionID}
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	for sc.Scan() {
 		line := sc.Bytes()
+		lastActivity.Store(time.Now().UnixNano())
 		_, _ = log.Write(append(cloneLine(line), '\n'))
 		cls.consume(line)
 	}
@@ -136,9 +154,17 @@ func (e *Executor) Run(ctx context.Context, req Request) (Result, error) {
 		var ee *exec.ExitError
 		if errors.As(waitErr, &ee) {
 			exitCode = ee.ExitCode()
-		} else {
+		} else if !idleKilled.Load() {
 			return Result{}, fmt.Errorf("wait %s: %w", bin, waitErr)
 		}
+	}
+	if idleKilled.Load() {
+		return Result{
+			Status:    store.StatusFailed,
+			SessionID: cls.sessionID,
+			ExitCode:  exitCode,
+			Message:   fmt.Sprintf("stopped after %s of no output (looked hung)", req.IdleTimeout),
+		}, nil
 	}
 	if scanErr != nil {
 		// We could not read the output reliably, so we cannot trust the
@@ -147,6 +173,33 @@ func (e *Executor) Run(ctx context.Context, req Request) (Result, error) {
 	}
 
 	return cls.result(exitCode), nil
+}
+
+// idleWatch cancels the run's context (killing the process) when no output has
+// arrived for timeout. A working run keeps resetting lastActivity, so only a
+// genuinely stalled process is killed.
+func idleWatch(timeout time.Duration, lastActivity *atomic.Int64, killed *atomic.Bool, cancel context.CancelFunc, done <-chan struct{}) {
+	interval := timeout / 4
+	if interval < time.Second {
+		interval = time.Second
+	}
+	if interval > 30*time.Second {
+		interval = 30 * time.Second
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-t.C:
+			if time.Duration(time.Now().UnixNano()-lastActivity.Load()) > timeout {
+				killed.Store(true)
+				cancel()
+				return
+			}
+		}
+	}
 }
 
 // cloneLine copies a scanner slice, whose backing array is reused on the next
