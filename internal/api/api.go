@@ -43,6 +43,7 @@ type Deps struct {
 	Models       func() []Model  // optional; enables dynamic model listing
 	ChooseFolder FolderChooser   // optional; enables the native folder dialog
 	ActiveTasks  func() []string // optional; ids of currently-running tasks (hidden from the queue)
+	WakeError    func() string   // optional; last scheduled-wake error ("" if healthy)
 }
 
 // Handler builds the HTTP handler (REST API under /api + dashboard at /).
@@ -68,6 +69,7 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/claude/which", s.whichClaude)
 	mux.HandleFunc("POST /api/fs/choose", s.chooseFolder)
 	mux.HandleFunc("GET /api/stats", s.getStats)
+	mux.HandleFunc("GET /api/health", s.getHealth)
 
 	sub, _ := fs.Sub(webFS, "web")
 	mux.Handle("GET /", noCache(http.FileServer(http.FS(sub))))
@@ -320,6 +322,16 @@ func (s *server) listModels(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, fallbackModels)
+}
+
+// getHealth reports daemon health the UI can warn about — currently whether
+// scheduled-wake setup is working.
+func (s *server) getHealth(w http.ResponseWriter, _ *http.Request) {
+	wakeErr := ""
+	if s.d.WakeError != nil {
+		wakeErr = s.d.WakeError()
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"wake_error": wakeErr})
 }
 
 // whichClaude reports the auto-detected Claude Code binary path so the GUI can

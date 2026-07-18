@@ -145,6 +145,10 @@
   .date-in { font:inherit; font-size:12px; padding:4px 8px; border:.5px solid var(--hairline); border-radius:7px;
     background:var(--card-2); color:var(--fg); }
   .date-sep { color:var(--fg2); font-size:12px; padding:0 1px; }
+  .warnbar { margin-bottom:16px; padding:12px 14px; border-radius:10px; border:.5px solid color-mix(in srgb, var(--warn,#e8a33d) 55%, transparent);
+    background:color-mix(in srgb, var(--warn,#e8a33d) 14%, transparent); color:var(--fg); font-size:13px; line-height:1.5; }
+  .warnbar b { display:block; margin-bottom:4px; }
+  .warnbar code { display:block; margin-top:8px; padding:8px 10px; border-radius:7px; background:var(--card-2); font-size:12px; white-space:pre-wrap; word-break:break-all; user-select:all; }
   #toolbarActions { display:flex; align-items:center; gap:14px; }
   .date-range { display:flex; align-items:center; gap:6px; }
   .act-foot { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 4px 2px; }
@@ -238,6 +242,7 @@
     <div id="toolbarActions"></div>
   </div>
   <div class="content"><div class="wrap">
+    <div id="wakeWarn" class="warnbar" hidden></div>
     <section id="tasks" class="tab"></section>
     <section id="news" class="tab" hidden></section>
     <section id="usage" class="tab" hidden></section>
@@ -720,8 +725,24 @@ async function saveSettings(){
 
 function setConn(ok){ $('#connDot').style.background=ok?'var(--ok)':'var(--danger)'; $('#connText').textContent=ok?'connected':'disconnected'; }
 
+// Surface a broken scheduled-wake setup so timed runs don't silently miss.
+async function checkHealth(){
+  let h; try{ h=await api('GET','/api/health'); }catch{ return; }
+  const bar=$('#wakeWarn'), err=h&&h.wake_error;
+  if(!err){ bar.hidden=true; return; }
+  const needsSudoers=/password|sudo|not permitted|permission/i.test(err);
+  if(needsSudoers){
+    bar.innerHTML='<b>⚠ Scheduled wake isn\'t set up</b>Timed tasks may not run while your Mac is asleep. Allow ClaudeQ to schedule wake-ups by running this once in Terminal, then it takes effect immediately:'
+      +'<code>echo "$(whoami) ALL=(root) NOPASSWD: /usr/bin/pmset" | sudo tee /etc/sudoers.d/claudeq</code>';
+  } else {
+    bar.innerHTML='<b>⚠ Scheduled wake failed</b>'+esc(err);
+  }
+  bar.hidden=false;
+}
+
 // Poll activity for the unread badge + live updates.
 setInterval(()=>{ if(current==='tasks') loadTasks(); loadRuns(); }, 5000);
+setInterval(checkHealth, 30000); checkHealth();
 loadModels().then(()=>select('tasks'));
 </script>
 </body>

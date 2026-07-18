@@ -433,6 +433,12 @@ Post-phase refinements from real use:
   user set it explicitly; the Settings UI pre-fills it via `GET /api/claude/which`.
 - **Display name** — everything the user sees reads **ClaudeQ**; the package,
   binaries, paths and bundle id stay `claudeq` / `ag.dc.claudeq`.
+- **Scheduled-wake reliability** — the daemon already schedules `pmset` wakes at
+  each task's time and (phase 7) `caffeinate`s the Mac awake through a run, so a
+  timed task wakes the machine, runs, and lets it idle-sleep again. Because the
+  wake needs a one-time `pmset` sudoers entry, a failing wake is now surfaced in
+  the dashboard (`GET /api/health` → `wake_error`; a banner shows the exact
+  sudoers command) instead of only logging to stderr.
 - Assorted UI fixes (Activity date filter + pagination, hover tooltip, Usage
   bar-chart layout and empty-bar handling).
 

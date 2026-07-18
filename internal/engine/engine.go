@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/danielmaier42/claudeq/internal/clock"
@@ -45,6 +46,20 @@ func (e *Engine) SetWaker(w Waker) { e.waker = w }
 // SetNotifier enables outcome notifications (failure / auth error).
 func (e *Engine) SetNotifier(n notify.Notifier) { e.notifier = n }
 
+// WakeError reports the last wake-scheduling error, or "" if the most recent
+// attempt succeeded (or wake is disabled / not yet attempted). Surfaced in the
+// UI so a broken scheduled-wake setup (e.g. missing pmset sudoers entry) is
+// visible instead of silently failing.
+func (e *Engine) WakeError() string {
+	if e.waker == nil {
+		return ""
+	}
+	if p := e.wakeErr.Load(); p != nil {
+		return *p
+	}
+	return ""
+}
+
 // Engine orchestrates task execution. Construct it with [New].
 type Engine struct {
 	store *store.Store
@@ -56,7 +71,8 @@ type Engine struct {
 	newSessionID func() string
 	backoff      time.Duration
 	waker        Waker
-	lastWakeErr  string
+	lastWakeErr  string                 // loop-local, for once-only logging
+	wakeErr      atomic.Pointer[string] // exposed to the API (thread-safe)
 	notifier     notify.Notifier
 
 	runCtx    context.Context
@@ -428,12 +444,16 @@ func (e *Engine) Loop(ctx context.Context, interval time.Duration) error {
 			// Wake scheduling is best-effort (needs root); never fatal. Log a
 			// given failure only once to avoid spamming on every tick.
 			if err := e.planWake(ctx); err != nil {
-				if msg := err.Error(); msg != e.lastWakeErr {
+				msg := err.Error()
+				if msg != e.lastWakeErr {
 					fmt.Fprintln(os.Stderr, "claudeqd: wake scheduling failed:", err)
 					e.lastWakeErr = msg
 				}
+				e.wakeErr.Store(&msg)
 			} else {
 				e.lastWakeErr = ""
+				empty := ""
+				e.wakeErr.Store(&empty)
 			}
 		}
 		select {

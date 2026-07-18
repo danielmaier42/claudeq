@@ -124,6 +124,7 @@ func cmdRun(args []string) error {
 		Handler: api.Handler(api.Deps{
 			Store: st, Runner: eng, Models: api.BinaryModelLister(claudeBinOr(claudeBin)),
 			ChooseFolder: api.OSAScriptFolderChooser(system.Real{}), ActiveTasks: eng.ActiveTaskIDs,
+			WakeError: eng.WakeError,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}

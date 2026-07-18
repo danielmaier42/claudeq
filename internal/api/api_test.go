@@ -117,6 +117,21 @@ func TestListTasksKeepsRunningCron(t *testing.T) {
 	}
 }
 
+func TestHealthReportsWakeError(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(Handler(Deps{Store: st, WakeError: func() string { return "pmset: sudo password required" }}))
+	t.Cleanup(srv.Close)
+
+	var got map[string]string
+	do(t, srv, "GET", "/api/health", nil).into(t, &got)
+	if got["wake_error"] != "pmset: sudo password required" {
+		t.Fatalf("wake_error = %q, want the dep's value", got["wake_error"])
+	}
+}
+
 func TestAddInvalidTaskRejected(t *testing.T) {
 	srv, _ := newServer(t, nil)
 	bad := sampleTask("x")
