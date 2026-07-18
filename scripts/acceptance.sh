@@ -217,6 +217,10 @@ check "app bundle is code-signed under its bundle id"      contains "$ROOT/scrip
 check "NFA-05 installer runs the postinstall scripts dir"  contains "$ROOT/scripts/build-pkg.sh" "scripts/pkg"
 check "NFA-05 postinstall is valid shell"                  sh -n "$ROOT/scripts/pkg/postinstall"
 check "NFA-05 postinstall sets up the LaunchAgent"         contains "$ROOT/scripts/pkg/postinstall" '"\$DAEMON" install'
+# Regression guard: the postinstall must NEVER delete anything under
+# /Applications — a case-insensitive-FS bug once made it rm the app it just
+# installed. It may reference the path (to locate the daemon), just never rm it.
+check "postinstall never removes anything under /Applications" bash -c '! grep -Eq "(rm|unlink|ditto .*--nocache)[^\\n]*/Applications" "'"$ROOT"'/scripts/pkg/postinstall"'
 check "NFA-06 uninstall removes LaunchAgent and app"       contains "$ROOT/scripts/uninstall.sh" "uninstall"
 check "NFA-06 uninstall is valid shell"                    bash -n "$ROOT/scripts/uninstall.sh"
 check "release pipeline triggers on version tags"          contains "$ROOT/.github/workflows/release.yml" 'tags:'
