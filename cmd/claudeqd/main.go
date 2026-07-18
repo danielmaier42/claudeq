@@ -103,6 +103,9 @@ func cmdRun(args []string) error {
 		eng.SetWaker(&wake.Scheduler{Runner: system.Real{}, Sudo: true})
 	}
 	eng.SetNotifier(buildNotifier(st))
+	// Ask for notification permission up front (only does anything when running
+	// from the app bundle) so run-outcome notifications carry the app icon.
+	notify.RequestMacAuthorization()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

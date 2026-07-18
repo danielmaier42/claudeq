@@ -31,14 +31,32 @@ type Mac struct {
 	Runner system.Runner
 }
 
-// Notify displays a native notification.
+// Notify displays a native notification. When claudeq runs from its app bundle
+// it posts through UNUserNotificationCenter so the notification carries the app
+// icon; otherwise (or if that fails) it falls back to osascript, whose
+// notifications show a generic script icon but always work from a LaunchAgent.
 func (m Mac) Notify(ctx context.Context, n Notification) error {
+	if nativeNotifyAvailable() {
+		if err := postNativeNotification(n.Title, n.Message); err == nil {
+			return nil
+		}
+		// fall through to osascript on failure
+	}
 	script := fmt.Sprintf("display notification %s with title %s",
 		asString(n.Message), asString(n.Title))
 	if out, err := m.Runner.Run(ctx, "osascript", "-e", script); err != nil {
 		return fmt.Errorf("osascript: %w (%s)", err, string(out))
 	}
 	return nil
+}
+
+// RequestMacAuthorization asks for notification permission up front (the one-time
+// system prompt), so later notifications can be delivered with the app icon. A
+// no-op when not running from the app bundle.
+func RequestMacAuthorization() {
+	if nativeNotifyAvailable() {
+		requestNativeAuth()
+	}
 }
 
 // asString renders a Go string as an AppleScript double-quoted string literal.
