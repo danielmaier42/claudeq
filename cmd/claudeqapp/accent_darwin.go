@@ -4,7 +4,8 @@ package main
 
 /*
 #cgo CFLAGS: -x objective-c
-#cgo LDFLAGS: -framework Foundation -framework CoreFoundation
+#cgo LDFLAGS: -framework Foundation -framework CoreFoundation -framework AppKit
+#import <AppKit/AppKit.h>
 #import <Foundation/Foundation.h>
 #import <CoreFoundation/CoreFoundation.h>
 
@@ -27,14 +28,20 @@ static long cqReadAccentIndex(void) {
     return result;
 }
 
-// Observe every distributed notification (name:nil) so we catch both the
-// appearance change and the accent-color change regardless of exact name; the
-// Go side re-reads (with retries) and applies, so unrelated notifications are
-// cheap.
+// cqStartAccentObserver registers for the two signals that matter:
+//   * Distributed AppleInterfaceThemeChangedNotification — dark/light toggle.
+//   * Local NSSystemColorsDidChangeNotification — AppKit posts this in-process
+//     when the accent/highlight color changes. A plain accent change fires NO
+//     distributed notification, so this local one is the trigger for it.
+// Both just ping Go, which re-reads the accent (with retries) and re-applies.
 static void cqStartAccentObserver(void) {
     @autoreleasepool {
         [[NSDistributedNotificationCenter defaultCenter]
-            addObserverForName:nil object:nil queue:nil
+            addObserverForName:@"AppleInterfaceThemeChangedNotification" object:nil queue:nil
+            usingBlock:^(NSNotification *n){ goAccentChanged(); }];
+        [[NSNotificationCenter defaultCenter]
+            addObserverForName:NSSystemColorsDidChangeNotification object:nil
+            queue:[NSOperationQueue mainQueue]
             usingBlock:^(NSNotification *n){ goAccentChanged(); }];
         [[NSRunLoop currentRunLoop] run];
     }
@@ -56,8 +63,9 @@ func goAccentChanged() {
 // readAccentIndex returns the current macOS accent index (-100 if unset).
 func readAccentIndex() int { return int(C.cqReadAccentIndex()) }
 
-// startAccentObserver invokes onChange whenever a system notification fires
-// (instant, in the app's GUI session). Runs a Cocoa run loop on its own thread.
+// startAccentObserver invokes onChange whenever the appearance or the accent
+// color changes (instant, in the app's GUI session). Runs a Cocoa run loop on
+// its own thread for the distributed observer.
 func startAccentObserver(onChange func()) {
 	onAccentChange = onChange
 	go func() {
