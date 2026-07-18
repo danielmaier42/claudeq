@@ -297,6 +297,15 @@ function confirmSheetAsk(text,yesLabel){ return new Promise(res=>{ $('#confirmTe
   dlg.showModal(); }); }
 // Click on the dimmed backdrop closes any open modal.
 document.querySelectorAll('dialog').forEach(d=>d.addEventListener('click',e=>{ if(e.target===d) d.close(); }));
+async function loadTheme(){
+  try{ const t=await api('GET','/api/theme'); if(t && t.accent){
+    document.documentElement.style.setProperty('--accent', t.accent);
+    document.documentElement.style.setProperty('--accent-fg', textOn(t.accent));
+  } }catch{}
+}
+function textOn(hex){ const c=hex.replace('#',''); const r=parseInt(c.slice(0,2),16),g=parseInt(c.slice(2,4),16),b=parseInt(c.slice(4,6),16);
+  return (0.299*r+0.587*g+0.114*b)/255>0.62?'#000':'#fff'; }
+
 let MODELS=[];
 async function loadModels(){ try{ MODELS=await api('GET','/api/models'); }catch{ MODELS=[]; } }
 function modelOptions(selected,globalLabel){
@@ -611,6 +620,7 @@ function setConn(ok){ $('#connDot').style.background=ok?'var(--ok)':'var(--dange
 
 // Poll activity for the unread badge + live updates.
 setInterval(()=>{ if(current==='tasks') loadTasks(); loadRuns(); }, 5000);
+loadTheme();
 loadModels().then(()=>select('tasks'));
 </script>
 </body>

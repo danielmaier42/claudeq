@@ -96,6 +96,7 @@ func cmdRun(args []string) error {
 		Handler: api.Handler(api.Deps{
 			Store: st, Runner: eng, Models: api.BinaryModelLister("claude"),
 			ChooseFolder: api.OSAScriptFolderChooser(system.Real{}), ActiveTasks: eng.ActiveTaskIDs,
+			Accent: api.MacAccent(system.Real{}),
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
