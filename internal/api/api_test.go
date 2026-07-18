@@ -92,6 +92,31 @@ func TestListTasksHidesRunning(t *testing.T) {
 	}
 }
 
+func TestListTasksKeepsRunningCron(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(Handler(Deps{Store: st, ActiveTasks: func() []string { return []string{"c"} }}))
+	t.Cleanup(srv.Close)
+	cron := sampleTask("c")
+	cron.Trigger = task.TriggerCron
+	cron.Cron = "0 20 * * *"
+	do(t, srv, "POST", "/api/tasks", cron)
+
+	var tasks []struct {
+		task.Task
+		Running bool `json:"running"`
+	}
+	do(t, srv, "GET", "/api/tasks", nil).into(t, &tasks)
+	if len(tasks) != 1 || tasks[0].ID != "c" {
+		t.Fatalf("running cron task should stay in the queue, got %v", tasks)
+	}
+	if !tasks[0].Running {
+		t.Fatal("running cron task should be flagged running")
+	}
+}
+
 func TestAddInvalidTaskRejected(t *testing.T) {
 	srv, _ := newServer(t, nil)
 	bad := sampleTask("x")

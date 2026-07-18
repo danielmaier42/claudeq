@@ -92,20 +92,29 @@ func (s *server) listTasks(w http.ResponseWriter, _ *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	// A running task lives in Activity, not the queue — hide it here.
 	active := map[string]bool{}
 	if s.d.ActiveTasks != nil {
 		for _, id := range s.d.ActiveTasks() {
 			active[id] = true
 		}
 	}
-	out := make([]task.Task, 0, len(cfg.Tasks))
+	out := make([]taskView, 0, len(cfg.Tasks))
 	for _, t := range cfg.Tasks {
-		if !active[t.ID] {
-			out = append(out, t)
+		// A running one-shot task moves to Activity and is hidden here. Recurring
+		// (cron) tasks stay in the queue even while running, since they remain
+		// queued for their next occurrence — just flagged as running.
+		if active[t.ID] && t.Trigger != task.TriggerCron {
+			continue
 		}
+		out = append(out, taskView{Task: t, Running: active[t.ID]})
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// taskView is a task plus its transient running state, for the queue view.
+type taskView struct {
+	task.Task
+	Running bool `json:"running"`
 }
 
 func (s *server) addTask(w http.ResponseWriter, r *http.Request) {

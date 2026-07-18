@@ -113,6 +113,9 @@
 
   /* Chips / pills */
   .chip { font-size:11px; font-weight:600; padding:2px 8px; border-radius:20px; background:var(--seg-bg); color:var(--fg2); }
+  .chip.running { background:color-mix(in srgb, var(--accent) 18%, transparent); color:var(--accent); }
+  .chip.running::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--accent); margin-right:5px; vertical-align:middle; animation:cqpulse 1.2s ease-in-out infinite; }
+  @keyframes cqpulse { 0%,100%{opacity:1} 50%{opacity:.35} }
   .pill { font-size:11px; font-weight:600; padding:3px 9px; border-radius:20px; display:inline-flex; align-items:center; gap:5px; }
   .pill .d { width:6px; height:6px; border-radius:50%; }
   .pill.success{ background:color-mix(in srgb,var(--ok) 16%,transparent); color:var(--ok); }
@@ -407,11 +410,11 @@ async function loadTasks(){
   tasks.forEach((t,i)=>{
     const when=t.trigger==='fixed'?new Date(t.fixed_at).toLocaleString():t.trigger==='cron'?t.cron:'as soon as possible';
     const row=el('div','row');
-    const grow=el('div','grow'); grow.innerHTML=`<div class="title">${esc(t.name)} ${t.parallel?'<span class="chip">parallel</span>':''}</div>
+    const grow=el('div','grow'); grow.innerHTML=`<div class="title">${esc(t.name)} ${t.running?'<span class="chip running">running…</span>':''} ${t.parallel?'<span class="chip">parallel</span>':''}</div>
       <div class="sub"><span class="mono">${esc(t.id)}</span> · ${esc(t.trigger)} · ${esc(when)}</div>`;
     row.append(grow);
     const up=el('button','btn small','↑'); up.disabled=i===0; up.title='Move up'; up.onclick=()=>move(t.id,i-1);
-    const run=el('button','btn small','Run now'); run.onclick=()=>runNow(t.id);
+    const run=el('button','btn small','Run now'); run.disabled=!!t.running; run.title=t.running?'Already running':'Run now'; run.onclick=()=>runNow(t.id);
     const edit=el('button','btn small iconly',PENCIL); edit.title='Edit'; edit.onclick=()=>openEdit(t);
     const sw=el('label','switch'); sw.innerHTML=`<input type="checkbox" ${t.enabled?'checked':''}><span class="sl"></span>`;
     sw.querySelector('input').onchange=()=>toggle(t.id,t.enabled);
