@@ -297,11 +297,26 @@ function confirmSheetAsk(text,yesLabel){ return new Promise(res=>{ $('#confirmTe
   dlg.showModal(); }); }
 // Click on the dimmed backdrop closes any open modal.
 document.querySelectorAll('dialog').forEach(d=>d.addEventListener('click',e=>{ if(e.target===d) d.close(); }));
-async function loadTheme(){
-  try{ const t=await api('GET','/api/theme'); if(t && t.accent){
-    document.documentElement.style.setProperty('--accent', t.accent);
-    document.documentElement.style.setProperty('--accent-fg', textOn(t.accent));
-  } }catch{}
+let accentApplied=null;
+function applyAccent(accent){
+  accent=accent||'';
+  if(accent===accentApplied) return;
+  accentApplied=accent;
+  const root=document.documentElement.style;
+  if(accent){ root.setProperty('--accent',accent); root.setProperty('--accent-fg',textOn(accent)); }
+  else { root.removeProperty('--accent'); root.removeProperty('--accent-fg'); }  // back to default
+}
+// Live accent via Server-Sent Events (event-driven, no polling). The stream
+// delivers the current value on connect and pushes changes instantly.
+function startThemeStream(){
+  try{
+    const es=new EventSource('/api/theme/stream');
+    es.onmessage=e=>{ try{ applyAccent(JSON.parse(e.data).accent); }catch{} };
+    // EventSource auto-reconnects on error; no action needed.
+  }catch{
+    // Fallback for browsers without EventSource: one-shot fetch.
+    api('GET','/api/theme').then(t=>applyAccent(t&&t.accent)).catch(()=>{});
+  }
 }
 function textOn(hex){ const c=hex.replace('#',''); const r=parseInt(c.slice(0,2),16),g=parseInt(c.slice(2,4),16),b=parseInt(c.slice(4,6),16);
   return (0.299*r+0.587*g+0.114*b)/255>0.62?'#000':'#fff'; }
@@ -620,7 +635,7 @@ function setConn(ok){ $('#connDot').style.background=ok?'var(--ok)':'var(--dange
 
 // Poll activity for the unread badge + live updates.
 setInterval(()=>{ if(current==='tasks') loadTasks(); loadRuns(); }, 5000);
-loadTheme();
+startThemeStream();
 loadModels().then(()=>select('tasks'));
 </script>
 </body>

@@ -4,7 +4,29 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 )
+
+func TestThemeHubDeliversInitialAndChanges(t *testing.T) {
+	h := NewThemeHub("#111111")
+	ch, cancel := h.subscribe()
+	defer cancel()
+
+	if got := <-ch; got != "#111111" {
+		t.Fatalf("initial = %q, want #111111", got)
+	}
+	h.Publish("#222222")
+	if got := <-ch; got != "#222222" {
+		t.Fatalf("update = %q, want #222222", got)
+	}
+	// Publishing the same value must not emit again.
+	h.Publish("#222222")
+	select {
+	case v := <-ch:
+		t.Fatalf("unexpected duplicate emission %q", v)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
 
 type accentRunner struct {
 	out string

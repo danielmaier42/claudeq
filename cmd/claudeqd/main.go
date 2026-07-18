@@ -19,8 +19,11 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 
 	"github.com/danielmaier42/claudeq/internal/api"
 	"github.com/danielmaier42/claudeq/internal/clock"
@@ -91,12 +94,16 @@ func cmdRun(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	accentFn := api.MacAccent(system.Real{})
+	themeHub := api.NewThemeHub(accentFn())
+	go watchAccent(ctx, themeHub, accentFn)
+
 	httpSrv := &http.Server{
 		Addr: *addr,
 		Handler: api.Handler(api.Deps{
 			Store: st, Runner: eng, Models: api.BinaryModelLister("claude"),
 			ChooseFolder: api.OSAScriptFolderChooser(system.Real{}), ActiveTasks: eng.ActiveTaskIDs,
-			Accent: api.MacAccent(system.Real{}),
+			Accent: accentFn, Theme: themeHub,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
@@ -118,6 +125,56 @@ func cmdRun(args []string) error {
 	}
 	fmt.Println("claudeqd: stopped")
 	return nil
+}
+
+// watchAccent watches the macOS global preferences for accent-color changes and
+// pushes them to the theme hub (event-driven, no polling). It watches the
+// Preferences directory so it survives the atomic rewrite of the plist.
+func watchAccent(ctx context.Context, hub *api.ThemeHub, read func() string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		return
+	}
+	defer func() { _ = w.Close() }()
+
+	prefsDir := filepath.Join(home, "Library", "Preferences")
+	globalPrefs := filepath.Join(prefsDir, ".GlobalPreferences.plist")
+	if err := w.Add(prefsDir); err != nil {
+		return
+	}
+	_ = w.Add(globalPrefs) // best-effort: also catch in-place writes
+
+	var debounce *time.Timer
+	fire := func() { hub.Publish(read()) }
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev, ok := <-w.Events:
+			if !ok {
+				return
+			}
+			if !strings.Contains(ev.Name, "GlobalPreferences") {
+				continue
+			}
+			// After an atomic replace the file watch points at the old inode;
+			// re-arm it so the next in-place write is still caught.
+			_ = w.Add(globalPrefs)
+			// cfprefsd writes lazily; debounce and let it settle before reading.
+			if debounce != nil {
+				debounce.Stop()
+			}
+			debounce = time.AfterFunc(400*time.Millisecond, fire)
+		case _, ok := <-w.Errors:
+			if !ok {
+				return
+			}
+		}
+	}
 }
 
 // buildNotifier assembles the notification channels: native macOS always, plus
