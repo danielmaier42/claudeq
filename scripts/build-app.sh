@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build claudeq.app — a native macOS application bundle wrapping the daemon and
+# Build ClaudeQ.app — a native macOS application bundle wrapping the daemon and
 # the WKWebView window. The bundle is what makes macOS treat claudeq as its own
 # foreground app (its name in the menu bar, its own Dock icon, no terminal
 # parent) instead of a bare executable owned by Terminal.
@@ -10,7 +10,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${1:-$ROOT/build}"
-APP="$OUT/claudeq.app"
+APP="$OUT/ClaudeQ.app"
 CONTENTS="$APP/Contents"
 MACOS="$CONTENTS/MacOS"
 RES="$CONTENTS/Resources"

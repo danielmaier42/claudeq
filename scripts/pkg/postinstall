@@ -6,7 +6,7 @@
 # bootstraps gui/<uid>, pointing the plist at the daemon inside the app bundle.
 set -e
 
-APP="/Applications/claudeq.app"
+APP="/Applications/ClaudeQ.app"
 DAEMON="$APP/Contents/MacOS/claudeqd"
 
 if [ ! -x "$DAEMON" ]; then
@@ -26,7 +26,7 @@ uid=$(id -u "$consoleUser")
 # `launchctl asuser` enters the user's GUI launchd domain; `sudo -u` adopts the
 # user's identity and HOME so the plist lands in their LaunchAgents directory.
 if ! launchctl asuser "$uid" sudo -u "$consoleUser" "$DAEMON" install; then
-	echo "claudeq: autostart setup failed; open claudeq.app to enable it"
+	echo "claudeq: autostart setup failed; open ClaudeQ.app to enable it"
 fi
 
 # Allow the daemon to schedule wake-ups (pmset) without a password, so timed

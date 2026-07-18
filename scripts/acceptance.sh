@@ -211,7 +211,7 @@ fi
 
 echo
 echo "== Packaging & release (phase 6) =="
-check "NFA-05 installer places the app in /Applications"   contains "$ROOT/scripts/build-pkg.sh" "Applications/claudeq.app"
+check "NFA-05 installer places the app in /Applications"   contains "$ROOT/scripts/build-pkg.sh" "Applications/ClaudeQ.app"
 check "NFA-05 installer disables bundle relocation"        contains "$ROOT/scripts/build-pkg.sh" "BundleIsRelocatable false"
 check "app bundle is code-signed under its bundle id"      contains "$ROOT/scripts/build-app.sh" "identifier ag.dc.claudeq"
 check "NFA-05 installer runs the postinstall scripts dir"  contains "$ROOT/scripts/build-pkg.sh" "scripts/pkg"

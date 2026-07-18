@@ -5,7 +5,7 @@
 # admin rights).
 set -euo pipefail
 
-APP="/Applications/claudeq.app"
+APP="/Applications/ClaudeQ.app"
 DAEMON="$APP/Contents/MacOS/claudeqd"
 
 if [ -x "$DAEMON" ]; then

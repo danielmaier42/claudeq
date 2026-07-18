@@ -79,11 +79,13 @@ Pushover credentials.
 ## Uninstall
 
 ```sh
-/Applications/claudeq.app/Contents/MacOS/claudeqd uninstall   # remove the LaunchAgent
-rm -rf /Applications/claudeq.app
+/Applications/ClaudeQ.app/Contents/MacOS/claudeqd uninstall   # remove the LaunchAgent
+sudo rm -f /etc/sudoers.d/claudeq                             # remove the pmset wake permission
+rm -rf /Applications/ClaudeQ.app
 ```
 
-Or run [`scripts/uninstall.sh`](scripts/uninstall.sh). Your tasks and history in
+Or run [`scripts/uninstall.sh`](scripts/uninstall.sh) (does all of the above).
+Your tasks and history in
 `~/Library/Application Support/claudeq` are left in place; delete that folder to
 remove them too.
 
@@ -92,7 +94,7 @@ remove them too.
 Requires Go 1.26+ and `librsvg` (`brew install librsvg`) for icon rendering.
 
 ```sh
-scripts/build-app.sh    # build/claudeq.app        (double-click or `open` it)
+scripts/build-app.sh    # build/ClaudeQ.app        (double-click or `open` it)
 scripts/build-pkg.sh    # dist/claudeq-<version>.pkg (installer)
 ```
 

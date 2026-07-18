@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build claudeq-<version>.pkg — a macOS installer that drops claudeq.app into
+# Build claudeq-<version>.pkg — a macOS installer that drops ClaudeQ.app into
 # /Applications and (via postinstall) sets up the per-user LaunchAgent so the
 # daemon starts at login.
 #
@@ -24,7 +24,7 @@ esac
 
 echo "==> Building app bundle"
 "$ROOT/scripts/build-app.sh" "$ROOT/build"
-APP="$ROOT/build/claudeq.app"
+APP="$ROOT/build/ClaudeQ.app"
 
 # Optionally sign the app (notarization requires a hardened, signed app).
 if [ -n "${CLAUDEQ_SIGN_APP_ID:-}" ]; then
@@ -40,7 +40,7 @@ mkdir -p "$STAGE/Applications"
 # executable's com.apple.provenance xattr as an AppleDouble entry in the payload
 # — that is standard and the installer decodes it back to an xattr; no visible
 # ._ files end up in /Applications.)
-ditto "$APP" "$STAGE/Applications/claudeq.app"
+ditto "$APP" "$STAGE/Applications/ClaudeQ.app"
 
 echo "==> Building installer package"
 mkdir -p "$OUT"
