@@ -1,10 +1,10 @@
 <svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="claudeq">
   <title>claudeq</title>
-  <rect x="0" y="0" width="512" height="512" rx="114" fill="#d97757"/>
-  <circle cx="256" cy="256" r="150" fill="none" stroke="#ffffff" stroke-opacity="0.55" stroke-width="7"
+  <rect x="0" y="0" width="512" height="512" rx="114" fill="#1c1c1e"/>
+  <circle cx="256" cy="256" r="150" fill="none" stroke="#5a5a5e" stroke-width="7"
           stroke-linecap="round" stroke-dasharray="0.5 24"/>
-  <circle cx="256" cy="106" r="15" fill="#ffffff"/>
-  <g stroke="#ffffff" stroke-width="13" stroke-linecap="round">
+  <circle cx="256" cy="106" r="15" fill="#d97757"/>
+  <g stroke="#d97757" stroke-width="13" stroke-linecap="round">
     <line x1="256" y1="256" x2="256" y2="352"/>
     <line x1="256" y1="256" x2="214" y2="304"/>
     <line x1="256" y1="256" x2="166" y2="274"/>
