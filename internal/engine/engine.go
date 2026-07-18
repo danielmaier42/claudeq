@@ -225,6 +225,7 @@ func (e *Engine) launchTask(t task.Task, settings store.Settings, sessionID stri
 		Resume:          resume,
 		Model:           effectiveModel(t, settings),
 		SkipPermissions: skipPermissions(t, settings),
+		Bin:             settings.ClaudePath,
 		Log:             logFile,
 	}
 	e.wg.Add(1)

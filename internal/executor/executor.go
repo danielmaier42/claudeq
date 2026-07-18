@@ -38,6 +38,9 @@ type Request struct {
 	Model string
 	// SkipPermissions bypasses permission prompts for this run.
 	SkipPermissions bool
+	// Bin overrides the Claude Code binary for this run (an absolute path from
+	// settings). Empty falls back to the Executor's configured binary.
+	Bin string
 	// Log receives the raw CLI output (stdout + stderr), streamed live.
 	Log io.Writer
 }
@@ -89,11 +92,21 @@ func (e *Executor) bin() string {
 	return "claude"
 }
 
+// binFor resolves the binary for a request: an explicit per-run override wins,
+// otherwise the Executor's configured default.
+func (e *Executor) binFor(req Request) string {
+	if req.Bin != "" {
+		return req.Bin
+	}
+	return e.bin()
+}
+
 // Run executes the request, streaming output to req.Log, and returns the
 // classified result. A non-nil error indicates claudeq failed to run the CLI
 // at all (as opposed to the CLI reporting a task failure, which is a Result).
 func (e *Executor) Run(ctx context.Context, req Request) (Result, error) {
-	cmd := exec.CommandContext(ctx, e.bin(), e.Args(req)...)
+	bin := e.binFor(req)
+	cmd := exec.CommandContext(ctx, bin, e.Args(req)...)
 	cmd.Dir = req.Task.WorkingDir
 
 	stdout, err := cmd.StdoutPipe()
@@ -104,7 +117,7 @@ func (e *Executor) Run(ctx context.Context, req Request) (Result, error) {
 	cmd.Stderr = log
 
 	if err := cmd.Start(); err != nil {
-		return Result{}, fmt.Errorf("start %s: %w", e.bin(), err)
+		return Result{}, fmt.Errorf("start %s: %w", bin, err)
 	}
 
 	cls := classifier{sessionID: req.SessionID}
@@ -124,13 +137,13 @@ func (e *Executor) Run(ctx context.Context, req Request) (Result, error) {
 		if errors.As(waitErr, &ee) {
 			exitCode = ee.ExitCode()
 		} else {
-			return Result{}, fmt.Errorf("wait %s: %w", e.bin(), waitErr)
+			return Result{}, fmt.Errorf("wait %s: %w", bin, waitErr)
 		}
 	}
 	if scanErr != nil {
 		// We could not read the output reliably, so we cannot trust the
 		// classification; report it as a run error.
-		return Result{}, fmt.Errorf("read %s output: %w", e.bin(), scanErr)
+		return Result{}, fmt.Errorf("read %s output: %w", bin, scanErr)
 	}
 
 	return cls.result(exitCode), nil

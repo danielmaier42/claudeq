@@ -319,6 +319,10 @@ type Settings struct {
 	HeartbeatMinutes int `toml:"heartbeat_minutes" json:"heartbeat_minutes"`
 	// Pushover holds mobile-notification credentials (FA-41). Used from Phase 4.
 	Pushover Pushover `toml:"pushover" json:"pushover"`
+	// ClaudePath is an absolute path to the Claude Code binary. Empty means
+	// claudeq auto-detects it (the daemon's launchd PATH excludes ~/.local/bin,
+	// so an explicit path is often needed). The GUI pre-fills this via detection.
+	ClaudePath string `toml:"claude_path" json:"claude_path"`
 }
 
 // DefaultHeartbeatMinutes is the wake safety-net interval when unset.

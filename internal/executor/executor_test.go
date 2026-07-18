@@ -106,6 +106,25 @@ func runFake(t *testing.T, stdout string, exitCode int) Result {
 	return res
 }
 
+func TestRequestBinOverridesExecutorDefault(t *testing.T) {
+	// The Executor's own Bin points nowhere; the per-run Request.Bin is a working
+	// fake CLI. Run must use the request override and succeed.
+	e := &Executor{Bin: "/nonexistent/claude"}
+	out := `{"type":"result","subtype":"success","is_error":false,"result":"OK","session_id":"real-sid"}`
+	tk := sampleTask()
+	tk.WorkingDir = t.TempDir()
+	var log bytes.Buffer
+	res, err := e.Run(context.Background(), Request{
+		Task: tk, SessionID: "sid", Bin: fakeClaude(t, out, 0), Log: &log,
+	})
+	if err != nil {
+		t.Fatalf("Run with Request.Bin override: %v", err)
+	}
+	if res.Status != store.StatusSuccess {
+		t.Fatalf("status = %q, want success (override binary should have run)", res.Status)
+	}
+}
+
 func TestRunSuccess(t *testing.T) {
 	out := `{"type":"result","subtype":"success","is_error":false,"result":"OK","session_id":"real-sid"}`
 	res := runFake(t, out, 0)

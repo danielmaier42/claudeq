@@ -69,6 +69,9 @@ EOF
   chmod +x "$FAKE/$tool"
 done
 export PATH="$FAKE:$PATH"
+# Force claudeq to use the fake claude (the daemon otherwise auto-detects the
+# real one at a common install path, bypassing PATH).
+export CLAUDEQ_CLAUDE_BIN="$FAKE/claude"
 
 echo
 echo "== Task definition & management =="

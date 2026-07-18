@@ -81,8 +81,24 @@ func cmdRun(args []string) error {
 		return err
 	}
 
+	// Resolve the Claude Code binary. An explicit setting wins; otherwise detect
+	// it (the daemon's launchd PATH excludes ~/.local/bin, so a plain lookup at
+	// exec time would fail). Per-run, the engine still prefers the live setting.
+	claudeBin := ""
+	if cfg, err := st.LoadConfig(); err == nil {
+		claudeBin = cfg.Settings.ClaudePath
+	}
+	if claudeBin == "" {
+		claudeBin = executor.DetectBinary()
+	}
+	if claudeBin == "" {
+		fmt.Fprintln(os.Stderr, "claudeqd: warning: could not locate the 'claude' binary; set it in Settings")
+	} else {
+		fmt.Fprintln(os.Stdout, "claudeqd: using claude at", claudeBin)
+	}
+
 	c := clock.Real{}
-	eng := engine.New(st, limit.New(c), &executor.Executor{}, c)
+	eng := engine.New(st, limit.New(c), &executor.Executor{Bin: claudeBin}, c)
 	if !*noWake {
 		eng.SetWaker(&wake.Scheduler{Runner: system.Real{}, Sudo: true})
 	}
@@ -94,7 +110,7 @@ func cmdRun(args []string) error {
 	httpSrv := &http.Server{
 		Addr: *addr,
 		Handler: api.Handler(api.Deps{
-			Store: st, Runner: eng, Models: api.BinaryModelLister("claude"),
+			Store: st, Runner: eng, Models: api.BinaryModelLister(claudeBinOr(claudeBin)),
 			ChooseFolder: api.OSAScriptFolderChooser(system.Real{}), ActiveTasks: eng.ActiveTaskIDs,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
@@ -186,6 +202,15 @@ func cmdUninstall() error {
 	fmt.Printf("removed LaunchAgent %s\n", launchd.DefaultLabel)
 	fmt.Println("If you added the pmset sudoers entry, remove it with: sudo rm -f /etc/sudoers.d/claudeq")
 	return nil
+}
+
+// claudeBinOr falls back to the bare name so the model lister still has
+// something to invoke when detection came up empty.
+func claudeBinOr(bin string) string {
+	if bin != "" {
+		return bin
+	}
+	return "claude"
 }
 
 func launchAgentsDir() (string, error) {

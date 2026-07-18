@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/danielmaier42/claudeq/internal/app"
+	"github.com/danielmaier42/claudeq/internal/executor"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
 )
@@ -64,6 +65,7 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("PUT /api/settings", s.putSettings)
 	mux.HandleFunc("GET /api/models", s.listModels)
+	mux.HandleFunc("GET /api/claude/which", s.whichClaude)
 	mux.HandleFunc("POST /api/fs/choose", s.chooseFolder)
 	mux.HandleFunc("GET /api/stats", s.getStats)
 
@@ -309,6 +311,12 @@ func (s *server) listModels(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, fallbackModels)
+}
+
+// whichClaude reports the auto-detected Claude Code binary path so the GUI can
+// pre-fill the setting. Empty path means it could not be located.
+func (s *server) whichClaude(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"path": executor.DetectBinary()})
 }
 
 func (s *server) chooseFolder(w http.ResponseWriter, r *http.Request) {
