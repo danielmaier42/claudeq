@@ -45,8 +45,18 @@ ditto "$APP" "$STAGE/Applications/claudeq.app"
 echo "==> Building installer package"
 mkdir -p "$OUT"
 PKG="$OUT/claudeq-$VERSION.pkg"
+
+# Disable bundle relocation. By default pkgbuild marks .app bundles relocatable,
+# so if a copy of ag.dc.claudeq is already indexed by Spotlight the installer
+# overwrites THAT copy instead of installing to /Applications. Force a fixed
+# /Applications install by setting BundleIsRelocatable=false in a component plist.
+COMPONENT_PLIST="$(mktemp -d)/component.plist"
+pkgbuild --analyze --root "$STAGE" "$COMPONENT_PLIST" >/dev/null
+/usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false" "$COMPONENT_PLIST"
+
 PKGARGS=(
   --root "$STAGE"
+  --component-plist "$COMPONENT_PLIST"
   --identifier "$IDENTIFIER"
   --version "$VERSION"
   --install-location "/"
