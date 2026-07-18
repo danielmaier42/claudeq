@@ -22,14 +22,6 @@ if [ -z "$consoleUser" ] || [ "$consoleUser" = "root" ]; then
 	exit 0
 fi
 uid=$(id -u "$consoleUser")
-userHome=$(dscl . -read "/Users/$consoleUser" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
-[ -n "$userHome" ] || userHome="/Users/$consoleUser"
-
-# Migration from the old reverse-DNS bundle id (ag.dc.claudeq): stop and remove
-# its LaunchAgent so it doesn't keep running under the old label. (New id:
-# de.maierdaniel.claudeq.)
-launchctl asuser "$uid" sudo -u "$consoleUser" launchctl bootout "gui/$uid/ag.dc.claudeq" 2>/dev/null || true
-rm -f "$userHome/Library/LaunchAgents/ag.dc.claudeq.plist"
 
 # Stop any stray daemon (an orphan from a prior version/label still holding the
 # loopback port). Otherwise the freshly-installed daemon can't bind and the old
