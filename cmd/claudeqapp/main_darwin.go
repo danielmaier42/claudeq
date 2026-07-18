@@ -30,6 +30,13 @@ func main() {
 	w.SetTitle("claudeq")
 	w.SetSize(1120, 760, webview.HintNone)
 
+	// Native menu bar (webview_go creates none). Custom items drive the dashboard
+	// via the same JS the sidebar uses: openAdd() and select('settings').
+	installMenu(
+		func() { w.Dispatch(func() { w.Eval("window.openAdd && window.openAdd()") }) },
+		func() { w.Dispatch(func() { w.Eval("window.select && window.select('settings')") }) },
+	)
+
 	// Expose the current accent to the page and (re)apply it on each load.
 	_ = w.Bind("cqReadAccent", func() string { return accentHex() })
 	w.Init(`
