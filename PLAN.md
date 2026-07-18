@@ -418,7 +418,10 @@ This table is kept current — the phase status is updated as work progresses (s
 
 ---
 
-## 13. Next Step
+## 13. Status
 
-Review this plan. On approval, proceed to the spike (§10) or directly to implementation of the
-core daemon (§12), as directed. No code is written until explicitly commissioned.
+All planned phases (0–7) are complete: the daemon, scheduling/concurrency,
+wake & resilience, notifications, the dashboard, the native app, the installer &
+release pipeline, and unattended-run hardening. The remaining work is a first
+tagged release (build the `.pkg` via the release workflow) and any follow-ups
+that surface from real overnight use.
