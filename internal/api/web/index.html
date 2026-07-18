@@ -145,6 +145,8 @@
   .date-in { font:inherit; font-size:12px; padding:4px 8px; border:.5px solid var(--hairline); border-radius:7px;
     background:var(--card-2); color:var(--fg); }
   .date-sep { color:var(--fg2); font-size:12px; padding:0 1px; }
+  #toolbarActions { display:flex; align-items:center; gap:14px; }
+  .date-range { display:flex; align-items:center; gap:6px; }
   .act-foot { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 4px 2px; }
   .act-foot .pager { display:flex; gap:6px; }
   .dir-row { display:flex; gap:8px; align-items:center; }
@@ -377,7 +379,7 @@ function select(tab){ current=tab;
     const mkDate=(val,on)=>{ const i=el('input','date-in'); i.type='date'; if(val)i.value=val; i.onchange=on; return i; };
     const from=mkDate(actFrom,e=>{actFrom=e.target.value;actPage=0;runsSig='';loadRuns();}); from.title='From date';
     const to=mkDate(actTo,e=>{actTo=e.target.value;actPage=0;runsSig='';loadRuns();}); to.title='To date';
-    ta.append(from,el('span','date-sep','–'),to);
+    const range=el('div','date-range'); range.append(from, el('span','date-sep','–'), to); ta.append(range);
     const b=el('button','btn',EYE+'<span>Mark all read</span>'); b.onclick=markAllRead; ta.append(b);
     loadRuns();
   }
