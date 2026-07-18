@@ -60,10 +60,21 @@ func main() {
 	w.Run()
 }
 
-// applyAccent pushes the current accent color into the page, re-reading a few
-// times so a brief preference-flush lag can't leave the old color in place.
+// applyAccent pushes the current accent color into the page, re-reading over a
+// few seconds because cfprefsd can serve the old AppleAccentColor for 1-3s after
+// a change — the spread of re-reads makes the new color land without needing a
+// second event (like a dark/light toggle).
+var accentRetries = []time.Duration{
+	0,
+	200 * time.Millisecond,
+	500 * time.Millisecond,
+	1 * time.Second,
+	1800 * time.Millisecond,
+	2800 * time.Millisecond,
+}
+
 func applyAccent(w webview.WebView) {
-	for _, d := range []time.Duration{0, 150 * time.Millisecond, 500 * time.Millisecond, 1200 * time.Millisecond} {
+	for _, d := range accentRetries {
 		d := d
 		go func() {
 			if d > 0 {
@@ -115,4 +126,21 @@ func daemonUp() bool {
 func fileExists(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
+}
+
+// accentHex maps the current macOS accent index to a hex color, or "" for the
+// default/unset accent (multicolor), which leaves the dashboard on its default.
+func accentHex() string {
+	return macAccentHex[readAccentIndex()]
+}
+
+var macAccentHex = map[int]string{
+	-1: "#8e8e93", // graphite
+	0:  "#ff5257", // red
+	1:  "#f7821b", // orange
+	2:  "#ffc600", // yellow
+	3:  "#62ba46", // green
+	4:  "#007aff", // blue
+	5:  "#8944ab", // purple
+	6:  "#f74f9e", // pink
 }
