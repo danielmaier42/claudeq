@@ -142,6 +142,11 @@
   input[type=text], input[type=number], input[type=datetime-local], textarea, select {
     width:100%; font:inherit; padding:7px 10px; border:.5px solid var(--hairline); border-radius:7px;
     background:var(--card-2); color:var(--fg); }
+  .date-in { font:inherit; font-size:12px; padding:4px 8px; border:.5px solid var(--hairline); border-radius:7px;
+    background:var(--card-2); color:var(--fg); }
+  .date-sep { color:var(--fg2); font-size:12px; padding:0 1px; }
+  .act-foot { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 4px 2px; }
+  .act-foot .pager { display:flex; gap:6px; }
   .dir-row { display:flex; gap:8px; align-items:center; }
   .dir-row input { flex:1; }
   .icon-btn { padding:4px 8px; }
@@ -354,7 +359,14 @@ function select(tab){ current=tab;
   $('#pageTitle').textContent=TITLES[tab];
   const ta=$('#toolbarActions'); ta.innerHTML='';
   if(tab==='tasks'){ const b=el('button','btn primary','+ New task'); b.onclick=openAdd; ta.append(b); loadTasks(); }
-  if(tab==='news'){ const b=el('button','btn',EYE+'<span>Mark all read</span>'); b.onclick=markAllRead; ta.append(b); loadRuns(); }
+  if(tab==='news'){
+    const mkDate=(val,on)=>{ const i=el('input','date-in'); i.type='date'; if(val)i.value=val; i.onchange=on; return i; };
+    const from=mkDate(actFrom,e=>{actFrom=e.target.value;actPage=0;runsSig='';loadRuns();}); from.title='From date';
+    const to=mkDate(actTo,e=>{actTo=e.target.value;actPage=0;runsSig='';loadRuns();}); to.title='To date';
+    ta.append(from,el('span','date-sep','–'),to);
+    const b=el('button','btn',EYE+'<span>Mark all read</span>'); b.onclick=markAllRead; ta.append(b);
+    loadRuns();
+  }
   if(tab==='usage') loadUsage();
   if(tab==='settings'){ const b=el('button','btn primary',SAVE+'<span>Save</span>'); b.onclick=saveSettings; ta.append(b); loadSettings(); }
 }
@@ -515,19 +527,26 @@ async function move(id,to){ try{ await api('POST',`/api/tasks/${id}/move?to=${to
 async function del_(id,name){ if(await confirmSheetAsk('Delete task “'+name+'”?')){ try{await api('DELETE',`/api/tasks/${id}`);toast('Deleted','ok');loadTasks();}catch(e){toast(e.message,'err')} } }
 
 /* ---- Activity ---- */
-let runsSig='';
+let runsSig='', actFrom='', actTo='', actPage=0; const ACT_PAGE=25;
+function actLocalDate(iso){ const d=new Date(iso); return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
+function actInRange(iso){ const d=actLocalDate(iso); if(actFrom && d<actFrom) return false; if(actTo && d>actTo) return false; return true; }
 async function loadRuns(){
   let runs; try{ runs=await api('GET','/api/runs'); setConn(true);}catch(e){ setConn(false); return; }
   const unread=runs.filter(r=>r.unread).length; const badge=$('#unreadCount'); badge.hidden=unread===0; badge.textContent=unread;
-  // Re-render only when the data actually changed, so the 5s poll doesn't
+  const filtered=runs.filter(r=>actInRange(r.started_at));
+  const pages=Math.max(1,Math.ceil(filtered.length/ACT_PAGE));
+  if(actPage>pages-1) actPage=pages-1; if(actPage<0) actPage=0;
+  const pageRuns=filtered.slice(actPage*ACT_PAGE, actPage*ACT_PAGE+ACT_PAGE);
+  // Re-render only when the data or view actually changed, so the 5s poll doesn't
   // rebuild the DOM (and make the buttons flicker) on every tick.
-  const sig=JSON.stringify(runs.map(r=>[r.run_id,r.status,r.unread]));
+  const sig=JSON.stringify([actFrom,actTo,actPage,pageRuns.map(r=>[r.run_id,r.status,r.unread])]);
   if(sig===runsSig && $('#news').childElementCount) return;
   runsSig=sig;
   const c=$('#news'); c.innerHTML='';
   if(!runs.length){ c.append(emptyState('No activity yet','Runs will appear here after tasks execute.')); return; }
+  if(!filtered.length){ c.append(emptyState('No runs in this range','Adjust the date filter to see activity.')); return; }
   const list=el('div','act-list');
-  runs.forEach(r=>{
+  pageRuns.forEach(r=>{
     const line=el('div','act-line');
     const gl=el('div','act-gl'); if(r.unread) gl.append(el('div','unread-dot'));
     const card=el('div','act-card');
@@ -543,6 +562,16 @@ async function loadRuns(){
     list.append(line);
   });
   c.append(list);
+
+  // Footer: count + pager (newest-first, so "Newer" goes to lower page indices).
+  const inRange=(actFrom||actTo)?' in range':'';
+  const foot=el('div','act-foot');
+  foot.append(el('span','sub',`${filtered.length} run${filtered.length!==1?'s':''}${inRange} · page ${actPage+1} of ${pages}`));
+  const pager=el('div','pager');
+  const prev=el('button','btn small','‹ Newer'); prev.disabled=actPage<=0; prev.onclick=()=>{actPage--;runsSig='';loadRuns();};
+  const next=el('button','btn small','Older ›'); next.disabled=actPage>=pages-1; next.onclick=()=>{actPage++;runsSig='';loadRuns();};
+  pager.append(prev,next); foot.append(pager);
+  c.append(foot);
 }
 async function readRun(id){ try{ await api('POST',`/api/runs/${id}/read`); }catch{} runsSig=''; loadRuns(); }
 async function markAllRead(){ try{await api('POST','/api/runs/read-all');toast('All marked read','ok'); runsSig=''; loadRuns();}catch(e){toast(e.message,'err')} }
