@@ -42,17 +42,32 @@ func main() {
 		});
 	`)
 
-	// Live updates: re-apply the accent whenever it changes (the app runs in the
-	// GUI session, so the distributed-notification observer actually fires here).
-	startAccentObserver(func() {
-		hex := accentHex()
-		w.Dispatch(func() {
-			w.Eval("window.cqApplyAccent && window.cqApplyAccent(" + strconv.Quote(hex) + ")")
-		})
-	})
+	// Live updates: re-apply the accent whenever a system notification fires (the
+	// app runs in the GUI session, so the distributed-notification observer
+	// actually fires here). We re-read a few times over ~1.2s because a change to
+	// the accent color reaches AppKit instantly but the underlying preference can
+	// lag briefly — the retries make the update land without a second event.
+	startAccentObserver(func() { applyAccent(w) })
 
 	w.Navigate(dashboardURL)
 	w.Run()
+}
+
+// applyAccent pushes the current accent color into the page, re-reading a few
+// times so a brief preference-flush lag can't leave the old color in place.
+func applyAccent(w webview.WebView) {
+	for _, d := range []time.Duration{0, 150 * time.Millisecond, 500 * time.Millisecond, 1200 * time.Millisecond} {
+		d := d
+		go func() {
+			if d > 0 {
+				time.Sleep(d)
+			}
+			hex := accentHex()
+			w.Dispatch(func() {
+				w.Eval("window.cqApplyAccent && window.cqApplyAccent(" + strconv.Quote(hex) + ")")
+			})
+		}()
+	}
 }
 
 // ensureDaemon starts claudeqd if the dashboard isn't already responding.
@@ -93,21 +108,4 @@ func daemonUp() bool {
 func fileExists(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
-}
-
-// accentHex maps the current macOS accent index to a hex color, or "" for the
-// default/unset accent (multicolor/blue).
-func accentHex() string {
-	return macAccentHex[readAccentIndex()]
-}
-
-var macAccentHex = map[int]string{
-	-1: "#8e8e93", // graphite
-	0:  "#ff5257", // red
-	1:  "#f7821b", // orange
-	2:  "#ffc600", // yellow
-	3:  "#62ba46", // green
-	4:  "#007aff", // blue
-	5:  "#8944ab", // purple
-	6:  "#f74f9e", // pink
 }
