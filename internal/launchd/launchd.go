@@ -23,6 +23,10 @@ type Config struct {
 	Args       []string // arguments (e.g. ["run"])
 	StdoutPath string
 	StderrPath string
+	// AssociatedBundleID ties the agent to an app bundle so System Settings →
+	// Login Items shows the app's name and icon instead of a bare "claudeqd
+	// (unknown developer)". Empty omits the key (e.g. dev runs outside a bundle).
+	AssociatedBundleID string
 }
 
 var plistTemplate = template.Must(template.New("plist").Parse(`<?xml version="1.0" encoding="UTF-8"?>
@@ -44,6 +48,12 @@ var plistTemplate = template.Must(template.New("plist").Parse(`<?xml version="1.
 	<true/>
 	<key>ProcessType</key>
 	<string>Background</string>
+{{- if .AssociatedBundleID}}
+	<key>AssociatedBundleIdentifiers</key>
+	<array>
+		<string>{{.AssociatedBundleID}}</string>
+	</array>
+{{- end}}
 	<key>StandardOutPath</key>
 	<string>{{.StdoutPath}}</string>
 	<key>StandardErrorPath</key>

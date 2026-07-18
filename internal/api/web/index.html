@@ -312,6 +312,13 @@ function _posTip(e){ const pad=12, r=_tip.getBoundingClientRect(); let x=e.clien
 document.addEventListener('mouseover',e=>{ const t=e.target.closest&&e.target.closest('[data-tip]'); if(!t)return; _tip.textContent=t.getAttribute('data-tip'); _tip.hidden=false; _posTip(e); });
 document.addEventListener('mousemove',e=>{ if(!_tip.hidden) _posTip(e); });
 document.addEventListener('mouseout',e=>{ const t=e.target.closest&&e.target.closest('[data-tip]'); if(t) _tip.hidden=true; });
+
+// WKWebView doesn't open target=_blank links; route external links through the
+// native app (which opens them in the default browser). Harmless in a browser.
+document.addEventListener('click',e=>{
+  const a=e.target.closest&&e.target.closest('a[href^="http"]');
+  if(a&&window.cqOpenExternal){ e.preventDefault(); window.cqOpenExternal(a.href); }
+},true);
 const esc=s=>(s??'').toString().replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const EYE='<svg viewBox="0 0 20 20"><path d="M1.5 10S5 4.5 10 4.5 18.5 10 18.5 10 15 15.5 10 15.5 1.5 10 1.5 10z"/><circle cx="10" cy="10" r="2.3"/></svg>';
 const PENCIL='<svg viewBox="0 0 20 20"><path d="M13.2 3.4l3.4 3.4L7.3 16 3.5 16.5 4 12.7z"/></svg>';

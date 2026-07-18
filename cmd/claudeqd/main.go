@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -180,6 +181,11 @@ func cmdInstall() error {
 		Args:       []string{"run"},
 		StdoutPath: filepath.Join(home, "claudeqd.out.log"),
 		StderrPath: filepath.Join(home, "claudeqd.err.log"),
+	}
+	// When running from inside the app bundle, tie the agent to it so Login Items
+	// shows the ClaudeQ name and icon instead of a bare "claudeqd".
+	if strings.Contains(self, ".app/Contents/MacOS/") {
+		cfg.AssociatedBundleID = launchd.DefaultLabel // == the app bundle id
 	}
 	plist, err := launchd.Plist(cfg)
 	if err != nil {

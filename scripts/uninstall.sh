@@ -18,6 +18,11 @@ if [ -d "$APP" ]; then
   rm -rf "$APP" 2>/dev/null || sudo rm -rf "$APP"
 fi
 
+if [ -f /etc/sudoers.d/claudeq ]; then
+  echo "==> Removing pmset sudoers entry (needs admin)"
+  sudo rm -f /etc/sudoers.d/claudeq
+fi
+
 echo "==> Done. Your tasks, config and run history in"
 echo "    ~/Library/Application Support/claudeq are left untouched."
 echo "    Remove them with: rm -rf \"\$HOME/Library/Application Support/claudeq\""

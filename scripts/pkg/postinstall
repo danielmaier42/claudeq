@@ -29,4 +29,19 @@ if ! launchctl asuser "$uid" sudo -u "$consoleUser" "$DAEMON" install; then
 	echo "claudeq: autostart setup failed; open claudeq.app to enable it"
 fi
 
+# Allow the daemon to schedule wake-ups (pmset) without a password, so timed
+# tasks can wake the Mac from sleep. The console user is detected here (not
+# hardcoded); the entry is validated with visudo before install so a bad file
+# can never break sudo. The uninstall script removes it.
+sudoers="/etc/sudoers.d/claudeq"
+tmp="$(mktemp)"
+printf '%s ALL=(root) NOPASSWD: /usr/bin/pmset\n' "$consoleUser" > "$tmp"
+if visudo -cf "$tmp" >/dev/null 2>&1; then
+	install -m 0440 -o root -g wheel "$tmp" "$sudoers"
+	echo "claudeq: installed pmset wake permission for $consoleUser"
+else
+	echo "claudeq: could not install pmset sudoers entry; scheduled wake will need manual setup"
+fi
+rm -f "$tmp"
+
 exit 0

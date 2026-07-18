@@ -30,6 +30,20 @@ func TestPlistContainsProgramAndFlags(t *testing.T) {
 	}
 }
 
+func TestPlistAssociatedBundleID(t *testing.T) {
+	// Set: the association keys are present so Login Items shows the app.
+	with, _ := Plist(Config{Label: "ag.dc.claudeq", BinPath: "/x", AssociatedBundleID: "ag.dc.claudeq"})
+	if !strings.Contains(with, "<key>AssociatedBundleIdentifiers</key>") ||
+		!strings.Contains(with, "<string>ag.dc.claudeq</string>") {
+		t.Fatalf("plist missing AssociatedBundleIdentifiers:\n%s", with)
+	}
+	// Unset: the key is omitted (e.g. a dev run outside a bundle).
+	without, _ := Plist(Config{Label: "ag.dc.claudeq", BinPath: "/x"})
+	if strings.Contains(without, "AssociatedBundleIdentifiers") {
+		t.Fatalf("plist should omit AssociatedBundleIdentifiers when unset:\n%s", without)
+	}
+}
+
 type recordRunner struct{ calls [][]string }
 
 func (r *recordRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {

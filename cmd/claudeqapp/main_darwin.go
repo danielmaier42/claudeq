@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	webview "github.com/webview/webview_go"
@@ -36,6 +37,14 @@ func main() {
 		func() { w.Dispatch(func() { w.Eval("window.openAdd && window.openAdd()") }) },
 		func() { w.Dispatch(func() { w.Eval("window.select && window.select('settings')") }) },
 	)
+
+	// Open external (http/https) links in the default browser — WKWebView won't
+	// open target=_blank links on its own.
+	_ = w.Bind("cqOpenExternal", func(u string) {
+		if strings.HasPrefix(u, "https://") || strings.HasPrefix(u, "http://") {
+			_ = exec.Command("open", u).Start()
+		}
+	})
 
 	// Expose the current accent to the page and (re)apply it on each load.
 	_ = w.Bind("cqReadAccent", func() string { return accentHex() })
