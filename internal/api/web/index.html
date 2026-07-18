@@ -606,7 +606,8 @@ async function readRun(id){ try{ await api('POST',`/api/runs/${id}/read`); }catc
 async function markAllRead(){ try{await api('POST','/api/runs/read-all');toast('All marked read','ok'); runsSig=''; loadRuns();}catch(e){toast(e.message,'err')} }
 let logRaw='', logMode='chat', logRunId='', logTimer=null, logPrev=null, logPrompt='';
 async function showLog(id,name,prompt){ logRunId=id; logPrompt=prompt||''; $('#logTitle').textContent='Log · '+name;
-  logPrev=null; await refreshLog(true); $('#logSheet').showModal(); startLogPolling(); }
+  logPrev=null; await refreshLog(true); $('#logSheet').showModal(); startLogPolling();
+  readRun(id); }  // opening a run's log marks it read
 async function refreshLog(force){
   try{ logRaw=await api('GET',`/api/runs/${logRunId}/log`)||''; }catch(e){ logRaw=''; }
   if(!force && logRaw===logPrev) return;   // nothing new -> don't re-render (no flicker)
