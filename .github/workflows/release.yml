@@ -1,0 +1,37 @@
+name: Release
+
+# Build the installer on a version tag and attach it to a GitHub Release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tags needed so build-pkg.sh can derive the version
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          check-latest: true
+
+      - name: Install librsvg (icon rendering)
+        run: brew install librsvg
+
+      - name: Build installer package
+        # Unsigned by default. To sign + notarize, add the Developer ID identities
+        # to the keychain and set CLAUDEQ_SIGN_APP_ID / CLAUDEQ_SIGN_PKG_ID /
+        # CLAUDEQ_NOTARY_PROFILE from repository secrets here.
+        run: ./scripts/build-pkg.sh dist
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/claudeq-*.pkg
+          generate_release_notes: true

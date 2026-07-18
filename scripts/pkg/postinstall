@@ -1,0 +1,32 @@
+#!/bin/sh
+# postinstall — set up the per-user LaunchAgent so the claudeq daemon starts at
+# login. The installer runs as root, but the LaunchAgent belongs to the logged-in
+# user, so we drop into that user's GUI launchd context to install it. The
+# bundled daemon's own `install` command writes ~/Library/LaunchAgents and
+# bootstraps gui/<uid>, pointing the plist at the daemon inside the app bundle.
+set -e
+
+APP="/Applications/claudeq.app"
+DAEMON="$APP/Contents/MacOS/claudeqd"
+
+if [ ! -x "$DAEMON" ]; then
+	echo "claudeq: daemon not found at $DAEMON; skipping autostart setup"
+	exit 0
+fi
+
+consoleUser=$(stat -f "%Su" /dev/console 2>/dev/null || echo "")
+if [ -z "$consoleUser" ] || [ "$consoleUser" = "root" ]; then
+	# Headless / no GUI login window user — the app will set up autostart on its
+	# first launch instead. Don't fail the install over it.
+	echo "claudeq: no console user; the app will set up autostart on first launch"
+	exit 0
+fi
+uid=$(id -u "$consoleUser")
+
+# `launchctl asuser` enters the user's GUI launchd domain; `sudo -u` adopts the
+# user's identity and HOME so the plist lands in their LaunchAgents directory.
+if ! launchctl asuser "$uid" sudo -u "$consoleUser" "$DAEMON" install; then
+	echo "claudeq: autostart setup failed; open claudeq.app to enable it"
+fi
+
+exit 0

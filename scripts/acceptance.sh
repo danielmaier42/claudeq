@@ -207,6 +207,17 @@ else
 fi
 
 echo
+echo "== Packaging & release (phase 6) =="
+check "NFA-05 installer places the app in /Applications"   contains "$ROOT/scripts/build-pkg.sh" "Applications/claudeq.app"
+check "NFA-05 installer runs the postinstall scripts dir"  contains "$ROOT/scripts/build-pkg.sh" "scripts/pkg"
+check "NFA-05 postinstall is valid shell"                  sh -n "$ROOT/scripts/pkg/postinstall"
+check "NFA-05 postinstall sets up the LaunchAgent"         contains "$ROOT/scripts/pkg/postinstall" '"\$DAEMON" install'
+check "NFA-06 uninstall removes LaunchAgent and app"       contains "$ROOT/scripts/uninstall.sh" "uninstall"
+check "NFA-06 uninstall is valid shell"                    bash -n "$ROOT/scripts/uninstall.sh"
+check "release pipeline triggers on version tags"          contains "$ROOT/.github/workflows/release.yml" 'tags:'
+check "release pipeline attaches the installer pkg"        contains "$ROOT/.github/workflows/release.yml" "claudeq-.*.pkg"
+
+echo
 echo "=========================================="
 printf "Result: %d passed, %d failed\n" "$pass" "$fail"
 echo "=========================================="
