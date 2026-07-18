@@ -1,18 +1,7 @@
 <svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="claudeq">
   <title>claudeq</title>
   <rect x="0" y="0" width="512" height="512" rx="114" fill="#d97757"/>
-  <circle cx="256" cy="256" r="150" fill="none" stroke="#ffffff" stroke-opacity="0.55" stroke-width="7"
-          stroke-linecap="round" stroke-dasharray="0.5 24"/>
-  <circle cx="256" cy="106" r="15" fill="#ffffff"/>
-  <g stroke="#ffffff" stroke-width="13" stroke-linecap="round">
-    <line x1="256" y1="256" x2="256" y2="352"/>
-    <line x1="256" y1="256" x2="214" y2="304"/>
-    <line x1="256" y1="256" x2="166" y2="274"/>
-    <line x1="256" y1="256" x2="196" y2="220"/>
-    <line x1="256" y1="256" x2="226" y2="172"/>
-    <line x1="256" y1="256" x2="280" y2="196"/>
-    <line x1="256" y1="256" x2="340" y2="208"/>
-    <line x1="256" y1="256" x2="322" y2="268"/>
-    <line x1="256" y1="256" x2="316" y2="328"/>
-  </g>
+  <rect x="96" y="123" width="320" height="75" rx="37.5" fill="#ffffff"/>
+  <rect x="149" y="219" width="299" height="75" rx="37.5" fill="#ffffff" fill-opacity="0.6"/>
+  <rect x="85" y="315" width="245" height="75" rx="37.5" fill="#ffffff" fill-opacity="0.32"/>
 </svg>
