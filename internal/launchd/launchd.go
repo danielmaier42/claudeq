@@ -14,7 +14,7 @@ import (
 )
 
 // DefaultLabel is the LaunchAgent label / reverse-DNS identifier.
-const DefaultLabel = "ag.dc.claudeq"
+const DefaultLabel = "de.maierdaniel.claudeq"
 
 // Config parameterizes the generated plist.
 type Config struct {

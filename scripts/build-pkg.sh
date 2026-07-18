@@ -14,7 +14,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${1:-$ROOT/dist}"
-IDENTIFIER="ag.dc.claudeq"
+IDENTIFIER="de.maierdaniel.claudeq"
 
 VERSION="$(git -C "$ROOT" describe --tags --abbrev=0 2>/dev/null || true)"
 VERSION="${VERSION#v}"
@@ -47,7 +47,7 @@ mkdir -p "$OUT"
 PKG="$OUT/claudeq-$VERSION.pkg"
 
 # Disable bundle relocation. By default pkgbuild marks .app bundles relocatable,
-# so if a copy of ag.dc.claudeq is already indexed by Spotlight the installer
+# so if a copy of de.maierdaniel.claudeq is already indexed by Spotlight the installer
 # overwrites THAT copy instead of installing to /Applications. Force a fixed
 # /Applications install by setting BundleIsRelocatable=false in a component plist.
 COMPONENT_PLIST="$(mktemp -d)/component.plist"

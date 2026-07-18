@@ -55,7 +55,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 <dict>
 	<key>CFBundleName</key><string>ClaudeQ</string>
 	<key>CFBundleDisplayName</key><string>ClaudeQ</string>
-	<key>CFBundleIdentifier</key><string>ag.dc.claudeq</string>
+	<key>CFBundleIdentifier</key><string>de.maierdaniel.claudeq</string>
 	<key>CFBundleExecutable</key><string>claudeqapp</string>
 	<key>CFBundlePackageType</key><string>APPL</string>
 	<key>CFBundleShortVersionString</key><string>${VERSION}</string>
@@ -76,7 +76,7 @@ PLIST
 # app and deliver notifications with its icon. A real Developer ID signature, if
 # configured, is applied later by build-pkg.sh and overrides this.
 echo "==> Ad-hoc signing bundle"
-codesign --force --deep --sign - --identifier ag.dc.claudeq "$APP" || \
+codesign --force --deep --sign - --identifier de.maierdaniel.claudeq "$APP" || \
   echo "   codesign failed; notifications may fall back to a generic icon"
 
 # Refresh Launch Services / Finder so the new icon and metadata show immediately.

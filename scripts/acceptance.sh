@@ -60,7 +60,7 @@ chmod +x "$FAKE/claude"
 
 # Fake system tools (launchctl/sudo/pmset) log their args instead of touching
 # the real system, so Phase 3 install/wake can be checked safely.
-for tool in launchctl sudo pmset osascript; do
+for tool in launchctl sudo pmset osascript pkill; do
   cat > "$FAKE/$tool" <<EOF
 #!/bin/sh
 echo "\$*" >> "$WORK/$tool.log"
@@ -154,7 +154,7 @@ echo "== Resilience & wake (Phase 3; fake launchctl/sudo/pmset) =="
 FAKEHOME="$WORK/fakehome"; mkdir -p "$FAKEHOME"
 export CLAUDEQ_HOME="$WORK/home6"; mkdir -p "$CLAUDEQ_HOME"
 HOME="$FAKEHOME" "$CQD" install >/dev/null 2>&1
-PLIST="$FAKEHOME/Library/LaunchAgents/ag.dc.claudeq.plist"
+PLIST="$FAKEHOME/Library/LaunchAgents/de.maierdaniel.claudeq.plist"
 check "NFA-03 install writes LaunchAgent plist"       test -f "$PLIST"
 check "NFA-03 plist has RunAtLoad (autostart)"        contains "$PLIST" "<key>RunAtLoad</key>"
 check "NFA-03 install bootstraps via launchctl"       contains "$WORK/launchctl.log" "bootstrap"
@@ -213,7 +213,7 @@ echo
 echo "== Packaging & release (phase 6) =="
 check "NFA-05 installer places the app in /Applications"   contains "$ROOT/scripts/build-pkg.sh" "Applications/ClaudeQ.app"
 check "NFA-05 installer disables bundle relocation"        contains "$ROOT/scripts/build-pkg.sh" "BundleIsRelocatable false"
-check "app bundle is code-signed under its bundle id"      contains "$ROOT/scripts/build-app.sh" "identifier ag.dc.claudeq"
+check "app bundle is code-signed under its bundle id"      contains "$ROOT/scripts/build-app.sh" "identifier de.maierdaniel.claudeq"
 check "NFA-05 installer runs the postinstall scripts dir"  contains "$ROOT/scripts/build-pkg.sh" "scripts/pkg"
 check "NFA-05 postinstall is valid shell"                  sh -n "$ROOT/scripts/pkg/postinstall"
 check "NFA-05 postinstall sets up the LaunchAgent"         contains "$ROOT/scripts/pkg/postinstall" '"\$DAEMON" install'

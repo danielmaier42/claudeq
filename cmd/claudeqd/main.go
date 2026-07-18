@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -196,6 +197,12 @@ func cmdInstall() error {
 	if err != nil {
 		return err
 	}
+	// Stop any stray daemon still holding the loopback port (an orphan from a
+	// prior run/version that launchd's bootout won't catch) so the freshly
+	// bootstrapped one can bind and actually take over — otherwise an update
+	// wouldn't take effect until a reboot.
+	killStrayDaemons()
+
 	agent := launchd.Agent{Runner: system.Real{}, Dir: agentsDir, Label: launchd.DefaultLabel, UID: os.Getuid()}
 	if err := agent.Install(context.Background(), plist); err != nil {
 		return err
@@ -207,6 +214,14 @@ func cmdInstall() error {
 	fmt.Println("To enable wake-from-sleep, pmset must run as root. Add a sudoers entry once:")
 	fmt.Printf("  echo '%s ALL=(root) NOPASSWD: /usr/bin/pmset' | sudo tee /etc/sudoers.d/claudeq\n", currentUser())
 	return nil
+}
+
+// killStrayDaemons terminates any running `claudeqd run` process. The current
+// process is `claudeqd install`, so it never matches itself. Best-effort.
+func killStrayDaemons() {
+	_ = exec.Command("pkill", "-f", "claudeqd run").Run()
+	// Give the OS a moment to release the port before the caller re-bootstraps.
+	time.Sleep(500 * time.Millisecond)
 }
 
 func cmdUninstall() error {
