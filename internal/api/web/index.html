@@ -186,13 +186,13 @@
   .meter { height:8px; border-radius:6px; background:var(--seg-bg); overflow:hidden; width:100%; margin-top:8px; }
   .meter > span { display:block; height:100%; border-radius:6px; background:var(--accent); transition:width .3s; }
   .usage-num { font-size:30px; font-weight:700; letter-spacing:-.5px; }
-  .bar-col { flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; position:relative; padding-top:20px; }
+  .bar-col { flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; position:relative; padding-top:28px; }
   .bar-col .track { width:100%; display:flex; align-items:flex-end; height:56px; }
   .bar-col .bar { width:70%; margin:0 auto; border-radius:3px 3px 0 0; }
   .bar-col:hover .bar { filter:brightness(1.12); }
   /* tooltip sits in the reserved padding above the bar, so it never clips */
   .bartip { position:absolute; top:0; left:50%; transform:translateX(-50%); background:var(--fg); color:var(--bg);
-            font-size:10px; font-weight:600; padding:1px 6px; border-radius:5px; white-space:nowrap;
+            font-size:12px; font-weight:600; padding:3px 9px; border-radius:6px; white-space:nowrap; box-shadow:var(--shadow);
             opacity:0; pointer-events:none; transition:opacity .12s; z-index:2; }
   .bar-col:hover .bartip { opacity:1; }
 </style>
@@ -373,6 +373,10 @@ async function loadUsage(){
   const runChart=el('div');
   runChart.innerHTML=`<div class="section-label">Runs per day (14d)</div>`+barChart(stats.per_day, d=>d.runs, v=>String(v));
   c.append(runChart);
+
+  const costChart=el('div');
+  costChart.innerHTML=`<div class="section-label">API-equiv. cost per day (14d)</div>`+barChart(stats.per_day, d=>d.cost_usd, fmtCost);
+  c.append(costChart);
 
   c.append(el('p','hint','Counts only what claudeq\'s own runs consumed (tokens recorded per run) — not your overall Claude account usage. Cost is the API-equivalent price Claude Code reports (what these requests would cost at pay-as-you-go API rates); on a subscription you\'re not billed for it — it just draws on your usage limit.'));
 }
