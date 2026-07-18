@@ -24,6 +24,13 @@ jobs:
       - name: Install librsvg (icon rendering)
         run: brew install librsvg
 
+      # A tag push does not trigger ci.yml (branches/PRs only), so gate the
+      # release on the (deterministic) test suite here — never release a broken
+      # tag. Acceptance is intentionally not a gate: it's timing-sensitive and
+      # would make releases flaky.
+      - name: Test
+        run: go test ./... -race
+
       - name: Build installer package
         # Unsigned by default. To sign + notarize, add the Developer ID identities
         # to the keychain and set CLAUDEQ_SIGN_APP_ID / CLAUDEQ_SIGN_PKG_ID /
