@@ -42,6 +42,13 @@ If any gate fails, it is fixed before the work is reported — never reported wi
 - **Clear errors:** wrap with context (`fmt.Errorf("...: %w", err)`); never swallow errors;
   no silent failure paths in the unattended runner.
 - **Small, focused commits** with descriptive messages; the tree stays releasable on `main`.
+- **Always branch, then PR.** Never change code directly on `main`. Whenever a change to
+  code off `origin/main` is needed, **first** create a new branch off the latest
+  `origin/main` — a `feature/<short-topic>` branch for features/enhancements or a
+  `hotfix/<short-topic>` branch for urgent fixes — commit the work there, push it, and
+  **open a pull request** against `main` afterwards. This holds for every code change, no
+  matter how small; a one-line fix still gets its own branch and PR. Keep the branch current
+  with `origin/main` and CI green while the PR is open.
 - **Never merge a PR.** An agent may open, update, and push to feature branches and
   keep CI green, but **merging is exclusively the maintainer's decision and action** —
   never merge (squash, rebase, or otherwise), never push directly to `main`, and never
