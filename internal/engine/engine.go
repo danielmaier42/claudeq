@@ -238,14 +238,15 @@ func (e *Engine) launchTask(t task.Task, settings store.Settings, sessionID stri
 	e.awake.acquire() // hold off idle system sleep until this run finishes
 
 	req := executor.Request{
-		Task:            t,
-		SessionID:       sessionID,
-		Resume:          resume,
-		Model:           effectiveModel(t, settings),
-		SkipPermissions: skipPermissions(t, settings),
-		Bin:             settings.ClaudePath,
-		IdleTimeout:     settings.IdleTimeout(),
-		Log:             logFile,
+		Task:               t,
+		SessionID:          sessionID,
+		Resume:             resume,
+		Model:              effectiveModel(t, settings),
+		SkipPermissions:    skipPermissions(t, settings),
+		Bin:                settings.ClaudePath,
+		CustomSystemPrompt: settings.SystemPrompt,
+		IdleTimeout:        settings.IdleTimeout(),
+		Log:                logFile,
 	}
 	e.wg.Add(1)
 	go func() {

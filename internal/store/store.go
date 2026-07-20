@@ -433,6 +433,9 @@ type Settings struct {
 	// MaxRunHistory caps how many runs are kept; older runs (and their log files)
 	// are pruned. 0 = use the default; negative = keep everything.
 	MaxRunHistory int `toml:"max_run_history" json:"max_run_history"`
+	// SystemPrompt is the operator's custom system prompt, appended to claudeq's
+	// built-in one on every run (built-in first, this last). Empty means none.
+	SystemPrompt string `toml:"system_prompt" json:"system_prompt"`
 }
 
 // DefaultHeartbeatMinutes is the wake safety-net interval when unset.
