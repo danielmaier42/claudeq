@@ -702,6 +702,14 @@ async function loadSettings(){
         <div class="sub">Absolute path to the <code>claude</code> executable. The background daemon can't see your shell's PATH, so this must be a full path. Leave empty to auto-detect.</div></div>
         <input type="text" id="s-claude" placeholder="/path/to/claude" style="max-width:260px"></div>
     </div>
+    <div class="section-label">System prompt</div>
+    <div class="group">
+      <div style="padding:11px 15px">
+        <div class="title" style="font-weight:500">Custom system prompt</div>
+        <div style="color:var(--fg2);font-size:12px;margin:1px 0 8px">Appended to every run after claudeq's built-in instructions (built-in first, yours last). Use it for standing guidance you want on every task — coding conventions, tone, tools to prefer. Leave empty for none.</div>
+        <textarea id="s-sysprompt" rows="6" placeholder="e.g. Follow the repo's existing conventions. Always run the tests before finishing." style="width:100%;box-sizing:border-box"></textarea>
+      </div>
+    </div>
     <div class="section-label">Reliability</div>
     <div class="group">
       <div class="row"><div class="grow"><div class="title">Stop a run with no output for</div><div class="sub">Kills a hung run; a working run keeps streaming, so it's unaffected</div></div>
@@ -728,6 +736,7 @@ async function loadSettings(){
   $('#s-skip').checked=!!s.skip_permissions_default;
   $('#s-po-enabled').checked=poOn; $('#s-po-token').value=s.pushover?.token||''; $('#s-po-user').value=s.pushover?.user_key||'';
   $('#s-claude').value=s.claude_path||'';
+  $('#s-sysprompt').value=s.system_prompt||'';
   // Pre-fill the detected path when unset, so the user can just Save it.
   if(!s.claude_path){ try{ const w=await api('GET','/api/claude/which'); if(w.path) $('#s-claude').value=w.path; }catch{} }
 }
@@ -737,6 +746,7 @@ async function saveSettings(){
     claude_path:$('#s-claude').value.trim(),
     idle_timeout_minutes:parseInt($('#s-idle').value||'30',10),
     max_run_history:parseInt($('#s-hist').value||'500',10),
+    system_prompt:$('#s-sysprompt').value,
     pushover:{enabled:$('#s-po-enabled').checked,token:$('#s-po-token').value,user_key:$('#s-po-user').value}};
   try{ await api('PUT','/api/settings',body); toast('Settings saved','ok'); }catch(e){ toast(e.message,'err'); }
 }

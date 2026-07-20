@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -51,6 +52,28 @@ Optional:
 
 The new task inherits this task's model, permissions, parallelism and notification settings automatically — do not attempt to set them. Only queue a task when the work genuinely belongs in a separate run; if something should simply be done now, just do it yourself.`
 
+// customSystemPromptIntro precedes the operator's custom system prompt (see
+// Settings.SystemPrompt). It frames that text as claudeq-configured guidance and
+// resolves conflicts in favour of the built-in prompt above.
+const customSystemPromptIntro = `
+
+The following are additional instructions configured by the operator of this claudeq queue. Follow them for every task alongside the guidance above; if they ever conflict with it, the guidance above takes precedence.
+
+`
+
+// systemPrompt combines the built-in self-queue prompt (always first) with the
+// operator's optional custom system prompt (last, introduced by
+// customSystemPromptIntro). A blank custom prompt yields exactly
+// selfQueueSystemPrompt, so runs without one are unaffected. Claude Code accepts
+// --append-system-prompt only once, so both parts are joined into one value.
+func systemPrompt(custom string) string {
+	custom = strings.TrimSpace(custom)
+	if custom == "" {
+		return selfQueueSystemPrompt
+	}
+	return selfQueueSystemPrompt + customSystemPromptIntro + custom
+}
+
 // Executor builds and runs Claude Code invocations.
 type Executor struct {
 	// Bin is the Claude Code binary (default "claude").
@@ -81,6 +104,10 @@ type Request struct {
 	// Bin overrides the Claude Code binary for this run (an absolute path from
 	// settings). Empty falls back to the Executor's configured binary.
 	Bin string
+	// CustomSystemPrompt is the operator's optional system prompt (Settings.
+	// SystemPrompt). It is appended after the built-in self-queue prompt; blank
+	// means none.
+	CustomSystemPrompt string
 	// IdleTimeout kills the run if it produces no output for this long — a
 	// hung/deadlocked process. Zero disables the watchdog.
 	IdleTimeout time.Duration
@@ -124,7 +151,7 @@ func (e *Executor) Args(req Request) []string {
 	} else {
 		args = append(args, "--session-id", req.SessionID)
 	}
-	args = append(args, "--append-system-prompt", selfQueueSystemPrompt)
+	args = append(args, "--append-system-prompt", systemPrompt(req.CustomSystemPrompt))
 	args = append(args, req.Task.Prompt)
 	return args
 }

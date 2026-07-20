@@ -86,6 +86,42 @@ func TestArgsAppendsSelfQueueSystemPrompt(t *testing.T) {
 	}
 }
 
+func TestArgsAppendsCustomSystemPrompt(t *testing.T) {
+	e := &Executor{}
+	tk := sampleTask()
+	const custom = "Always run the tests before finishing."
+	args := e.Args(Request{Task: tk, SessionID: "SID", CustomSystemPrompt: custom})
+
+	// Still a single --append-system-prompt value, right before the prompt.
+	if args[len(args)-1] != tk.Prompt {
+		t.Fatalf("prompt must be the last arg, got %q", args[len(args)-1])
+	}
+	if args[len(args)-3] != "--append-system-prompt" {
+		t.Fatalf("expected --append-system-prompt before the prompt, got %v", args[len(args)-3:])
+	}
+	got := args[len(args)-2]
+	// Built-in first, custom last.
+	if !strings.HasPrefix(got, selfQueueSystemPrompt) {
+		t.Fatal("built-in self-queue prompt must come first")
+	}
+	if !strings.HasSuffix(got, custom) {
+		t.Fatalf("custom prompt must come last, got %q", got)
+	}
+	if !strings.Contains(got, customSystemPromptIntro) {
+		t.Fatal("custom prompt must be introduced by customSystemPromptIntro")
+	}
+}
+
+func TestSystemPromptBlankCustomIsUnchanged(t *testing.T) {
+	// A blank or whitespace-only custom prompt must not alter the built-in value,
+	// so runs without one behave exactly as before.
+	for _, custom := range []string{"", "   ", "\n\t "} {
+		if got := systemPrompt(custom); got != selfQueueSystemPrompt {
+			t.Fatalf("systemPrompt(%q) = %q, want the unmodified self-queue prompt", custom, got)
+		}
+	}
+}
+
 func TestRunEnvCarriesSelfQueueContext(t *testing.T) {
 	e := &Executor{Home: "/data/home", QueueBin: "/opt/claudeq"}
 	tk := sampleTask()
