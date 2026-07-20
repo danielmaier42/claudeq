@@ -22,6 +22,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/executor"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
+	"github.com/danielmaier42/claudeq/internal/update"
 )
 
 //go:embed web/*
@@ -48,6 +49,9 @@ type Deps struct {
 	// consent prompt now — called right after a task is created or its folder
 	// changed, while the user is present. Optional.
 	WarmFileAccess func(dirs []string)
+	// Updates checks GitHub for newer releases and downloads the installer.
+	// Optional; when nil the update endpoints report "unsupported".
+	Updates *update.Service
 }
 
 // Handler builds the HTTP handler (REST API under /api + dashboard at /).
@@ -75,6 +79,10 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/fs/warm", s.warmNow)
 	mux.HandleFunc("GET /api/stats", s.getStats)
 	mux.HandleFunc("GET /api/health", s.getHealth)
+	mux.HandleFunc("GET /api/update", s.getUpdate)
+	mux.HandleFunc("POST /api/update/check", s.checkUpdate)
+	mux.HandleFunc("POST /api/update/dismiss", s.dismissUpdate)
+	mux.HandleFunc("POST /api/update/download", s.downloadUpdate)
 
 	sub, _ := fs.Sub(webFS, "web")
 	mux.Handle("GET /", noCache(http.FileServer(http.FS(sub))))
