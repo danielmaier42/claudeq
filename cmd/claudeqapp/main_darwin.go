@@ -26,6 +26,12 @@ func main() {
 	runtime.LockOSThread()
 	ensureDaemon()
 
+	// Opening the window is a reliable "user is present" moment, so ask the daemon
+	// to (re)provoke the macOS file-access prompt for the current task folders now
+	// — the daemon is a persistent LaunchAgent that doesn't restart when the window
+	// is reopened, so its own startup warm-up wouldn't fire here. Best-effort.
+	go requestWarm()
+
 	w := webview.New(false)
 	defer w.Destroy()
 	w.SetTitle("ClaudeQ")
@@ -120,6 +126,17 @@ func ensureDaemon() {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
+}
+
+// requestWarm asks the daemon to provoke the macOS file-access prompt for the
+// current tasks' folders. Best-effort: any failure is silently ignored.
+func requestWarm() {
+	c := http.Client{Timeout: 3 * time.Second}
+	resp, err := c.Post(dashboardURL+"/api/fs/warm", "application/json", nil)
+	if err != nil {
+		return
+	}
+	_ = resp.Body.Close()
 }
 
 func daemonUp() bool {

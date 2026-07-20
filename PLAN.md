@@ -382,6 +382,7 @@ Built with `pkgbuild`/`productbuild`. The **root postinstall** script performs t
 |------|--------|
 | Install | macOS Installer + **admin password** (postinstall runs as root) |
 | First app launch | **Allow notifications?** (TCC) for native notifications (FA-39) |
+| Daemon startup, and right after a task is added/edited with a folder in a new protected location | Native **"allow access to your Documents?"** (TCC Files & Folders) — automatic and tickable; see §13 |
 
 ### 11.3 GitHub Actions release pipeline
 Triggered on tag `v*`:
@@ -439,6 +440,39 @@ Post-phase refinements from real use:
   wake needs a one-time `pmset` sudoers entry, a failing wake is now surfaced in
   the dashboard (`GET /api/health` → `wake_error`; a banner shows the exact
   sudoers command) instead of only logging to stderr.
+- **File-access (TCC) prompt timing** — an unattended overnight run stalled
+  because the daemon first touched the task folder (under `~/Documents`) mid-run
+  at 3am, so macOS raised its automatic "allow access to your Documents?" consent
+  prompt with no one there to answer it. The prompt itself is the normal,
+  tickable Files & Folders one — the only problem was *when* it fired. The daemon
+  now reads each enabled task's working directory at startup
+  (`warmEnabledTasks` → `internal/fileaccess`, a timeout-bounded probe that never
+  hangs on a pending prompt), so the prompt appears at install/login while the
+  user is present; once allowed, later runs proceed. Folders are first collapsed
+  to their macOS privacy *category* (`fileaccess.ConsentTargets`): macOS grants
+  Files & Folders access per category — Desktop, Documents, Downloads — and one
+  grant covers the whole subtree, so ten tasks under `~/Documents` provoke the
+  Documents prompt **once**, not one blocked read each. External/network volumes
+  and ordinary (unprotected) folders map to themselves. Warming then probes
+  *every* remaining target in one pass (`fileaccess.ProbeAll`, not the
+  first-block `Probe`): a folder whose prompt is still pending reports a timeout,
+  and stopping there would leave other categories un-provoked until the next warm. A folder added *after*
+  startup (e.g. a new task under `~/Downloads`) is warmed the moment its task is
+  created or edited — the API fires the same probe via `Deps.WarmFileAccess` in
+  `addTask`/`updateTask`, so the prompt appears right there in the app rather
+  than waiting for the run. And because the daemon is a persistent `KeepAlive`
+  LaunchAgent that does **not** restart when the app window is reopened, opening
+  the window also re-triggers a warm: `claudeqapp` posts to `POST /api/fs/warm`
+  on launch and the daemon re-probes every enabled task's folder — covering the
+  natural "quit and reopen the app" case that the daemon-start warm alone misses.
+  The probe lives in the
+  daemon on purpose: the daemon (and the `claude` it spawns) is what reads the
+  files, and macOS attributes both to the ClaudeQ bundle, so the grant the prompt
+  records is exactly the one the nightly run needs — no separate Full Disk Access
+  step required. **Caveat:** because the bundle is ad-hoc signed, its code
+  identity changes on every rebuild, so the prompt returns after a reinstall (and
+  is simply re-allowed) — a stable Developer ID signature would make the grant
+  persist across updates.
 - Assorted UI fixes (Activity date filter + pagination, hover tooltip, Usage
   bar-chart layout and empty-bar handling).
 

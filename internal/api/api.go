@@ -44,6 +44,10 @@ type Deps struct {
 	ChooseFolder FolderChooser   // optional; enables the native folder dialog
 	ActiveTasks  func() []string // optional; ids of currently-running tasks (hidden from the queue)
 	WakeError    func() string   // optional; last scheduled-wake error ("" if healthy)
+	// WarmFileAccess reads the given directories so macOS raises its file-access
+	// consent prompt now — called right after a task is created or its folder
+	// changed, while the user is present. Optional.
+	WarmFileAccess func(dirs []string)
 }
 
 // Handler builds the HTTP handler (REST API under /api + dashboard at /).
@@ -68,6 +72,7 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/models", s.listModels)
 	mux.HandleFunc("GET /api/claude/which", s.whichClaude)
 	mux.HandleFunc("POST /api/fs/choose", s.chooseFolder)
+	mux.HandleFunc("POST /api/fs/warm", s.warmNow)
 	mux.HandleFunc("GET /api/stats", s.getStats)
 	mux.HandleFunc("GET /api/health", s.getHealth)
 
@@ -146,7 +151,43 @@ func (s *server) addTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	s.warmAccess(t.WorkingDir)
 	writeJSON(w, http.StatusCreated, t)
+}
+
+// warmAccess provokes the macOS file-access prompt for a task's folder right
+// after it is created or changed, while the user is present in the app — so a
+// newly-used protected location (Downloads, Desktop, …) is authorised now, not
+// at 3am mid-run. Best-effort; a no-op when the hook or path is unset.
+func (s *server) warmAccess(dir string) {
+	if s.d.WarmFileAccess != nil && dir != "" {
+		go s.d.WarmFileAccess([]string{dir})
+	}
+}
+
+// warmNow provokes the file-access prompt for every enabled task's folder. The
+// app calls it on launch, so simply opening the window re-checks access while
+// the user is present — covering folders that were added or edited while the app
+// was closed, or that were never authorised. The daemon (this process) does the
+// probing, so the grant lands on the identity that actually runs the tasks.
+func (s *server) warmNow(w http.ResponseWriter, _ *http.Request) {
+	if s.d.WarmFileAccess == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	cfg, err := s.d.Store.LoadConfig()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	dirs := make([]string, 0, len(cfg.Tasks))
+	for _, t := range cfg.Tasks {
+		if t.Enabled {
+			dirs = append(dirs, t.WorkingDir)
+		}
+	}
+	go s.d.WarmFileAccess(dirs)
+	w.WriteHeader(http.StatusAccepted)
 }
 
 func (s *server) updateTask(w http.ResponseWriter, r *http.Request) {
@@ -166,9 +207,11 @@ func (s *server) updateTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	var prevDir string
 	err := s.d.Store.UpdateConfig(func(cfg *store.Config) error {
 		for i := range cfg.Tasks {
 			if cfg.Tasks[i].ID == t.ID {
+				prevDir = cfg.Tasks[i].WorkingDir
 				cfg.Tasks[i] = t
 				return nil
 			}
@@ -178,6 +221,12 @@ func (s *server) updateTask(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
+	}
+	// Only warm when the folder actually changed — editing just the prompt/model
+	// keeps the same (already-authorised) directory, so re-probing it is wasted
+	// work. A genuine folder change still provokes the prompt for the new one.
+	if t.WorkingDir != prevDir {
+		s.warmAccess(t.WorkingDir)
 	}
 	writeJSON(w, http.StatusOK, t)
 }

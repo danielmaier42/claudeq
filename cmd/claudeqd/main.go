@@ -28,6 +28,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/clock"
 	"github.com/danielmaier42/claudeq/internal/engine"
 	"github.com/danielmaier42/claudeq/internal/executor"
+	"github.com/danielmaier42/claudeq/internal/fileaccess"
 	"github.com/danielmaier42/claudeq/internal/launchd"
 	"github.com/danielmaier42/claudeq/internal/limit"
 	"github.com/danielmaier42/claudeq/internal/notify"
@@ -117,6 +118,13 @@ func cmdRun(args []string) error {
 	// Ask for notification permission up front (only does anything when running
 	// from the app bundle) so run-outcome notifications carry the app icon.
 	notify.RequestMacAuthorization()
+	// Provoke the macOS file-access (TCC) consent prompt now, at startup — which
+	// happens at install and at every login, while the user is present — rather
+	// than mid-run overnight, where the prompt has no one to answer it and the
+	// run stalls. Reading each task folder is what makes macOS raise the prompt;
+	// once answered the decision sticks and this becomes a no-op. Folders added
+	// later are warmed per-task from the API (Deps.WarmFileAccess) at add/edit.
+	go warmEnabledTasks(st)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -126,7 +134,7 @@ func cmdRun(args []string) error {
 		Handler: api.Handler(api.Deps{
 			Store: st, Runner: eng, Models: api.BinaryModelLister(claudeBinOr(claudeBin)),
 			ChooseFolder: api.OSAScriptFolderChooser(system.Real{}), ActiveTasks: eng.ActiveTaskIDs,
-			WakeError: eng.WakeError,
+			WakeError: eng.WakeError, WarmFileAccess: warmFileAccess,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
@@ -161,6 +169,55 @@ func buildNotifier(st *store.Store) notify.Notifier {
 		}
 	}
 	return notify.Multi{Notifiers: notifiers}
+}
+
+// warmFileAccess reads the given directories so macOS raises its file-access
+// consent prompt while the user is present (see call sites for why). It is
+// best-effort and bounded: a directory stuck behind an unanswered prompt cannot
+// wedge it, and it never blocks the scheduler. If access is already granted (the
+// common case) it is a silent no-op. Folders are first collapsed to their macOS
+// privacy category (ConsentTargets), so many tasks under ~/Documents provoke the
+// Documents prompt once rather than one blocked read each; it then probes every
+// remaining target (ProbeAll, not the first-block Probe) so distinct categories
+// each get their prompt in one pass. Wired into the API as Deps.WarmFileAccess so
+// a folder added at runtime is warmed the moment its task is created or edited.
+func warmFileAccess(dirs []string) {
+	home, _ := os.UserHomeDir()
+	targets := fileaccess.ConsentTargets(dirs, home)
+	for _, res := range fileaccess.ProbeAll(targets, fileaccess.DefaultProbeTimeout) {
+		switch res.Reason {
+		case fileaccess.ReasonTimeout:
+			// The read didn't return in time — during warming this almost always
+			// means macOS is now showing its consent prompt for the folder, which is
+			// exactly what we wanted. Nothing to fix; the user just clicks Allow.
+			fmt.Fprintf(os.Stdout, "claudeqd: prompting for file access to %q "+
+				"(answer the macOS dialog to allow it)\n", res.BlockedPath)
+		default:
+			// Genuinely denied — point the user at where they can grant it.
+			fmt.Fprintf(os.Stderr, "claudeqd: file access to %q is blocked (%s); allow it in "+
+				"System Settings > Privacy & Security > Files and Folders (or Full Disk Access)\n",
+				res.BlockedPath, res.Reason)
+		}
+	}
+}
+
+// warmEnabledTasks provokes the prompt for every enabled task's folder at
+// startup (install time and each login, while the user is present).
+func warmEnabledTasks(st *store.Store) {
+	// Let the login/session settle so the prompt actually surfaces rather than
+	// being lost in login-time churn.
+	time.Sleep(2 * time.Second)
+	cfg, err := st.LoadConfig()
+	if err != nil {
+		return
+	}
+	dirs := make([]string, 0, len(cfg.Tasks))
+	for _, t := range cfg.Tasks {
+		if t.Enabled {
+			dirs = append(dirs, t.WorkingDir)
+		}
+	}
+	warmFileAccess(dirs)
 }
 
 func cmdInstall() error {
