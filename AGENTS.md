@@ -42,6 +42,10 @@ If any gate fails, it is fixed before the work is reported — never reported wi
 - **Clear errors:** wrap with context (`fmt.Errorf("...: %w", err)`); never swallow errors;
   no silent failure paths in the unattended runner.
 - **Small, focused commits** with descriptive messages; the tree stays releasable on `main`.
+- **Never merge a PR.** An agent may open, update, and push to feature branches and
+  keep CI green, but **merging is exclusively the maintainer's decision and action** —
+  never merge (squash, rebase, or otherwise), never push directly to `main`, and never
+  auto-merge. Leave the PR ready and hand the decision to the maintainer.
 - **No dead code, no TODO-as-shipping-plan, no commented-out blocks.**
 - **Concurrency safety:** the daemon runs tasks in parallel — guard shared state, run tests
   with `-race`, avoid data races by design.
