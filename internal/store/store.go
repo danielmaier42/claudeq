@@ -122,14 +122,16 @@ func (s *Store) SaveConfig(cfg Config) error {
 func (s *Store) UpdateConfig(fn func(*Config) error) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	cfg, err := s.LoadConfig()
-	if err != nil {
-		return err
-	}
-	if err := fn(&cfg); err != nil {
-		return err
-	}
-	return s.SaveConfig(cfg)
+	return s.withWriteLock(func() error {
+		cfg, err := s.LoadConfig()
+		if err != nil {
+			return err
+		}
+		if err := fn(&cfg); err != nil {
+			return err
+		}
+		return s.SaveConfig(cfg)
+	})
 }
 
 // UpdateState atomically applies fn to the state, serialized with other
@@ -139,14 +141,16 @@ func (s *Store) UpdateConfig(fn func(*Config) error) error {
 func (s *Store) UpdateState(fn func(*State) error) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	st, err := s.LoadState()
-	if err != nil {
-		return err
-	}
-	if err := fn(st); err != nil {
-		return err
-	}
-	return s.SaveState(st)
+	return s.withWriteLock(func() error {
+		st, err := s.LoadState()
+		if err != nil {
+			return err
+		}
+		if err := fn(st); err != nil {
+			return err
+		}
+		return s.SaveState(st)
+	})
 }
 
 // AppendRun appends a run event to history.jsonl. Later events for the same

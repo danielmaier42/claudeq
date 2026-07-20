@@ -110,7 +110,11 @@ func cmdRun(args []string) error {
 	}
 
 	c := clock.Real{}
-	eng := engine.New(st, limit.New(c), &executor.Executor{Bin: claudeBin}, c)
+	eng := engine.New(st, limit.New(c), &executor.Executor{
+		Bin:      claudeBin,
+		Home:     home,
+		QueueBin: resolveQueueBin(),
+	}, c)
 	if !*noWake {
 		eng.SetWaker(&wake.Scheduler{Runner: system.Real{}, Sudo: true})
 	}
@@ -293,6 +297,23 @@ func cmdUninstall() error {
 	fmt.Printf("removed LaunchAgent %s\n", launchd.DefaultLabel)
 	fmt.Println("If you added the pmset sudoers entry, remove it with: sudo rm -f /etc/sudoers.d/claudeq")
 	return nil
+}
+
+// resolveQueueBin finds the claudeq CLI shipped next to this daemon binary (in
+// the app bundle's Contents/MacOS, or the dev build directory). Its absolute
+// path is handed to each run as CLAUDEQ_BIN so a task can queue follow-up work
+// even though the daemon's launchd PATH does not include it. Empty when it
+// cannot be located, in which case runs fall back to a bare "claudeq" lookup.
+func resolveQueueBin() string {
+	self, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	cand := filepath.Join(filepath.Dir(self), "claudeq")
+	if info, err := os.Stat(cand); err == nil && !info.IsDir() {
+		return cand
+	}
+	return ""
 }
 
 // claudeBinOr falls back to the bare name so the model lister still has

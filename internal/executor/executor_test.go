@@ -3,6 +3,7 @@ package executor
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -61,6 +62,72 @@ func TestArgsResumeAndPermissions(t *testing.T) {
 	}
 	if !strings.Contains(args, "--model claude-haiku-4-5-20251001") {
 		t.Fatalf("model override missing, got %q", args)
+	}
+}
+
+func TestArgsAppendsSelfQueueSystemPrompt(t *testing.T) {
+	e := &Executor{}
+	tk := sampleTask()
+	args := e.Args(Request{Task: tk, SessionID: "SID"})
+
+	// The prompt must remain the final positional argument, immediately preceded
+	// by the --append-system-prompt flag and its (single) value.
+	if args[len(args)-1] != tk.Prompt {
+		t.Fatalf("prompt must be the last arg, got %q", args[len(args)-1])
+	}
+	if args[len(args)-3] != "--append-system-prompt" {
+		t.Fatalf("expected --append-system-prompt before the prompt, got %v", args[len(args)-3:])
+	}
+	if got := args[len(args)-2]; got != selfQueueSystemPrompt {
+		t.Fatalf("append-system-prompt value = %q, want the self-queue prompt", got)
+	}
+	if !strings.Contains(selfQueueSystemPrompt, "queue --prompt") {
+		t.Fatal("self-queue prompt must document the `queue --prompt` command")
+	}
+}
+
+func TestRunEnvCarriesSelfQueueContext(t *testing.T) {
+	e := &Executor{Home: "/data/home", QueueBin: "/opt/claudeq"}
+	tk := sampleTask()
+	tk.Model = "claude-opus-4-8"
+	tk.Permissions = task.PermissionsSkip
+	tk.Parallel = true
+
+	env := e.runEnv(Request{Task: tk})
+	got := map[string]string{}
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			got[k] = v // later duplicates win, matching exec semantics
+		}
+	}
+
+	if got[store.EnvHome] != "/data/home" {
+		t.Fatalf("%s = %q, want /data/home", store.EnvHome, got[store.EnvHome])
+	}
+	if got[EnvQueueBin] != "/opt/claudeq" {
+		t.Fatalf("%s = %q, want /opt/claudeq", EnvQueueBin, got[EnvQueueBin])
+	}
+	var parent task.Task
+	if err := json.Unmarshal([]byte(got[EnvParentTask]), &parent); err != nil {
+		t.Fatalf("parent task env is not valid JSON: %v", err)
+	}
+	if parent.Model != "claude-opus-4-8" || parent.Permissions != task.PermissionsSkip || !parent.Parallel {
+		t.Fatalf("parent task did not round-trip inheritable settings: %+v", parent)
+	}
+}
+
+func TestRunEnvOmitsUnsetPaths(t *testing.T) {
+	e := &Executor{} // no Home / QueueBin configured
+	env := e.runEnv(Request{Task: sampleTask()})
+	joined := strings.Join(env, "\n")
+	if strings.Contains(joined, store.EnvHome+"=") {
+		t.Fatal("CLAUDEQ_HOME must be omitted when Home is unset")
+	}
+	if strings.Contains(joined, EnvQueueBin+"=") {
+		t.Fatal("CLAUDEQ_BIN must be omitted when QueueBin is unset")
+	}
+	if !strings.Contains(joined, EnvParentTask+"=") {
+		t.Fatal("the parent task should always be exported")
 	}
 }
 
