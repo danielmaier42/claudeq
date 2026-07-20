@@ -5,10 +5,14 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -28,6 +32,8 @@ Usage:
   claudeq list
   claudeq add    --id ID --prompt P --dir DIR [--name N] [--trigger asap|fixed|cron]
                  [--at RFC3339] [--cron EXPR] [--model M] [--parallel] [--skip-permissions]
+  claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [--name N]
+                 (queue a follow-up task; inherits the calling task's settings)
   claudeq rm ID
   claudeq enable ID | claudeq disable ID
   claudeq move   ID INDEX          (0 = highest priority)
@@ -66,6 +72,8 @@ func run(args []string) error {
 		return cmdList(st)
 	case "add":
 		return cmdAdd(st, rest)
+	case "queue":
+		return cmdQueue(st, rest)
 	case "rm":
 		return withID(rest, func(id string) error { return app.RemoveTask(st, id) })
 	case "enable":
@@ -181,6 +189,157 @@ func cmdAdd(st *store.Store, args []string) error {
 	return nil
 }
 
+// queueOpts are the caller-supplied parts of `claudeq queue`. Everything else
+// (model, permissions, parallel, notify, and the default working dir) is
+// inherited from the calling task via the CLAUDEQ_PARENT_TASK environment.
+type queueOpts struct {
+	prompt string
+	at     string // RFC3339 time (--at)
+	in     string // Go duration before running (--in)
+	cron   string // 5-field cron expression (--cron)
+	dir    string // working directory override (--dir)
+	name   string // display name (--name)
+}
+
+// cmdQueue enqueues a follow-up task. It is meant to be run by Claude from
+// inside a task (see executor.selfQueueSystemPrompt) but also works standalone.
+func cmdQueue(st *store.Store, args []string) error {
+	fs := flag.NewFlagSet("queue", flag.ContinueOnError)
+	var o queueOpts
+	fs.StringVar(&o.prompt, "prompt", "", "prompt sent to Claude Code (required)")
+	fs.StringVar(&o.at, "at", "", "RFC3339 time to run at or after")
+	fs.StringVar(&o.in, "in", "", "delay before running, e.g. 90m or 2h30m")
+	fs.StringVar(&o.cron, "cron", "", "5-field cron expression for a recurring task")
+	fs.StringVar(&o.dir, "dir", "", "working directory (default: the calling task's dir)")
+	fs.StringVar(&o.name, "name", "", "display name (default: derived from the prompt)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	parentJSON := os.Getenv(executor.EnvParentTask)
+	now := time.Now()
+
+	var lastErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		t, err := buildQueuedTask(parentJSON, newQueueID(now), o, now)
+		if err != nil {
+			return err // deterministic (independent of the id) — do not retry
+		}
+		if err := app.AddTask(st, t); err != nil {
+			lastErr = err // almost certainly an id collision; regenerate and retry
+			continue
+		}
+		fmt.Printf("queued task %q (%s)\n", t.ID, queueWhen(t))
+		return nil
+	}
+	return lastErr
+}
+
+// buildQueuedTask assembles the task to enqueue. It starts from the calling task
+// (parentJSON, empty when run standalone) so settings are inherited, then resets
+// the identity/scheduling fields and applies the queue options. id is the
+// pre-generated task id; now anchors --in.
+func buildQueuedTask(parentJSON, id string, o queueOpts, now time.Time) (task.Task, error) {
+	var t task.Task
+	if parentJSON != "" {
+		if err := json.Unmarshal([]byte(parentJSON), &t); err != nil {
+			return task.Task{}, fmt.Errorf("parse parent task: %w", err)
+		}
+	}
+
+	// Keep inherited settings (model, permissions, parallel, notify_on_result and
+	// working_dir as the default); reset everything that identifies or schedules.
+	t.ID = id
+	t.Prompt = o.prompt
+	t.Name = o.name
+	t.Enabled = true
+	t.FixedAt = time.Time{}
+	t.Cron = ""
+	if o.dir != "" {
+		t.WorkingDir = o.dir
+	}
+	if t.Permissions == "" {
+		t.Permissions = task.PermissionsDefault
+	}
+
+	set := 0
+	for _, v := range []string{o.at, o.in, o.cron} {
+		if v != "" {
+			set++
+		}
+	}
+	if set > 1 {
+		return task.Task{}, fmt.Errorf("choose at most one of --at, --in, --cron")
+	}
+
+	switch {
+	case o.at != "":
+		parsed, err := time.Parse(time.RFC3339, o.at)
+		if err != nil {
+			return task.Task{}, fmt.Errorf("invalid --at time (want RFC3339): %w", err)
+		}
+		t.Trigger = task.TriggerFixed
+		t.FixedAt = parsed
+	case o.in != "":
+		d, err := time.ParseDuration(o.in)
+		if err != nil {
+			return task.Task{}, fmt.Errorf("invalid --in duration: %w", err)
+		}
+		if d < 0 {
+			return task.Task{}, fmt.Errorf("--in duration must not be negative")
+		}
+		t.Trigger = task.TriggerFixed
+		t.FixedAt = now.Add(d)
+	case o.cron != "":
+		t.Trigger = task.TriggerCron
+		t.Cron = o.cron
+	default:
+		t.Trigger = task.TriggerASAP
+	}
+
+	if t.Name == "" {
+		t.Name = defaultQueueName(o.prompt)
+	}
+	if err := t.Validate(); err != nil {
+		return task.Task{}, err
+	}
+	return t, nil
+}
+
+// queueWhen describes when a just-queued task will run, for the CLI confirmation.
+func queueWhen(t task.Task) string {
+	if t.Trigger == task.TriggerASAP {
+		return "as soon as possible"
+	}
+	return string(t.Trigger) + " " + triggerWhen(t)
+}
+
+// defaultQueueName derives a short single-line name from the prompt.
+func defaultQueueName(prompt string) string {
+	s := strings.TrimSpace(strings.Join(strings.Fields(prompt), " "))
+	if s == "" {
+		return "queued task"
+	}
+	if r := []rune(s); len(r) > 40 {
+		return string(r[:39]) + "…"
+	}
+	return s
+}
+
+// newQueueID builds a unique-ish task id; the random suffix disambiguates
+// several tasks queued within the same second.
+func newQueueID(now time.Time) string {
+	return "q-" + now.UTC().Format("20060102T150405") + "-" + shortHex(3)
+}
+
+func shortHex(n int) string {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return strings.Repeat("0", n*2)
+	}
+	return hex.EncodeToString(b)
+}
+
 func cmdMove(st *store.Store, args []string) error {
 	if len(args) != 2 {
 		return fmt.Errorf("usage: claudeq move ID INDEX")
@@ -197,7 +356,11 @@ func cmdMove(st *store.Store, args []string) error {
 
 func cmdRunNow(st *store.Store, id string) error {
 	c := clock.Real{}
-	eng := engine.New(st, limit.New(c), &executor.Executor{}, c)
+	// Give the manual run the same self-queue context the daemon provides, so a
+	// task tested with run-now can queue follow-up work too. This process is the
+	// claudeq CLI, so its own path is the queue binary.
+	self, _ := os.Executable()
+	eng := engine.New(st, limit.New(c), &executor.Executor{Home: st.Home(), QueueBin: self}, c)
 	fmt.Printf("running task %q now...\n", id)
 	if err := eng.RunTaskNow(context.Background(), id); err != nil {
 		return err

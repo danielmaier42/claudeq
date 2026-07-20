@@ -177,6 +177,46 @@ func TestUpdateConfigConcurrentAddsNoLoss(t *testing.T) {
 	}
 }
 
+func TestUpdateConfigCrossProcessNoLoss(t *testing.T) {
+	// Two separate Store instances on the same home stand in for the daemon and a
+	// `claudeq queue` child updating config.toml at the same time. Each opens its
+	// own lock fd, so only the cross-process flock (not the in-process writeMu)
+	// keeps their read-modify-write updates from clobbering each other.
+	home := t.TempDir()
+	sA, err := Open(home)
+	if err != nil {
+		t.Fatalf("Open A: %v", err)
+	}
+	sB, err := Open(home)
+	if err != nil {
+		t.Fatalf("Open B: %v", err)
+	}
+
+	const n = 20
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(2)
+		add := func(s *Store, id string) {
+			defer wg.Done()
+			_ = s.UpdateConfig(func(cfg *Config) error {
+				cfg.Tasks = append(cfg.Tasks, sampleTask(id))
+				return nil
+			})
+		}
+		go add(sA, fmt.Sprintf("a%02d", i))
+		go add(sB, fmt.Sprintf("b%02d", i))
+	}
+	wg.Wait()
+
+	cfg, err := sA.LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if len(cfg.Tasks) != 2*n {
+		t.Fatalf("lost updates across processes: got %d tasks, want %d", len(cfg.Tasks), 2*n)
+	}
+}
+
 func TestUpdateStatePreservesOtherKeys(t *testing.T) {
 	s := openTemp(t)
 	// One writer sets read-status (as the API would)...

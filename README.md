@@ -34,6 +34,12 @@ Everything stays on your Mac: tasks, settings, and run history live under
   to let it run alongside others.
 - **Per-task overrides** — model, permission handling, and whether to notify on
   the result — over your global defaults.
+- **Self-queueing** — a running task can schedule follow-up tasks itself, so a
+  prompt can say things like *"if you find something to optimize, queue it as a
+  separate task instead of doing it now."* From inside a run, Claude uses
+  `claudeq queue --prompt "…"` with an optional `--at` / `--in` / `--cron` time
+  and `--dir`; model, permissions, parallel and notify settings are inherited
+  from the calling task.
 - **Rate-limit aware** — reactive gate with automatic session resume.
 - **Notifications** — native macOS notifications, and optional
   [Pushover](https://pushover.net) push to your phone.

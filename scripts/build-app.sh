@@ -28,6 +28,9 @@ echo "==> Building binaries"
 mkdir -p "$MACOS" "$RES"
 go build -o "$MACOS/claudeqapp" "$ROOT/cmd/claudeqapp"
 go build -o "$MACOS/claudeqd" "$ROOT/cmd/claudeqd"
+# The claudeq CLI ships alongside the daemon so a running task can queue
+# follow-up work via it (claudeqd passes its absolute path as CLAUDEQ_BIN).
+go build -o "$MACOS/claudeq" "$ROOT/cmd/claudeq"
 
 echo "==> Rendering icon from $LOGO"
 if command -v rsvg-convert >/dev/null 2>&1; then

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"sync"
 	"sync/atomic"
@@ -19,10 +20,48 @@ import (
 	"github.com/danielmaier42/claudeq/internal/task"
 )
 
+// Environment variables passed to each run so it can queue follow-up work as a
+// new claudeq task via `claudeq queue` (see selfQueueSystemPrompt). store.EnvHome
+// (CLAUDEQ_HOME) is also set so the child targets the same data directory.
+const (
+	// EnvQueueBin holds the absolute path to the claudeq CLI, so a run can invoke
+	// it even when it is not on the launchd PATH.
+	EnvQueueBin = "CLAUDEQ_BIN"
+	// EnvParentTask holds the calling task as JSON. `claudeq queue` uses it as the
+	// template for inherited settings (model, permissions, parallel, notify, dir).
+	EnvParentTask = "CLAUDEQ_PARENT_TASK"
+)
+
+// selfQueueSystemPrompt is appended to every run's system prompt so Claude knows
+// it can schedule follow-up work as a separate claudeq task instead of doing it
+// inline. Settings other than what is listed are inherited from the calling task.
+const selfQueueSystemPrompt = `You are running as a task inside claudeq, a local queue that runs Claude Code jobs. When you find work that should run as its own separate job — later, at a specific time, on a schedule, or independently of this run — schedule it as a new claudeq task instead of doing it now, using the claudeq CLI:
+
+  "${CLAUDEQ_BIN:-claudeq}" queue --prompt "<what the new task should do>"
+
+Choose at most one timing option (the default is as soon as the queue allows):
+  (omit all)        run as soon as possible
+  --at <RFC3339>    run at or after a specific time, e.g. --at 2026-07-21T03:00:00+02:00
+  --in <duration>   run after a delay, e.g. --in 90m or --in 2h30m
+  --cron "<expr>"   run repeatedly on a 5-field cron schedule, e.g. --cron "0 3 * * *"
+
+Optional:
+  --dir <path>      working directory for the new task (defaults to this task's directory)
+  --name "<label>"  a short human-readable name
+
+The new task inherits this task's model, permissions, parallelism and notification settings automatically — do not attempt to set them. Only queue a task when the work genuinely belongs in a separate run; if something should simply be done now, just do it yourself.`
+
 // Executor builds and runs Claude Code invocations.
 type Executor struct {
 	// Bin is the Claude Code binary (default "claude").
 	Bin string
+	// Home is the claudeq data directory. When set it is passed to each run as
+	// CLAUDEQ_HOME so any task the run queues targets the same store.
+	Home string
+	// QueueBin is the absolute path to the claudeq CLI, passed to each run as
+	// CLAUDEQ_BIN so it can queue follow-up tasks even when claudeq is not on the
+	// (launchd) PATH. Empty falls back to a bare "claudeq" lookup at run time.
+	QueueBin string
 }
 
 // Request is a single execution. Model and SkipPermissions are the already
@@ -85,8 +124,26 @@ func (e *Executor) Args(req Request) []string {
 	} else {
 		args = append(args, "--session-id", req.SessionID)
 	}
+	args = append(args, "--append-system-prompt", selfQueueSystemPrompt)
 	args = append(args, req.Task.Prompt)
 	return args
+}
+
+// runEnv is the environment for a run: the daemon's own environment plus the
+// variables a run needs to queue follow-up tasks (see selfQueueSystemPrompt).
+// Appended keys win over any inherited value of the same name.
+func (e *Executor) runEnv(req Request) []string {
+	env := os.Environ()
+	if e.Home != "" {
+		env = append(env, store.EnvHome+"="+e.Home)
+	}
+	if e.QueueBin != "" {
+		env = append(env, EnvQueueBin+"="+e.QueueBin)
+	}
+	if data, err := json.Marshal(req.Task); err == nil {
+		env = append(env, EnvParentTask+"="+string(data))
+	}
+	return env
 }
 
 func (e *Executor) bin() string {
@@ -114,6 +171,7 @@ func (e *Executor) Run(ctx context.Context, req Request) (Result, error) {
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, bin, e.Args(req)...)
 	cmd.Dir = req.Task.WorkingDir
+	cmd.Env = e.runEnv(req)    // lets the run queue follow-up tasks (self-queue)
 	configureProcessGroup(cmd) // so a killed run takes its child processes with it
 
 	stdout, err := cmd.StdoutPipe()
