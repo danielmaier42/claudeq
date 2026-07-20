@@ -122,8 +122,9 @@ func cmdRun(args []string) error {
 	// happens at install and at every login, while the user is present — rather
 	// than mid-run overnight, where the prompt has no one to answer it and the
 	// run stalls. Reading each task folder is what makes macOS raise the prompt;
-	// once answered the decision sticks and this becomes a no-op.
-	go warmFileAccess(st)
+	// once answered the decision sticks and this becomes a no-op. Folders added
+	// later are warmed per-task from the API (Deps.WarmFileAccess) at add/edit.
+	go warmEnabledTasks(st)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -133,7 +134,7 @@ func cmdRun(args []string) error {
 		Handler: api.Handler(api.Deps{
 			Store: st, Runner: eng, Models: api.BinaryModelLister(claudeBinOr(claudeBin)),
 			ChooseFolder: api.OSAScriptFolderChooser(system.Real{}), ActiveTasks: eng.ActiveTaskIDs,
-			WakeError: eng.WakeError,
+			WakeError: eng.WakeError, WarmFileAccess: warmFileAccess,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
@@ -170,12 +171,24 @@ func buildNotifier(st *store.Store) notify.Notifier {
 	return notify.Multi{Notifiers: notifiers}
 }
 
-// warmFileAccess reads each enabled task's working directory so macOS raises its
-// file-access consent prompt at startup (see the call site for why). It is
+// warmFileAccess reads the given directories so macOS raises its file-access
+// consent prompt while the user is present (see call sites for why). It is
 // best-effort and bounded: a directory stuck behind an unanswered prompt cannot
 // wedge it, and it never blocks the scheduler. If access is already granted (the
-// common case) it is a silent no-op; if it is denied it logs a fix hint.
-func warmFileAccess(st *store.Store) {
+// common case) it is a silent no-op; if it is denied it logs a fix hint. Wired
+// into the API as Deps.WarmFileAccess so a folder added at runtime is warmed the
+// moment its task is created or edited.
+func warmFileAccess(dirs []string) {
+	if res := fileaccess.Probe(dirs, fileaccess.DefaultProbeTimeout); !res.OK {
+		fmt.Fprintf(os.Stderr, "claudeqd: file access to %q is blocked (%s); allow it in "+
+			"System Settings > Privacy & Security > Files and Folders (or Full Disk Access)\n",
+			res.BlockedPath, res.Reason)
+	}
+}
+
+// warmEnabledTasks provokes the prompt for every enabled task's folder at
+// startup (install time and each login, while the user is present).
+func warmEnabledTasks(st *store.Store) {
 	// Let the login/session settle so the prompt actually surfaces rather than
 	// being lost in login-time churn.
 	time.Sleep(2 * time.Second)
@@ -185,18 +198,11 @@ func warmFileAccess(st *store.Store) {
 	}
 	dirs := make([]string, 0, len(cfg.Tasks))
 	for _, t := range cfg.Tasks {
-		if t.Enabled && t.WorkingDir != "" {
+		if t.Enabled {
 			dirs = append(dirs, t.WorkingDir)
 		}
 	}
-	if len(dirs) == 0 {
-		return
-	}
-	if res := fileaccess.Probe(dirs, fileaccess.DefaultProbeTimeout); !res.OK {
-		fmt.Fprintf(os.Stderr, "claudeqd: file access to %q is blocked (%s); allow it in "+
-			"System Settings > Privacy & Security > Files and Folders (or Full Disk Access)\n",
-			res.BlockedPath, res.Reason)
-	}
+	warmFileAccess(dirs)
 }
 
 func cmdInstall() error {

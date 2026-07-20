@@ -44,6 +44,10 @@ type Deps struct {
 	ChooseFolder FolderChooser   // optional; enables the native folder dialog
 	ActiveTasks  func() []string // optional; ids of currently-running tasks (hidden from the queue)
 	WakeError    func() string   // optional; last scheduled-wake error ("" if healthy)
+	// WarmFileAccess reads the given directories so macOS raises its file-access
+	// consent prompt now — called right after a task is created or its folder
+	// changed, while the user is present. Optional.
+	WarmFileAccess func(dirs []string)
 }
 
 // Handler builds the HTTP handler (REST API under /api + dashboard at /).
@@ -146,7 +150,18 @@ func (s *server) addTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	s.warmAccess(t.WorkingDir)
 	writeJSON(w, http.StatusCreated, t)
+}
+
+// warmAccess provokes the macOS file-access prompt for a task's folder right
+// after it is created or changed, while the user is present in the app — so a
+// newly-used protected location (Downloads, Desktop, …) is authorised now, not
+// at 3am mid-run. Best-effort; a no-op when the hook or path is unset.
+func (s *server) warmAccess(dir string) {
+	if s.d.WarmFileAccess != nil && dir != "" {
+		go s.d.WarmFileAccess([]string{dir})
+	}
 }
 
 func (s *server) updateTask(w http.ResponseWriter, r *http.Request) {
@@ -179,6 +194,7 @@ func (s *server) updateTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	s.warmAccess(t.WorkingDir)
 	writeJSON(w, http.StatusOK, t)
 }
 

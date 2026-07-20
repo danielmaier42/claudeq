@@ -75,6 +75,50 @@ func TestAddAndListTasks(t *testing.T) {
 	}
 }
 
+func TestWarmFileAccessOnAddAndUpdate(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	warmed := make(chan []string, 4)
+	srv := httptest.NewServer(Handler(Deps{
+		Store:          st,
+		WarmFileAccess: func(dirs []string) { warmed <- dirs },
+	}))
+	t.Cleanup(srv.Close)
+
+	add := sampleTask("a")
+	add.WorkingDir = "/tmp/added"
+	if r := do(t, srv, "POST", "/api/tasks", add); r.Status != http.StatusCreated {
+		t.Fatalf("add status = %d", r.Status)
+	}
+	if dirs := waitWarm(t, warmed); len(dirs) != 1 || dirs[0] != "/tmp/added" {
+		t.Fatalf("warm on add = %v, want [/tmp/added]", dirs)
+	}
+
+	upd := sampleTask("a")
+	upd.WorkingDir = "/tmp/changed"
+	if r := do(t, srv, "PUT", "/api/tasks/a", upd); r.Status != http.StatusOK {
+		t.Fatalf("update status = %d", r.Status)
+	}
+	if dirs := waitWarm(t, warmed); len(dirs) != 1 || dirs[0] != "/tmp/changed" {
+		t.Fatalf("warm on update = %v, want [/tmp/changed]", dirs)
+	}
+}
+
+// waitWarm returns the next WarmFileAccess call's dirs, failing if none arrives
+// (the hook fires in a goroutine, so the test must wait for it).
+func waitWarm(t *testing.T, ch <-chan []string) []string {
+	t.Helper()
+	select {
+	case d := <-ch:
+		return d
+	case <-time.After(2 * time.Second):
+		t.Fatal("WarmFileAccess was not called")
+		return nil
+	}
+}
+
 func TestListTasksHidesRunning(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {
