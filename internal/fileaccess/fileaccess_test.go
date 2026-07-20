@@ -109,6 +109,76 @@ func TestProbeAllAllReadable(t *testing.T) {
 	}
 }
 
+func TestConsentTargets(t *testing.T) {
+	home := "/Users/me"
+	docs := filepath.Join(home, "Documents")
+	dl := filepath.Join(home, "Downloads")
+	desk := filepath.Join(home, "Desktop")
+
+	tests := []struct {
+		name  string
+		paths []string
+		want  []string
+	}{
+		{
+			name:  "many Documents subfolders collapse to one root",
+			paths: []string{filepath.Join(docs, "a"), filepath.Join(docs, "b", "deep"), docs},
+			want:  []string{docs},
+		},
+		{
+			name:  "distinct categories are each kept once",
+			paths: []string{filepath.Join(docs, "a"), filepath.Join(dl, "x"), filepath.Join(desk, "y"), filepath.Join(dl, "z")},
+			want:  []string{docs, dl, desk},
+		},
+		{
+			name:  "non-protected folders map to themselves",
+			paths: []string{"/Users/me/projects/app", "/Volumes/Ext/work", filepath.Join(docs, "a")},
+			want:  []string{"/Users/me/projects/app", "/Volumes/Ext/work", docs},
+		},
+		{
+			name:  "sibling with shared prefix is not collapsed",
+			paths: []string{home + "/Documents-old/thing", filepath.Join(docs, "a")},
+			want:  []string{home + "/Documents-old/thing", docs},
+		},
+		{
+			name:  "order of first appearance is preserved and empties dropped",
+			paths: []string{"", filepath.Join(dl, "a"), filepath.Join(docs, "b"), "", filepath.Join(dl, "c")},
+			want:  []string{dl, docs},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ConsentTargets(tc.paths, home)
+			if !equalStrings(got, tc.want) {
+				t.Fatalf("ConsentTargets = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestConsentTargetsNoHome verifies that without a home dir, no category grouping
+// happens — paths are only de-duplicated as given.
+func TestConsentTargetsNoHome(t *testing.T) {
+	in := []string{"/Users/me/Documents/a", "/Users/me/Documents/b", "/Users/me/Documents/a"}
+	got := ConsentTargets(in, "")
+	want := []string{"/Users/me/Documents/a", "/Users/me/Documents/b"}
+	if !equalStrings(got, want) {
+		t.Fatalf("ConsentTargets(no home) = %v, want %v", got, want)
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // denyDir returns a directory that cannot be read. Skips the test when running
 // as root (which bypasses filesystem permissions and defeats the check).
 func denyDir(t *testing.T) string {

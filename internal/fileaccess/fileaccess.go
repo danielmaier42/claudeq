@@ -17,6 +17,8 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -96,6 +98,64 @@ func ProbeAll(paths []string, perPath time.Duration) []Result {
 		}
 	}
 	return blocked
+}
+
+// ConsentTargets collapses task directories to the paths whose readability
+// stands for the same macOS Files & Folders privacy decision, so warming prompts
+// once per protected category instead of once per folder.
+//
+// macOS grants access per category — Desktop, Documents, Downloads — and one
+// grant covers every subfolder, so ten tasks under ~/Documents share a single
+// prompt. Each such folder is therefore mapped to its category root. Everything
+// else maps to itself: external/network volumes auto-prompt too but each has its
+// own separate grant, and ordinary folders (~/projects, /tmp, …) are not
+// protected and never prompt — probing them directly is a harmless fast read.
+//
+// Paths are de-duplicated with first appearance preserved. home is the user's
+// home directory (from os.UserHomeDir); when empty, no category grouping is
+// applied and paths are simply de-duplicated as given.
+func ConsentTargets(paths []string, home string) []string {
+	roots := categoryRoots(home)
+	seen := make(map[string]bool, len(paths))
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if p == "" {
+			continue
+		}
+		target := consentTarget(p, roots)
+		if seen[target] {
+			continue
+		}
+		seen[target] = true
+		out = append(out, target)
+	}
+	return out
+}
+
+// categoryRoots returns the per-category protected folders under home whose grant
+// covers their whole subtree. Nil when home is unknown.
+func categoryRoots(home string) []string {
+	if home == "" {
+		return nil
+	}
+	return []string{
+		filepath.Join(home, "Desktop"),
+		filepath.Join(home, "Documents"),
+		filepath.Join(home, "Downloads"),
+	}
+}
+
+// consentTarget maps path to its category root when it lies within one, else to
+// the cleaned path itself. The prefix check is anchored at a path boundary so
+// ~/Documents-old is not mistaken for a child of ~/Documents.
+func consentTarget(path string, roots []string) string {
+	clean := filepath.Clean(path)
+	for _, root := range roots {
+		if clean == root || strings.HasPrefix(clean, root+string(filepath.Separator)) {
+			return root
+		}
+	}
+	return clean
 }
 
 // probeDir checks a single directory. It returns (reason, true) when access is

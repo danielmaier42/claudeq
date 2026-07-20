@@ -175,12 +175,16 @@ func buildNotifier(st *store.Store) notify.Notifier {
 // consent prompt while the user is present (see call sites for why). It is
 // best-effort and bounded: a directory stuck behind an unanswered prompt cannot
 // wedge it, and it never blocks the scheduler. If access is already granted (the
-// common case) it is a silent no-op. It probes every folder (ProbeAll, not the
-// first-block Probe) so several folders in distinct TCC categories each get their
-// prompt in one pass. Wired into the API as Deps.WarmFileAccess so a folder added
-// at runtime is warmed the moment its task is created or edited.
+// common case) it is a silent no-op. Folders are first collapsed to their macOS
+// privacy category (ConsentTargets), so many tasks under ~/Documents provoke the
+// Documents prompt once rather than one blocked read each; it then probes every
+// remaining target (ProbeAll, not the first-block Probe) so distinct categories
+// each get their prompt in one pass. Wired into the API as Deps.WarmFileAccess so
+// a folder added at runtime is warmed the moment its task is created or edited.
 func warmFileAccess(dirs []string) {
-	for _, res := range fileaccess.ProbeAll(dirs, fileaccess.DefaultProbeTimeout) {
+	home, _ := os.UserHomeDir()
+	targets := fileaccess.ConsentTargets(dirs, home)
+	for _, res := range fileaccess.ProbeAll(targets, fileaccess.DefaultProbeTimeout) {
 		switch res.Reason {
 		case fileaccess.ReasonTimeout:
 			// The read didn't return in time — during warming this almost always

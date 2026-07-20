@@ -448,11 +448,15 @@ Post-phase refinements from real use:
   now reads each enabled task's working directory at startup
   (`warmEnabledTasks` → `internal/fileaccess`, a timeout-bounded probe that never
   hangs on a pending prompt), so the prompt appears at install/login while the
-  user is present; once allowed, later runs proceed. Warming probes *every*
-  folder in one pass (`fileaccess.ProbeAll`, not the first-block `Probe`): a
-  folder whose prompt is still pending reports a timeout, and stopping there
-  would leave folders in other TCC categories (Documents, Downloads, Desktop, …)
-  un-provoked until the next warm. A folder added *after*
+  user is present; once allowed, later runs proceed. Folders are first collapsed
+  to their macOS privacy *category* (`fileaccess.ConsentTargets`): macOS grants
+  Files & Folders access per category — Desktop, Documents, Downloads — and one
+  grant covers the whole subtree, so ten tasks under `~/Documents` provoke the
+  Documents prompt **once**, not one blocked read each. External/network volumes
+  and ordinary (unprotected) folders map to themselves. Warming then probes
+  *every* remaining target in one pass (`fileaccess.ProbeAll`, not the
+  first-block `Probe`): a folder whose prompt is still pending reports a timeout,
+  and stopping there would leave other categories un-provoked until the next warm. A folder added *after*
   startup (e.g. a new task under `~/Downloads`) is warmed the moment its task is
   created or edited — the API fires the same probe via `Deps.WarmFileAccess` in
   `addTask`/`updateTask`, so the prompt appears right there in the app rather
