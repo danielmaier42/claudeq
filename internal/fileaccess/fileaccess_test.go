@@ -66,6 +66,49 @@ func TestProbeFirstBlockedWins(t *testing.T) {
 	}
 }
 
+// TestProbeNonDirIsOK verifies that pointing the probe at a regular file (an
+// "other error" — not a permission or missing-path case) is not flagged as a
+// block: the probe catches privacy denials, not misconfiguration.
+func TestProbeNonDirIsOK(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "f")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := Probe([]string{file}, time.Second); !got.OK {
+		t.Fatalf("a regular file should not be flagged as blocked, got %+v", got)
+	}
+}
+
+// TestProbeAll verifies ProbeAll does not stop at the first block: every blocked
+// directory is returned, in order, while readable and missing paths are skipped.
+func TestProbeAll(t *testing.T) {
+	good := t.TempDir()
+	missing := filepath.Join(t.TempDir(), "nope")
+	bad1 := denyDir(t)
+	bad2 := denyDir(t)
+
+	got := ProbeAll([]string{good, bad1, missing, bad2, bad1 /* dup skipped */}, time.Second)
+	if len(got) != 2 {
+		t.Fatalf("want 2 blocked dirs, got %d (%+v)", len(got), got)
+	}
+	if got[0].BlockedPath != bad1 || got[1].BlockedPath != bad2 {
+		t.Fatalf("blocked order = %q,%q, want %q,%q", got[0].BlockedPath, got[1].BlockedPath, bad1, bad2)
+	}
+	for _, r := range got {
+		if r.Reason != ReasonPermission {
+			t.Fatalf("reason = %q, want %q (%+v)", r.Reason, ReasonPermission, r)
+		}
+	}
+}
+
+// TestProbeAllAllReadable verifies ProbeAll returns nothing when every directory
+// is readable or absent.
+func TestProbeAllAllReadable(t *testing.T) {
+	if got := ProbeAll([]string{t.TempDir(), "", t.TempDir()}, time.Second); len(got) != 0 {
+		t.Fatalf("want no blocks, got %+v", got)
+	}
+}
+
 // denyDir returns a directory that cannot be read. Skips the test when running
 // as root (which bypasses filesystem permissions and defeats the check).
 func denyDir(t *testing.T) string {

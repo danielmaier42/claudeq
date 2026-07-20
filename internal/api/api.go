@@ -207,9 +207,11 @@ func (s *server) updateTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	var prevDir string
 	err := s.d.Store.UpdateConfig(func(cfg *store.Config) error {
 		for i := range cfg.Tasks {
 			if cfg.Tasks[i].ID == t.ID {
+				prevDir = cfg.Tasks[i].WorkingDir
 				cfg.Tasks[i] = t
 				return nil
 			}
@@ -220,7 +222,12 @@ func (s *server) updateTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	s.warmAccess(t.WorkingDir)
+	// Only warm when the folder actually changed — editing just the prompt/model
+	// keeps the same (already-authorised) directory, so re-probing it is wasted
+	// work. A genuine folder change still provokes the prompt for the new one.
+	if t.WorkingDir != prevDir {
+		s.warmAccess(t.WorkingDir)
+	}
 	writeJSON(w, http.StatusOK, t)
 }
 

@@ -50,7 +50,9 @@ type Result struct {
 // Probe reports whether each directory in paths is readable. Directories are
 // de-duplicated, and a path that does not exist is skipped — a missing folder is
 // not a permission problem. It returns on the first path it cannot read; each
-// individual read is bounded by perPath (see DefaultProbeTimeout).
+// individual read is bounded by perPath (see DefaultProbeTimeout). Use it for a
+// pure yes/no readability check; to provoke the consent prompt for every folder
+// in one pass, use ProbeAll.
 func Probe(paths []string, perPath time.Duration) Result {
 	if perPath <= 0 {
 		perPath = DefaultProbeTimeout
@@ -68,6 +70,34 @@ func Probe(paths []string, perPath time.Duration) Result {
 	return Result{OK: true}
 }
 
+// ProbeAll reads every directory in paths and returns the ones that were
+// blocked, in order. Unlike Probe it does not stop at the first block: when
+// warming file access, a not-yet-granted folder reports ReasonTimeout (its
+// consent prompt is now on screen), and stopping there would leave the remaining
+// folders — which may be in distinct TCC categories (Documents, Downloads,
+// Desktop, external volumes…) — never touched, so their prompts would never
+// fire. Probing them all in one pass provokes every category's prompt at a time
+// the user can answer it. Directories are de-duplicated and missing paths are
+// skipped, as in Probe; each read is bounded by perPath. Returns nil (empty)
+// when every directory was readable.
+func ProbeAll(paths []string, perPath time.Duration) []Result {
+	if perPath <= 0 {
+		perPath = DefaultProbeTimeout
+	}
+	seen := make(map[string]bool, len(paths))
+	var blocked []Result
+	for _, p := range paths {
+		if p == "" || seen[p] {
+			continue
+		}
+		seen[p] = true
+		if reason, isBlocked := probeDir(p, perPath); isBlocked {
+			blocked = append(blocked, Result{BlockedPath: p, Reason: reason})
+		}
+	}
+	return blocked
+}
+
 // probeDir checks a single directory. It returns (reason, true) when access is
 // blocked, or ("", false) when the directory is readable or simply absent.
 //
@@ -79,6 +109,8 @@ func Probe(paths []string, perPath time.Duration) Result {
 func probeDir(path string, timeout time.Duration) (Reason, bool) {
 	ch := make(chan error, 1)
 	go func() { ch <- readable(path) }()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
 	select {
 	case err := <-ch:
 		switch {
@@ -91,7 +123,7 @@ func probeDir(path string, timeout time.Duration) (Reason, bool) {
 			// do not flag it — that is not what this probe is here to catch.
 			return "", false
 		}
-	case <-time.After(timeout):
+	case <-timer.C:
 		return ReasonTimeout, true
 	}
 }

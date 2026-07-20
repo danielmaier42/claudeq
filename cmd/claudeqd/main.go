@@ -175,14 +175,25 @@ func buildNotifier(st *store.Store) notify.Notifier {
 // consent prompt while the user is present (see call sites for why). It is
 // best-effort and bounded: a directory stuck behind an unanswered prompt cannot
 // wedge it, and it never blocks the scheduler. If access is already granted (the
-// common case) it is a silent no-op; if it is denied it logs a fix hint. Wired
-// into the API as Deps.WarmFileAccess so a folder added at runtime is warmed the
-// moment its task is created or edited.
+// common case) it is a silent no-op. It probes every folder (ProbeAll, not the
+// first-block Probe) so several folders in distinct TCC categories each get their
+// prompt in one pass. Wired into the API as Deps.WarmFileAccess so a folder added
+// at runtime is warmed the moment its task is created or edited.
 func warmFileAccess(dirs []string) {
-	if res := fileaccess.Probe(dirs, fileaccess.DefaultProbeTimeout); !res.OK {
-		fmt.Fprintf(os.Stderr, "claudeqd: file access to %q is blocked (%s); allow it in "+
-			"System Settings > Privacy & Security > Files and Folders (or Full Disk Access)\n",
-			res.BlockedPath, res.Reason)
+	for _, res := range fileaccess.ProbeAll(dirs, fileaccess.DefaultProbeTimeout) {
+		switch res.Reason {
+		case fileaccess.ReasonTimeout:
+			// The read didn't return in time — during warming this almost always
+			// means macOS is now showing its consent prompt for the folder, which is
+			// exactly what we wanted. Nothing to fix; the user just clicks Allow.
+			fmt.Fprintf(os.Stdout, "claudeqd: prompting for file access to %q "+
+				"(answer the macOS dialog to allow it)\n", res.BlockedPath)
+		default:
+			// Genuinely denied — point the user at where they can grant it.
+			fmt.Fprintf(os.Stderr, "claudeqd: file access to %q is blocked (%s); allow it in "+
+				"System Settings > Privacy & Security > Files and Folders (or Full Disk Access)\n",
+				res.BlockedPath, res.Reason)
+		}
 	}
 }
 

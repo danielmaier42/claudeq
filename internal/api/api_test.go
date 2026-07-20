@@ -120,6 +120,61 @@ func waitWarm(t *testing.T, ch <-chan []string) []string {
 	}
 }
 
+// assertNoWarm fails if WarmFileAccess is called within a short window. The hook
+// fires in a goroutine, so we give it a moment to (wrongly) arrive.
+func assertNoWarm(t *testing.T, ch <-chan []string) {
+	t.Helper()
+	select {
+	case d := <-ch:
+		t.Fatalf("WarmFileAccess should not have been called, got %v", d)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// TestUpdateWarmsOnlyWhenDirChanges verifies the folder-change guard: editing a
+// task without touching its working directory does not re-probe (the folder is
+// already authorised), while a genuine folder change warms — even for a disabled
+// task, since its scheduled run will still need the grant.
+func TestUpdateWarmsOnlyWhenDirChanges(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	warmed := make(chan []string, 4)
+	srv := httptest.NewServer(Handler(Deps{
+		Store:          st,
+		WarmFileAccess: func(dirs []string) { warmed <- dirs },
+	}))
+	t.Cleanup(srv.Close)
+
+	add := sampleTask("a")
+	add.WorkingDir = "/tmp/dir"
+	if r := do(t, srv, "POST", "/api/tasks", add); r.Status != http.StatusCreated {
+		t.Fatalf("add status = %d", r.Status)
+	}
+	waitWarm(t, warmed) // drain the add-time warm
+
+	// Edit only the prompt, same folder → no warm.
+	same := sampleTask("a")
+	same.WorkingDir = "/tmp/dir"
+	same.Prompt = "different prompt"
+	if r := do(t, srv, "PUT", "/api/tasks/a", same); r.Status != http.StatusOK {
+		t.Fatalf("update status = %d", r.Status)
+	}
+	assertNoWarm(t, warmed)
+
+	// Change the folder on a now-disabled task → still warms the new folder.
+	moved := sampleTask("a")
+	moved.WorkingDir = "/tmp/moved"
+	moved.Enabled = false
+	if r := do(t, srv, "PUT", "/api/tasks/a", moved); r.Status != http.StatusOK {
+		t.Fatalf("update status = %d", r.Status)
+	}
+	if dirs := waitWarm(t, warmed); len(dirs) != 1 || dirs[0] != "/tmp/moved" {
+		t.Fatalf("warm on dir change = %v, want [/tmp/moved]", dirs)
+	}
+}
+
 func TestWarmNowWarmsEnabledTaskFolders(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {
