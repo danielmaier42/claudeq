@@ -26,6 +26,11 @@ func main() {
 	runtime.LockOSThread()
 	ensureDaemon()
 
+	// While the user is present, catch the macOS file-access (TCC) block that
+	// would otherwise stall an unattended overnight run, and point them at Full
+	// Disk Access. Best-effort and off the main thread — never blocks the UI.
+	go checkFileAccess()
+
 	w := webview.New(false)
 	defer w.Destroy()
 	w.SetTitle("ClaudeQ")
