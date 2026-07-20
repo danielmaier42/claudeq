@@ -501,7 +501,13 @@ function openAdd(){ taskMode='add'; taskEditId='';
   $('#f-model').innerHTML=modelOptions('','Global default');
   $('#f-parallel').checked=false; $('#f-skip').checked=false; $('#f-notify').checked=false; setSeg('asap');
   openSheet('New task','Add task'); }
-function openEdit(t){ taskMode='edit'; taskEditId=t.id; prefillTask(t); openSheet('Edit task','Save changes'); }
+async function openEdit(t){ taskMode='edit'; taskEditId=t.id;
+  // Re-fetch the latest saved task: loadTasks skips re-rendering when only
+  // non-summary fields (folder, prompt, model, permissions, notify) change, so
+  // the row's cached task object can be stale — prefilling it would show an old
+  // working directory even though the save succeeded.
+  try{ const all=await api('GET','/api/tasks'); const fresh=(all||[]).find(x=>x.id===t.id); if(fresh) t=fresh; }catch(e){}
+  prefillTask(t); openSheet('Edit task','Save changes'); }
 function openReplay(t){ if(!t){ toast('No saved definition to replay','err'); return; } taskMode='add'; taskEditId=''; prefillTask(t); openSheet('Replay task','Schedule again'); }
 $('#f-trigger').querySelectorAll('button').forEach(b=>b.onclick=()=>setSeg(b.dataset.v));
 function setSeg(v){ $('#f-trigger').querySelectorAll('button').forEach(b=>b.classList.toggle('active',b.dataset.v===v));
