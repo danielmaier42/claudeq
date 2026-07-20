@@ -73,6 +73,12 @@ If any gate fails, it is fixed before the work is reported — never reported wi
 - Surface **process/design choices and trade-offs** for discussion — the maintainer wants
   those. Keep them non-code-level (behaviour, UX, reliability, install experience).
 - Be honest about limitations and anything skipped or deferred.
+- **Ship an installable dev build with the PR.** When reporting a change via a PR, also
+  rebuild the installer package locally (`scripts/build-pkg.sh`, output in `dist/`) so the
+  maintainer can install that dev version and confirm the change is correctly implemented in
+  the real app. Say where the built `.pkg` is and which commit it was built from; if the
+  build can't be produced (e.g. missing macOS tooling), state that explicitly rather than
+  omitting it.
 
 ## 6. Keep the plan's phase status current
 
