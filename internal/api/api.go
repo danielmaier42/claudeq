@@ -72,6 +72,7 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/models", s.listModels)
 	mux.HandleFunc("GET /api/claude/which", s.whichClaude)
 	mux.HandleFunc("POST /api/fs/choose", s.chooseFolder)
+	mux.HandleFunc("POST /api/fs/warm", s.warmNow)
 	mux.HandleFunc("GET /api/stats", s.getStats)
 	mux.HandleFunc("GET /api/health", s.getHealth)
 
@@ -162,6 +163,31 @@ func (s *server) warmAccess(dir string) {
 	if s.d.WarmFileAccess != nil && dir != "" {
 		go s.d.WarmFileAccess([]string{dir})
 	}
+}
+
+// warmNow provokes the file-access prompt for every enabled task's folder. The
+// app calls it on launch, so simply opening the window re-checks access while
+// the user is present — covering folders that were added or edited while the app
+// was closed, or that were never authorised. The daemon (this process) does the
+// probing, so the grant lands on the identity that actually runs the tasks.
+func (s *server) warmNow(w http.ResponseWriter, _ *http.Request) {
+	if s.d.WarmFileAccess == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	cfg, err := s.d.Store.LoadConfig()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	dirs := make([]string, 0, len(cfg.Tasks))
+	for _, t := range cfg.Tasks {
+		if t.Enabled {
+			dirs = append(dirs, t.WorkingDir)
+		}
+	}
+	go s.d.WarmFileAccess(dirs)
+	w.WriteHeader(http.StatusAccepted)
 }
 
 func (s *server) updateTask(w http.ResponseWriter, r *http.Request) {

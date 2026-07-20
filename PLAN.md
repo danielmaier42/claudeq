@@ -452,7 +452,12 @@ Post-phase refinements from real use:
   startup (e.g. a new task under `~/Downloads`) is warmed the moment its task is
   created or edited — the API fires the same probe via `Deps.WarmFileAccess` in
   `addTask`/`updateTask`, so the prompt appears right there in the app rather
-  than waiting for the run. The probe lives in the
+  than waiting for the run. And because the daemon is a persistent `KeepAlive`
+  LaunchAgent that does **not** restart when the app window is reopened, opening
+  the window also re-triggers a warm: `claudeqapp` posts to `POST /api/fs/warm`
+  on launch and the daemon re-probes every enabled task's folder — covering the
+  natural "quit and reopen the app" case that the daemon-start warm alone misses.
+  The probe lives in the
   daemon on purpose: the daemon (and the `claude` it spawns) is what reads the
   files, and macOS attributes both to the ClaudeQ bundle, so the grant the prompt
   records is exactly the one the nightly run needs — no separate Full Disk Access

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/danielmaier42/claudeq/internal/app"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
 )
@@ -116,6 +117,48 @@ func waitWarm(t *testing.T, ch <-chan []string) []string {
 	case <-time.After(2 * time.Second):
 		t.Fatal("WarmFileAccess was not called")
 		return nil
+	}
+}
+
+func TestWarmNowWarmsEnabledTaskFolders(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Seed directly through the store (not the API) so no per-task warm fires and
+	// the only hook call we observe is the explicit /api/fs/warm one.
+	seed := func(id, dir string, enabled bool) {
+		tk := sampleTask(id)
+		tk.WorkingDir = dir
+		tk.Enabled = enabled
+		if err := app.AddTask(st, tk); err != nil {
+			t.Fatalf("seed %s: %v", id, err)
+		}
+	}
+	seed("a", "/tmp/a", true)
+	seed("b", "/tmp/b", false) // disabled → must be excluded
+	seed("c", "/tmp/c", true)
+
+	warmed := make(chan []string, 4)
+	srv := httptest.NewServer(Handler(Deps{
+		Store:          st,
+		WarmFileAccess: func(dirs []string) { warmed <- dirs },
+	}))
+	t.Cleanup(srv.Close)
+
+	if r := do(t, srv, "POST", "/api/fs/warm", nil); r.Status != http.StatusAccepted {
+		t.Fatalf("warm status = %d, want 202", r.Status)
+	}
+	dirs := waitWarm(t, warmed)
+	if len(dirs) != 2 || dirs[0] != "/tmp/a" || dirs[1] != "/tmp/c" {
+		t.Fatalf("warmed dirs = %v, want [/tmp/a /tmp/c] (enabled only)", dirs)
+	}
+}
+
+func TestWarmNowNoHookIsNoContent(t *testing.T) {
+	srv, _ := newServer(t, nil) // Deps without WarmFileAccess
+	if r := do(t, srv, "POST", "/api/fs/warm", nil); r.Status != http.StatusNoContent {
+		t.Fatalf("warm status = %d, want 204 when no hook wired", r.Status)
 	}
 }
 
