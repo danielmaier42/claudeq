@@ -49,6 +49,9 @@ Everything stays on your Mac: tasks, settings, and run history live under
   orphaned runs after a crash, and prunes old history to bound disk use.
 - **Native macOS** — its own app window, Dock icon, menu bar, and system accent
   color; nothing but the Claude Code CLI leaves your machine.
+- **Automatic updates** — checks GitHub for a newer release hourly and flags it
+  in Settings; one click downloads the installer and opens it. Dismiss a version
+  to only hear about the next one.
 
 ## Install
 

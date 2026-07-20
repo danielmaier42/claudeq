@@ -18,6 +18,10 @@ type State struct {
 	// PendingResumes maps a task id to the Claude Code session id to resume
 	// after a rate-limit wait (PLAN.md D4/V1).
 	PendingResumes map[string]string `json:"pending_resumes"`
+	// DismissedUpdateVersion is the release version the user dismissed in the
+	// update prompt. While the latest release equals it, no "update available"
+	// prompt is shown; a newer release supersedes it and prompts again.
+	DismissedUpdateVersion string `json:"dismissed_update_version"`
 }
 
 func newState() *State {
@@ -81,3 +85,9 @@ func (s *State) SetPendingResume(taskID, sessionID string) {
 
 // ClearPendingResume clears any pending resume for a task.
 func (s *State) ClearPendingResume(taskID string) { delete(s.PendingResumes, taskID) }
+
+// DismissUpdate records that the user dismissed the update prompt for a version.
+func (s *State) DismissUpdate(version string) { s.DismissedUpdateVersion = version }
+
+// DismissedUpdate returns the last dismissed update version, or "" if none.
+func (s *State) DismissedUpdate() string { return s.DismissedUpdateVersion }

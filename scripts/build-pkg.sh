@@ -16,7 +16,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${1:-$ROOT/dist}"
 IDENTIFIER="de.maierdaniel.claudeq"
 
-VERSION="$(git -C "$ROOT" describe --tags --abbrev=0 2>/dev/null || true)"
+# An explicit CLAUDEQ_VERSION wins (demo/pre-release builds); otherwise derive
+# from the latest release tag. build-app.sh honours the same variable, so the
+# app bundle and the .pkg file name stay in lockstep.
+VERSION="${CLAUDEQ_VERSION:-$(git -C "$ROOT" describe --tags --abbrev=0 2>/dev/null || true)}"
 VERSION="${VERSION#v}"
 case "$VERSION" in
   ''|*[!0-9.]*) VERSION="0.1.0" ;;

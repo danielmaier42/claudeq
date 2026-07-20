@@ -34,6 +34,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/notify"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/system"
+	"github.com/danielmaier42/claudeq/internal/update"
 	"github.com/danielmaier42/claudeq/internal/version"
 	"github.com/danielmaier42/claudeq/internal/wake"
 )
@@ -133,12 +134,18 @@ func cmdRun(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Background update checker: polls GitHub for a newer release hourly and
+	// caches the result so the dashboard's "update available" banner and the
+	// manual "Check for updates" button answer instantly (see internal/update).
+	updSvc := update.NewService(update.GitHubFetcher{}, update.DefaultInterval)
+	go updSvc.Run(ctx)
+
 	httpSrv := &http.Server{
 		Addr: *addr,
 		Handler: api.Handler(api.Deps{
 			Store: st, Runner: eng, Models: api.BinaryModelLister(claudeBinOr(claudeBin)),
 			ChooseFolder: api.OSAScriptFolderChooser(system.Real{}), ActiveTasks: eng.ActiveTaskIDs,
-			WakeError: eng.WakeError, WarmFileAccess: warmFileAccess,
+			WakeError: eng.WakeError, WarmFileAccess: warmFileAccess, Updates: updSvc,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}

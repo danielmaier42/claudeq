@@ -16,9 +16,10 @@ MACOS="$CONTENTS/MacOS"
 RES="$CONTENTS/Resources"
 LOGO="$ROOT/internal/api/web/logo.svg"
 
-# Prefer a release tag (v1.2.3); fall back to 0.1.0 so the plist always has a
-# valid dotted version even on an untagged working tree.
-VERSION="$(git -C "$ROOT" describe --tags --abbrev=0 2>/dev/null || true)"
+# Prefer an explicit CLAUDEQ_VERSION (for demo/pre-release builds), then a
+# release tag (v1.2.3); fall back to 0.1.0 so the plist always has a valid
+# dotted version even on an untagged working tree.
+VERSION="${CLAUDEQ_VERSION:-$(git -C "$ROOT" describe --tags --abbrev=0 2>/dev/null || true)}"
 VERSION="${VERSION#v}"
 case "$VERSION" in
   ''|*[!0-9.]*) VERSION="0.1.0" ;;
@@ -26,11 +27,15 @@ esac
 
 echo "==> Building binaries"
 mkdir -p "$MACOS" "$RES"
-go build -o "$MACOS/claudeqapp" "$ROOT/cmd/claudeqapp"
-go build -o "$MACOS/claudeqd" "$ROOT/cmd/claudeqd"
+# Stamp the running binaries with their own version so the in-app update check
+# can compare against the latest GitHub release. Without this the binaries
+# report "dev" and never see themselves as updatable.
+LDFLAGS="-X github.com/danielmaier42/claudeq/internal/version.Version=v${VERSION}"
+go build -ldflags "$LDFLAGS" -o "$MACOS/claudeqapp" "$ROOT/cmd/claudeqapp"
+go build -ldflags "$LDFLAGS" -o "$MACOS/claudeqd" "$ROOT/cmd/claudeqd"
 # The claudeq CLI ships alongside the daemon so a running task can queue
 # follow-up work via it (claudeqd passes its absolute path as CLAUDEQ_BIN).
-go build -o "$MACOS/claudeq" "$ROOT/cmd/claudeq"
+go build -ldflags "$LDFLAGS" -o "$MACOS/claudeq" "$ROOT/cmd/claudeq"
 
 echo "==> Rendering icon from $LOGO"
 if command -v rsvg-convert >/dev/null 2>&1; then
