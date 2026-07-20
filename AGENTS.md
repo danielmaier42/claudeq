@@ -42,6 +42,13 @@ If any gate fails, it is fixed before the work is reported — never reported wi
 - **Clear errors:** wrap with context (`fmt.Errorf("...: %w", err)`); never swallow errors;
   no silent failure paths in the unattended runner.
 - **Small, focused commits** with descriptive messages; the tree stays releasable on `main`.
+- **Always branch, then PR.** Never change code directly on `main`. Whenever a change to
+  code off `origin/main` is needed, **first** create a new branch off the latest
+  `origin/main` — a `feature/<short-topic>` branch for features/enhancements or a
+  `hotfix/<short-topic>` branch for urgent fixes — commit the work there, push it, and
+  **open a pull request** against `main` afterwards. This holds for every code change, no
+  matter how small; a one-line fix still gets its own branch and PR. Keep the branch current
+  with `origin/main` and CI green while the PR is open.
 - **Never merge a PR.** An agent may open, update, and push to feature branches and
   keep CI green, but **merging is exclusively the maintainer's decision and action** —
   never merge (squash, rebase, or otherwise), never push directly to `main`, and never
@@ -66,6 +73,12 @@ If any gate fails, it is fixed before the work is reported — never reported wi
 - Surface **process/design choices and trade-offs** for discussion — the maintainer wants
   those. Keep them non-code-level (behaviour, UX, reliability, install experience).
 - Be honest about limitations and anything skipped or deferred.
+- **Ship an installable dev build with the PR.** When reporting a change via a PR, also
+  rebuild the installer package locally (`scripts/build-pkg.sh`, output in `dist/`) so the
+  maintainer can install that dev version and confirm the change is correctly implemented in
+  the real app. Say where the built `.pkg` is and which commit it was built from; if the
+  build can't be produced (e.g. missing macOS tooling), state that explicitly rather than
+  omitting it.
 
 ## 6. Keep the plan's phase status current
 
