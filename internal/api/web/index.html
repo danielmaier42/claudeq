@@ -95,6 +95,7 @@
   .row .title { font-weight:500; }
   .row .sub { color:var(--fg2); font-size:12px; margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .row .mono { font-family:"SF Mono",ui-monospace,Menlo,monospace; }
+  .row .sub .cron[data-tip] { cursor:help; text-decoration:underline dotted; text-underline-offset:2px; text-decoration-color:var(--fg2); }
 
   /* Switch */
   .switch { position:relative; display:inline-block; width:38px; height:22px; flex-shrink:0; }
@@ -458,7 +459,7 @@ function barChart(days, valueOf, fmt){
 let tasksSig='';
 async function loadTasks(){
   let tasks; try{ tasks=await api('GET','/api/tasks'); setConn(true);}catch(e){ setConn(false); return; }
-  const sig=JSON.stringify((tasks||[]).map(t=>[t.id,t.name,t.trigger,t.enabled,t.parallel,t.fixed_at,t.cron]));
+  const sig=JSON.stringify((tasks||[]).map(t=>[t.id,t.name,t.trigger,t.enabled,t.parallel,t.fixed_at,t.cron,t.next_run]));
   if(sig===tasksSig && $('#tasks').childElementCount) return;   // avoid flicker on poll
   tasksSig=sig;
   const c=$('#tasks'); c.innerHTML='';
@@ -466,10 +467,13 @@ async function loadTasks(){
   const label=el('div','section-label',tasks.length+' task'+(tasks.length>1?'s':'')+' · top = highest priority'); c.append(label);
   const g=el('div','group');
   tasks.forEach((t,i)=>{
-    const when=t.trigger==='fixed'?new Date(t.fixed_at).toLocaleString():t.trigger==='cron'?t.cron:'as soon as possible';
+    let when;
+    if(t.trigger==='fixed') when=esc(new Date(t.fixed_at).toLocaleString());
+    else if(t.trigger==='cron') when=`<span class="cron"${t.next_run?` data-tip="Next run: ${esc(new Date(t.next_run).toLocaleString())}"`:''}>${esc(t.cron)}</span>`;
+    else when='as soon as possible';
     const row=el('div','row');
     const grow=el('div','grow'); grow.innerHTML=`<div class="title">${esc(t.name)} ${t.running?'<span class="chip running">running…</span>':''} ${t.parallel?'<span class="chip">parallel</span>':''}</div>
-      <div class="sub"><span class="mono">${esc(t.id)}</span> · ${esc(t.trigger)} · ${esc(when)}</div>`;
+      <div class="sub"><span class="mono">${esc(t.id)}</span> · ${esc(t.trigger)} · ${when}</div>`;
     row.append(grow);
     const up=el('button','btn small','↑'); up.disabled=i===0; up.title='Move up'; up.onclick=()=>move(t.id,i-1);
     const run=el('button','btn small','Run now'); run.disabled=!!t.running; run.title=t.running?'Already running':'Run now'; run.onclick=()=>runNow(t.id);

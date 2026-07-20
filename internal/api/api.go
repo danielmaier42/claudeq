@@ -113,7 +113,17 @@ func (s *server) listTasks(w http.ResponseWriter, _ *http.Request) {
 		if active[t.ID] && t.Trigger != task.TriggerCron {
 			continue
 		}
-		out = append(out, taskView{Task: t, Running: active[t.ID]})
+		v := taskView{Task: t, Running: active[t.ID]}
+		// For recurring tasks, surface the next scheduled occurrence so the UI can
+		// show it (e.g. as a tooltip on the cron expression). The task is already
+		// validated on save, so a parse error here is not expected; skip silently.
+		if t.Trigger == task.TriggerCron {
+			if sched, err := t.CronSchedule(); err == nil {
+				next := sched.Next(time.Now())
+				v.NextRun = &next
+			}
+		}
+		out = append(out, v)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -122,6 +132,8 @@ func (s *server) listTasks(w http.ResponseWriter, _ *http.Request) {
 type taskView struct {
 	task.Task
 	Running bool `json:"running"`
+	// NextRun is the next scheduled occurrence for a cron task, if computable.
+	NextRun *time.Time `json:"next_run,omitempty"`
 }
 
 func (s *server) addTask(w http.ResponseWriter, r *http.Request) {

@@ -259,6 +259,42 @@ func TestListTasksKeepsRunningCron(t *testing.T) {
 	}
 }
 
+func TestListTasksReportsCronNextRun(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(Handler(Deps{Store: st}))
+	t.Cleanup(srv.Close)
+	cron := sampleTask("c")
+	cron.Trigger = task.TriggerCron
+	cron.Cron = "0 20 * * *"
+	do(t, srv, "POST", "/api/tasks", cron)
+
+	asap := sampleTask("a") // default trigger, no schedule
+	do(t, srv, "POST", "/api/tasks", asap)
+
+	var tasks []struct {
+		ID      string     `json:"id"`
+		NextRun *time.Time `json:"next_run"`
+	}
+	do(t, srv, "GET", "/api/tasks", nil).into(t, &tasks)
+
+	byID := map[string]*time.Time{}
+	for _, tk := range tasks {
+		byID[tk.ID] = tk.NextRun
+	}
+	if byID["c"] == nil {
+		t.Fatal("cron task should report a next_run")
+	}
+	if !byID["c"].After(time.Now()) {
+		t.Fatalf("cron next_run should be in the future, got %v", byID["c"])
+	}
+	if byID["a"] != nil {
+		t.Fatalf("non-cron task should not report next_run, got %v", byID["a"])
+	}
+}
+
 func TestHealthReportsWakeError(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {
