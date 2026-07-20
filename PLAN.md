@@ -382,7 +382,7 @@ Built with `pkgbuild`/`productbuild`. The **root postinstall** script performs t
 |------|--------|
 | Install | macOS Installer + **admin password** (postinstall runs as root) |
 | First app launch | **Allow notifications?** (TCC) for native notifications (FA-39) |
-| App launch, when a task folder is unreadable | **ClaudeQ needs file access** — offers to open the Full Disk Access pane (see §13) |
+| Daemon startup, first time a task folder is touched | Native **"allow access to your Documents?"** (TCC Files & Folders) — automatic and tickable; see §13 |
 
 ### 11.3 GitHub Actions release pipeline
 Triggered on tag `v*`:
@@ -440,18 +440,22 @@ Post-phase refinements from real use:
   wake needs a one-time `pmset` sudoers entry, a failing wake is now surfaced in
   the dashboard (`GET /api/health` → `wake_error`; a banner shows the exact
   sudoers command) instead of only logging to stderr.
-- **File-access (TCC) preflight** — an unattended overnight run stalled because
-  the daemon hit the macOS "allow access to your Documents?" prompt with no one
-  there to answer it. macOS forbids an app or installer from granting file access
-  (only the user can, in System Settings; the daemon can't even be prompted
-  safely since it's headless), so the app now checks at launch — while the user
-  *is* present — whether each enabled task's working directory is readable
-  (`internal/fileaccess`, a timeout-bounded probe that never hangs on a pending
-  prompt). If one is blocked it offers to open the **Full Disk Access** pane.
-  FDA is the deliberate target: it's granted to the app bundle, so it covers the
-  daemon too, and it never re-prompts. **Caveat:** because the bundle is ad-hoc
-  signed, its code identity changes on every rebuild, so the grant must be
-  re-added after each reinstall — a stable Developer ID signature would fix that.
+- **File-access (TCC) prompt timing** — an unattended overnight run stalled
+  because the daemon first touched the task folder (under `~/Documents`) mid-run
+  at 3am, so macOS raised its automatic "allow access to your Documents?" consent
+  prompt with no one there to answer it. The prompt itself is the normal,
+  tickable Files & Folders one — the only problem was *when* it fired. The daemon
+  now reads each enabled task's working directory at startup
+  (`warmFileAccess` → `internal/fileaccess`, a timeout-bounded probe that never
+  hangs on a pending prompt), so the prompt appears at install/login while the
+  user is present; once allowed, later runs proceed. The probe lives in the
+  daemon on purpose: the daemon (and the `claude` it spawns) is what reads the
+  files, and macOS attributes both to the ClaudeQ bundle, so the grant the prompt
+  records is exactly the one the nightly run needs — no separate Full Disk Access
+  step required. **Caveat:** because the bundle is ad-hoc signed, its code
+  identity changes on every rebuild, so the prompt returns after a reinstall (and
+  is simply re-allowed) — a stable Developer ID signature would make the grant
+  persist across updates.
 - Assorted UI fixes (Activity date filter + pagination, hover tooltip, Usage
   bar-chart layout and empty-bar handling).
 

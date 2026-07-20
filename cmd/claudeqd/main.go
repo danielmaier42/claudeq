@@ -28,6 +28,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/clock"
 	"github.com/danielmaier42/claudeq/internal/engine"
 	"github.com/danielmaier42/claudeq/internal/executor"
+	"github.com/danielmaier42/claudeq/internal/fileaccess"
 	"github.com/danielmaier42/claudeq/internal/launchd"
 	"github.com/danielmaier42/claudeq/internal/limit"
 	"github.com/danielmaier42/claudeq/internal/notify"
@@ -117,6 +118,12 @@ func cmdRun(args []string) error {
 	// Ask for notification permission up front (only does anything when running
 	// from the app bundle) so run-outcome notifications carry the app icon.
 	notify.RequestMacAuthorization()
+	// Provoke the macOS file-access (TCC) consent prompt now, at startup — which
+	// happens at install and at every login, while the user is present — rather
+	// than mid-run overnight, where the prompt has no one to answer it and the
+	// run stalls. Reading each task folder is what makes macOS raise the prompt;
+	// once answered the decision sticks and this becomes a no-op.
+	go warmFileAccess(st)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -161,6 +168,35 @@ func buildNotifier(st *store.Store) notify.Notifier {
 		}
 	}
 	return notify.Multi{Notifiers: notifiers}
+}
+
+// warmFileAccess reads each enabled task's working directory so macOS raises its
+// file-access consent prompt at startup (see the call site for why). It is
+// best-effort and bounded: a directory stuck behind an unanswered prompt cannot
+// wedge it, and it never blocks the scheduler. If access is already granted (the
+// common case) it is a silent no-op; if it is denied it logs a fix hint.
+func warmFileAccess(st *store.Store) {
+	// Let the login/session settle so the prompt actually surfaces rather than
+	// being lost in login-time churn.
+	time.Sleep(2 * time.Second)
+	cfg, err := st.LoadConfig()
+	if err != nil {
+		return
+	}
+	dirs := make([]string, 0, len(cfg.Tasks))
+	for _, t := range cfg.Tasks {
+		if t.Enabled && t.WorkingDir != "" {
+			dirs = append(dirs, t.WorkingDir)
+		}
+	}
+	if len(dirs) == 0 {
+		return
+	}
+	if res := fileaccess.Probe(dirs, fileaccess.DefaultProbeTimeout); !res.OK {
+		fmt.Fprintf(os.Stderr, "claudeqd: file access to %q is blocked (%s); allow it in "+
+			"System Settings > Privacy & Security > Files and Folders (or Full Disk Access)\n",
+			res.BlockedPath, res.Reason)
+	}
 }
 
 func cmdInstall() error {

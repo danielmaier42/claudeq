@@ -1,16 +1,15 @@
-// Package fileaccess detects when macOS privacy protection (TCC) is blocking
-// claudeq from reading a task's working directory, and points the user at the
-// Full Disk Access settings pane to fix it.
+// Package fileaccess probes whether claudeq can read a task's working directory,
+// used to provoke the macOS privacy (TCC) consent prompt at a safe time.
 //
 // Background: claudeq's daemon runs unattended overnight from a LaunchAgent. The
 // first time it touches a protected location (~/Documents, ~/Desktop,
-// ~/Downloads, external volumes, …) macOS shows a consent prompt and blocks the
-// access until someone answers — which never happens at 3am, so the run stalls.
-// Granting Full Disk Access up front (while the user is present) removes the
-// prompt entirely and, because it is granted to the app bundle, covers the
-// daemon too. Neither an installer nor the app can grant it — only the user can,
-// in System Settings — so the best we can do is detect the block early, while
-// someone is at the machine, and open the right pane.
+// ~/Downloads, external volumes, …) macOS shows the automatic "allow access?"
+// consent prompt and blocks the access until someone answers — which never
+// happens at 3am, so the run stalls. The daemon therefore reads its task folders
+// at startup instead (install time and every login, while the user is present),
+// so the prompt appears when it can be answered; once it is, the decision sticks
+// and later runs proceed. The read is bounded so a pending prompt can never
+// wedge the caller.
 package fileaccess
 
 import (
@@ -20,10 +19,6 @@ import (
 	"os"
 	"time"
 )
-
-// FullDiskAccessSettingsURL deep-links to System Settings ▸ Privacy & Security ▸
-// Full Disk Access.
-const FullDiskAccessSettingsURL = "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
 
 // DefaultProbeTimeout bounds a single directory check. A read blocked on an
 // unanswered TCC consent prompt never returns on its own, so the probe must give
