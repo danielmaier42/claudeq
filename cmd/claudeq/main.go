@@ -34,6 +34,8 @@ Usage:
                  [--at RFC3339] [--cron EXPR] [--model M] [--parallel] [--skip-permissions]
   claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [--name N]
                  (queue a follow-up task; inherits the calling task's settings)
+  claudeq publish --file PATH [--title T] [--description D]
+                 (publish a file as an artifact; shows up in the Artifacts view)
   claudeq rm ID
   claudeq enable ID | claudeq disable ID
   claudeq move   ID INDEX          (0 = highest priority)
@@ -74,6 +76,8 @@ func run(args []string) error {
 		return cmdAdd(st, rest)
 	case "queue":
 		return cmdQueue(st, rest)
+	case "publish":
+		return cmdPublish(st, rest)
 	case "rm":
 		return withID(rest, func(id string) error { return app.RemoveTask(st, id) })
 	case "enable":
@@ -304,6 +308,71 @@ func buildQueuedTask(parentJSON, id string, o queueOpts, now time.Time) (task.Ta
 		return task.Task{}, err
 	}
 	return t, nil
+}
+
+// cmdPublish publishes a file as an artifact. It is meant to be run by Claude
+// from inside a task (see executor.artifactSystemPrompt) but also works
+// standalone. Attribution (task/run) comes from the environment the daemon sets.
+func cmdPublish(st *store.Store, args []string) error {
+	fs := flag.NewFlagSet("publish", flag.ContinueOnError)
+	file := fs.String("file", "", "path to the file to publish (required)")
+	title := fs.String("title", "", "short title (default: the file name)")
+	desc := fs.String("description", "", "optional one-line summary")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*file) == "" {
+		return fmt.Errorf("--file is required")
+	}
+
+	taskID := os.Getenv(executor.EnvTaskID)
+	taskName := taskID
+	if parent := os.Getenv(executor.EnvParentTask); parent != "" {
+		var pt task.Task
+		if err := json.Unmarshal([]byte(parent), &pt); err == nil {
+			if pt.ID != "" {
+				taskID = pt.ID
+			}
+			if pt.Name != "" {
+				taskName = pt.Name
+			}
+		}
+	}
+
+	now := time.Now()
+	in := app.PublishInput{
+		SourcePath:  *file,
+		Title:       *title,
+		Description: *desc,
+		TaskID:      taskID,
+		TaskName:    taskName,
+		RunID:       os.Getenv(executor.EnvRunID),
+		Now:         now,
+	}
+
+	var lastErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		in.ID = newArtifactID(now)
+		art, err := app.PublishArtifact(st, in)
+		if err != nil {
+			// An id collision is the only retryable case; anything else (missing
+			// file, copy failure) is deterministic, so fail fast.
+			if strings.Contains(err.Error(), "already exists") {
+				lastErr = err
+				continue
+			}
+			return err
+		}
+		fmt.Printf("published artifact %q (%s)\n", art.Title, art.ID)
+		return nil
+	}
+	return lastErr
+}
+
+// newArtifactID builds a unique-ish artifact id; the random suffix disambiguates
+// several artifacts published within the same second.
+func newArtifactID(now time.Time) string {
+	return "a-" + now.UTC().Format("20060102T150405") + "-" + shortHex(3)
 }
 
 // queueWhen describes when a just-queued task will run, for the CLI confirmation.

@@ -9,6 +9,9 @@ type State struct {
 	// ReadRuns maps a run id to true once it has been read (FA-23/24). A run
 	// absent from this map is unread (FA-22).
 	ReadRuns map[string]bool `json:"read_runs"`
+	// ReadArtifacts maps an artifact id to true once it has been read. An
+	// artifact absent from this map is unread (FA-A2).
+	ReadArtifacts map[string]bool `json:"read_artifacts"`
 	// LastStarted maps a task id to the start time of its most recent run,
 	// used to compute the next cron occurrence (FA-18).
 	LastStarted map[string]time.Time `json:"last_started"`
@@ -34,6 +37,9 @@ func (s *State) ensureMaps() {
 	if s.ReadRuns == nil {
 		s.ReadRuns = map[string]bool{}
 	}
+	if s.ReadArtifacts == nil {
+		s.ReadArtifacts = map[string]bool{}
+	}
 	if s.LastStarted == nil {
 		s.LastStarted = map[string]time.Time{}
 	}
@@ -57,6 +63,22 @@ func (s *State) MarkAllRead(runIDs []string) {
 		s.ReadRuns[id] = true
 	}
 }
+
+// IsArtifactRead reports whether an artifact has been read.
+func (s *State) IsArtifactRead(id string) bool { return s.ReadArtifacts[id] }
+
+// MarkArtifactRead marks a single artifact as read.
+func (s *State) MarkArtifactRead(id string) { s.ReadArtifacts[id] = true }
+
+// MarkAllArtifactsRead marks every given artifact id as read.
+func (s *State) MarkAllArtifactsRead(ids []string) {
+	for _, id := range ids {
+		s.ReadArtifacts[id] = true
+	}
+}
+
+// ForgetArtifact drops an artifact's read-status (used when it is deleted).
+func (s *State) ForgetArtifact(id string) { delete(s.ReadArtifacts, id) }
 
 // RecordStart records that a task started at t.
 func (s *State) RecordStart(taskID string, t time.Time) {

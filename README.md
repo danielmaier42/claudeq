@@ -24,6 +24,7 @@ update checks) ever leaves the machine.
 - [Using it](#using-it)
 - [Command-line interface](#command-line-interface)
 - [Letting a task queue follow-up work](#letting-a-task-queue-follow-up-work)
+- [Letting a task publish artifacts](#letting-a-task-publish-artifacts)
 - [How scheduling and the limit gate behave](#how-scheduling-and-the-limit-gate-behave)
 - [Data on disk](#data-on-disk)
 - [Uninstall](#uninstall)
@@ -119,6 +120,11 @@ The nightly cycle looks like this:
   same work would have cost through the API), over the last 14 days.
 - **Full history** — every run is kept with its complete log, viewable as a chat
   transcript or raw output, and can be replayed.
+- **Artifacts** — a task can publish a finished file (report, export, HTML page,
+  PDF, …) with `claudeq publish`; it's copied into ClaudeQ and listed in a
+  central **Artifacts** view with an unread flag and mark-as-read, independent of
+  run history. HTML and PDF get an in-app viewer; anything opens externally. See
+  [below](#letting-a-task-publish-artifacts).
 
 **Platform & distribution**
 
@@ -133,7 +139,7 @@ The nightly cycle looks like this:
 
 ## The app
 
-The dashboard (and the native window that wraps it) has four views:
+The dashboard (and the native window that wraps it) has five views:
 
 - **Queue** — the pending tasks in priority order. Add, edit, delete, enable/pause,
   reorder, or **run now** (a manual test run, independent of the trigger). A
@@ -143,6 +149,10 @@ The dashboard (and the native window that wraps it) has four views:
   Open a run to see the live/finished log as a chat view or raw output, along
   with the prompt; mark one or all read; filter by a from–to date range; page
   through history; and replay a task.
+- **Artifacts** — files your tasks published, newest first, with an unread badge.
+  Each shows its title, source task, file type, and size. **View** opens HTML,
+  PDF, images, and text in an in-app viewer; **Open** opens any artifact in your
+  browser; mark one or all read, or delete (which removes the stored copy).
 - **Usage** — a per-day bar chart of runs, tokens, and cost for the last 14 days,
   plus totals and a 7-day summary.
 - **Settings** — global defaults and integrations (below). A red badge here means
@@ -230,6 +240,7 @@ claudeq add    --id ID --prompt P --dir DIR [--name N]
                [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR]
                [--model M] [--parallel] [--skip-permissions]
 claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [--name N]
+claudeq publish --file PATH [--title T] [--description D]   # publish a file as an artifact
 claudeq rm ID
 claudeq enable ID | claudeq disable ID
 claudeq move   ID INDEX                        # 0 = highest priority
@@ -259,6 +270,25 @@ permissions, parallelism, and notification settings automatically — only the
 prompt, timing, and directory are set per call. This works because the daemon
 injects the CLI's path and the parent task into each run's environment.
 
+## Letting a task publish artifacts
+
+When a task produces a file worth keeping — a report, an export, a generated
+HTML page or PDF — it can publish it as an **artifact**. Every run is told, via
+its system prompt, that the capability exists, so a prompt like *"write the
+summary to report.html and publish it"* just works. From inside a run, Claude
+calls:
+
+```sh
+claudeq publish --file report.html --title "Nightly summary" --description "…"
+```
+
+The file is **copied into ClaudeQ** (a permanent snapshot — later changes to the
+original don't affect it) and appears in the **Artifacts** view, attributed to
+the task and run that produced it, with an unread flag. HTML and PDF open in an
+in-app viewer; any type can be opened in your browser. Artifacts are kept until
+you delete them, independent of run-history pruning. `--title` defaults to the
+file name; `--file` may be relative to the task's working directory.
+
 ## How scheduling and the limit gate behave
 
 - **Eligibility.** On each tick the daemon starts every task that is due and
@@ -286,7 +316,9 @@ Everything lives under `~/Library/Application Support/claudeq` (override with th
 | `config.toml` | Global settings + the ordered task list (human-readable, versionable). |
 | `history.jsonl` | Append-only index of every run. |
 | `runs/<run-id>.log` | Full log for each run. |
-| `state.json` | Machine bookkeeping: read/unread flags, cron anchors, pending-resume sessions, dismissed update version. |
+| `artifacts.json` | Index of published artifacts (title, source task/run, file name, size, type). |
+| `artifacts/<id>/<file>` | The published files themselves (snapshots copied at publish time). |
+| `state.json` | Machine bookkeeping: read/unread flags (runs and artifacts), cron anchors, pending-resume sessions, dismissed update version. |
 | `claudeqd.out.log` / `claudeqd.err.log` | Daemon stdout/stderr. |
 
 The LaunchAgent itself is at
