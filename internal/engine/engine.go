@@ -239,6 +239,7 @@ func (e *Engine) launchTask(t task.Task, settings store.Settings, sessionID stri
 
 	req := executor.Request{
 		Task:               t,
+		RunID:              runID,
 		SessionID:          sessionID,
 		Resume:             resume,
 		Model:              effectiveModel(t, settings),

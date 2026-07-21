@@ -71,6 +71,11 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/runs/read-all", s.readAll)
 	mux.HandleFunc("POST /api/runs/{id}/read", s.readRun)
 	mux.HandleFunc("GET /api/runs/{id}/log", s.runLog)
+	mux.HandleFunc("GET /api/artifacts", s.listArtifacts)
+	mux.HandleFunc("POST /api/artifacts/read-all", s.readAllArtifacts)
+	mux.HandleFunc("POST /api/artifacts/{id}/read", s.readArtifact)
+	mux.HandleFunc("DELETE /api/artifacts/{id}", s.deleteArtifact)
+	mux.HandleFunc("GET /api/artifacts/{id}/content", s.artifactContent)
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("PUT /api/settings", s.putSettings)
 	mux.HandleFunc("GET /api/models", s.listModels)
@@ -346,6 +351,112 @@ func (s *server) runLog(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = w.Write(data)
+}
+
+// artifactView is a published artifact plus its unread flag.
+type artifactView struct {
+	store.Artifact
+	Unread bool `json:"unread"`
+}
+
+func (s *server) listArtifacts(w http.ResponseWriter, _ *http.Request) {
+	arts, err := s.d.Store.Artifacts()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	st, err := s.d.Store.LoadState()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	views := make([]artifactView, 0, len(arts))
+	// Newest first for the dashboard.
+	for i := len(arts) - 1; i >= 0; i-- {
+		views = append(views, artifactView{Artifact: arts[i], Unread: !st.IsArtifactRead(arts[i].ID)})
+	}
+	writeJSON(w, http.StatusOK, views)
+}
+
+func (s *server) readArtifact(w http.ResponseWriter, r *http.Request) {
+	if err := app.MarkArtifactRead(s.d.Store, r.PathValue("id")); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) readAllArtifacts(w http.ResponseWriter, _ *http.Request) {
+	if err := app.MarkAllArtifactsRead(s.d.Store); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) deleteArtifact(w http.ResponseWriter, r *http.Request) {
+	if err := app.DeleteArtifact(s.d.Store, r.PathValue("id")); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// artifactContent serves an artifact's stored file for the in-app viewer or a
+// download. The file is user-generated, so it is served with a restrictive CSP
+// (no network access) and is meant to be shown inside a sandboxed iframe, so a
+// malicious HTML artifact can neither reach the loopback API nor exfiltrate data.
+func (s *server) artifactContent(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	arts, err := s.d.Store.Artifacts()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	var art *store.Artifact
+	for i := range arts {
+		if arts[i].ID == id {
+			art = &arts[i]
+			break
+		}
+	}
+	if art == nil {
+		writeErr(w, http.StatusNotFound, errors.New("artifact not found"))
+		return
+	}
+
+	f, err := os.Open(s.d.Store.ArtifactContentPath(*art))
+	if errors.Is(err, os.ErrNotExist) {
+		writeErr(w, http.StatusNotFound, errors.New("artifact file missing"))
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	ct := art.ContentType
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	// Self-contained pages render (inline CSS/JS, data: images) but the artifact
+	// can make no network requests, so it cannot phone home or reach the API.
+	w.Header().Set("Content-Security-Policy",
+		"default-src 'none'; img-src data: blob:; media-src data: blob:; "+
+			"style-src 'unsafe-inline'; font-src data:; script-src 'unsafe-inline'; "+
+			"form-action 'none'; base-uri 'none'")
+	if r.URL.Query().Get("download") != "" {
+		w.Header().Set("Content-Disposition", "attachment; filename="+strconv.Quote(art.FileName))
+	}
+	http.ServeContent(w, r, art.FileName, info.ModTime(), f)
 }
 
 func (s *server) getSettings(w http.ResponseWriter, _ *http.Request) {

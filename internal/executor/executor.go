@@ -31,6 +31,11 @@ const (
 	// EnvParentTask holds the calling task as JSON. `claudeq queue` uses it as the
 	// template for inherited settings (model, permissions, parallel, notify, dir).
 	EnvParentTask = "CLAUDEQ_PARENT_TASK"
+	// EnvRunID holds the current run's id so a published artifact (see
+	// artifactSystemPrompt) is attributed to the run that produced it.
+	EnvRunID = "CLAUDEQ_RUN_ID"
+	// EnvTaskID holds the current task's id, for the same attribution.
+	EnvTaskID = "CLAUDEQ_TASK_ID"
 )
 
 // selfQueueSystemPrompt is appended to every run's system prompt so Claude knows
@@ -59,6 +64,23 @@ claudeq stores its data in the directory named by the CLAUDEQ_HOME environment v
   state.json      read-status and scheduling bookkeeping
 Read these files directly when a task asks you to look at what earlier runs did.`
 
+// artifactSystemPrompt is appended to every run's system prompt so Claude knows
+// it can publish a file as a claudeq artifact, which then appears in the app's
+// central Artifacts view for the operator to review.
+const artifactSystemPrompt = `
+
+When a task produces a file that is a deliverable for the operator to review — a report, summary, export, generated document, chart, HTML page, PDF, and the like — publish it as a claudeq artifact so it shows up in the app's Artifacts view:
+
+  "${CLAUDEQ_BIN:-claudeq}" publish --file <path> --title "<short title>"
+
+Optional:
+  --description "<one-line summary of what it is>"
+
+Notes:
+  - <path> may be relative to this task's working directory.
+  - Publish only finished deliverables worth keeping — not intermediate scratch files, logs, or work you are still editing.
+  - HTML and PDF artifacts get an in-app viewer, so they are good formats for anything meant to be read.`
+
 // customSystemPromptIntro precedes the operator's custom system prompt (see
 // Settings.SystemPrompt). It frames that text as claudeq-configured guidance and
 // resolves conflicts in favour of the built-in prompt above.
@@ -68,17 +90,21 @@ The following are additional instructions configured by the operator of this cla
 
 `
 
-// systemPrompt combines the built-in self-queue prompt (always first) with the
-// operator's optional custom system prompt (last, introduced by
-// customSystemPromptIntro). A blank custom prompt yields exactly
-// selfQueueSystemPrompt, so runs without one are unaffected. Claude Code accepts
-// --append-system-prompt only once, so both parts are joined into one value.
+// builtinSystemPrompt is claudeq's own guidance, always prepended to a run: the
+// self-queue instructions followed by the artifact-publishing instructions.
+const builtinSystemPrompt = selfQueueSystemPrompt + artifactSystemPrompt
+
+// systemPrompt combines the built-in prompt (always first) with the operator's
+// optional custom system prompt (last, introduced by customSystemPromptIntro). A
+// blank custom prompt yields exactly builtinSystemPrompt, so runs without one are
+// unaffected. Claude Code accepts --append-system-prompt only once, so both parts
+// are joined into one value.
 func systemPrompt(custom string) string {
 	custom = strings.TrimSpace(custom)
 	if custom == "" {
-		return selfQueueSystemPrompt
+		return builtinSystemPrompt
 	}
-	return selfQueueSystemPrompt + customSystemPromptIntro + custom
+	return builtinSystemPrompt + customSystemPromptIntro + custom
 }
 
 // Executor builds and runs Claude Code invocations.
@@ -99,6 +125,9 @@ type Executor struct {
 type Request struct {
 	// Task is what to run.
 	Task task.Task
+	// RunID is the id of this run, passed to the run as CLAUDEQ_RUN_ID so an
+	// artifact it publishes is attributed to the run. Empty leaves it unset.
+	RunID string
 	// SessionID is the UUID claudeq assigns for this task's session so it can be
 	// resumed later (PLAN.md V1).
 	SessionID string
@@ -176,6 +205,12 @@ func (e *Executor) runEnv(req Request) []string {
 	}
 	if data, err := json.Marshal(req.Task); err == nil {
 		env = append(env, EnvParentTask+"="+string(data))
+	}
+	if req.RunID != "" {
+		env = append(env, EnvRunID+"="+req.RunID)
+	}
+	if req.Task.ID != "" {
+		env = append(env, EnvTaskID+"="+req.Task.ID)
 	}
 	return env
 }

@@ -91,3 +91,17 @@ living record and must stay accurate:
 - Update the table in the **same change** that moves the work, so `main` never shows a stale
   status. If the phase breakdown itself changes, update the table and note why.
 
+## 7. Keep the README current
+
+`README.md` is the user-facing documentation and must always match the shipped behaviour —
+never let it drift:
+
+- Any change that adds, removes, or alters something a user can see or do (a feature, a view,
+  a CLI command/flag, a setting, an install/uninstall step, an on-disk file, default
+  behaviour) updates `README.md` in the **same change/PR**, so `main` never documents behaviour
+  that no longer matches the code.
+- Keep every part consistent: the feature list, the table of contents, the app-views section,
+  the CLI/command reference, the settings table, and the "Data on disk" table.
+- Before reporting work as done, re-read the relevant README sections and confirm they reflect
+  reality — treat a stale README as a failed quality gate, exactly like a red test.
+

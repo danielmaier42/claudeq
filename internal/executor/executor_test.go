@@ -78,11 +78,14 @@ func TestArgsAppendsSelfQueueSystemPrompt(t *testing.T) {
 	if args[len(args)-3] != "--append-system-prompt" {
 		t.Fatalf("expected --append-system-prompt before the prompt, got %v", args[len(args)-3:])
 	}
-	if got := args[len(args)-2]; got != selfQueueSystemPrompt {
-		t.Fatalf("append-system-prompt value = %q, want the self-queue prompt", got)
+	if got := args[len(args)-2]; got != builtinSystemPrompt {
+		t.Fatalf("append-system-prompt value = %q, want the built-in prompt", got)
 	}
 	if !strings.Contains(selfQueueSystemPrompt, "queue --prompt") {
 		t.Fatal("self-queue prompt must document the `queue --prompt` command")
+	}
+	if !strings.Contains(builtinSystemPrompt, "publish --file") {
+		t.Fatal("built-in prompt must document the `publish --file` command")
 	}
 }
 
@@ -101,8 +104,8 @@ func TestArgsAppendsCustomSystemPrompt(t *testing.T) {
 	}
 	got := args[len(args)-2]
 	// Built-in first, custom last.
-	if !strings.HasPrefix(got, selfQueueSystemPrompt) {
-		t.Fatal("built-in self-queue prompt must come first")
+	if !strings.HasPrefix(got, builtinSystemPrompt) {
+		t.Fatal("built-in prompt must come first")
 	}
 	if !strings.HasSuffix(got, custom) {
 		t.Fatalf("custom prompt must come last, got %q", got)
@@ -116,8 +119,8 @@ func TestSystemPromptBlankCustomIsUnchanged(t *testing.T) {
 	// A blank or whitespace-only custom prompt must not alter the built-in value,
 	// so runs without one behave exactly as before.
 	for _, custom := range []string{"", "   ", "\n\t "} {
-		if got := systemPrompt(custom); got != selfQueueSystemPrompt {
-			t.Fatalf("systemPrompt(%q) = %q, want the unmodified self-queue prompt", custom, got)
+		if got := systemPrompt(custom); got != builtinSystemPrompt {
+			t.Fatalf("systemPrompt(%q) = %q, want the unmodified built-in prompt", custom, got)
 		}
 	}
 }
@@ -149,6 +152,32 @@ func TestRunEnvCarriesSelfQueueContext(t *testing.T) {
 	}
 	if parent.Model != "claude-opus-4-8" || parent.Permissions != task.PermissionsSkip || !parent.Parallel {
 		t.Fatalf("parent task did not round-trip inheritable settings: %+v", parent)
+	}
+}
+
+func TestRunEnvCarriesRunAndTaskIDs(t *testing.T) {
+	e := &Executor{}
+	tk := sampleTask() // sampleTask sets a non-empty ID
+	env := e.runEnv(Request{Task: tk, RunID: "20260721T030000-abcd"})
+	got := map[string]string{}
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			got[k] = v
+		}
+	}
+	if got[EnvRunID] != "20260721T030000-abcd" {
+		t.Fatalf("%s = %q, want the run id", EnvRunID, got[EnvRunID])
+	}
+	if got[EnvTaskID] != tk.ID {
+		t.Fatalf("%s = %q, want %q", EnvTaskID, got[EnvTaskID], tk.ID)
+	}
+}
+
+func TestRunEnvOmitsUnsetRunID(t *testing.T) {
+	e := &Executor{}
+	env := e.runEnv(Request{Task: sampleTask()}) // no RunID
+	if strings.Contains(strings.Join(env, "\n"), EnvRunID+"=") {
+		t.Fatalf("%s must be omitted when RunID is unset", EnvRunID)
 	}
 }
 
