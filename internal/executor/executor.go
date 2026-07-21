@@ -55,7 +55,14 @@ Optional:
   --dir <path>      working directory for the new task (defaults to this task's directory)
   --name "<label>"  a short human-readable name
 
-The new task inherits this task's model, permissions, parallelism and notification settings automatically — do not attempt to set them. Only queue a task when the work genuinely belongs in a separate run; if something should simply be done now, just do it yourself.`
+The new task inherits this task's model, permissions, parallelism and notification settings automatically — do not attempt to set them. Only queue a task when the work genuinely belongs in a separate run; if something should simply be done now, just do it yourself.
+
+claudeq stores its data in the directory named by the CLAUDEQ_HOME environment variable (falling back to ~/Library/Application Support/claudeq when unset). If a task needs to inspect previous runs, that directory contains:
+  runs/<id>.log   per-run output logs (stdout/stderr of each run)
+  history.jsonl   append-only log of run events (one JSON object per line)
+  config.toml     global settings and the ordered task list
+  state.json      read-status and scheduling bookkeeping
+Read these files directly when a task asks you to look at what earlier runs did.`
 
 // artifactSystemPrompt is appended to every run's system prompt so Claude knows
 // it can publish a file as a claudeq artifact, which then appears in the app's
