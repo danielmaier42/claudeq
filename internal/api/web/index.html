@@ -184,6 +184,8 @@
   .viewer-fallback .big { font-size:15px; color:var(--fg); font-weight:600; margin-bottom:6px; }
   /* Artifact rows reuse the Activity list layout (left unread gutter, right eye gutter). */
   .art-meta { font-size:11px; font-weight:600; padding:2px 8px; border-radius:20px; background:var(--seg-bg); color:var(--fg2); text-transform:uppercase; letter-spacing:.3px; }
+  .art-src { color:var(--accent); cursor:pointer; }
+  .art-src:hover { text-decoration:underline; }
   dialog::backdrop { background:rgba(0,0,0,.35); backdrop-filter:blur(2px); }
   .sheet-hd { display:flex; align-items:center; padding:14px 18px; border-bottom:.5px solid var(--hairline); }
   .sheet-hd b { font-size:14px; } .sheet-bd { padding:16px 18px; max-height:70vh; overflow:auto; }
@@ -718,6 +720,16 @@ function canView(ct){ const k=artifactKind(ct); return k!=='other'; }
 function contentURL(a,download){ return '/api/artifacts/'+encodeURIComponent(a.id)+'/content'+(download?'?download=1':''); }
 function openArtifactExternal(a){ const url=location.origin+contentURL(a,false);
   if(window.cqOpenExternal) window.cqOpenExternal(url); else window.open(url,'_blank','noopener'); }
+// Jump to Activity and open the log of the run that produced this artifact. The
+// run may have been pruned from history (artifacts outlive runs), so check first.
+async function openArtifactRun(a){
+  if(!a.run_id) return;
+  let runs=[]; try{ runs=await api('GET','/api/runs'); }catch(e){ toast(e.message,'err'); return; }
+  const run=runs.find(r=>r.run_id===a.run_id);
+  if(!run){ toast('The run that produced this artifact is no longer in history','err'); return; }
+  select('news');
+  showLog(run.run_id, run.task_name, run.task&&run.task.prompt);
+}
 
 async function loadArtifacts(){
   let arts; try{ arts=await api('GET','/api/artifacts'); setConn(true);}catch(e){ setConn(false); return; }
@@ -733,16 +745,22 @@ async function loadArtifacts(){
     const line=el('div','act-line');
     const gl=el('div','act-gl'); if(a.unread) gl.append(el('div','unread-dot'));
     const card=el('div','act-card');
-    const sub=[esc(a.file_name), fmtBytes(a.size), relTime(a.published_at)];
-    if(a.task_name) sub.unshift('from '+esc(a.task_name));
     const grow=el('div','grow');
+    // "from <task>" links to the producing run's log in Activity (when the run is
+    // still in history); the rest of the line is the file name, size and time.
+    const srcHtml=a.task_name
+      ? (a.run_id ? `<span class="art-src" role="button" tabindex="0">from ${esc(a.task_name)}</span> · `
+                  : `from ${esc(a.task_name)} · `)
+      : '';
+    const meta=`${esc(a.file_name)} · ${esc(fmtBytes(a.size))} · <span class="hint-time" data-tip="${esc(exactTime(a.published_at))}">${esc(relTime(a.published_at))}</span>`;
     grow.innerHTML=`<div class="title">${esc(a.title)}</div>`
       +(a.description?`<div class="sub" style="white-space:normal">${esc(a.description)}</div>`:'')
-      +`<div class="sub"><span class="hint-time" data-tip="${esc(exactTime(a.published_at))}">${sub.join(' · ')}</span></div>`;
+      +`<div class="sub">${srcHtml}${meta}</div>`;
+    if(a.task_name && a.run_id){ const s=grow.querySelector('.art-src'); if(s) s.onclick=()=>openArtifactRun(a); }
     const actions=el('div','row-actions');
     if(canView(a.content_type)){ const v=el('button','btn small','View'); v.onclick=()=>openViewer(a); actions.append(v); }
     const open=el('button','btn small','Open'); open.title='Open in your browser'; open.onclick=()=>openArtifactExternal(a); actions.append(open);
-    const del=el('button','btn small danger iconly','✕'); del.title='Delete'; del.onclick=()=>deleteArtifact(a); actions.append(del);
+    const del=el('button','btn small danger','Delete'); del.title='Delete'; del.onclick=()=>deleteArtifact(a); actions.append(del);
     const kind=el('span','art-meta',extLabel(a.file_name,a.content_type));
     card.append(grow,actions,kind);
     const gr=el('div','act-gr'); if(a.unread){ const mr=el('button','eye-btn',EYE); mr.title='Mark read'; mr.onclick=()=>readArtifact(a.id); gr.append(mr); }
