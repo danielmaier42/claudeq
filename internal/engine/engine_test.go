@@ -147,6 +147,75 @@ func TestTickRunsAsapTaskOnce(t *testing.T) {
 	}
 }
 
+func TestRateLimitBlocksUntilReportedReset(t *testing.T) {
+	// A five-hour session-limit hit reports an absolute reset time but no retry
+	// delay. The gate must block until that reset (plus the safety buffer), not
+	// just the 15-minute default backoff.
+	start := time.Date(2026, 7, 17, 14, 40, 0, 0, time.UTC)
+	reset := start.Add(5 * time.Hour)
+	fc := clock.NewFake(start)
+	r := &stub{result: func(req executor.Request, call int) executor.Result {
+		if call == 1 {
+			return executor.Result{Status: store.StatusRateLimited, SessionID: req.SessionID, ResetAt: reset}
+		}
+		return executor.Result{Status: store.StatusSuccess, SessionID: req.SessionID}
+	}}
+	e, st := newTestEngine(t, r, fc)
+	saveTasks(t, st, asapTask("a", false))
+
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick 1: %v", err)
+	}
+	e.WaitIdle()
+
+	want := reset.Add(RateLimitResetBuffer)
+	if got := e.gate.BlockedUntil(); !got.Equal(want) {
+		t.Fatalf("gate blocked until %v, want reset + buffer = %v", got, want)
+	}
+
+	// Well past the default backoff but before the reset: still blocked.
+	fc.Advance(time.Hour)
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick 2: %v", err)
+	}
+	e.WaitIdle()
+	if len(r.requests()) != 1 {
+		t.Fatalf("task restarted before the reported reset: %d runs", len(r.requests()))
+	}
+
+	// Past reset + buffer: the session resumes.
+	fc.Advance(4*time.Hour + RateLimitResetBuffer)
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick 3: %v", err)
+	}
+	e.WaitIdle()
+	reqs := r.requests()
+	if len(reqs) != 2 || !reqs[1].Resume {
+		t.Fatalf("expected a resume after the reset, got %d runs (resume=%v)", len(reqs), len(reqs) == 2 && reqs[1].Resume)
+	}
+}
+
+func TestRateLimitStaleResetFallsBackToBackoff(t *testing.T) {
+	// A reset time already in the past (stale event, clock skew) must not open
+	// the gate immediately — fall back to the default backoff.
+	start := time.Date(2026, 7, 17, 14, 40, 0, 0, time.UTC)
+	fc := clock.NewFake(start)
+	r := &stub{result: func(req executor.Request, _ int) executor.Result {
+		return executor.Result{Status: store.StatusRateLimited, SessionID: req.SessionID, ResetAt: start.Add(-time.Minute)}
+	}}
+	e, st := newTestEngine(t, r, fc)
+	saveTasks(t, st, asapTask("a", false))
+
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	e.WaitIdle()
+
+	if got, want := e.gate.BlockedUntil(), start.Add(DefaultRateLimitBackoff); !got.Equal(want) {
+		t.Fatalf("gate blocked until %v, want default backoff %v", got, want)
+	}
+}
+
 func TestRateLimitThenResumeAfterReset(t *testing.T) {
 	start := time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC)
 	fc := clock.NewFake(start)

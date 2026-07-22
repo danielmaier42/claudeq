@@ -36,9 +36,10 @@ func (g *Gate) Block(until time.Time) {
 	}
 }
 
-// BlockFor closes the gate for the given delay from now. It is the primary
-// entry point, since Claude Code exposes a retry delay rather than an absolute
-// reset timestamp (PLAN.md V2).
+// BlockFor closes the gate for the given delay from now. It is the fallback
+// entry point for rate-limit events that expose a retry delay but no absolute
+// reset timestamp (PLAN.md V2); when the CLI reports one (rate_limit_event),
+// the engine uses Block with that time directly.
 func (g *Gate) BlockFor(delay time.Duration) {
 	g.Block(g.clock.Now().Add(delay))
 }

@@ -28,6 +28,11 @@ import (
 // retry delay (PLAN.md V2: an absolute reset time is not always exposed).
 const DefaultRateLimitBackoff = 15 * time.Minute
 
+// RateLimitResetBuffer is added on top of the absolute reset time reported by
+// the CLI before resuming, so a run never restarts marginally before the
+// window actually reopens (clock skew, server-side rounding).
+const RateLimitResetBuffer = time.Minute
+
 // Runner executes a single request. *executor.Executor satisfies it; tests use
 // a stub.
 type Runner interface {
@@ -354,11 +359,19 @@ func (e *Engine) finish(t task.Task, rec store.Run, res executor.Result, runErr 
 	// read-status change is preserved.
 	switch rec.Status {
 	case store.StatusRateLimited:
-		delay := res.RetryAfter
-		if delay <= 0 {
-			delay = e.backoff
+		// Prefer the absolute reset time the CLI reported (rate_limit_event):
+		// block exactly until then plus a small buffer. Fall back to the retry
+		// delay, then to the blind backoff, when no reset time is known or it
+		// already lies in the past (stale event).
+		if until := res.ResetAt; !until.IsZero() && until.After(e.clock.Now()) {
+			e.gate.Block(until.Add(RateLimitResetBuffer))
+		} else {
+			delay := res.RetryAfter
+			if delay <= 0 {
+				delay = e.backoff
+			}
+			e.gate.BlockFor(delay) // wait for reset, then resume this session
 		}
-		e.gate.BlockFor(delay) // wait for reset, then resume this session
 		_ = e.store.UpdateState(func(st *store.State) error {
 			st.SetPendingResume(t.ID, res.SessionID)
 			return nil
