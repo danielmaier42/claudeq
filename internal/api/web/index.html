@@ -609,7 +609,7 @@ function watchNewRun(id){
     let runs=[]; try{ runs=await api('GET','/api/runs'); }catch{}
     runsSig=''; loadRuns();
     const run=runs.find(r=>r.task_id===id); // newest-first, so first match is the latest
-    if(run){ showLog(run.run_id, run.task_name, run.task&&run.task.prompt); return; }
+    if(run){ showLog(run.run_id, run.task_name, run.task&&run.task.prompt, run.status); return; }
     if(Date.now()<deadline) setTimeout(tick,500);
   };
   setTimeout(tick,400);
