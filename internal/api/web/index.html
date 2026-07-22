@@ -203,6 +203,10 @@
   .msg .who { font-size:10px; font-weight:700; color:var(--fg2); margin-bottom:4px; text-transform:uppercase; letter-spacing:.4px; }
   .tool { font-size:12px; background:var(--seg-bg); border-radius:8px; padding:7px 11px; }
   .tool .tname { font-weight:600; color:var(--accent); font-family:"SF Mono",ui-monospace,monospace; }
+  .tool summary { cursor:pointer; list-style:none; display:flex; align-items:center; gap:7px; user-select:none; }
+  .tool summary::-webkit-details-marker { display:none; }
+  .tool summary::before { content:'▸'; font-size:10px; color:var(--fg2); transition:transform .12s ease; }
+  .tool[open] summary::before { transform:rotate(90deg); }
   .tool pre { margin:5px 0 0; white-space:pre-wrap; word-break:break-word; color:var(--fg2);
               font-family:"SF Mono",ui-monospace,monospace; font-size:11px; max-height:150px; overflow:auto; }
   .rawline { font-family:"SF Mono",ui-monospace,monospace; font-size:11px; color:var(--fg2); white-space:pre-wrap; word-break:break-word; opacity:.65; }
@@ -646,7 +650,9 @@ async function loadRuns(){
 async function readRun(id){ try{ await api('POST',`/api/runs/${id}/read`); }catch{} runsSig=''; loadRuns(); }
 async function markAllRead(){ try{await api('POST','/api/runs/read-all');toast('All marked read','ok'); runsSig=''; loadRuns();}catch(e){toast(e.message,'err')} }
 let logRaw='', logMode='chat', logRunId='', logTimer=null, logPrev=null, logPrompt='';
+let logOpenTools=new Set(), logToolIdx=0; // remember expanded tool blocks across live re-renders
 async function showLog(id,name,prompt){ logRunId=id; logPrompt=prompt||''; $('#logTitle').textContent='Log · '+name;
+  logOpenTools=new Set();
   logPrev=null; await refreshLog(true); $('#logSheet').showModal(); startLogPolling();
   readRun(id); }  // opening a run's log marks it read
 async function refreshLog(force){
@@ -669,6 +675,7 @@ function renderLog(){
   const box=$('#logBody');
   if(logMode==='raw'){ box.className=''; box.innerHTML='<pre class="log">'+esc(logRaw||'(empty log)')+'</pre>'; return; }
   box.className='chat'; box.innerHTML='';
+  logToolIdx=0;
   let shown=0;
   if(logPrompt && logPrompt.trim()){ box.append(el('div','msg user','<div class="who">You</div>'+esc(logPrompt))); shown++; }
   for(const raw of logRaw.split('\n')){ const line=raw.trim(); if(!line) continue;
@@ -679,12 +686,21 @@ function renderLog(){
 }
 const shortJSON=o=>{ let s; try{ s=JSON.stringify(o); }catch{ s=String(o); } return s.length>800?s.slice(0,800)+' …':s; };
 function toolResultText(c){ if(typeof c==='string') return c; if(Array.isArray(c)) return c.map(x=>x&&x.text?x.text:(typeof x==='string'?x:JSON.stringify(x))).join('\n'); return c==null?'':JSON.stringify(c); }
+// Collapsible tool block (collapsed by default). The log is append-only, so the
+// sequential index is stable across re-renders and can key the expanded-state set.
+function toolBlock(label, body){
+  const idx=logToolIdx++;
+  const d=el('details','tool','<summary><span class="tname">'+label+'</span></summary><pre>'+body+'</pre>');
+  if(logOpenTools.has(idx)) d.open=true;
+  d.addEventListener('toggle',()=>{ if(d.open) logOpenTools.add(idx); else logOpenTools.delete(idx); });
+  return d;
+}
 function appendLogEvent(box, ev){
   if(ev.type==='assistant' && ev.message && Array.isArray(ev.message.content)){
     let n=0;
     for(const b of ev.message.content){
       if(b.type==='text' && b.text && b.text.trim()){ const m=el('div','msg assistant','<div class="who">Claude</div>'+esc(b.text)); box.append(m); n++; }
-      else if(b.type==='tool_use'){ const d=el('div','tool','<span class="tname">🔧 '+esc(b.name||'tool')+'</span><pre>'+esc(shortJSON(b.input))+'</pre>'); box.append(d); n++; }
+      else if(b.type==='tool_use'){ box.append(toolBlock('🔧 '+esc(b.name||'tool'), esc(shortJSON(b.input)))); n++; }
     }
     return n;
   }
@@ -692,7 +708,7 @@ function appendLogEvent(box, ev){
     let n=0;
     for(const b of ev.message.content){
       if(b.type==='tool_result'){ const txt=toolResultText(b.content);
-        const d=el('div','tool','<span class="tname">↳ result</span><pre>'+esc(txt.length>800?txt.slice(0,800)+' …':txt)+'</pre>'); box.append(d); n++; }
+        box.append(toolBlock('↳ result', esc(txt.length>800?txt.slice(0,800)+' …':txt))); n++; }
       else if(b.type==='text' && b.text && b.text.trim()){ box.append(el('div','msg user','<div class="who">You</div>'+esc(b.text))); n++; }
     }
     return n;
