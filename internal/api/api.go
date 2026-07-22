@@ -33,6 +33,12 @@ type RunNower interface {
 	RunTaskNow(ctx context.Context, taskID string) error
 }
 
+// RunCanceler stops a currently running run (satisfied by *engine.Engine).
+// Optional; enables the cancel endpoint.
+type RunCanceler interface {
+	CancelRun(runID string) error
+}
+
 // FolderChooser opens a native folder-selection dialog and returns the chosen
 // POSIX path (chosen=false if the user cancelled). Optional.
 type FolderChooser func(ctx context.Context, start string) (path string, chosen bool, err error)
@@ -41,6 +47,7 @@ type FolderChooser func(ctx context.Context, start string) (path string, chosen 
 type Deps struct {
 	Store        *store.Store
 	Runner       RunNower        // optional; enables the run-now endpoint
+	Canceler     RunCanceler     // optional; enables the cancel-run endpoint
 	Models       func() []Model  // optional; enables dynamic model listing
 	ChooseFolder FolderChooser   // optional; enables the native folder dialog
 	ActiveTasks  func() []string // optional; ids of currently-running tasks (hidden from the queue)
@@ -70,6 +77,7 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/runs", s.listRuns)
 	mux.HandleFunc("POST /api/runs/read-all", s.readAll)
 	mux.HandleFunc("POST /api/runs/{id}/read", s.readRun)
+	mux.HandleFunc("POST /api/runs/{id}/cancel", s.cancelRun)
 	mux.HandleFunc("GET /api/runs/{id}/log", s.runLog)
 	mux.HandleFunc("GET /api/artifacts", s.listArtifacts)
 	mux.HandleFunc("POST /api/artifacts/read-all", s.readAllArtifacts)
@@ -296,6 +304,20 @@ func (s *server) runNow(w http.ResponseWriter, r *http.Request) {
 	// Run asynchronously; the result shows up in the run history.
 	go func() { _ = s.d.Runner.RunTaskNow(context.Background(), id) }()
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// cancelRun stops a currently running run. 409 when the run is not in flight
+// (already finished, or unknown) — the UI then just refreshes its state.
+func (s *server) cancelRun(w http.ResponseWriter, r *http.Request) {
+	if s.d.Canceler == nil {
+		writeErr(w, http.StatusServiceUnavailable, errors.New("cancel not available"))
+		return
+	}
+	if err := s.d.Canceler.CancelRun(r.PathValue("id")); err != nil {
+		writeErr(w, http.StatusConflict, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // runView is a run plus its unread flag.

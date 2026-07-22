@@ -147,8 +147,10 @@ The dashboard (and the native window that wraps it) has five views:
   *running* badge and shows its next occurrence on hover.
 - **Activity** — every run, newest first, with an unread badge for new results.
   Open a run to see the live/finished log as a chat view or raw output, along
-  with the prompt; mark one or all read; filter by a from–to date range; page
-  through history; and replay a task.
+  with the prompt; a running task can be stopped from there with **Cancel task**
+  (its process is terminated and the run is recorded as `canceled`); mark one or
+  all read; filter by a from–to date range; page through history; and replay a
+  task.
 - **Artifacts** — files your tasks published, newest first, with an unread badge.
   Each shows its title, source task, file type, and size. **View** opens HTML,
   PDF, images, and text in an in-app viewer; **Open** opens any artifact in your
@@ -304,7 +306,8 @@ file name; `--file` may be relative to the task's working directory.
   recurring heartbeat wake, so the Mac can sleep between runs and wake when
   there's work.
 - **Run outcomes** are one of: `running`, `success`, `failed`,
-  `rate_limited_waiting`, `auth_error`.
+  `rate_limited_waiting`, `auth_error`, `canceled` (stopped by the user from the
+  run's log view).
 
 ## Data on disk
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -424,6 +425,43 @@ func TestRunNowInvokesRunner(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("runner was not invoked")
+	}
+}
+
+type stubCanceler struct {
+	got string
+	err error
+}
+
+func (s *stubCanceler) CancelRun(runID string) error { s.got = runID; return s.err }
+
+func TestCancelRunEndpoint(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	sc := &stubCanceler{}
+	srv := httptest.NewServer(Handler(Deps{Store: st, Canceler: sc}))
+	t.Cleanup(srv.Close)
+
+	if r := do(t, srv, "POST", "/api/runs/run-1/cancel", nil); r.Status != http.StatusNoContent {
+		t.Fatalf("cancel status = %d (%s)", r.Status, r.Body)
+	}
+	if sc.got != "run-1" {
+		t.Fatalf("canceler called with %q, want run-1", sc.got)
+	}
+
+	// A run that is not in flight yields 409.
+	sc.err = errors.New("run \"run-1\" is not running")
+	if r := do(t, srv, "POST", "/api/runs/run-1/cancel", nil); r.Status != http.StatusConflict {
+		t.Fatalf("cancel of finished run status = %d", r.Status)
+	}
+}
+
+func TestCancelRunUnavailable(t *testing.T) {
+	srv, _ := newServer(t, nil) // no Canceler wired
+	if r := do(t, srv, "POST", "/api/runs/run-1/cancel", nil); r.Status != http.StatusServiceUnavailable {
+		t.Fatalf("cancel without canceler status = %d", r.Status)
 	}
 }
 

@@ -79,7 +79,9 @@ type Engine struct {
 	runCancel context.CancelFunc
 
 	mu                sync.Mutex
-	active            map[string]bool // taskID -> currently running
+	active            map[string]bool               // taskID -> currently running
+	cancels           map[string]context.CancelFunc // runID -> stops that run's process
+	canceled          map[string]bool               // runID -> user requested cancellation
 	nonParallelActive int
 	parallelActive    int
 	wg                sync.WaitGroup
@@ -93,12 +95,14 @@ const ShutdownGrace = 30 * time.Second
 // New builds an Engine with production defaults (real UUIDs and run ids).
 func New(st *store.Store, gate *limit.Gate, r Runner, c clock.Clock) *Engine {
 	e := &Engine{
-		store:   st,
-		gate:    gate,
-		run:     r,
-		clock:   c,
-		backoff: DefaultRateLimitBackoff,
-		active:  map[string]bool{},
+		store:    st,
+		gate:     gate,
+		run:      r,
+		clock:    c,
+		backoff:  DefaultRateLimitBackoff,
+		active:   map[string]bool{},
+		cancels:  map[string]context.CancelFunc{},
+		canceled: map[string]bool{},
 	}
 	// Runs use their own context so that cancelling the loop (SIGINT) does not
 	// immediately kill in-flight Claude processes; shutdown drains them first.
@@ -249,11 +253,17 @@ func (e *Engine) launchTask(t task.Task, settings store.Settings, sessionID stri
 		IdleTimeout:        settings.IdleTimeout(),
 		Log:                logFile,
 	}
+	// Per-run context so a single run can be cancelled from the dashboard
+	// without touching the daemon-wide runCtx (which shutdown owns).
+	runCtx, cancelRun := context.WithCancel(e.runCtx)
+	e.cancels[runID] = cancelRun
+
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()
+		defer cancelRun()
 		defer func() { _ = logFile.Close() }()
-		res, runErr := e.runGuarded(req)
+		res, runErr := e.runGuarded(runCtx, req)
 		e.finish(t, rec, res, runErr)
 	}()
 	return nil
@@ -261,14 +271,31 @@ func (e *Engine) launchTask(t task.Task, settings store.Settings, sessionID stri
 
 // runGuarded runs the request and turns a panic into a failed result instead of
 // crashing the daemon, so one bad run never takes the whole queue down.
-func (e *Engine) runGuarded(req executor.Request) (res executor.Result, err error) {
+func (e *Engine) runGuarded(ctx context.Context, req executor.Request) (res executor.Result, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			res = executor.Result{Status: store.StatusFailed, Message: fmt.Sprintf("internal error: %v", r)}
 			err = nil
 		}
 	}()
-	return e.run.Run(e.runCtx, req)
+	return e.run.Run(ctx, req)
+}
+
+// CancelRun stops a currently running run: its process (group) is terminated
+// and the run is recorded as canceled. Returns an error when the run id is not
+// in flight (already finished or unknown).
+func (e *Engine) CancelRun(runID string) error {
+	e.mu.Lock()
+	cancel, ok := e.cancels[runID]
+	if ok {
+		e.canceled[runID] = true
+	}
+	e.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("run %q is not running", runID)
+	}
+	cancel()
+	return nil
 }
 
 // sessionFor returns the session id to use and whether it is a resume. A task
@@ -284,6 +311,9 @@ func (e *Engine) sessionFor(t task.Task, st *store.State) (string, bool) {
 func (e *Engine) finish(t task.Task, rec store.Run, res executor.Result, runErr error) {
 	e.mu.Lock()
 	delete(e.active, t.ID)
+	wasCanceled := e.canceled[rec.RunID]
+	delete(e.canceled, rec.RunID)
+	delete(e.cancels, rec.RunID)
 	if t.Parallel {
 		e.parallelActive--
 	} else {
@@ -311,6 +341,13 @@ func (e *Engine) finish(t task.Task, rec store.Run, res executor.Result, runErr 
 		rec.OutputTokens = m.OutputTokens
 		rec.NumTurns = m.NumTurns
 		rec.DurationMS = m.DurationMS
+	}
+	// A user-requested cancellation surfaces as an interrupted/failed run from
+	// the executor; record it as canceled instead. If the process managed to
+	// finish successfully before the kill landed, keep the success.
+	if wasCanceled && rec.Status != store.StatusSuccess {
+		rec.Status = store.StatusCanceled
+		rec.Error = "stopped by the user"
 	}
 
 	// Targeted state update: touch only this task's keys so a concurrent API
