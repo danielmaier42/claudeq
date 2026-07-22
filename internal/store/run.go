@@ -21,12 +21,14 @@ const (
 	StatusRateLimited RunStatus = "rate_limited_waiting"
 	// StatusAuthError means Claude Code reported a login/authentication problem.
 	StatusAuthError RunStatus = "auth_error"
+	// StatusCanceled means the user stopped the run from the dashboard.
+	StatusCanceled RunStatus = "canceled"
 )
 
 // Terminal reports whether the status is a final outcome.
 func (s RunStatus) Terminal() bool {
 	switch s {
-	case StatusSuccess, StatusFailed, StatusAuthError:
+	case StatusSuccess, StatusFailed, StatusAuthError, StatusCanceled:
 		return true
 	default:
 		return false

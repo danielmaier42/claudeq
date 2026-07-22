@@ -143,7 +143,7 @@ func cmdRun(args []string) error {
 	httpSrv := &http.Server{
 		Addr: *addr,
 		Handler: api.Handler(api.Deps{
-			Store: st, Runner: eng, Models: api.BinaryModelLister(claudeBinOr(claudeBin)),
+			Store: st, Runner: eng, Canceler: eng, Models: api.BinaryModelLister(claudeBinOr(claudeBin)),
 			ChooseFolder: api.OSAScriptFolderChooser(system.Real{}), ActiveTasks: eng.ActiveTaskIDs,
 			WakeError: eng.WakeError, WarmFileAccess: warmFileAccess, Updates: updSvc,
 		}),

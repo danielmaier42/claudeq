@@ -82,6 +82,7 @@
   .btn.danger { color:var(--danger); }
   .btn.small { padding:3px 9px; font-size:12px; }
   .btn:disabled { opacity:.4; cursor:default; }
+  .btn[hidden] { display:none; } /* .btn's display would otherwise beat the hidden attribute */
   .btn svg { width:14px; height:14px; stroke:currentColor; stroke-width:1.7; fill:none; flex:none; display:block; }
   .btn.iconly { padding:5px 7px; justify-content:center; }
   a.btn { text-decoration:none; }
@@ -124,8 +125,10 @@
   .pill.failed,.pill.auth_error{ background:color-mix(in srgb,var(--danger) 16%,transparent); color:var(--danger); }
   .pill.rate_limited_waiting{ background:color-mix(in srgb,var(--warn) 18%,transparent); color:var(--warn); }
   .pill.running{ background:color-mix(in srgb,var(--running) 16%,transparent); color:var(--running); }
+  .pill.canceled{ background:color-mix(in srgb,var(--warn) 16%,transparent); color:var(--warn); }
   .pill.success .d{background:var(--ok)} .pill.failed .d,.pill.auth_error .d{background:var(--danger)}
   .pill.rate_limited_waiting .d{background:var(--warn)} .pill.running .d{background:var(--running)}
+  .pill.canceled .d{background:var(--warn)}
   .unread-dot { width:8px; height:8px; border-radius:50%; background:var(--accent); flex-shrink:0; }
   /* Activity rows: unread dot in a left gutter, mark-read eye in a right gutter — both outside the card. */
   .act-list { display:flex; flex-direction:column; gap:8px; }
@@ -326,7 +329,7 @@
   <div class="sheet-hd"><b id="logTitle">Log</b><div class="spacer" style="flex:1"></div>
     <div class="seg" id="logMode"><button data-v="chat" class="active">Chat</button><button data-v="raw">Raw</button></div></div>
   <div class="sheet-bd"><div id="logBody"></div></div>
-  <div class="sheet-ft"><button class="btn" onclick="logSheet.close()">Done</button></div>
+  <div class="sheet-ft"><button class="btn danger" id="logCancelBtn" hidden onclick="cancelLogRun()">Cancel task</button><button class="btn" onclick="logSheet.close()">Done</button></div>
 </dialog>
 
 <!-- Artifact viewer sheet -->
@@ -382,7 +385,7 @@ async function api(m,path,body){
 }
 function toast(msg,kind){ const t=el('div','toast'+(kind?' '+kind:'')); t.append(el('div','bar'),el('div',null,esc(msg)));
   $('#toasts').append(t); setTimeout(()=>{t.style.opacity='0';t.style.transition='.3s';setTimeout(()=>t.remove(),300)},2600); }
-function confirmSheetAsk(text,yesLabel){ return new Promise(res=>{ $('#confirmText').textContent=text; $('#confirmYes').textContent=yesLabel||'Delete';
+function confirmSheetAsk(text,yesLabel,noLabel){ return new Promise(res=>{ $('#confirmText').textContent=text; $('#confirmYes').textContent=yesLabel||'Delete'; $('#confirmNo').textContent=noLabel||'Cancel';
   const dlg=$('#confirmSheet'); let done=false;
   const finish=v=>{ if(done)return; done=true;
     $('#confirmYes').removeEventListener('click',onYes); $('#confirmNo').removeEventListener('click',onNo);
@@ -644,7 +647,7 @@ async function loadRuns(){
     const pill=el('span','pill '+r.status); pill.innerHTML=`<span class="d"></span>${esc(r.status.replace(/_/g,' '))}`;
     const actions=el('div','row-actions');
     if(r.task){ const rp=el('button','btn small iconly',REPLAY); rp.title='Re-run this task'; rp.onclick=()=>openReplay(r.task); actions.append(rp); }
-    const log=el('button','btn small','Log'); log.onclick=()=>showLog(r.run_id,r.task_name,r.task&&r.task.prompt); actions.append(log);
+    const log=el('button','btn small','Log'); log.onclick=()=>showLog(r.run_id,r.task_name,r.task&&r.task.prompt,r.status); actions.append(log);
     card.append(grow,actions,pill);   // status pill right-aligned (last)
     const gr=el('div','act-gr'); if(r.unread){ const mr=el('button','eye-btn',EYE); mr.title='Mark read'; mr.onclick=()=>readRun(r.run_id); gr.append(mr); }
     line.append(gl,card,gr);
@@ -664,12 +667,20 @@ async function loadRuns(){
 }
 async function readRun(id){ try{ await api('POST',`/api/runs/${id}/read`); }catch{} runsSig=''; loadRuns(); }
 async function markAllRead(){ try{await api('POST','/api/runs/read-all');toast('All marked read','ok'); runsSig=''; loadRuns();}catch(e){toast(e.message,'err')} }
-let logRaw='', logMode='chat', logRunId='', logTimer=null, logPrev=null, logPrompt='';
+let logRaw='', logMode='chat', logRunId='', logTimer=null, logPrev=null, logPrompt='', logTaskName='';
 let logOpenTools=new Set(), logToolIdx=0; // remember expanded tool blocks across live re-renders
-async function showLog(id,name,prompt){ logRunId=id; logPrompt=prompt||''; $('#logTitle').textContent='Log · '+name;
+async function showLog(id,name,prompt,status){ logRunId=id; logPrompt=prompt||''; logTaskName=name; $('#logTitle').textContent='Log · '+name;
   logOpenTools=new Set();
+  setLogCancelVisible(status==='running');
   logPrev=null; await refreshLog(true); $('#logSheet').showModal(); startLogPolling();
   readRun(id); }  // opening a run's log marks it read
+function setLogCancelVisible(on){ $('#logCancelBtn').hidden=!on; }
+async function cancelLogRun(){
+  if(!await confirmSheetAsk('Cancel the running task “'+logTaskName+'”? Its Claude process is terminated.','Cancel task','Keep running')) return;
+  try{ await api('POST',`/api/runs/${logRunId}/cancel`); setLogCancelVisible(false); toast('Task canceled','ok'); }
+  catch(e){ toast(e.message,'err'); }
+  runsSig=''; await refreshLog(true); if(current==='news') loadRuns();
+}
 async function refreshLog(force){
   try{ logRaw=await api('GET',`/api/runs/${logRunId}/log`)||''; }catch(e){ logRaw=''; }
   if(!force && logRaw===logPrev) return;   // nothing new -> don't re-render (no flicker)
@@ -679,6 +690,9 @@ async function refreshLog(force){
 function startLogPolling(){ stopLogPolling(); logTimer=setInterval(async()=>{
   let runs=[]; try{ runs=await api('GET','/api/runs'); }catch{}
   const run=runs.find(r=>r.run_id===logRunId);
+  // Only ever hide here: a run never returns to "running", and hiding-only makes
+  // a late, stale poll response harmless (it cannot re-show the button).
+  if(run && run.status!=='running') setLogCancelVisible(false);
   await refreshLog(false);
   if(run && run.status!=='running'){ stopLogPolling(); runsSig=''; if(current==='news') loadRuns(); }
 }, 1500); }
@@ -760,7 +774,7 @@ async function openArtifactRun(a){
   const run=runs.find(r=>r.run_id===a.run_id);
   if(!run){ toast('The run that produced this artifact is no longer in history','err'); return; }
   select('news');
-  showLog(run.run_id, run.task_name, run.task&&run.task.prompt);
+  showLog(run.run_id, run.task_name, run.task&&run.task.prompt, run.status);
 }
 
 async function loadArtifacts(){

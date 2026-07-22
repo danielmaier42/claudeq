@@ -256,6 +256,106 @@ func TestGracefulShutdownLetsRunFinish(t *testing.T) {
 	}
 }
 
+// ctxStub blocks each run until its context is cancelled, then reports the
+// interrupted result the real executor produces for a killed process.
+type ctxStub struct {
+	mu      sync.Mutex
+	started int
+}
+
+func (s *ctxStub) Run(ctx context.Context, req executor.Request) (executor.Result, error) {
+	s.mu.Lock()
+	s.started++
+	s.mu.Unlock()
+	<-ctx.Done()
+	return executor.Result{
+		Status: store.StatusFailed, SessionID: req.SessionID, ExitCode: -1,
+		Message: "run was interrupted before completing (the process was terminated — e.g. the daemon stopped)",
+	}, nil
+}
+
+func (s *ctxStub) activeStarted() int { s.mu.Lock(); defer s.mu.Unlock(); return s.started }
+
+func TestCancelRunMarksRunCanceled(t *testing.T) {
+	fc := clock.NewFake(time.Now())
+	r := &ctxStub{}
+	e, st := newTestEngine(t, r, fc)
+	saveTasks(t, st, asapTask("a", false))
+
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	waitFor(t, func() bool { return r.activeStarted() == 1 })
+
+	if err := e.CancelRun("run-1"); err != nil {
+		t.Fatalf("CancelRun: %v", err)
+	}
+	e.WaitIdle()
+
+	runs, _ := st.Runs()
+	if len(runs) != 1 || runs[0].Status != store.StatusCanceled {
+		t.Fatalf("expected 1 canceled run, got %+v", runs)
+	}
+	if runs[0].Error != "stopped by the user" {
+		t.Fatalf("unexpected error text: %q", runs[0].Error)
+	}
+	// A canceled one-shot task leaves the queue like any other finished run.
+	cfg, _ := st.LoadConfig()
+	if len(cfg.Tasks) != 0 {
+		t.Fatalf("canceled one-shot task should leave the queue, still have %d", len(cfg.Tasks))
+	}
+	// Cancelling again (run already finished) reports an error.
+	if err := e.CancelRun("run-1"); err == nil {
+		t.Fatal("CancelRun on a finished run should error")
+	}
+}
+
+func TestCancelRunUnknownID(t *testing.T) {
+	fc := clock.NewFake(time.Now())
+	e, _ := newTestEngine(t, &stub{}, fc)
+	if err := e.CancelRun("nope"); err == nil {
+		t.Fatal("expected error for unknown run id")
+	}
+}
+
+func TestCancelRunLeavesOtherRunsAlive(t *testing.T) {
+	fc := clock.NewFake(time.Now())
+	r := &ctxStub{}
+	e, st := newTestEngine(t, r, fc)
+	saveTasks(t, st, asapTask("p1", true), asapTask("p2", true))
+
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	waitFor(t, func() bool { return r.activeStarted() == 2 })
+
+	// Cancel only the first run; the second keeps running.
+	if err := e.CancelRun("run-1"); err != nil {
+		t.Fatalf("CancelRun: %v", err)
+	}
+	waitFor(t, func() bool {
+		runs, _ := st.Runs()
+		for _, rn := range runs {
+			if rn.RunID == "run-1" && rn.Status == store.StatusCanceled {
+				return true
+			}
+		}
+		return false
+	})
+	runs, _ := st.Runs()
+	for _, rn := range runs {
+		if rn.RunID == "run-2" && rn.Status != store.StatusRunning {
+			t.Fatalf("run-2 should still be running, got %s", rn.Status)
+		}
+	}
+
+	// Shut the second run down via its own cancel to end the test cleanly.
+	if err := e.CancelRun("run-2"); err != nil {
+		t.Fatalf("CancelRun run-2: %v", err)
+	}
+	e.WaitIdle()
+}
+
 func TestExclusiveTaskRunsAlone(t *testing.T) {
 	fc := clock.NewFake(time.Now())
 	r := &stub{block: make(chan struct{})}
