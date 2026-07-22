@@ -219,6 +219,9 @@
   .toast.err .bar { background:var(--danger); } .toast.ok .bar { background:var(--ok); }
   @keyframes slidein { from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none} }
   .hint { font-size:12px; color:var(--fg2); margin-top:6px; }
+  .cron-help .mono { font-family:"SF Mono",ui-monospace,Menlo,monospace; }
+  .cron-help span[data-tip] { font-family:"SF Mono",ui-monospace,Menlo,monospace; cursor:help;
+    text-decoration:underline dotted; text-underline-offset:2px; text-decoration-color:var(--fg2); }
   .meter { height:8px; border-radius:6px; background:var(--seg-bg); overflow:hidden; width:100%; margin-top:8px; }
   .meter > span { display:block; height:100%; border-radius:6px; background:var(--accent); transition:width .3s; }
   .usage-num { font-size:30px; font-weight:700; letter-spacing:-.5px; }
@@ -232,7 +235,9 @@
   .xl { text-align:center; font-size:10px; color:var(--fg2); white-space:nowrap; min-width:0; }
   /* cursor-following tooltip (native title= tooltips don't render in WKWebView) */
   .tip { position:fixed; z-index:1000; pointer-events:none; background:var(--fg); color:var(--bg);
-         font-size:12px; font-weight:500; padding:5px 9px; border-radius:7px; white-space:nowrap; box-shadow:0 4px 14px rgba(0,0,0,.28); }
+         font-size:12px; font-weight:500; padding:5px 9px; border-radius:7px; box-shadow:0 4px 14px rgba(0,0,0,.28);
+         /* popover resets: shown via showPopover() so it paints above modal <dialog>s (top layer) */
+         margin:0; inset:auto; border:0; overflow:visible; width:max-content; max-width:min(340px,calc(100vw - 24px)); }
 </style>
 </head>
 <body>
@@ -291,7 +296,15 @@
       <button data-v="cron">Recurring</button>
     </div>
     <div id="f-at-wrap" hidden><label class="fld">Earliest start</label><input type="datetime-local" id="f-at"></div>
-    <div id="f-cron-wrap" hidden><label class="fld">Cron schedule</label><input type="text" id="f-cron" placeholder="0 20 * * *"></div>
+    <div id="f-cron-wrap" hidden><label class="fld">Cron schedule</label><input type="text" id="f-cron" placeholder="0 20 * * *">
+      <div class="hint cron-help">5 fields:
+        <span data-tip="Minute of the hour (0–59). '*' = every minute, '*/15' = every 15 minutes, '0' = on the hour.">minute</span>
+        <span data-tip="Hour of the day (0–23). '20' = 8 pm, '*' = every hour, '9-17' = 9 am through 5 pm.">hour</span>
+        <span data-tip="Day of the month (1–31). '*' = every day, '1' = the 1st, '1,15' = 1st and 15th.">day</span>
+        <span data-tip="Month (1–12). '*' = every month, '6' = June only.">month</span>
+        <span data-tip="Day of the week (0–6, Sunday = 0). '*' = any day, '1-5' = Mon–Fri, '0,6' = weekends.">weekday</span>
+        — <span class="mono">0 20 * * *</span> = daily at 20:00. Hover a field for details.</div>
+    </div>
     <div class="form-row">
       <div><label class="fld">Model</label><select id="f-model"></select></div>
     </div>
@@ -338,13 +351,15 @@ const el=(t,c,h)=>{const e=document.createElement(t); if(c)e.className=c; if(h!=
 
 // Cursor-following tooltip for [data-tip] elements. WKWebView doesn't render
 // native title= tooltips, so we draw our own.
-const _tip=el('div','tip'); _tip.hidden=true; document.body.append(_tip);
+const _tip=el('div','tip'); _tip.hidden=true; _tip.setAttribute('popover','manual'); document.body.append(_tip);
 function _posTip(e){ const pad=12, r=_tip.getBoundingClientRect(); let x=e.clientX+pad, y=e.clientY+pad;
   if(x+r.width>innerWidth) x=e.clientX-r.width-pad; if(y+r.height>innerHeight) y=e.clientY-r.height-pad;
   _tip.style.left=Math.max(4,x)+'px'; _tip.style.top=Math.max(4,y)+'px'; }
-document.addEventListener('mouseover',e=>{ const t=e.target.closest&&e.target.closest('[data-tip]'); if(!t)return; _tip.textContent=t.getAttribute('data-tip'); _tip.hidden=false; _posTip(e); });
+// Shown as a manual popover: the top layer paints above modal <dialog>s, which
+// would otherwise cover tooltips triggered from inside a sheet.
+document.addEventListener('mouseover',e=>{ const t=e.target.closest&&e.target.closest('[data-tip]'); if(!t)return; _tip.textContent=t.getAttribute('data-tip'); _tip.hidden=false; try{_tip.showPopover();}catch{} _posTip(e); });
 document.addEventListener('mousemove',e=>{ if(!_tip.hidden) _posTip(e); });
-document.addEventListener('mouseout',e=>{ const t=e.target.closest&&e.target.closest('[data-tip]'); if(t) _tip.hidden=true; });
+document.addEventListener('mouseout',e=>{ const t=e.target.closest&&e.target.closest('[data-tip]'); if(t){ _tip.hidden=true; try{_tip.hidePopover();}catch{} } });
 
 // WKWebView doesn't open target=_blank links; route external links through the
 // native app (which opens them in the default browser). Harmless in a browser.
