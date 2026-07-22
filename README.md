@@ -120,6 +120,9 @@ The nightly cycle looks like this:
   same work would have cost through the API), over the last 14 days.
 - **Full history** — every run is kept with its complete log, viewable as a chat
   transcript or raw output, and can be replayed.
+- **Continue with Claude** — pick up a finished run's conversation interactively:
+  one click opens Terminal in the task's folder and resumes the very same Claude
+  session (`claude --resume`), with the full context of everything the run did.
 - **Artifacts** — a task can publish a finished file (report, export, HTML page,
   PDF, …) with `claudeq publish`; it's copied into ClaudeQ and listed in a
   central **Artifacts** view with an unread flag and mark-as-read, independent of
@@ -148,7 +151,11 @@ The dashboard (and the native window that wraps it) has five views:
 - **Activity** — every run, newest first, with an unread badge for new results.
   Open a run to see the live/finished log as a chat view or raw output, along
   with the prompt; a running task can be stopped from there with **Cancel task**
-  (its process is terminated and the run is recorded as `canceled`); mark one or
+  (its process is terminated and the run is recorded as `canceled`); a finished
+  run offers **Continue with Claude**, which opens Terminal in the task's folder
+  and resumes the run's Claude session interactively (`claude --resume`) so you
+  can keep chatting with full context (the button needs the session to still
+  exist — Claude Code prunes old sessions after ~30 days); mark one or
   all read; filter by a from–to date range; page through history; and replay a
   task.
 - **Artifacts** — files your tasks published, newest first, with an unread badge.

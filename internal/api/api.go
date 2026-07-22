@@ -48,6 +48,7 @@ type Deps struct {
 	Store        *store.Store
 	Runner       RunNower        // optional; enables the run-now endpoint
 	Canceler     RunCanceler     // optional; enables the cancel-run endpoint
+	OpenTerminal TerminalOpener  // optional; enables the continue-run endpoint
 	Models       func() []Model  // optional; enables dynamic model listing
 	ChooseFolder FolderChooser   // optional; enables the native folder dialog
 	ActiveTasks  func() []string // optional; ids of currently-running tasks (hidden from the queue)
@@ -78,6 +79,7 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/runs/read-all", s.readAll)
 	mux.HandleFunc("POST /api/runs/{id}/read", s.readRun)
 	mux.HandleFunc("POST /api/runs/{id}/cancel", s.cancelRun)
+	mux.HandleFunc("POST /api/runs/{id}/continue", s.continueRun)
 	mux.HandleFunc("GET /api/runs/{id}/log", s.runLog)
 	mux.HandleFunc("GET /api/artifacts", s.listArtifacts)
 	mux.HandleFunc("POST /api/artifacts/read-all", s.readAllArtifacts)
@@ -318,6 +320,73 @@ func (s *server) cancelRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// continueRun opens a Terminal window that resumes the run's Claude session
+// interactively (`claude --resume <session-id>` in the task's working
+// directory), so a finished unattended chat can be picked up by hand with its
+// full context. Only finished runs qualify: a running one still owns its
+// session, and a rate-limited one will be resumed by the queue itself.
+func (s *server) continueRun(w http.ResponseWriter, r *http.Request) {
+	if s.d.OpenTerminal == nil {
+		writeErr(w, http.StatusServiceUnavailable, errors.New("continue not available"))
+		return
+	}
+	runs, err := s.d.Store.Runs()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	id := r.PathValue("id")
+	var run *store.Run
+	for i := range runs {
+		if runs[i].RunID == id {
+			run = &runs[i]
+			break
+		}
+	}
+	switch {
+	case run == nil:
+		writeErr(w, http.StatusNotFound, errors.New("run not found"))
+		return
+	case run.Status == store.StatusRunning:
+		writeErr(w, http.StatusConflict, errors.New("the run is still in progress; wait for it to finish (or cancel it)"))
+		return
+	case !run.Status.Terminal():
+		writeErr(w, http.StatusConflict, errors.New("the run is waiting to resume automatically; continue it after it finishes"))
+		return
+	case run.SessionID == "":
+		writeErr(w, http.StatusConflict, errors.New("no Claude session recorded for this run"))
+		return
+	case run.Task == nil || run.Task.WorkingDir == "":
+		writeErr(w, http.StatusConflict, errors.New("no working directory recorded for this run"))
+		return
+	}
+	// The session lives in Claude Code's per-project store keyed by this
+	// directory — a vanished folder means the resume cannot work.
+	if _, err := os.Stat(run.Task.WorkingDir); err != nil {
+		writeErr(w, http.StatusConflict, fmt.Errorf("the task's working directory is gone: %w", err))
+		return
+	}
+	argv := []string{s.claudeBin(), "--resume", run.SessionID}
+	if err := s.d.OpenTerminal(r.Context(), run.Task.WorkingDir, argv); err != nil {
+		writeErr(w, http.StatusBadGateway, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// claudeBin resolves the Claude Code binary for the resume command the same
+// way the daemon does for runs: explicit setting first, then auto-detection,
+// then a bare name for the interactive shell to resolve.
+func (s *server) claudeBin() string {
+	if cfg, err := s.d.Store.LoadConfig(); err == nil && cfg.Settings.ClaudePath != "" {
+		return cfg.Settings.ClaudePath
+	}
+	if p := executor.DetectBinary(); p != "" {
+		return p
+	}
+	return "claude"
 }
 
 // runView is a run plus its unread flag.

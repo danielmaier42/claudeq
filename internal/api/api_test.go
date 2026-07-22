@@ -458,6 +458,102 @@ func TestCancelRunEndpoint(t *testing.T) {
 	}
 }
 
+// continueFixture seeds a store with one run and returns a server whose
+// TerminalOpener records its invocation. The run's fields are shaped by mutate.
+func continueFixture(t *testing.T, mutate func(*store.Run)) (*httptest.Server, *struct {
+	dir  string
+	argv []string
+}) {
+	t.Helper()
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	// A fixed binary path keeps the expected argv deterministic (no host detection).
+	cfg, _ := st.LoadConfig()
+	cfg.Settings.ClaudePath = "/opt/claude"
+	if err := st.SaveConfig(cfg); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	tk := sampleTask("a")
+	tk.WorkingDir = t.TempDir() // must exist on disk for the endpoint's check
+	run := store.Run{RunID: "r1", TaskID: "a", TaskName: "a", StartedAt: time.Now(),
+		Status: store.StatusSuccess, SessionID: "sess-1", Task: &tk}
+	if mutate != nil {
+		mutate(&run)
+	}
+	if err := st.AppendRun(run); err != nil {
+		t.Fatalf("AppendRun: %v", err)
+	}
+	got := &struct {
+		dir  string
+		argv []string
+	}{}
+	opener := func(_ context.Context, dir string, argv []string) error {
+		got.dir, got.argv = dir, argv
+		return nil
+	}
+	srv := httptest.NewServer(Handler(Deps{Store: st, OpenTerminal: opener}))
+	t.Cleanup(srv.Close)
+	return srv, got
+}
+
+func TestContinueRunOpensTerminal(t *testing.T) {
+	srv, got := continueFixture(t, nil)
+	if r := do(t, srv, "POST", "/api/runs/r1/continue", nil); r.Status != http.StatusNoContent {
+		t.Fatalf("continue status = %d (%s)", r.Status, r.Body)
+	}
+	if got.dir == "" || !strings.HasPrefix(got.dir, "/") {
+		t.Fatalf("opener dir = %q, want the task's working dir", got.dir)
+	}
+	want := []string{"/opt/claude", "--resume", "sess-1"}
+	if len(got.argv) != len(want) || got.argv[0] != want[0] || got.argv[1] != want[1] || got.argv[2] != want[2] {
+		t.Fatalf("opener argv = %v, want %v", got.argv, want)
+	}
+}
+
+func TestContinueRunGuards(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*store.Run)
+		status int
+	}{
+		{"running run", func(r *store.Run) { r.Status = store.StatusRunning }, http.StatusConflict},
+		{"rate-limited run auto-resumes", func(r *store.Run) { r.Status = store.StatusRateLimited }, http.StatusConflict},
+		{"no session recorded", func(r *store.Run) { r.SessionID = "" }, http.StatusConflict},
+		{"no task snapshot", func(r *store.Run) { r.Task = nil }, http.StatusConflict},
+		{"working dir gone", func(r *store.Run) {
+			tk := *r.Task
+			tk.WorkingDir = "/nonexistent/claudeq-test"
+			r.Task = &tk
+		}, http.StatusConflict},
+		{"failed run is continuable", func(r *store.Run) { r.Status = store.StatusFailed }, http.StatusNoContent},
+		{"canceled run is continuable", func(r *store.Run) { r.Status = store.StatusCanceled }, http.StatusNoContent},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			srv, _ := continueFixture(t, c.mutate)
+			if r := do(t, srv, "POST", "/api/runs/r1/continue", nil); r.Status != c.status {
+				t.Fatalf("status = %d (%s), want %d", r.Status, r.Body, c.status)
+			}
+		})
+	}
+}
+
+func TestContinueRunNotFound(t *testing.T) {
+	srv, _ := continueFixture(t, nil)
+	if r := do(t, srv, "POST", "/api/runs/nope/continue", nil); r.Status != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", r.Status)
+	}
+}
+
+func TestContinueRunUnavailable(t *testing.T) {
+	srv, _ := newServer(t, nil) // no TerminalOpener wired
+	if r := do(t, srv, "POST", "/api/runs/r1/continue", nil); r.Status != http.StatusServiceUnavailable {
+		t.Fatalf("continue without opener status = %d", r.Status)
+	}
+}
+
 func TestCancelRunUnavailable(t *testing.T) {
 	srv, _ := newServer(t, nil) // no Canceler wired
 	if r := do(t, srv, "POST", "/api/runs/run-1/cancel", nil); r.Status != http.StatusServiceUnavailable {
