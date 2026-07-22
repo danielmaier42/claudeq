@@ -154,8 +154,10 @@ The dashboard (and the native window that wraps it) has five views:
   (its process is terminated and the run is recorded as `canceled`); a finished
   run offers **Continue with Claude**, which opens Terminal in the task's folder
   and resumes the run's Claude session interactively (`claude --resume`) so you
-  can keep chatting with full context (the button needs the session to still
-  exist — Claude Code prunes old sessions after ~30 days); mark one or
+  can keep chatting with full context — with the same permission mode the run
+  had (a skip-permissions task resumes with `--dangerously-skip-permissions`);
+  the button needs the session to still exist — Claude Code prunes old sessions
+  after ~30 days; mark one or
   all read; filter by a from–to date range; page through history; and replay a
   task.
 - **Artifacts** — files your tasks published, newest first, with an unread badge.

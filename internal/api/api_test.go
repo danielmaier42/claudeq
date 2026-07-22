@@ -459,8 +459,9 @@ func TestCancelRunEndpoint(t *testing.T) {
 }
 
 // continueFixture seeds a store with one run and returns a server whose
-// TerminalOpener records its invocation. The run's fields are shaped by mutate.
-func continueFixture(t *testing.T, mutate func(*store.Run)) (*httptest.Server, *struct {
+// TerminalOpener records its invocation. The run's fields are shaped by
+// mutate, the stored settings by mutateSettings (both optional).
+func continueFixture(t *testing.T, mutate func(*store.Run), mutateSettings func(*store.Settings)) (*httptest.Server, *struct {
 	dir  string
 	argv []string
 }) {
@@ -472,6 +473,9 @@ func continueFixture(t *testing.T, mutate func(*store.Run)) (*httptest.Server, *
 	// A fixed binary path keeps the expected argv deterministic (no host detection).
 	cfg, _ := st.LoadConfig()
 	cfg.Settings.ClaudePath = "/opt/claude"
+	if mutateSettings != nil {
+		mutateSettings(&cfg.Settings)
+	}
 	if err := st.SaveConfig(cfg); err != nil {
 		t.Fatalf("SaveConfig: %v", err)
 	}
@@ -499,7 +503,7 @@ func continueFixture(t *testing.T, mutate func(*store.Run)) (*httptest.Server, *
 }
 
 func TestContinueRunOpensTerminal(t *testing.T) {
-	srv, got := continueFixture(t, nil)
+	srv, got := continueFixture(t, nil, nil)
 	if r := do(t, srv, "POST", "/api/runs/r1/continue", nil); r.Status != http.StatusNoContent {
 		t.Fatalf("continue status = %d (%s)", r.Status, r.Body)
 	}
@@ -509,6 +513,46 @@ func TestContinueRunOpensTerminal(t *testing.T) {
 	want := []string{"/opt/claude", "--resume", "sess-1"}
 	if len(got.argv) != len(want) || got.argv[0] != want[0] || got.argv[1] != want[1] || got.argv[2] != want[2] {
 		t.Fatalf("opener argv = %v, want %v", got.argv, want)
+	}
+}
+
+// TestContinueRunPermissionFlag verifies the resume carries the same permission
+// mode the unattended run had: the task's explicit override wins, "default"
+// falls back to the global setting.
+func TestContinueRunPermissionFlag(t *testing.T) {
+	const flag = "--dangerously-skip-permissions"
+	cases := []struct {
+		name       string
+		perms      task.Permissions
+		globalSkip bool
+		want       bool
+	}{
+		{"task skips", task.PermissionsSkip, false, true},
+		{"default with global skip", task.PermissionsDefault, true, true},
+		{"default without global skip", task.PermissionsDefault, false, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			srv, got := continueFixture(t,
+				func(r *store.Run) {
+					tk := *r.Task
+					tk.Permissions = c.perms
+					r.Task = &tk
+				},
+				func(s *store.Settings) { s.SkipPermissionsDefault = c.globalSkip })
+			if r := do(t, srv, "POST", "/api/runs/r1/continue", nil); r.Status != http.StatusNoContent {
+				t.Fatalf("continue status = %d (%s)", r.Status, r.Body)
+			}
+			has := false
+			for _, a := range got.argv {
+				if a == flag {
+					has = true
+				}
+			}
+			if has != c.want {
+				t.Fatalf("argv %v: %s present = %t, want %t", got.argv, flag, has, c.want)
+			}
+		})
 	}
 }
 
@@ -532,7 +576,7 @@ func TestContinueRunGuards(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			srv, _ := continueFixture(t, c.mutate)
+			srv, _ := continueFixture(t, c.mutate, nil)
 			if r := do(t, srv, "POST", "/api/runs/r1/continue", nil); r.Status != c.status {
 				t.Fatalf("status = %d (%s), want %d", r.Status, r.Body, c.status)
 			}
@@ -541,7 +585,7 @@ func TestContinueRunGuards(t *testing.T) {
 }
 
 func TestContinueRunNotFound(t *testing.T) {
-	srv, _ := continueFixture(t, nil)
+	srv, _ := continueFixture(t, nil, nil)
 	if r := do(t, srv, "POST", "/api/runs/nope/continue", nil); r.Status != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", r.Status)
 	}

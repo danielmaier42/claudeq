@@ -368,7 +368,15 @@ func (s *server) continueRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, fmt.Errorf("the task's working directory is gone: %w", err))
 		return
 	}
-	argv := []string{s.claudeBin(), "--resume", run.SessionID}
+	cfg, err := s.d.Store.LoadConfig()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	argv := []string{claudeBin(cfg.Settings), "--resume", run.SessionID}
+	if resumeSkipsPermissions(run.Task, cfg.Settings) {
+		argv = append(argv, "--dangerously-skip-permissions")
+	}
 	if err := s.d.OpenTerminal(r.Context(), run.Task.WorkingDir, argv); err != nil {
 		writeErr(w, http.StatusBadGateway, err)
 		return
@@ -379,14 +387,28 @@ func (s *server) continueRun(w http.ResponseWriter, r *http.Request) {
 // claudeBin resolves the Claude Code binary for the resume command the same
 // way the daemon does for runs: explicit setting first, then auto-detection,
 // then a bare name for the interactive shell to resolve.
-func (s *server) claudeBin() string {
-	if cfg, err := s.d.Store.LoadConfig(); err == nil && cfg.Settings.ClaudePath != "" {
-		return cfg.Settings.ClaudePath
+func claudeBin(s store.Settings) string {
+	if s.ClaudePath != "" {
+		return s.ClaudePath
 	}
 	if p := executor.DetectBinary(); p != "" {
 		return p
 	}
 	return "claude"
+}
+
+// resumeSkipsPermissions mirrors the engine's per-run permission resolution
+// (task override first, then the global default), so the interactive resume
+// runs with the same authority the unattended run had.
+func resumeSkipsPermissions(t *task.Task, s store.Settings) bool {
+	switch t.Permissions {
+	case task.PermissionsSkip:
+		return true
+	case task.PermissionsDefault:
+		return s.SkipPermissionsDefault
+	default:
+		return false
+	}
 }
 
 // runView is a run plus its unread flag.
