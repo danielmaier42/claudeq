@@ -200,7 +200,7 @@ func TestRateLimitStaleResetFallsBackToBackoff(t *testing.T) {
 	// the gate immediately — fall back to the default backoff.
 	start := time.Date(2026, 7, 17, 14, 40, 0, 0, time.UTC)
 	fc := clock.NewFake(start)
-	r := &stub{result: func(req executor.Request, call int) executor.Result {
+	r := &stub{result: func(req executor.Request, _ int) executor.Result {
 		return executor.Result{Status: store.StatusRateLimited, SessionID: req.SessionID, ResetAt: start.Add(-time.Minute)}
 	}}
 	e, st := newTestEngine(t, r, fc)
