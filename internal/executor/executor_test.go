@@ -329,6 +329,49 @@ func TestRunRateLimited(t *testing.T) {
 	}
 }
 
+func TestRunRateLimitEventCarriesResetTime(t *testing.T) {
+	// A five-hour session-limit hit, as emitted by the real CLI: the
+	// rate_limit_event carries the absolute reset time (unix seconds), the
+	// synthetic assistant message the "rate_limit" error. ResetAt must surface
+	// on the result so the engine can wait for the actual reset instead of a
+	// blind backoff.
+	out := strings.Join([]string{
+		`{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1784655600,"rateLimitType":"five_hour","overageStatus":"rejected","isUsingOverage":false},"session_id":"real-sid"}`,
+		`{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text","text":"You've hit your session limit"}]},"error":"rate_limit","session_id":"real-sid"}`,
+		`{"type":"result","subtype":"success","is_error":true,"api_error_status":429,"result":"You've hit your session limit","session_id":"real-sid"}`,
+	}, "\n")
+	res := runFake(t, out, 1)
+	if res.Status != store.StatusRateLimited {
+		t.Fatalf("status = %q, want rate_limited_waiting", res.Status)
+	}
+	if want := time.Unix(1784655600, 0); !res.ResetAt.Equal(want) {
+		t.Fatalf("reset at = %v, want %v", res.ResetAt, want)
+	}
+}
+
+func TestRunRejectedRateLimitEventAloneClassifies(t *testing.T) {
+	// Even without a 429 or an error field elsewhere, a rejected
+	// rate_limit_event means the run is rate-limited.
+	out := `{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1784655600},"session_id":"real-sid"}`
+	res := runFake(t, out, 1)
+	if res.Status != store.StatusRateLimited {
+		t.Fatalf("status = %q, want rate_limited_waiting", res.Status)
+	}
+}
+
+func TestRunAllowedRateLimitEventDoesNotClassify(t *testing.T) {
+	// A non-rejected rate_limit_event (approaching-limit info) must not turn a
+	// successful run into a rate-limited one.
+	out := strings.Join([]string{
+		`{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1784655600},"session_id":"real-sid"}`,
+		`{"type":"result","subtype":"success","is_error":false,"result":"OK","session_id":"real-sid"}`,
+	}, "\n")
+	res := runFake(t, out, 0)
+	if res.Status != store.StatusSuccess {
+		t.Fatalf("status = %q, want success", res.Status)
+	}
+}
+
 func TestRunAuthError(t *testing.T) {
 	out := `{"type":"result","subtype":"error","is_error":true,"error":"authentication_failed"}`
 	res := runFake(t, out, 1)

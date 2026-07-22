@@ -157,6 +157,7 @@ type Result struct {
 	SessionID  string
 	ExitCode   int
 	RetryAfter time.Duration // set when Status == StatusRateLimited
+	ResetAt    time.Time     // absolute limit-reset time from a rate_limit_event; zero if not reported
 	Message    string        // short human-readable detail
 	ResultText string        // the final result text from the CLI, if any
 	Metrics    *Metrics      // cost/token/timing from the result event, if any
@@ -361,19 +362,29 @@ func cloneLine(b []byte) []byte {
 // streamEvent covers the fields we read from both the final `result` envelope
 // and intermediate `api_retry` system events. Unknown fields are ignored.
 type streamEvent struct {
-	Type           string       `json:"type"`
-	Subtype        string       `json:"subtype"`
-	IsError        bool         `json:"is_error"`
-	APIErrorStatus *int         `json:"api_error_status"`
-	ErrorStatus    *int         `json:"error_status"`
-	Error          string       `json:"error"`
-	RetryDelayMS   *int         `json:"retry_delay_ms"`
-	SessionID      string       `json:"session_id"`
-	ResultText     string       `json:"result"`
-	TotalCostUSD   float64      `json:"total_cost_usd"`
-	NumTurns       int          `json:"num_turns"`
-	DurationMS     int64        `json:"duration_ms"`
-	Usage          *usageTokens `json:"usage"`
+	Type           string         `json:"type"`
+	Subtype        string         `json:"subtype"`
+	IsError        bool           `json:"is_error"`
+	APIErrorStatus *int           `json:"api_error_status"`
+	ErrorStatus    *int           `json:"error_status"`
+	Error          string         `json:"error"`
+	RetryDelayMS   *int           `json:"retry_delay_ms"`
+	SessionID      string         `json:"session_id"`
+	ResultText     string         `json:"result"`
+	TotalCostUSD   float64        `json:"total_cost_usd"`
+	NumTurns       int            `json:"num_turns"`
+	DurationMS     int64          `json:"duration_ms"`
+	Usage          *usageTokens   `json:"usage"`
+	RateLimitInfo  *rateLimitInfo `json:"rate_limit_info"`
+}
+
+// rateLimitInfo is the payload of a `rate_limit_event` stream event. ResetsAt
+// is the absolute reset time as unix seconds; Status is "rejected" when the
+// request was actually blocked (as opposed to a mere approaching-limit
+// warning).
+type rateLimitInfo struct {
+	Status   string `json:"status"`
+	ResetsAt int64  `json:"resetsAt"`
 }
 
 type usageTokens struct {
@@ -388,6 +399,7 @@ type classifier struct {
 	rateLimit  bool
 	authError  bool
 	retryDelay time.Duration
+	resetAt    time.Time
 	resultText string
 	metrics    *Metrics
 }
@@ -415,6 +427,19 @@ func (c *classifier) consume(line []byte) {
 	if ev.RetryDelayMS != nil && *ev.RetryDelayMS > 0 {
 		c.retryDelay = time.Duration(*ev.RetryDelayMS) * time.Millisecond
 	}
+	if info := ev.RateLimitInfo; info != nil {
+		// A rejected request means we are actually rate-limited (a session-limit
+		// hit surfaces this way even when no 429/error field follows). Any
+		// rate_limit_event carries the window's absolute reset time — remember
+		// it so the engine can requeue for the real reset instead of a blind
+		// backoff.
+		if info.Status == "rejected" {
+			c.rateLimit = true
+		}
+		if info.ResetsAt > 0 {
+			c.resetAt = time.Unix(info.ResetsAt, 0)
+		}
+	}
 	if ev.Type == "result" {
 		c.sawResult = true
 		c.resultErr = ev.IsError
@@ -429,7 +454,7 @@ func (c *classifier) consume(line []byte) {
 }
 
 func (c *classifier) result(exitCode int) Result {
-	res := Result{SessionID: c.sessionID, ExitCode: exitCode, RetryAfter: c.retryDelay, ResultText: c.resultText, Metrics: c.metrics}
+	res := Result{SessionID: c.sessionID, ExitCode: exitCode, RetryAfter: c.retryDelay, ResetAt: c.resetAt, ResultText: c.resultText, Metrics: c.metrics}
 	switch {
 	case c.authError:
 		res.Status = store.StatusAuthError
