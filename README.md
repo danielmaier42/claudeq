@@ -217,7 +217,11 @@ echo "$USER ALL=(root) NOPASSWD: /usr/bin/pmset" | sudo tee /etc/sudoers.d/claud
 
 1. **New task** — give it a prompt, pick the working folder, and choose a trigger
    (as-soon-as-possible, earliest start, or cron). Optionally override the model
-   or permissions, or enable *parallel* / *notify on result*.
+   or permissions, or enable *parallel* / *notify on result*. The folder dialog
+   starts at the folder currently set for the task; if that folder no longer
+   exists it opens at the nearest existing parent, and at your home folder when
+   nothing is set — so a task whose folder was deleted or renamed can always be
+   pointed somewhere new.
 2. Leave it queued. The daemon runs it at the scheduled time (or overnight when
    the allowance resets).
 3. Check **Activity** for the outcome, open a run to read the full log, or replay
