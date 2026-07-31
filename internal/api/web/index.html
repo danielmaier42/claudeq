@@ -778,7 +778,12 @@ function extLabel(name,ct){ const m=String(name).match(/\.([a-z0-9]+)$/i); if(m)
 function canView(ct){ const k=artifactKind(ct); return k!=='other'; }
 function contentURL(a,download){ return '/api/artifacts/'+encodeURIComponent(a.id)+'/content'+(download?'?download=1':''); }
 function openArtifactExternal(a){ const url=location.origin+contentURL(a,false);
-  if(window.cqOpenExternal) window.cqOpenExternal(url); else window.open(url,'_blank','noopener'); }
+  if(window.cqOpenExternal) window.cqOpenExternal(url); else window.open(url,'_blank','noopener');
+  markReadOnOpen(a); }
+// Opening an artifact — in the in-app viewer or externally — counts as reading
+// it. The local flag is cleared first so a second open (e.g. "Open externally"
+// from an already-opened viewer) does not re-post and re-render the list.
+function markReadOnOpen(a){ if(!a||!a.unread) return; a.unread=false; readArtifact(a.id); }
 // Jump to Activity and open the log of the run that produced this artifact. The
 // run may have been pruned from history (artifacts outlive runs), so check first.
 async function openArtifactRun(a){
@@ -862,7 +867,7 @@ async function openViewer(a){
   const acts=$('#viewerActions'); acts.innerHTML='';
   const open=el('button','btn small','Open externally'); open.onclick=()=>openArtifactExternal(a); acts.append(open);
   $('#viewerSheet').showModal();
-  readArtifact(a.id);   // opening an artifact marks it read
+  markReadOnOpen(a);   // opening an artifact marks it read
 }
 // On close, clear the body (stops iframe playback/loading) only if no newer
 // viewer has since opened — deferred so a close-then-reopen keeps the new view.
