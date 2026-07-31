@@ -125,9 +125,9 @@ The nightly cycle looks like this:
   session (`claude --resume`), with the full context of everything the run did.
 - **Artifacts** — a task can publish a finished file (report, export, HTML page,
   PDF, …) with `claudeq publish`; it's copied into ClaudeQ and listed in a
-  central **Artifacts** view with an unread flag and mark-as-read, independent of
-  run history. HTML and PDF get an in-app viewer; anything opens externally. See
-  [below](#letting-a-task-publish-artifacts).
+  central **Artifacts** view with an unread flag, independent of run history.
+  HTML and PDF get an in-app viewer; anything opens externally — and opening one
+  marks it read. See [below](#letting-a-task-publish-artifacts).
 
 **Platform & distribution**
 
@@ -163,7 +163,8 @@ The dashboard (and the native window that wraps it) has five views:
 - **Artifacts** — files your tasks published, newest first, with an unread badge.
   Each shows its title, source task, file type, and size. **View** opens HTML,
   PDF, images, and text in an in-app viewer; **Open** opens any artifact in your
-  browser; mark one or all read, or delete (which removes the stored copy).
+  browser. Either way, opening an artifact marks it read automatically; you can
+  also mark one or all read by hand, or delete one (which removes the stored copy).
 - **Usage** — a per-day bar chart of runs, tokens, and cost for the last 14 days,
   plus totals and a 7-day summary.
 - **Settings** — global defaults and integrations (below). A red badge here means
@@ -299,10 +300,11 @@ claudeq publish --file report.html --title "Nightly summary" --description "…"
 
 The file is **copied into ClaudeQ** (a permanent snapshot — later changes to the
 original don't affect it) and appears in the **Artifacts** view, attributed to
-the task and run that produced it, with an unread flag. HTML and PDF open in an
-in-app viewer; any type can be opened in your browser. Artifacts are kept until
-you delete them, independent of run-history pruning. `--title` defaults to the
-file name; `--file` may be relative to the task's working directory.
+the task and run that produced it, with an unread flag that clears as soon as you
+open it. HTML and PDF open in an in-app viewer; any type can be opened in your
+browser. Artifacts are kept until you delete them, independent of run-history
+pruning. `--title` defaults to the file name; `--file` may be relative to the
+task's working directory.
 
 ## How scheduling and the limit gate behave
 
