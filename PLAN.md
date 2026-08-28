@@ -478,6 +478,28 @@ Post-phase refinements from real use:
   identity changes on every rebuild, so the prompt returns after a reinstall (and
   is simply re-allowed) — a stable Developer ID signature would make the grant
   persist across updates.
+- **CLI parity for reading and editing tasks** — the control CLI could create,
+  remove, reorder and enable/disable tasks, but never *show* or *change* one, so
+  adjusting a prompt outside the window meant hand-editing `config.toml` with no
+  validation and a real chance of clashing with the app's own writes.
+  `claudeq show ID` now prints every setting plus the complete prompt, and
+  `claudeq list --json` / `show --json` emit the same data structurally.
+  `claudeq edit ID` changes a task two ways. With flags it applies only what was
+  passed, so editing a prompt leaves the schedule alone; `--prompt-file` takes a
+  long brief from a file or stdin, and `--at`/`--cron` imply their trigger and
+  clear the timing fields that no longer apply. With no flags it opens the task
+  as a commented TOML document in `$EDITOR`: every setting visible, the prompt an
+  editable multi-line block, the id read-only, and the draft preserved on a
+  parse/validation failure. The mutation runs inside the store's `flock`ed
+  `UpdateConfig` (`app.EditTask`), so a concurrent write from the app is never
+  clobbered and an invalid edit leaves the stored task untouched.
+  `claudeq settings` grew from four flags to the full set the Settings view
+  offers (Claude path, heartbeat, idle timeout, run history, custom system
+  prompt, Pushover on/off) and prints all of them. It reports the Pushover
+  credentials only as configured/not: writing them is fine, echoing them into
+  terminal scrollback is not. The driver was external automation, so the README's
+  CLI section is now written to be the single document another tool or agent
+  needs to drive ClaudeQ.
 - Assorted UI fixes (Activity date filter + pagination, hover tooltip, Usage
   bar-chart layout and empty-bar handling).
 
