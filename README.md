@@ -23,6 +23,7 @@ update checks) ever leaves the machine.
 - [Install](#install)
 - [Using it](#using-it)
 - [Command-line interface](#command-line-interface)
+- [From another tool or agent](#from-another-tool-or-agent)
 - [Letting a task queue follow-up work](#letting-a-task-queue-follow-up-work)
 - [Letting a task publish artifacts](#letting-a-task-publish-artifacts)
 - [How scheduling and the limit gate behave](#how-scheduling-and-the-limit-gate-behave)
@@ -131,6 +132,10 @@ The nightly cycle looks like this:
 
 **Platform & distribution**
 
+- **Scriptable** — a bundled `claudeq` CLI does everything the window does. It
+  lists and inspects tasks, edits a prompt or any other setting, changes the
+  global settings, triggers a test run, and reads run history, with `--json`
+  output for other tools and agents. See [below](#command-line-interface).
 - **Native macOS** — its own app window, Dock icon, menu bar, About panel, and
   live system accent color; light/dark aware.
 - **Automatic updates** — checks GitHub for a newer release hourly and flags it
@@ -232,10 +237,38 @@ echo "$USER ALL=(root) NOPASSWD: /usr/bin/pmset" | sudo tee /etc/sudoers.d/claud
 
 ## Command-line interface
 
-Everything the app does is also available on the command line — useful for
-scripting or for driving the queue without the window. Both binaries ship inside
-the app bundle at `/Applications/ClaudeQ.app/Contents/MacOS/` (`claudeqd` and
-`claudeq`); add that directory to your `PATH` or call them by full path.
+Everything the app does is also available on the command line. You can list the
+queue, read and change a task's prompt and settings, edit the global settings,
+trigger a test run, and read run history. This section is written to stand on its
+own, so another tool or agent needs nothing else to drive ClaudeQ. See
+[From another tool or agent](#from-another-tool-or-agent).
+
+### Where the binaries are
+
+Both binaries ship **inside the app bundle**, and neither is on your `PATH`:
+
+```
+/Applications/ClaudeQ.app/Contents/MacOS/claudeq     # the control CLI
+/Applications/ClaudeQ.app/Contents/MacOS/claudeqd    # the daemon
+```
+
+Call them by full path:
+
+```sh
+/Applications/ClaudeQ.app/Contents/MacOS/claudeq list
+```
+
+…or put the directory on your `PATH` once:
+
+```sh
+export PATH="/Applications/ClaudeQ.app/Contents/MacOS:$PATH"
+```
+
+The rest of this section writes them as plain `claudeq` and `claudeqd`. Both work
+on the store under `~/Library/Application Support/claudeq` directly (override it
+with `CLAUDEQ_HOME`), so they work whether or not the app window is open. The
+running daemon re-reads the store on its next tick, so a change never needs a
+restart.
 
 ### `claudeqd` — the daemon
 
@@ -251,10 +284,16 @@ The installer runs `install` for you; you rarely need these directly.
 ### `claudeq` — the control CLI
 
 ```
-claudeq list                                   # show the queue
+claudeq list [--json]                          # show the queue
+claudeq show   ID [--json]                     # one task in full, prompt included
 claudeq add    --id ID --prompt P --dir DIR [--name N]
                [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR]
                [--model M] [--parallel] [--skip-permissions]
+claudeq edit   ID                              # open the whole task in $EDITOR
+claudeq edit   ID [--name N] [--prompt P | --prompt-file PATH] [--dir DIR]
+               [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR]
+               [--model M] [--parallel=BOOL] [--enabled=BOOL]
+               [--skip-permissions=BOOL] [--notify=BOOL]
 claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [--name N]
 claudeq publish --file PATH [--title T] [--description D]   # publish a file as an artifact
 claudeq rm ID
@@ -263,10 +302,100 @@ claudeq move   ID INDEX                        # 0 = highest priority
 claudeq run-now ID                             # run once, now, for testing
 claudeq status [--all]                         # recent runs; unread marked *
 claudeq read RUNID | claudeq read-all
-claudeq settings [--default-model M] [--skip-permissions=BOOL]
-                 [--pushover-token T] [--pushover-user U]
+claudeq settings [--json] [--default-model M] [--skip-permissions=BOOL]
+                 [--claude-path PATH] [--heartbeat-minutes N]
+                 [--idle-timeout-minutes N] [--max-run-history N]
+                 [--system-prompt S | --system-prompt-file PATH]
+                 [--pushover=BOOL] [--pushover-token T] [--pushover-user U]
 claudeq --version
 ```
+
+### Looking at the queue
+
+`claudeq list` prints one line per task in priority order, index 0 first:
+
+```
+#  ID              NAME            TRIGGER  WHEN         PARALLEL  ENABLED
+0  nightly-sweep   Nightly sweep   cron     0 3 * * *    false     true
+```
+
+Prompts are often pages long, so that table leaves them out. `claudeq show ID`
+prints every setting of one task and then its complete prompt. Add `--json` to
+either command for the same data as JSON, prompts included.
+
+### Editing a task
+
+`claudeq edit` changes a task that already exists. The id is fixed and cannot be
+changed. There are two ways to use it.
+
+**With flags.** Only the settings you pass are touched, everything else keeps its
+value. This is the form to use from a script or an agent.
+
+```sh
+claudeq edit nightly-sweep --prompt-file ./new-brief.md   # replace just the prompt
+claudeq edit nightly-sweep --cron "30 2 * * 1-5"          # reschedule
+claudeq edit nightly-sweep --model opus --notify=true     # per-task overrides
+claudeq edit nightly-sweep --enabled=false                # pause it
+```
+
+- `--prompt-file` reads the prompt from a file, or from stdin when you pass `-`.
+  That is the practical way to set a long prompt without fighting shell quoting.
+- `--at` implies `--trigger fixed` and `--cron` implies `--trigger cron`, so a
+  reschedule is one flag. Changing the trigger clears the timing fields that no
+  longer apply.
+- `--model ""` drops a per-task model override back to the global default.
+- Every edit is validated before it is written. An invalid cron, an unparseable
+  time, or an empty prompt fails with a message and leaves the task as it was.
+
+**Interactively.** `claudeq edit ID` with no flags opens the whole task as a
+commented TOML document in `$VISUAL` or `$EDITOR`, falling back to `vi`. Every
+setting is in there, and the prompt is an editable multi-line block. Save and
+close to apply; leave the file unchanged to cancel. If what you wrote does not
+parse or does not validate, nothing is written and the CLI tells you where it
+kept your draft. This form needs a terminal. Without one it stops and points you
+at the flags.
+
+### Global settings
+
+`claudeq settings` with no flags prints every global setting. With flags it
+changes the ones you name and prints the result. They are the same values as the
+app's [Settings](#settings) view.
+
+```sh
+claudeq settings                                        # show everything
+claudeq settings --default-model opus                   # global default model
+claudeq settings --claude-path /Users/me/.local/bin/claude
+claudeq settings --system-prompt-file ./house-style.md   # custom system prompt
+claudeq settings --idle-timeout-minutes 45 --max-run-history 1000
+claudeq settings --pushover=true --pushover-token T --pushover-user U
+```
+
+For the numeric settings `0` means "use the default". `--idle-timeout-minutes`
+also takes a negative value for "never kill a run", and `--max-run-history` for
+"keep every run". You can set the Pushover credentials here, but the CLI never
+prints them back; the output only says whether they are configured.
+
+## From another tool or agent
+
+This README is the whole interface. An external app or agent needs nothing but
+this document to work with ClaudeQ.
+
+- **Invoke it by full path.** `/Applications/ClaudeQ.app/Contents/MacOS/claudeq`
+  is not on `PATH`.
+- **Read with `--json`.** `claudeq list --json`, `claudeq show ID --json` and
+  `claudeq settings --json` emit structured output. The other commands print for
+  humans.
+- **Write with `edit`, `add`, `rm`, `enable`, `disable` and `move`** instead of
+  editing `config.toml` by hand. Those commands validate the change and write it
+  atomically alongside the app's own writes.
+- **Exit code 0 means success.** Any failure exits non-zero and writes the reason
+  to stderr, prefixed `claudeq:`.
+- **Test a change with `claudeq run-now ID`** rather than waiting for the
+  schedule.
+- A task that is itself a ClaudeQ run has two extra abilities, described below:
+  [queueing follow-up work](#letting-a-task-queue-follow-up-work) and
+  [publishing artifacts](#letting-a-task-publish-artifacts).
+- [Data on disk](#data-on-disk) lists the files these commands read and write.
 
 ## Letting a task queue follow-up work
 

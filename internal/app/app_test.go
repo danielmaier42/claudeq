@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/danielmaier42/claudeq/internal/store"
@@ -128,4 +129,52 @@ func equal(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+func TestEditTask(t *testing.T) {
+	s := openStore(t)
+	orig := task.Task{
+		ID: "one", Name: "One", Prompt: "p", WorkingDir: "/repo",
+		Trigger: task.TriggerASAP, Enabled: true, Permissions: task.PermissionsDefault,
+	}
+	if err := AddTask(s, orig); err != nil {
+		t.Fatalf("AddTask: %v", err)
+	}
+
+	if err := EditTask(s, "one", func(tk *task.Task) error {
+		tk.Prompt = "changed"
+		return nil
+	}); err != nil {
+		t.Fatalf("EditTask: %v", err)
+	}
+	cfg, err := s.LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Tasks[0].Prompt != "changed" {
+		t.Errorf("prompt = %q", cfg.Tasks[0].Prompt)
+	}
+
+	if err := EditTask(s, "missing", func(*task.Task) error { return nil }); err == nil {
+		t.Error("expected an error for an unknown task")
+	}
+	if err := EditTask(s, "one", func(tk *task.Task) error {
+		tk.ID = "renamed"
+		return nil
+	}); err == nil {
+		t.Error("expected an error when the id is changed")
+	}
+	if err := EditTask(s, "one", func(*task.Task) error {
+		return errors.New("boom")
+	}); err == nil {
+		t.Error("expected the apply error to propagate")
+	}
+	// None of the failures may have touched what is stored.
+	after, err := s.LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if len(after.Tasks) != 1 || after.Tasks[0].ID != "one" || after.Tasks[0].Prompt != "changed" {
+		t.Errorf("store disturbed by failed edits: %+v", after.Tasks)
+	}
 }

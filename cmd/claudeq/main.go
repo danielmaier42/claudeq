@@ -29,9 +29,15 @@ import (
 const usage = `claudeq - control the Claude Code task queue
 
 Usage:
-  claudeq list
+  claudeq list [--json]
+  claudeq show   ID [--json]       (one task in full, prompt included)
   claudeq add    --id ID --prompt P --dir DIR [--name N] [--trigger asap|fixed|cron]
                  [--at RFC3339] [--cron EXPR] [--model M] [--parallel] [--skip-permissions]
+  claudeq edit   ID                (open the whole task in $EDITOR)
+  claudeq edit   ID [--name N] [--prompt P | --prompt-file PATH] [--dir DIR]
+                 [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR] [--model M]
+                 [--parallel=BOOL] [--enabled=BOOL] [--skip-permissions=BOOL]
+                 [--notify=BOOL]  (only the flags you pass are changed)
   claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [--name N]
                  (queue a follow-up task; inherits the calling task's settings)
   claudeq publish --file PATH [--title T] [--description D]
@@ -42,8 +48,11 @@ Usage:
   claudeq run-now ID               (run once, now, for testing)
   claudeq status [--all]           (recent runs; unread marked *)
   claudeq read RUNID | claudeq read-all
-  claudeq settings [--default-model M] [--skip-permissions=BOOL]
-                   [--pushover-token T] [--pushover-user U]
+  claudeq settings [--json] [--default-model M] [--skip-permissions=BOOL]
+                   [--claude-path PATH] [--heartbeat-minutes N]
+                   [--idle-timeout-minutes N] [--max-run-history N]
+                   [--system-prompt S | --system-prompt-file PATH]
+                   [--pushover=BOOL] [--pushover-token T] [--pushover-user U]
   claudeq --version`
 
 func main() {
@@ -71,7 +80,11 @@ func run(args []string) error {
 	cmd, rest := args[0], args[1:]
 	switch cmd {
 	case "list":
-		return cmdList(st)
+		return cmdList(st, rest)
+	case "show":
+		return cmdShow(st, rest)
+	case "edit":
+		return cmdEdit(st, rest)
 	case "add":
 		return cmdAdd(st, rest)
 	case "queue":
@@ -117,10 +130,21 @@ func withID(args []string, fn func(string) error) error {
 	return fn(args[0])
 }
 
-func cmdList(st *store.Store) error {
+func cmdList(st *store.Store, args []string) error {
+	fs := flag.NewFlagSet("list", flag.ContinueOnError)
+	asJSON := fs.Bool("json", false, "print the tasks as JSON, prompts included")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 	cfg, err := st.LoadConfig()
 	if err != nil {
 		return err
+	}
+	if *asJSON {
+		if cfg.Tasks == nil {
+			cfg.Tasks = []task.Task{}
+		}
+		return printJSON(cfg.Tasks)
 	}
 	if len(cfg.Tasks) == 0 {
 		fmt.Println("no tasks")
@@ -420,7 +444,7 @@ func cmdMove(st *store.Store, args []string) error {
 	if err := app.Move(st, args[0], to); err != nil {
 		return err
 	}
-	return cmdList(st)
+	return cmdList(st, nil)
 }
 
 func cmdRunNow(st *store.Store, id string) error {
@@ -496,47 +520,5 @@ func cmdStatus(st *store.Store, args []string) error {
 		return err
 	}
 	fmt.Printf("\n%d unread\n", unread)
-	return nil
-}
-
-func cmdSettings(st *store.Store, args []string) error {
-	cfg, err := st.LoadConfig()
-	if err != nil {
-		return err
-	}
-
-	fs := flag.NewFlagSet("settings", flag.ContinueOnError)
-	model := fs.String("default-model", "", "global default model")
-	skip := fs.Bool("skip-permissions", false, "global skip-permissions default")
-	poToken := fs.String("pushover-token", "", "Pushover API token")
-	poUser := fs.String("pushover-user", "", "Pushover user key")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-
-	changed := false
-	fs.Visit(func(f *flag.Flag) {
-		changed = true
-		switch f.Name {
-		case "default-model":
-			cfg.Settings.DefaultModel = *model
-		case "skip-permissions":
-			cfg.Settings.SkipPermissionsDefault = *skip
-		case "pushover-token":
-			cfg.Settings.Pushover.Token = *poToken
-		case "pushover-user":
-			cfg.Settings.Pushover.UserKey = *poUser
-		}
-	})
-
-	if changed {
-		if err := st.SaveConfig(cfg); err != nil {
-			return err
-		}
-	}
-
-	fmt.Printf("default_model:            %q\n", cfg.Settings.DefaultModel)
-	fmt.Printf("skip_permissions_default: %t\n", cfg.Settings.SkipPermissionsDefault)
-	fmt.Printf("pushover configured:      %t\n", cfg.Settings.Pushover.Token != "" && cfg.Settings.Pushover.UserKey != "")
 	return nil
 }

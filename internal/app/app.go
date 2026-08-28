@@ -34,6 +34,27 @@ func RemoveTask(s *store.Store, id string) error {
 	})
 }
 
+// EditTask applies a change to one existing task in place. The mutation runs
+// inside the store's atomic update, so a concurrent edit from the app or another
+// CLI call is never clobbered. The task id is fixed: apply must not change it.
+func EditTask(s *store.Store, id string, apply func(*task.Task) error) error {
+	return s.UpdateConfig(func(cfg *store.Config) error {
+		idx := indexOf(cfg.Tasks, id)
+		if idx < 0 {
+			return fmt.Errorf("task %q not found", id)
+		}
+		edited := cfg.Tasks[idx]
+		if err := apply(&edited); err != nil {
+			return err
+		}
+		if edited.ID != id {
+			return fmt.Errorf("task id cannot be changed (%q -> %q)", id, edited.ID)
+		}
+		cfg.Tasks[idx] = edited
+		return nil
+	})
+}
+
 // SetEnabled activates or pauses a task without deleting it (FA-17).
 func SetEnabled(s *store.Store, id string, enabled bool) error {
 	return s.UpdateConfig(func(cfg *store.Config) error {
