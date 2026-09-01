@@ -211,5 +211,5 @@ func inodeOf(t *testing.T, path string) uint64 {
 	if !ok {
 		t.Skip("no inode information on this platform")
 	}
-	return uint64(sys.Ino)
+	return sys.Ino
 }
