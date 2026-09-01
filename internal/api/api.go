@@ -53,6 +53,9 @@ type Deps struct {
 	ChooseFolder FolderChooser   // optional; enables the native folder dialog
 	ActiveTasks  func() []string // optional; ids of currently-running tasks (hidden from the queue)
 	WakeError    func() string   // optional; last scheduled-wake error ("" if healthy)
+	// NotifyStatus reports whether macOS will actually show notifications
+	// (notify.MacAuthorization). Optional; empty means "don't know".
+	NotifyStatus func() string
 	// WarmFileAccess reads the given directories so macOS raises its file-access
 	// consent prompt now — called right after a task is created or its folder
 	// changed, while the user is present. Optional.
@@ -617,14 +620,22 @@ func (s *server) listModels(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, fallbackModels)
 }
 
-// getHealth reports daemon health the UI can warn about — currently whether
-// scheduled-wake setup is working.
+// getHealth reports daemon health the UI can warn about: whether scheduled-wake
+// setup is working, and whether macOS is set to show ClaudeQ's notifications at
+// all (a denied app posts into the void).
 func (s *server) getHealth(w http.ResponseWriter, _ *http.Request) {
 	wakeErr := ""
 	if s.d.WakeError != nil {
 		wakeErr = s.d.WakeError()
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"wake_error": wakeErr})
+	notifyStatus := ""
+	if s.d.NotifyStatus != nil {
+		notifyStatus = s.d.NotifyStatus()
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"wake_error":    wakeErr,
+		"notify_status": notifyStatus,
+	})
 }
 
 // whichClaude reports the auto-detected Claude Code binary path so the GUI can

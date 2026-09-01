@@ -74,6 +74,11 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 	<key>NSHighResolutionCapable</key><true/>
 	<key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
 	<key>LSUIElement</key><false/>
+	<!-- Ask macOS to default ClaudeQ's notifications to the alert style, which
+	     stays on screen until it is clicked (banners vanish on their own). It is
+	     only the default for a fresh install: once macOS has an entry for the app,
+	     System Settings > Notifications is what decides. -->
+	<key>NSUserNotificationAlertStyle</key><string>alert</string>
 </dict>
 </plist>
 PLIST

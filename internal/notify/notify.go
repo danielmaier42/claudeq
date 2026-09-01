@@ -18,6 +18,10 @@ import (
 type Notification struct {
 	Title   string
 	Message string
+	// ArtifactID, when set, makes the macOS notification open that artifact in
+	// the ClaudeQ window on click (see cmd/claudeqapp, notifyclick_cocoa.m).
+	// Channels that cannot carry a click target ignore it.
+	ArtifactID string
 }
 
 // Notifier delivers a notification.
@@ -37,7 +41,7 @@ type Mac struct {
 // notifications show a generic script icon but always work from a LaunchAgent.
 func (m Mac) Notify(ctx context.Context, n Notification) error {
 	if nativeNotifyAvailable() {
-		if err := postNativeNotification(n.Title, n.Message); err == nil {
+		if err := postNativeNotification(n.Title, n.Message, n.ArtifactID); err == nil {
 			return nil
 		}
 		// fall through to osascript on failure
@@ -57,6 +61,31 @@ func RequestMacAuthorization() {
 	if nativeNotifyAvailable() {
 		requestNativeAuth()
 	}
+}
+
+// Authorization states reported by [MacAuthorization]. Only AuthorizationAllowed
+// (and AuthorizationProvisional) actually put a notification on screen: macOS
+// accepts and stores the others, then presents them as nothing.
+const (
+	AuthorizationAllowed       = "authorized"
+	AuthorizationDenied        = "denied"
+	AuthorizationNotDetermined = "not_determined"
+	AuthorizationProvisional   = "provisional"
+	AuthorizationUnknown       = "unknown"
+	// AuthorizationUnsupported means the question cannot be asked: not macOS, or
+	// not running from the app bundle (a bare dev binary uses osascript, which
+	// has no authorization of its own).
+	AuthorizationUnsupported = "unsupported"
+)
+
+// MacAuthorization reports whether macOS will show this app's notifications, so
+// the UI can point out that alerts are being swallowed instead of leaving the
+// operator to wonder why nothing arrives.
+func MacAuthorization() string {
+	if !nativeNotifyAvailable() {
+		return AuthorizationUnsupported
+	}
+	return nativeAuthorizationStatus()
 }
 
 // asString renders a Go string as an AppleScript double-quoted string literal.

@@ -147,6 +147,7 @@ func cmdRun(args []string) error {
 			ChooseFolder: api.OSAScriptFolderChooser(system.Real{}), ActiveTasks: eng.ActiveTaskIDs,
 			OpenTerminal: api.OSAScriptTerminalOpener(system.Real{}),
 			WakeError:    eng.WakeError, WarmFileAccess: warmFileAccess, Updates: updSvc,
+			NotifyStatus: notify.MacAuthorization,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}

@@ -112,3 +112,18 @@ func TestMultiFansOutAndJoinsErrors(t *testing.T) {
 		t.Fatalf("expected joined error, got %v", err)
 	}
 }
+
+// A click target is a macOS-only extra. The osascript fallback cannot carry it,
+// and it must not end up in the visible text of any channel.
+func TestArtifactIDStaysOutOfTheMessageText(t *testing.T) {
+	r := &recordRunner{}
+	m := Mac{Runner: r}
+	if err := m.Notify(context.Background(), Notification{
+		Title: "ClaudeQ", Message: "New artifact", ArtifactID: "a-20260901T030000-abc",
+	}); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	if strings.Contains(r.args[2], "a-20260901T030000-abc") {
+		t.Fatalf("artifact id leaked into the osascript text: %s", r.args[2])
+	}
+}

@@ -311,6 +311,38 @@ func TestHealthReportsWakeError(t *testing.T) {
 	}
 }
 
+func TestHealthReportsNotifyStatus(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(Handler(Deps{Store: st, NotifyStatus: func() string { return "denied" }}))
+	t.Cleanup(srv.Close)
+
+	var got map[string]string
+	do(t, srv, "GET", "/api/health", nil).into(t, &got)
+	if got["notify_status"] != "denied" {
+		t.Fatalf("notify_status = %q, want the dep's value", got["notify_status"])
+	}
+}
+
+// Without the dep (a build that cannot ask macOS) health must still answer, with
+// an empty status rather than a made-up one.
+func TestHealthWithoutNotifyStatusDep(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(Handler(Deps{Store: st}))
+	t.Cleanup(srv.Close)
+
+	var got map[string]string
+	do(t, srv, "GET", "/api/health", nil).into(t, &got)
+	if got["notify_status"] != "" {
+		t.Fatalf("notify_status = %q, want empty", got["notify_status"])
+	}
+}
+
 func TestAddInvalidTaskRejected(t *testing.T) {
 	srv, _ := newServer(t, nil)
 	bad := sampleTask("x")

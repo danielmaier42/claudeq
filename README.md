@@ -116,7 +116,9 @@ The nightly cycle looks like this:
 
 - **Notifications** — native macOS notifications, plus optional
   [Pushover](https://pushover.net) push to your phone. Failures and auth problems
-  always notify; successes notify only if the task opts in.
+  always notify; successes notify only if the task opts in. Every published
+  artifact is announced too, and **clicking that notification opens the artifact**
+  right in the window.
 - **Usage insight** — tokens, runs, and API-equivalent cost per day (what the
   same work would have cost through the API), over the last 14 days.
 - **Full history** — every run is kept with its complete log, viewable as a chat
@@ -128,7 +130,8 @@ The nightly cycle looks like this:
   PDF, …) with `claudeq publish`; it's copied into ClaudeQ and listed in a
   central **Artifacts** view with an unread flag, independent of run history.
   HTML and PDF get an in-app viewer; anything opens externally — and opening one
-  marks it read. See [below](#letting-a-task-publish-artifacts).
+  marks it read. Each publish also raises a notification that opens the artifact
+  when clicked. See [below](#letting-a-task-publish-artifacts).
 
 **Platform & distribution**
 
@@ -170,6 +173,8 @@ The dashboard (and the native window that wraps it) has five views:
   PDF, images, and text in an in-app viewer; **Open** opens any artifact in your
   browser. Either way, opening an artifact marks it read automatically; you can
   also mark one or all read by hand, or delete one (which removes the stored copy).
+  Clicking the notification of a newly published artifact lands here with that
+  artifact already open.
 - **Usage** — a per-day bar chart of runs, tokens, and cost for the last 14 days,
   plus totals and a 7-day summary.
 - **Settings** — global defaults and integrations (below). A red badge here means
@@ -189,6 +194,7 @@ The dashboard is also reachable in a normal browser at
 | **System prompt** | Custom system prompt | Extra instructions appended to every run after the built-in prompt. |
 | **Reliability** | Stop a run with no output for | Idle-timeout watchdog: kills a hung run (default 30 min; a working run keeps streaming and is unaffected; Off disables it). |
 | | Keep run history | How many runs (and their logs) to retain before pruning (default 500; Unlimited keeps everything). |
+| **Notifications · macOS** | Alerts that wait for you | Opens System Settings → Notifications, where ClaudeQ's alert style lives: *Banners* disappear on their own, *Alerts* stay until you click them. |
 | **Notifications · Pushover** | Send to Pushover | Toggle plus API token and user key for phone push. |
 | **About** | Version / Software updates | Current version and a manual "Check for updates" button. |
 
@@ -210,6 +216,11 @@ You'll also see two normal macOS prompts by design: **Allow notifications?** on
 first launch, and **allow access to your Documents?** the first time a task's
 folder is in a protected location (Documents, Desktop, Downloads). Allow both so
 unattended runs aren't blocked.
+
+macOS, not ClaudeQ, decides how long a notification stays on screen. ClaudeQ asks
+for the **Alerts** style, which waits until you click it — but if macOS already
+knows the app (or overrides it), set it under **System Settings → Notifications →
+ClaudeQ → Alerts**. Settings has a button that opens that pane directly.
 
 To run tasks past a scheduled sleep, ClaudeQ schedules wakes with `pmset`, which
 needs one sudoers entry (the daemon prints the exact line on install, and the
@@ -430,7 +441,11 @@ claudeq publish --file report.html --title "Nightly summary" --description "…"
 The file is **copied into ClaudeQ** (a permanent snapshot — later changes to the
 original don't affect it) and appears in the **Artifacts** view, attributed to
 the task and run that produced it, with an unread flag that clears as soon as you
-open it. HTML and PDF open in an in-app viewer; any type can be opened in your
+open it. Each publish also raises a notification (macOS, plus Pushover when it is
+configured); clicking the macOS one brings up ClaudeQ with that artifact open — in
+the in-app viewer for HTML, PDF, images and text, in your browser for anything
+else. Artifacts that were already there when this version first ran are not
+announced retroactively. HTML and PDF open in an in-app viewer; any type can be opened in your
 browser. Artifacts are kept until you delete them, independent of run-history
 pruning. `--title` defaults to the file name; `--file` may be relative to the
 task's working directory.
@@ -465,7 +480,7 @@ Everything lives under `~/Library/Application Support/claudeq` (override with th
 | `runs/<run-id>.log` | Full log for each run. |
 | `artifacts.json` | Index of published artifacts (title, source task/run, file name, size, type). |
 | `artifacts/<id>/<file>` | The published files themselves (snapshots copied at publish time). |
-| `state.json` | Machine bookkeeping: read/unread flags (runs and artifacts), cron anchors, pending-resume sessions, dismissed update version. |
+| `state.json` | Machine bookkeeping: read/unread flags (runs and artifacts), which artifacts have been notified about, cron anchors, pending-resume sessions, dismissed update version. |
 | `claudeqd.out.log` / `claudeqd.err.log` | Daemon stdout/stderr. |
 
 The LaunchAgent itself is at
