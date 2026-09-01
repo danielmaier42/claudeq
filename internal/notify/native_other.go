@@ -10,4 +10,8 @@ func nativeNotifyAvailable() bool { return false }
 
 func requestNativeAuth() {}
 
-func postNativeNotification(_, _ string) error { return errors.New("native notifications unsupported") }
+func nativeAuthorizationStatus() string { return AuthorizationUnsupported }
+
+func postNativeNotification(_, _, _ string) error {
+	return errors.New("native notifications unsupported")
+}

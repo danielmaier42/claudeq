@@ -90,3 +90,39 @@ func TestArtifactReadState(t *testing.T) {
 		t.Fatal("forgotten artifact should be unread again")
 	}
 }
+
+func TestArtifactNotifyState(t *testing.T) {
+	s := openTemp(t)
+	if err := s.UpdateState(func(st *State) error {
+		if st.IsArtifactNotifyPrimed() {
+			t.Fatal("a fresh state must not be primed")
+		}
+		st.PrimeArtifactNotify([]string{"a", "b"})
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateState: %v", err)
+	}
+
+	st, err := s.LoadState()
+	if err != nil {
+		t.Fatalf("LoadState: %v", err)
+	}
+	if !st.IsArtifactNotifyPrimed() {
+		t.Fatal("primed flag should survive a round trip")
+	}
+	for _, id := range []string{"a", "b"} {
+		if !st.IsArtifactNotified(id) {
+			t.Fatalf("priming should mark %q as notified", id)
+		}
+	}
+	if st.IsArtifactNotified("c") {
+		t.Fatal("an unknown artifact must not count as notified")
+	}
+
+	st.MarkArtifactNotified("c")
+	st.MarkArtifactRead("c")
+	st.ForgetArtifact("c")
+	if st.IsArtifactNotified("c") || st.IsArtifactRead("c") {
+		t.Fatal("deleting an artifact should drop both its read- and notified-status")
+	}
+}

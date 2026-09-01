@@ -500,6 +500,35 @@ Post-phase refinements from real use:
   terminal scrollback is not. The driver was external automation, so the README's
   CLI section is now written to be the single document another tool or agent
   needs to drive ClaudeQ.
+- **Artifact notifications with click-to-open** — an artifact was only visible if
+  the operator went looking for it. Every publish is now announced: the daemon
+  re-reads `artifacts.json` on each tick and notifies for anything not yet
+  notified (`notified_artifacts` + `artifact_notify_primed` in `state.json`; the
+  first pass primes the existing list so an upgrade doesn't replay the backlog,
+  and marks before sending so a broken channel costs one message, not a message
+  per tick). The macOS notification carries the artifact id in its `userInfo`, and
+  `claudeqapp` registers as the bundle's `UNUserNotificationCenter` delegate
+  **before** `webview.New` (which runs the launch cycle) so a click that launched
+  the app is still delivered; the id is parked in a one-slot mailbox that the page
+  drains via `cqTakePendingArtifact` on load or on a nudge, so a click during
+  startup and a click while the window is open both open exactly once
+  (`window.cqOpenArtifact` → Artifacts view + in-app viewer, or the browser for
+  types without one).
+  **The real finding from verifying this on the maintainer's Mac:** ClaudeQ's
+  notification authorization was `Denied`, so *every* notification the daemon had
+  posted for months was accepted, stored and then "presented as none" — nothing
+  ever reached the screen (visible only in the unified log, never from the app's
+  side). Cause: `RequestMacAuthorization` was only called from `claudeqd`, a
+  background LaunchAgent that cannot present the system prompt (the request
+  returns `didGrant: 0 hasError: 1`). It is now requested from `claudeqapp`, the
+  foreground app, where macOS can actually show the prompt; and because a denial
+  cannot be re-prompted, `GET /api/health` exposes `notify_status`
+  (`notify.MacAuthorization`) and the dashboard shows a warning bar with a button
+  that opens System Settings → Notifications, rather than letting the operator
+  assume silence means "nothing happened". How long an alert stays on screen is
+  macOS' setting, not the app's: `Info.plist` asks for the alert style
+  (`NSUserNotificationAlertStyle`), which is the default for a fresh install only,
+  so Settings and the README point at the System Settings toggle.
 - Assorted UI fixes (Activity date filter + pagination, hover tooltip, Usage
   bar-chart layout and empty-bar handling).
 

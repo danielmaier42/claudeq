@@ -18,12 +18,21 @@ import (
 	"time"
 
 	webview "github.com/webview/webview_go"
+
+	"github.com/danielmaier42/claudeq/internal/notify"
 )
 
 const dashboardURL = "http://127.0.0.1:8765"
 
+// systemSettingsScheme is the URL scheme that opens a System Settings pane.
+const systemSettingsScheme = "x-apple.systempreferences:"
+
 func main() {
 	runtime.LockOSThread()
+	// Claim notification clicks before anything else: webview.New runs the app's
+	// launch cycle, and a click that launched ClaudeQ is only delivered to a
+	// delegate that was already in place by then.
+	installNotifyDelegate()
 	ensureDaemon()
 
 	// Opening the window is a reliable "user is present" moment, so ask the daemon
@@ -34,6 +43,12 @@ func main() {
 
 	w := webview.New(false)
 	defer w.Destroy()
+
+	// Ask for notification permission from here, not from the daemon: this is the
+	// foreground app, so macOS can actually put the prompt on screen. A request
+	// from the background LaunchAgent errors out and leaves the app unauthorized,
+	// which silently swallows every notification it posts.
+	notify.RequestMacAuthorization()
 	w.SetTitle("ClaudeQ")
 	w.SetSize(1120, 760, webview.HintNone)
 
@@ -45,11 +60,22 @@ func main() {
 	)
 
 	// Open external (http/https) links in the default browser — WKWebView won't
-	// open target=_blank links on its own.
+	// open target=_blank links on its own. The System Settings scheme is allowed
+	// too, so the Settings view can send the operator straight to the macOS
+	// notification preferences.
 	_ = w.Bind("cqOpenExternal", func(u string) {
-		if strings.HasPrefix(u, "https://") || strings.HasPrefix(u, "http://") {
+		if strings.HasPrefix(u, "https://") || strings.HasPrefix(u, "http://") ||
+			strings.HasPrefix(u, systemSettingsScheme) {
 			_ = exec.Command("open", u).Start()
 		}
+	})
+
+	// Clicking a "new artifact" notification opens that artifact in the window.
+	// The id is fetched by the page (not pushed) so that a click during launch —
+	// before the page exists — is picked up as soon as it has loaded.
+	_ = w.Bind("cqTakePendingArtifact", takePendingArtifact)
+	onNotificationClick(func() {
+		w.Dispatch(func() { w.Eval("window.cqOpenPendingArtifact && window.cqOpenPendingArtifact()") })
 	})
 
 	// Expose the current accent to the page and (re)apply it on each load.
@@ -59,8 +85,15 @@ func main() {
 			var r = document.documentElement.style;
 			if (hex) r.setProperty('--accent', hex); else r.removeProperty('--accent');
 		};
+		window.cqOpenPendingArtifact = async function(){
+			try {
+				var id = await window.cqTakePendingArtifact();
+				if (id && window.cqOpenArtifact) window.cqOpenArtifact(id);
+			} catch (e) {}
+		};
 		window.addEventListener('DOMContentLoaded', async function(){
 			try { window.cqApplyAccent(await window.cqReadAccent()); } catch (e) {}
+			window.cqOpenPendingArtifact();
 		});
 	`)
 

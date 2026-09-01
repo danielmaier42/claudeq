@@ -76,9 +76,11 @@ type Engine struct {
 	newSessionID func() string
 	backoff      time.Duration
 	waker        Waker
-	lastWakeErr  string                 // loop-local, for once-only logging
-	wakeErr      atomic.Pointer[string] // exposed to the API (thread-safe)
-	notifier     notify.Notifier
+	lastWakeErr  string // loop-local, for once-only logging
+	// lastArtifactErr is loop-local too (see notifyNewArtifacts).
+	lastArtifactErr string
+	wakeErr         atomic.Pointer[string] // exposed to the API (thread-safe)
+	notifier        notify.Notifier
 
 	runCtx    context.Context
 	runCancel context.CancelFunc
@@ -492,6 +494,9 @@ func (e *Engine) Loop(ctx context.Context, interval time.Duration) error {
 			e.WaitIdle()
 			return err
 		}
+		// Artifacts are published by the task's own claudeq CLI call, so the
+		// daemon learns about them by re-reading the list each tick.
+		e.notifyNewArtifacts()
 		if e.waker != nil {
 			// Wake scheduling is best-effort (needs root); never fatal. Log a
 			// given failure only once to avoid spamming on every tick.

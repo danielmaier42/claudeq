@@ -12,6 +12,14 @@ type State struct {
 	// ReadArtifacts maps an artifact id to true once it has been read. An
 	// artifact absent from this map is unread (FA-A2).
 	ReadArtifacts map[string]bool `json:"read_artifacts"`
+	// NotifiedArtifacts maps an artifact id to true once its "new artifact"
+	// notification has been sent, so the daemon notifies exactly once per
+	// published artifact even though it re-reads the list on every tick.
+	NotifiedArtifacts map[string]bool `json:"notified_artifacts"`
+	// ArtifactNotifyPrimed records that the daemon has taken stock of the
+	// artifacts that already existed when it first started watching. Without it
+	// an upgrade (or a fresh state file) would notify for the whole backlog.
+	ArtifactNotifyPrimed bool `json:"artifact_notify_primed"`
 	// LastStarted maps a task id to the start time of its most recent run,
 	// used to compute the next cron occurrence (FA-18).
 	LastStarted map[string]time.Time `json:"last_started"`
@@ -39,6 +47,9 @@ func (s *State) ensureMaps() {
 	}
 	if s.ReadArtifacts == nil {
 		s.ReadArtifacts = map[string]bool{}
+	}
+	if s.NotifiedArtifacts == nil {
+		s.NotifiedArtifacts = map[string]bool{}
 	}
 	if s.LastStarted == nil {
 		s.LastStarted = map[string]time.Time{}
@@ -77,8 +88,35 @@ func (s *State) MarkAllArtifactsRead(ids []string) {
 	}
 }
 
-// ForgetArtifact drops an artifact's read-status (used when it is deleted).
-func (s *State) ForgetArtifact(id string) { delete(s.ReadArtifacts, id) }
+// ForgetArtifact drops an artifact's read- and notified-status (used when it is
+// deleted), so state.json does not accumulate entries for artifacts that are
+// long gone.
+func (s *State) ForgetArtifact(id string) {
+	delete(s.ReadArtifacts, id)
+	delete(s.NotifiedArtifacts, id)
+}
+
+// IsArtifactNotified reports whether the "new artifact" notification for an
+// artifact has already been sent.
+func (s *State) IsArtifactNotified(id string) bool { return s.NotifiedArtifacts[id] }
+
+// MarkArtifactNotified records that an artifact has been notified about.
+func (s *State) MarkArtifactNotified(id string) { s.NotifiedArtifacts[id] = true }
+
+// PrimeArtifactNotify marks the given artifacts as already notified without
+// sending anything and flips ArtifactNotifyPrimed. It is called once, the first
+// time the daemon looks at the artifact list, so the artifacts published before
+// this feature existed stay silent while every later one notifies.
+func (s *State) PrimeArtifactNotify(ids []string) {
+	for _, id := range ids {
+		s.NotifiedArtifacts[id] = true
+	}
+	s.ArtifactNotifyPrimed = true
+}
+
+// IsArtifactNotifyPrimed reports whether the pre-existing artifacts have been
+// taken stock of (see PrimeArtifactNotify).
+func (s *State) IsArtifactNotifyPrimed() bool { return s.ArtifactNotifyPrimed }
 
 // RecordStart records that a task started at t.
 func (s *State) RecordStart(taskID string, t time.Time) {

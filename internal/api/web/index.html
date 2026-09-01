@@ -275,6 +275,7 @@
   </div>
   <div class="content"><div class="wrap">
     <div id="wakeWarn" class="warnbar" hidden></div>
+    <div id="notifWarn" class="warnbar" hidden></div>
     <section id="tasks" class="tab"></section>
     <section id="news" class="tab" hidden></section>
     <section id="artifacts" class="tab" hidden></section>
@@ -873,6 +874,18 @@ async function openViewer(a){
 // viewer has since opened — deferred so a close-then-reopen keeps the new view.
 $('#viewerSheet').addEventListener('close',()=>{ const gen=viewerGen;
   setTimeout(()=>{ if(gen===viewerGen && !$('#viewerSheet').open) $('#viewerBody').innerHTML=''; },0); });
+// Open one artifact by id. This is what a click on a "new artifact"
+// notification ends up calling (the app window pushes the id in from
+// cqOpenPendingArtifact): show the Artifacts view, then open the artifact
+// itself — in the in-app viewer when its type has one, otherwise in the
+// browser. If it is already gone, the view alone is the fallback.
+window.cqOpenArtifact=async function(id){
+  select('artifacts');
+  let arts; try{ arts=await api('GET','/api/artifacts'); }catch(e){ toast(e.message,'err'); return; }
+  const a=arts.find(x=>x.id===id);
+  if(!a){ toast('That artifact is no longer available','err'); return; }
+  if(canView(a.content_type)) openViewer(a); else openArtifactExternal(a);
+};
 async function readArtifact(id){ try{ await api('POST','/api/artifacts/'+encodeURIComponent(id)+'/read'); }catch{} artifactsSig=''; loadArtifacts(); }
 async function markAllArtifactsRead(){ try{ await api('POST','/api/artifacts/read-all'); toast('All marked read','ok'); artifactsSig=''; loadArtifacts();}catch(e){toast(e.message,'err');} }
 async function deleteArtifact(a){ if(await confirmSheetAsk('Delete artifact “'+a.title+'”? This removes the stored copy.')){ try{ await api('DELETE','/api/artifacts/'+encodeURIComponent(a.id)); toast('Deleted','ok'); artifactsSig=''; loadArtifacts();}catch(e){toast(e.message,'err');} } }
@@ -920,6 +933,12 @@ async function loadSettings(){
       <div class="row"><div class="grow"><div class="title">Keep run history</div><div class="sub">Older runs and their logs are pruned</div></div>
         <select id="s-hist" style="max-width:170px">${optionsFor([[100,'100 runs'],[500,'500 runs'],[1000,'1000 runs'],[-1,'Unlimited']], histVal, n=>n+' runs')}</select></div>
     </div>
+    <div class="section-label">Notifications · macOS</div>
+    <div class="group">
+      <div class="row"><div class="grow"><div class="title">Keep alerts on screen</div>
+        <div class="sub">macOS decides how long a notification lingers — pick Alerts, not Banners</div></div>
+        <button class="btn" id="s-notif-settings">Open System Settings</button></div>
+    </div>
     <div class="section-label">Notifications · Pushover</div>
     <div class="group">
       <div class="row"><div class="grow"><div class="title">Send to Pushover</div><div class="sub">Push run alerts to your phone</div></div>
@@ -946,9 +965,18 @@ async function loadSettings(){
   $('#s-claude').value=s.claude_path||'';
   $('#s-sysprompt').value=s.system_prompt||'';
   $('#s-check-updates').onclick=checkForUpdates;
+  $('#s-notif-settings').onclick=openNotificationSettings;
   renderUpdateBox(); renderVersionRow();
   // Pre-fill the detected path when unset, so the user can just Save it.
   if(!s.claude_path){ try{ const w=await api('GET','/api/claude/which'); if(w.path) $('#s-claude').value=w.path; }catch{} }
+}
+// Jump to macOS' notification settings, where the alert style lives (Banners
+// disappear on their own, Alerts wait for a click). Only the app window can open
+// a System Settings URL — in a browser tab we just say where to look.
+function openNotificationSettings(){
+  const url='x-apple.systempreferences:com.apple.Notifications-Settings.extension';
+  if(window.cqOpenExternal) window.cqOpenExternal(url);
+  else toast('Open System Settings → Notifications → ClaudeQ','ok');
 }
 async function saveSettings(){
   const body={default_model:$('#s-model').value,skip_permissions_default:$('#s-skip').checked,
@@ -1035,11 +1063,33 @@ async function checkForUpdates(){
   }
 }
 
+// macOS can accept every notification ClaudeQ posts and still show none of them:
+// an app whose authorization is denied (or never granted) posts into the void.
+// That is invisible from the app's side, so say it out loud.
+let notifWarnFor=null;
+function renderNotifyWarn(status){
+  const blocked=status==='denied'||status==='not_determined';
+  const bar=$('#notifWarn');
+  if(!blocked){ bar.hidden=true; notifWarnFor=null; return; }
+  if(notifWarnFor===status){ bar.hidden=false; return; }   // already rendered
+  notifWarnFor=status;
+  bar.innerHTML='<b>⚠ macOS is not showing ClaudeQ\'s notifications</b>'
+    +(status==='denied'
+      ? 'Run outcomes and new artifacts are being announced, but macOS is set to hide them — nothing reaches your screen. Turn <strong>Allow notifications</strong> back on for ClaudeQ.'
+      : 'ClaudeQ hasn\'t been allowed to notify you yet, so run outcomes and new artifacts stay silent. Allow notifications for ClaudeQ.')
+    +' Pick <strong>Alerts</strong> while you\'re there and an alert stays on screen until you click it.'
+    +'<div class="upd-actions"><button class="btn" id="notifWarnBtn">Open System Settings</button></div>';
+  $('#notifWarnBtn').onclick=openNotificationSettings;
+  bar.hidden=false;
+}
+
 function setConn(ok){ $('#connDot').style.background=ok?'var(--ok)':'var(--danger)'; $('#connText').textContent=ok?'connected':'disconnected'; }
 
-// Surface a broken scheduled-wake setup so timed runs don't silently miss.
+// Surface a broken scheduled-wake setup so timed runs don't silently miss, and
+// notifications macOS is set to swallow.
 async function checkHealth(){
   let h; try{ h=await api('GET','/api/health'); }catch{ return; }
+  renderNotifyWarn(h&&h.notify_status);
   const bar=$('#wakeWarn'), err=h&&h.wake_error;
   if(!err){ bar.hidden=true; return; }
   const needsSudoers=/password|sudo|not permitted|permission/i.test(err);
