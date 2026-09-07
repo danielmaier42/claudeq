@@ -83,6 +83,7 @@ func printTask(t task.Task) {
 	fmt.Printf("model:             %s\n", model)
 	fmt.Printf("permissions:       %s\n", t.Permissions)
 	fmt.Printf("notify_on_result:  %t\n", t.NotifyOnResult)
+	fmt.Printf("quiet_history:     %t\n", t.QuietHistory)
 	fmt.Printf("\nprompt:\n%s\n", t.Prompt)
 }
 
@@ -140,6 +141,7 @@ type taskPatch struct {
 	enabled        bool
 	skipPermission bool
 	notify         bool
+	quietHistory   bool
 }
 
 func (p taskPatch) has(name string) bool { return p.set[name] }
@@ -161,6 +163,7 @@ func parseTaskPatch(args []string, readFile func(string) ([]byte, error)) (taskP
 	fs.BoolVar(&p.enabled, "enabled", false, "enable or pause the task")
 	fs.BoolVar(&p.skipPermission, "skip-permissions", false, "bypass permission prompts")
 	fs.BoolVar(&p.notify, "notify", false, "notify on the run's result, not just failures")
+	fs.BoolVar(&p.quietHistory, "quiet-history", false, "drop successful runs from history")
 	if err := fs.Parse(args); err != nil {
 		return taskPatch{}, err
 	}
@@ -211,6 +214,9 @@ func (p taskPatch) apply(t task.Task) (task.Task, error) {
 	}
 	if p.has("notify") {
 		t.NotifyOnResult = p.notify
+	}
+	if p.has("quiet-history") {
+		t.QuietHistory = p.quietHistory
 	}
 	if p.has("skip-permissions") {
 		t.Permissions = task.PermissionsDefault
@@ -279,6 +285,7 @@ type taskDoc struct {
 	Model          string `toml:"model"`
 	Permissions    string `toml:"permissions"`
 	NotifyOnResult bool   `toml:"notify_on_result"`
+	QuietHistory   bool   `toml:"quiet_history"`
 	Prompt         string `toml:"prompt,multiline"`
 }
 
@@ -291,6 +298,7 @@ const taskDocHeader = `# claudeq task — edit, save, and close this file to app
 #   cron               5-field crontab expression, for trigger = "cron"
 #   model              empty = the global default model
 #   permissions        default | skip  (skip bypasses permission prompts)
+#   quiet_history      true drops successful runs from history (frequent watcher jobs)
 `
 
 func encodeTaskDoc(t task.Task) ([]byte, error) {
@@ -298,7 +306,7 @@ func encodeTaskDoc(t task.Task) ([]byte, error) {
 		ID: t.ID, Name: t.Name, Enabled: t.Enabled, WorkingDir: t.WorkingDir,
 		Trigger: string(t.Trigger), Cron: t.Cron, Parallel: t.Parallel,
 		Model: t.Model, Permissions: string(t.Permissions),
-		NotifyOnResult: t.NotifyOnResult, Prompt: t.Prompt,
+		NotifyOnResult: t.NotifyOnResult, QuietHistory: t.QuietHistory, Prompt: t.Prompt,
 	}
 	if !t.FixedAt.IsZero() {
 		d.FixedAt = t.FixedAt.Local().Format(time.RFC3339)
@@ -329,6 +337,7 @@ func decodeTaskDoc(data []byte, orig task.Task) (task.Task, error) {
 		Trigger: task.Trigger(d.Trigger), Cron: d.Cron, Parallel: d.Parallel,
 		Enabled: d.Enabled, Model: d.Model,
 		Permissions: task.Permissions(d.Permissions), NotifyOnResult: d.NotifyOnResult,
+		QuietHistory: d.QuietHistory,
 	}
 	if t.Permissions == "" {
 		t.Permissions = task.PermissionsDefault

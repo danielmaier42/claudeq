@@ -18,9 +18,17 @@
 // app).
 extern void goNotificationClicked(char *artifactID);
 
-// cqArtifactKey must match the userInfo key the daemon sets in
+// cqArtifactKey and cqURLKey must match the userInfo keys the daemon sets in
 // internal/notify/native_darwin.go.
 static NSString *const cqArtifactKey = @"cq_artifact";
+static NSString *const cqURLKey = @"cq_url";
+
+// cqUserInfoString returns the string stored under key, or "" when absent or
+// not a string.
+static NSString *cqUserInfoString(NSDictionary *info, NSString *key) {
+    id value = info[key];
+    return [value isKindOfClass:[NSString class]] ? (NSString *)value : @"";
+}
 
 @interface CQNotifyDelegate : NSObject <UNUserNotificationCenterDelegate>
 @end
@@ -32,10 +40,18 @@ static NSString *const cqArtifactKey = @"cq_artifact";
     didReceiveNotificationResponse:(UNNotificationResponse *)response
              withCompletionHandler:(void (^)(void))completionHandler {
     (void)center;
-    NSString *artifact = @"";
-    id value = response.notification.request.content.userInfo[cqArtifactKey];
-    if ([value isKindOfClass:[NSString class]]) {
-        artifact = (NSString *)value;
+    NSDictionary *info = response.notification.request.content.userInfo;
+    NSString *artifact = cqUserInfoString(info, cqArtifactKey);
+    NSString *link = cqUserInfoString(info, cqURLKey);
+    // A notification sent with `claudeq notify --url` opens its link (in the
+    // default browser) instead of the ClaudeQ window: the link is what the
+    // operator was pointed at, and the window has nothing to show for it.
+    if ([link length] > 0) {
+        NSURL *url = [NSURL URLWithString:link];
+        if (url != nil && [[NSWorkspace sharedWorkspace] openURL:url]) {
+            completionHandler();
+            return;
+        }
     }
     // The click already activates the app, but the window may be hidden or
     // minimized — bring it to the front so the artifact is actually visible.

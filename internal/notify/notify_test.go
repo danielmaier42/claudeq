@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -67,6 +68,31 @@ func TestPushoverPostsExpectedForm(t *testing.T) {
 	}
 	if !strings.HasPrefix(gotType, "application/x-www-form-urlencoded") {
 		t.Fatalf("content-type = %q", gotType)
+	}
+}
+
+func TestPushoverSendsLinkAsSupplementaryURL(t *testing.T) {
+	var gotForm url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		gotForm = r.Form
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	p := Pushover{Token: "tok", UserKey: "usr", URL: srv.URL, Client: srv.Client()}
+	if err := p.Notify(context.Background(), Notification{Title: "T", Message: "M"}); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	if _, ok := gotForm["url"]; ok {
+		t.Fatalf("a notification without a link must not send a url field, got %v", gotForm)
+	}
+	link := "https://example.com/status?x=1&y=2"
+	if err := p.Notify(context.Background(), Notification{Title: "T", Message: "M", URL: link}); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	if got := gotForm.Get("url"); got != link {
+		t.Fatalf("url = %q, want %q", got, link)
 	}
 }
 

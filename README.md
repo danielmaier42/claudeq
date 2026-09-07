@@ -26,6 +26,8 @@ update checks) ever leaves the machine.
 - [From another tool or agent](#from-another-tool-or-agent)
 - [Letting a task queue follow-up work](#letting-a-task-queue-follow-up-work)
 - [Letting a task publish artifacts](#letting-a-task-publish-artifacts)
+- [Letting a task send a notification](#letting-a-task-send-a-notification)
+- [Quiet history for frequent jobs](#quiet-history-for-frequent-jobs)
 - [How scheduling and the limit gate behave](#how-scheduling-and-the-limit-gate-behave)
 - [Data on disk](#data-on-disk)
 - [Uninstall](#uninstall)
@@ -82,14 +84,18 @@ The nightly cycle looks like this:
 **Per-task and global controls**
 
 - **Per-task overrides** — model, permission handling (default vs.
-  "skip permission prompts"), and whether to notify on the result — layered over
-  your global defaults.
+  "skip permission prompts"), whether to notify on the result, and *quiet
+  history* for frequent jobs — layered over your global defaults.
 - **Custom system prompt** — standing guidance (conventions, tone, tools to
   prefer) appended to every run after ClaudeQ's built-in instructions.
 - **Self-queueing** — a running task can schedule follow-up tasks itself, so a
   prompt can say things like *"if you find something to optimize, queue it as a
   separate task instead of doing it now."* See
   [below](#letting-a-task-queue-follow-up-work).
+- **Quiet history** — a watcher that runs every few minutes can be told to drop
+  its successful runs on completion, so it neither floods Activity with unread
+  entries nor pushes real work out of the bounded run history. Failures stay.
+  See [below](#quiet-history-for-frequent-jobs).
 
 **Reliability**
 
@@ -118,7 +124,10 @@ The nightly cycle looks like this:
   [Pushover](https://pushover.net) push to your phone. Failures and auth problems
   always notify; successes notify only if the task opts in. Every published
   artifact is announced too, and **clicking that notification opens the artifact**
-  right in the window.
+  right in the window. A task can also **send its own notification** with
+  `claudeq notify` — the way a watcher job reports a change without leaving a
+  file behind — optionally with a link that opens on click. See
+  [below](#letting-a-task-send-a-notification).
 - **Usage insight** — tokens, runs, and API-equivalent cost per day (what the
   same work would have cost through the API), over the last 14 days.
 - **Full history** — every run is kept with its complete log, viewable as a chat
@@ -167,7 +176,8 @@ The dashboard (and the native window that wraps it) has five views:
   the button needs the session to still exist — Claude Code prunes old sessions
   after ~30 days; mark one or
   all read; filter by a from–to date range; page through history; and replay a
-  task.
+  task. Runs of a *quiet history* task appear here only while running (never
+  unread) and, once finished, only if they did not succeed.
 - **Artifacts** — files your tasks published, newest first, with an unread badge.
   Each shows its title, source task, file type, and size. **View** opens HTML,
   PDF, images, and text in an in-app viewer; **Open** opens any artifact in your
@@ -299,14 +309,15 @@ claudeq list [--json]                          # show the queue
 claudeq show   ID [--json]                     # one task in full, prompt included
 claudeq add    --id ID --prompt P --dir DIR [--name N]
                [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR]
-               [--model M] [--parallel] [--skip-permissions]
+               [--model M] [--parallel] [--skip-permissions] [--quiet-history]
 claudeq edit   ID                              # open the whole task in $EDITOR
 claudeq edit   ID [--name N] [--prompt P | --prompt-file PATH] [--dir DIR]
                [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR]
                [--model M] [--parallel=BOOL] [--enabled=BOOL]
-               [--skip-permissions=BOOL] [--notify=BOOL]
+               [--skip-permissions=BOOL] [--notify=BOOL] [--quiet-history=BOOL]
 claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [--name N]
 claudeq publish --file PATH [--title T] [--description D]   # publish a file as an artifact
+claudeq notify --title T --message M [--url U]  # send a notification, no artifact
 claudeq rm ID
 claudeq enable ID | claudeq disable ID
 claudeq move   ID INDEX                        # 0 = highest priority
@@ -346,6 +357,7 @@ value. This is the form to use from a script or an agent.
 claudeq edit nightly-sweep --prompt-file ./new-brief.md   # replace just the prompt
 claudeq edit nightly-sweep --cron "30 2 * * 1-5"          # reschedule
 claudeq edit nightly-sweep --model opus --notify=true     # per-task overrides
+claudeq edit prod-watch --quiet-history=true              # drop its successful runs
 claudeq edit nightly-sweep --enabled=false                # pause it
 ```
 
@@ -403,9 +415,10 @@ this document to work with ClaudeQ.
   to stderr, prefixed `claudeq:`.
 - **Test a change with `claudeq run-now ID`** rather than waiting for the
   schedule.
-- A task that is itself a ClaudeQ run has two extra abilities, described below:
-  [queueing follow-up work](#letting-a-task-queue-follow-up-work) and
-  [publishing artifacts](#letting-a-task-publish-artifacts).
+- A task that is itself a ClaudeQ run has three extra abilities, described below:
+  [queueing follow-up work](#letting-a-task-queue-follow-up-work),
+  [publishing artifacts](#letting-a-task-publish-artifacts) and
+  [sending a notification](#letting-a-task-send-a-notification).
 - [Data on disk](#data-on-disk) lists the files these commands read and write.
 
 ## Letting a task queue follow-up work
@@ -450,6 +463,55 @@ browser. Artifacts are kept until you delete them, independent of run-history
 pruning. `--title` defaults to the file name; `--file` may be relative to the
 task's working directory.
 
+## Letting a task send a notification
+
+Some jobs have nothing to hand over — a watcher that checks a deployment, a
+feed, or a metric every quarter hour only needs to say *something changed*.
+Rather than publishing a throwaway artifact to trigger a push, a run can send a
+notification directly. Every run is told, via its system prompt, that the
+capability exists, so a prompt like *"compare with the last snapshot and notify
+me only if it differs"* just works. From inside a run, Claude calls:
+
+```sh
+claudeq notify --title "Prod drifted" --message "3 commits behind main" --url "https://…"
+```
+
+The notification goes out over the **channels you already configured** — macOS
+Notification Center and Pushover when it is set up — with the same look as
+ClaudeQ's own alerts, and attributed to the task that sent it (its name is
+appended to the message). Nothing is stored: no artifact, no history entry. The
+run's own outcome is still announced according to the task's settings, so a
+watcher that finds nothing sends nothing and stays silent.
+
+- `--title` and `--message` are required.
+- `--url` is optional and must be an absolute `http` or `https` URL. Clicking
+  the macOS notification opens it; Pushover shows it as the message's link.
+- The CLI hands the notification to the daemon, which sends it on its next tick
+  (a few seconds). Exit code 0 means it was queued, not that a channel accepted
+  it — a broken channel is logged by the daemon, as with every other
+  notification.
+- It also works outside a run, from a shell: then it is sent without attribution.
+
+## Quiet history for frequent jobs
+
+A task that runs every few minutes would, by default, produce hundreds of
+successful runs a day: each one unread in Activity, each one counting against
+the `Max run history` limit until it pushes a run you actually care about out of
+the record. Mark such a task **Quiet history** (the switch in the task form, or
+`--quiet-history` on `claudeq add` / `claudeq edit`) and:
+
+- A run that **finishes successfully is dropped** the moment it finishes — its
+  history entry and its log are removed as if it had never run.
+- While it is running it shows up in Activity like any other run (and can be
+  cancelled from there), but it is **never counted as unread**.
+- A run that **fails, hits an auth problem, is rate-limited, or is cancelled is
+  kept** with its log, exactly like an ordinary run, and notifies as usual.
+
+Everything else — notifications the run sends, artifacts it publishes, tasks it
+queues — is unaffected. A task queued from inside a quiet-history run inherits
+the flag along with the other settings. The trade-off: successful quiet runs
+leave no log to look at afterwards and are absent from the Usage statistics.
+
 ## How scheduling and the limit gate behave
 
 - **Eligibility.** On each tick the daemon starts every task that is due and
@@ -480,6 +542,7 @@ Everything lives under `~/Library/Application Support/claudeq` (override with th
 | `runs/<run-id>.log` | Full log for each run. |
 | `artifacts.json` | Index of published artifacts (title, source task/run, file name, size, type). |
 | `artifacts/<id>/<file>` | The published files themselves (snapshots copied at publish time). |
+| `notifications.json` | Outbox of notifications sent with `claudeq notify`, waiting for the daemon to deliver them (normally empty). |
 | `state.json` | Machine bookkeeping: read/unread flags (runs and artifacts), which artifacts have been notified about, cron anchors, pending-resume sessions, dismissed update version. |
 | `claudeqd.out.log` / `claudeqd.err.log` | Daemon stdout/stderr. |
 

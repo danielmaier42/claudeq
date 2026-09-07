@@ -60,3 +60,10 @@ type Run struct {
 	NumTurns     int     `json:"num_turns,omitempty"`
 	DurationMS   int64   `json:"duration_ms,omitempty"`
 }
+
+// Quiet reports whether the run belongs to a quiet-history task (see
+// task.Task.QuietHistory): it never counts as unread, and it leaves history
+// when it succeeds.
+func (r Run) Quiet() bool {
+	return r.Task != nil && r.Task.QuietHistory
+}

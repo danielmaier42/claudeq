@@ -33,15 +33,18 @@ Usage:
   claudeq show   ID [--json]       (one task in full, prompt included)
   claudeq add    --id ID --prompt P --dir DIR [--name N] [--trigger asap|fixed|cron]
                  [--at RFC3339] [--cron EXPR] [--model M] [--parallel] [--skip-permissions]
+                 [--quiet-history]
   claudeq edit   ID                (open the whole task in $EDITOR)
   claudeq edit   ID [--name N] [--prompt P | --prompt-file PATH] [--dir DIR]
                  [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR] [--model M]
                  [--parallel=BOOL] [--enabled=BOOL] [--skip-permissions=BOOL]
-                 [--notify=BOOL]  (only the flags you pass are changed)
+                 [--notify=BOOL] [--quiet-history=BOOL]  (only the flags you pass are changed)
   claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [--name N]
                  (queue a follow-up task; inherits the calling task's settings)
   claudeq publish --file PATH [--title T] [--description D]
                  (publish a file as an artifact; shows up in the Artifacts view)
+  claudeq notify --title T --message M [--url U]
+                 (send a notification over the configured channels, no artifact)
   claudeq rm ID
   claudeq enable ID | claudeq disable ID
   claudeq move   ID INDEX          (0 = highest priority)
@@ -91,6 +94,8 @@ func run(args []string) error {
 		return cmdQueue(st, rest)
 	case "publish":
 		return cmdPublish(st, rest)
+	case "notify":
+		return cmdNotify(st, rest)
 	case "rm":
 		return withID(rest, func(id string) error { return app.RemoveTask(st, id) })
 	case "enable":
@@ -183,6 +188,7 @@ func cmdAdd(st *store.Store, args []string) error {
 		model   = fs.String("model", "", "model override (default: global)")
 		par     = fs.Bool("parallel", false, "allow running alongside other parallel tasks")
 		skip    = fs.Bool("skip-permissions", false, "bypass permission prompts for this task")
+		quiet   = fs.Bool("quiet-history", false, "drop successful runs from history (frequent watcher jobs)")
 	)
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -192,7 +198,7 @@ func cmdAdd(st *store.Store, args []string) error {
 		ID: *id, Name: *name, Prompt: *prompt, WorkingDir: *dir,
 		Trigger: task.Trigger(*trig), Cron: *cronArg, Model: *model,
 		Parallel: *par, Enabled: true,
-		Permissions: task.PermissionsDefault,
+		Permissions: task.PermissionsDefault, QuietHistory: *quiet,
 	}
 	if t.Name == "" {
 		t.Name = t.ID
@@ -349,28 +355,15 @@ func cmdPublish(st *store.Store, args []string) error {
 		return fmt.Errorf("--file is required")
 	}
 
-	taskID := os.Getenv(executor.EnvTaskID)
-	taskName := taskID
-	if parent := os.Getenv(executor.EnvParentTask); parent != "" {
-		var pt task.Task
-		if err := json.Unmarshal([]byte(parent), &pt); err == nil {
-			if pt.ID != "" {
-				taskID = pt.ID
-			}
-			if pt.Name != "" {
-				taskName = pt.Name
-			}
-		}
-	}
-
+	src := callingRun()
 	now := time.Now()
 	in := app.PublishInput{
 		SourcePath:  *file,
 		Title:       *title,
 		Description: *desc,
-		TaskID:      taskID,
-		TaskName:    taskName,
-		RunID:       os.Getenv(executor.EnvRunID),
+		TaskID:      src.taskID,
+		TaskName:    src.taskName,
+		RunID:       src.runID,
 		Now:         now,
 	}
 
@@ -391,6 +384,31 @@ func cmdPublish(st *store.Store, args []string) error {
 		return nil
 	}
 	return lastErr
+}
+
+// runSource identifies the task and run a CLI call was made from, for
+// attributing what it produces (an artifact, a notification).
+type runSource struct {
+	taskID, taskName, runID string
+}
+
+// callingRun reads the attribution the daemon injects into every run's
+// environment. Outside a run all fields are empty.
+func callingRun() runSource {
+	src := runSource{taskID: os.Getenv(executor.EnvTaskID), runID: os.Getenv(executor.EnvRunID)}
+	src.taskName = src.taskID
+	if parent := os.Getenv(executor.EnvParentTask); parent != "" {
+		var pt task.Task
+		if err := json.Unmarshal([]byte(parent), &pt); err == nil {
+			if pt.ID != "" {
+				src.taskID = pt.ID
+			}
+			if pt.Name != "" {
+				src.taskName = pt.Name
+			}
+		}
+	}
+	return src
 }
 
 // newArtifactID builds a unique-ish artifact id; the random suffix disambiguates
@@ -509,7 +527,7 @@ func cmdStatus(st *store.Store, args []string) error {
 	fmt.Fprintln(w, "\tRUN\tTASK\tSTATUS\tSTARTED")
 	for _, r := range runs {
 		mark := " "
-		if !state.IsRead(r.RunID) {
+		if !r.Quiet() && !state.IsRead(r.RunID) {
 			mark = "*"
 			unread++
 		}

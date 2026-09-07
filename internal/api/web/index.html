@@ -319,6 +319,8 @@
         <label class="switch"><input type="checkbox" id="f-skip"><span class="sl"></span></label></div>
       <div class="row"><div class="grow"><div class="title">Notify me with the result</div><div class="sub">Send outcome + last message when it finishes</div></div>
         <label class="switch"><input type="checkbox" id="f-notify"><span class="sl"></span></label></div>
+      <div class="row"><div class="grow"><div class="title">Quiet history</div><div class="sub">Drop successful runs from Activity; failures are kept. For frequent watcher jobs</div></div>
+        <label class="switch"><input type="checkbox" id="f-quiet"><span class="sl"></span></label></div>
     </div>
     <p id="addErr" class="hint" style="color:var(--danger)"></p>
   </div>
@@ -549,6 +551,7 @@ function prefillTask(t){
   $('#f-name').value=t.name||''; $('#f-prompt').value=t.prompt||''; $('#f-dir').value=t.working_dir||'';
   $('#f-model').innerHTML=modelOptions(t.model||'','Global default');
   $('#f-parallel').checked=!!t.parallel; $('#f-skip').checked=(t.permissions==='skip'); $('#f-notify').checked=!!t.notify_on_result;
+  $('#f-quiet').checked=!!t.quiet_history;
   setSeg(t.trigger||'asap');
   $('#f-at').value=(t.trigger==='fixed'&&t.fixed_at&&!String(t.fixed_at).startsWith('0001'))?toLocalDT(t.fixed_at):'';
   $('#f-cron').value=t.trigger==='cron'?(t.cron||''):'';
@@ -557,7 +560,7 @@ function openSheet(title,submitLabel){ $('#addErr').textContent=''; $('#addSheet
 function openAdd(){ taskMode='add'; taskEditId='';
   ['f-name','f-prompt','f-dir','f-at','f-cron'].forEach(x=>$('#'+x).value='');
   $('#f-model').innerHTML=modelOptions('','Global default');
-  $('#f-parallel').checked=false; $('#f-skip').checked=false; $('#f-notify').checked=false; setSeg('asap');
+  $('#f-parallel').checked=false; $('#f-skip').checked=false; $('#f-notify').checked=false; $('#f-quiet').checked=false; setSeg('asap');
   openSheet('New task','Add task'); }
 async function openEdit(t){ taskMode='edit'; taskEditId=t.id;
   // Re-fetch the latest saved task: loadTasks skips re-rendering when only
@@ -578,7 +581,7 @@ async function submitTask(){
     fixed_at: trig==='fixed'&&$('#f-at').value?new Date($('#f-at').value).toISOString():undefined,
     cron: trig==='cron'?$('#f-cron').value.trim():undefined, model:$('#f-model').value||undefined,
     parallel:$('#f-parallel').checked, enabled:true, permissions:$('#f-skip').checked?'skip':'default',
-    notify_on_result:$('#f-notify').checked};
+    notify_on_result:$('#f-notify').checked, quiet_history:$('#f-quiet').checked};
   if(!t.working_dir){ $('#addErr').textContent='Please choose a working directory.'; return; }
   try{
     if(taskMode==='edit'){ await api('PUT','/api/tasks/'+encodeURIComponent(taskEditId),t); toast('Task updated','ok'); }

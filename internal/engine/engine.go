@@ -77,8 +77,10 @@ type Engine struct {
 	backoff      time.Duration
 	waker        Waker
 	lastWakeErr  string // loop-local, for once-only logging
-	// lastArtifactErr is loop-local too (see notifyNewArtifacts).
+	// lastArtifactErr and lastNotifyErr are loop-local too (see
+	// notifyNewArtifacts and deliverTaskNotifications).
 	lastArtifactErr string
+	lastNotifyErr   string
 	wakeErr         atomic.Pointer[string] // exposed to the API (thread-safe)
 	notifier        notify.Notifier
 
@@ -402,6 +404,19 @@ func (e *Engine) finish(t task.Task, rec store.Run, res executor.Result, runErr 
 		}
 	}
 
+	if t.QuietHistory && rec.Status == store.StatusSuccess {
+		// A quiet task's routine success is not worth a history entry: drop the
+		// run (and its log) instead of recording the outcome, and forget any
+		// read-status the operator set while it was running.
+		_ = e.store.DropRun(rec.RunID)
+		_ = e.store.UpdateState(func(st *store.State) error {
+			st.ForgetRun(rec.RunID)
+			return nil
+		})
+		e.notifyOutcome(t, rec, res.ResultText)
+		return
+	}
+
 	_ = e.store.AppendRun(rec)
 
 	// Bound disk usage: prune old runs/logs beyond the configured limit.
@@ -497,6 +512,8 @@ func (e *Engine) Loop(ctx context.Context, interval time.Duration) error {
 		// Artifacts are published by the task's own claudeq CLI call, so the
 		// daemon learns about them by re-reading the list each tick.
 		e.notifyNewArtifacts()
+		// Same for notifications a task queued with `claudeq notify`.
+		e.deliverTaskNotifications()
 		if e.waker != nil {
 			// Wake scheduling is best-effort (needs root); never fatal. Log a
 			// given failure only once to avoid spamming on every tick.

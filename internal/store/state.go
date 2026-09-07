@@ -75,6 +75,9 @@ func (s *State) MarkAllRead(runIDs []string) {
 	}
 }
 
+// ForgetRun drops a run's read-status, for a run removed from history.
+func (s *State) ForgetRun(runID string) { delete(s.ReadRuns, runID) }
+
 // IsArtifactRead reports whether an artifact has been read.
 func (s *State) IsArtifactRead(id string) bool { return s.ReadArtifacts[id] }
 

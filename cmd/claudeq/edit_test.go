@@ -68,9 +68,9 @@ func TestTaskPatchApply(t *testing.T) {
 		},
 		{
 			name: "toggles and overrides",
-			args: []string{"--parallel=true", "--enabled=false", "--notify=true", "--model", "opus", "--name", "Renamed"},
+			args: []string{"--parallel=true", "--enabled=false", "--notify=true", "--quiet-history=true", "--model", "opus", "--name", "Renamed"},
 			want: func(t task.Task) task.Task {
-				t.Parallel, t.Enabled, t.NotifyOnResult = true, false, true
+				t.Parallel, t.Enabled, t.NotifyOnResult, t.QuietHistory = true, false, true, true
 				t.Model, t.Name = "opus", "Renamed"
 				return t
 			},
@@ -192,6 +192,7 @@ func TestTaskDocRoundTrip(t *testing.T) {
 	orig.Prompt = "Line one.\n\nA quote: \"like this\", a triple: \"\"\" and a backslash \\.\nDone.\n"
 	orig.Model = "opus"
 	orig.NotifyOnResult = true
+	orig.QuietHistory = true
 	orig.Trigger = task.TriggerFixed
 	orig.Cron = ""
 	orig.FixedAt = time.Date(2026, 9, 1, 2, 0, 0, 0, time.UTC)
@@ -216,7 +217,7 @@ func TestTaskDocRoundTrip(t *testing.T) {
 	}
 	// The document is meant to be edited by hand: every setting must be visible.
 	for _, field := range []string{"id", "name", "enabled", "working_dir", "trigger",
-		"fixed_at", "cron", "parallel", "model", "permissions", "notify_on_result", "prompt"} {
+		"fixed_at", "cron", "parallel", "model", "permissions", "notify_on_result", "quiet_history", "prompt"} {
 		if !strings.Contains(string(data), "\n"+field+" ") {
 			t.Errorf("document is missing the %q field:\n%s", field, data)
 		}

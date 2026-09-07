@@ -197,18 +197,37 @@ func (s *Store) AppendRunLog(runID string, data []byte) error {
 func (s *Store) Runs() ([]Run, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	h, err := s.readHistoryLocked()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Run, 0, len(h.order))
+	for _, id := range h.order {
+		out = append(out, h.latest[id])
+	}
+	return out, nil
+}
 
+// history is history.jsonl collapsed to its latest event per run id, in
+// first-seen order.
+type history struct {
+	latest map[string]Run
+	order  []string
+}
+
+// readHistoryLocked parses history.jsonl. A missing file yields an empty
+// history. The caller must hold s.mu.
+func (s *Store) readHistoryLocked() (history, error) {
+	h := history{latest: map[string]Run{}}
 	f, err := os.Open(s.path(historyFile))
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
+		return h, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("open history: %w", err)
+		return h, fmt.Errorf("open history: %w", err)
 	}
 	defer func() { _ = f.Close() }()
 
-	latest := map[string]Run{}
-	var order []string
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
@@ -218,22 +237,43 @@ func (s *Store) Runs() ([]Run, error) {
 		}
 		var r Run
 		if err := json.Unmarshal(line, &r); err != nil {
-			return nil, fmt.Errorf("parse history line: %w", err)
+			return h, fmt.Errorf("parse history line: %w", err)
 		}
-		if _, seen := latest[r.RunID]; !seen {
-			order = append(order, r.RunID)
+		if _, seen := h.latest[r.RunID]; !seen {
+			h.order = append(h.order, r.RunID)
 		}
-		latest[r.RunID] = r
+		h.latest[r.RunID] = r
 	}
 	if err := sc.Err(); err != nil {
-		return nil, fmt.Errorf("read history: %w", err)
+		return h, fmt.Errorf("read history: %w", err)
 	}
+	return h, nil
+}
 
-	out := make([]Run, 0, len(order))
-	for _, id := range order {
-		out = append(out, latest[id])
+// rewriteHistoryLocked replaces history.jsonl with one latest event per run in
+// keep (in that order) and deletes the log files of the runs in drop. The
+// caller must hold s.mu.
+func (s *Store) rewriteHistoryLocked(h history, keep, drop []string) error {
+	var buf bytes.Buffer
+	for _, id := range keep {
+		b, err := json.Marshal(h.latest[id])
+		if err != nil {
+			return fmt.Errorf("marshal run: %w", err)
+		}
+		buf.Write(b)
+		buf.WriteByte('\n')
 	}
-	return out, nil
+	if err := writeAtomic(s.path(historyFile), buf.Bytes()); err != nil {
+		return fmt.Errorf("rewrite history: %w", err)
+	}
+	for _, id := range drop {
+		p := h.latest[id].LogPath
+		if p == "" {
+			p = s.LogPath(id)
+		}
+		_ = os.Remove(p)
+	}
+	return nil
 }
 
 // ReconcileRunningRuns marks any run still recorded as "running" as failed. It
@@ -273,65 +313,37 @@ func (s *Store) PruneHistory(limit int) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	f, err := os.Open(s.path(historyFile))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
+	h, err := s.readHistoryLocked()
 	if err != nil {
-		return fmt.Errorf("open history: %w", err)
+		return err
 	}
-	latest := map[string]Run{}
-	var order []string
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for sc.Scan() {
-		line := sc.Bytes()
-		if len(line) == 0 {
-			continue
-		}
-		var r Run
-		if err := json.Unmarshal(line, &r); err != nil {
-			_ = f.Close()
-			return fmt.Errorf("parse history line: %w", err)
-		}
-		if _, seen := latest[r.RunID]; !seen {
-			order = append(order, r.RunID)
-		}
-		latest[r.RunID] = r
-	}
-	scErr := sc.Err()
-	_ = f.Close()
-	if scErr != nil {
-		return fmt.Errorf("read history: %w", scErr)
-	}
-
-	if len(order) <= limit {
+	if len(h.order) <= limit {
 		return nil
 	}
-	drop := order[:len(order)-limit]
-	keep := order[len(order)-limit:]
+	return s.rewriteHistoryLocked(h, h.order[len(h.order)-limit:], h.order[:len(h.order)-limit])
+}
 
-	var buf bytes.Buffer
-	for _, id := range keep {
-		b, err := json.Marshal(latest[id])
-		if err != nil {
-			return fmt.Errorf("marshal run: %w", err)
+// DropRun removes one run from history entirely — every event for it — and
+// deletes its log file, as if it had never happened. It is how a quiet-history
+// task's successful runs stay out of the record. A run id that is not in
+// history is not an error.
+func (s *Store) DropRun(runID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	h, err := s.readHistoryLocked()
+	if err != nil {
+		return err
+	}
+	if _, ok := h.latest[runID]; !ok {
+		return nil
+	}
+	keep := make([]string, 0, len(h.order))
+	for _, id := range h.order {
+		if id != runID {
+			keep = append(keep, id)
 		}
-		buf.Write(b)
-		buf.WriteByte('\n')
 	}
-	if err := writeAtomic(s.path(historyFile), buf.Bytes()); err != nil {
-		return fmt.Errorf("rewrite history: %w", err)
-	}
-	for _, id := range drop {
-		p := latest[id].LogPath
-		if p == "" {
-			p = s.LogPath(id)
-		}
-		_ = os.Remove(p)
-	}
-	return nil
+	return s.rewriteHistoryLocked(h, keep, []string{runID})
 }
 
 // LoadState reads state.json. A missing file yields a ready-to-use zero State.
