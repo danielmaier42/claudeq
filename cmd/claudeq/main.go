@@ -283,12 +283,15 @@ func buildQueuedTask(parentJSON, id string, o queueOpts, now time.Time) (task.Ta
 
 	// Keep inherited settings (model, permissions, parallel, notify_on_result and
 	// working_dir as the default); reset everything that identifies or schedules.
+	// Quiet history is not inherited: it suits a watcher's routine ticks, but a
+	// follow-up it queues is real work whose run the operator wants to see.
 	t.ID = id
 	t.Prompt = o.prompt
 	t.Name = o.name
 	t.Enabled = true
 	t.FixedAt = time.Time{}
 	t.Cron = ""
+	t.QuietHistory = false
 	if o.dir != "" {
 		t.WorkingDir = o.dir
 	}
@@ -411,10 +414,13 @@ func callingRun() runSource {
 	return src
 }
 
-// newArtifactID builds a unique-ish artifact id; the random suffix disambiguates
-// several artifacts published within the same second.
-func newArtifactID(now time.Time) string {
-	return "a-" + now.UTC().Format("20060102T150405") + "-" + shortHex(3)
+// newArtifactID builds a unique-ish artifact id.
+func newArtifactID(now time.Time) string { return newID("a-", now) }
+
+// newID builds a unique-ish, time-sortable id; the random suffix disambiguates
+// several ids minted within the same second.
+func newID(prefix string, now time.Time) string {
+	return prefix + now.UTC().Format("20060102T150405") + "-" + shortHex(3)
 }
 
 // queueWhen describes when a just-queued task will run, for the CLI confirmation.
@@ -473,19 +479,22 @@ func cmdRunNow(st *store.Store, id string) error {
 	self, _ := os.Executable()
 	eng := engine.New(st, limit.New(c), &executor.Executor{Home: st.Home(), QueueBin: self}, c)
 	fmt.Printf("running task %q now...\n", id)
+	started := c.Now()
 	if err := eng.RunTaskNow(context.Background(), id); err != nil {
 		return err
 	}
-	return printLatestRun(st, id)
+	return printLatestRun(st, id, started)
 }
 
-func printLatestRun(st *store.Store, taskID string) error {
+// printLatestRun reports the task's run that started at or after since — the
+// one run-now just made — rather than whatever older run history holds.
+func printLatestRun(st *store.Store, taskID string, since time.Time) error {
 	runs, err := st.Runs()
 	if err != nil {
 		return err
 	}
 	for i := len(runs) - 1; i >= 0; i-- {
-		if runs[i].TaskID == taskID {
+		if runs[i].TaskID == taskID && !runs[i].StartedAt.Before(since) {
 			r := runs[i]
 			fmt.Printf("result: %s (exit %d)\n", r.Status, r.ExitCode)
 			if r.Error != "" {
@@ -494,6 +503,12 @@ func printLatestRun(st *store.Store, taskID string) error {
 			fmt.Printf("log:    %s\n", r.LogPath)
 			return nil
 		}
+	}
+	// A quiet-history task records only runs that need attention, so finding
+	// nothing is the expected outcome there, not a missing record.
+	if t, err := findTask(st, taskID); err == nil && t.QuietHistory {
+		fmt.Println("no run recorded (quiet history: only failures are kept)")
+		return nil
 	}
 	fmt.Println("no run recorded")
 	return nil
@@ -527,7 +542,7 @@ func cmdStatus(st *store.Store, args []string) error {
 	fmt.Fprintln(w, "\tRUN\tTASK\tSTATUS\tSTARTED")
 	for _, r := range runs {
 		mark := " "
-		if !r.Quiet() && !state.IsRead(r.RunID) {
+		if !state.IsRead(r.RunID) {
 			mark = "*"
 			unread++
 		}

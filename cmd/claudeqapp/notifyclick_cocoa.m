@@ -45,10 +45,14 @@ static NSString *cqUserInfoString(NSDictionary *info, NSString *key) {
     NSString *link = cqUserInfoString(info, cqURLKey);
     // A notification sent with `claudeq notify --url` opens its link (in the
     // default browser) instead of the ClaudeQ window: the link is what the
-    // operator was pointed at, and the window has nothing to show for it.
+    // operator was pointed at, and the window has nothing to show for it. Only
+    // web links are opened — the daemon already filters, but this is the hand
+    // that launches things, so it checks too.
     if ([link length] > 0) {
         NSURL *url = [NSURL URLWithString:link];
-        if (url != nil && [[NSWorkspace sharedWorkspace] openURL:url]) {
+        NSString *scheme = [[url scheme] lowercaseString];
+        BOOL web = [scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"];
+        if (url != nil && web && [[NSWorkspace sharedWorkspace] openURL:url]) {
             completionHandler();
             return;
         }

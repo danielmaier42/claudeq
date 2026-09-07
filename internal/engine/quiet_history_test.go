@@ -18,7 +18,7 @@ func runQuietTask(t *testing.T, status store.RunStatus) *store.Store {
 	t.Helper()
 	fc := clock.NewFake(time.Date(2026, 9, 7, 8, 0, 0, 0, time.UTC))
 	r := &stub{result: func(req executor.Request, _ int) executor.Result {
-		return executor.Result{Status: status, SessionID: req.SessionID, ExitCode: 1}
+		return executor.Result{Status: status, SessionID: req.SessionID, ExitCode: 1, RetryAfter: time.Minute}
 	}}
 	e, st := newTestEngine(t, r, fc)
 	watcher := asapTask("watch", false)
@@ -34,44 +34,47 @@ func runQuietTask(t *testing.T, status store.RunStatus) *store.Store {
 	return st
 }
 
-func TestQuietTaskSuccessLeavesNoTrace(t *testing.T) {
-	st := runQuietTask(t, store.StatusSuccess)
-
-	runs, err := st.Runs()
-	if err != nil {
-		t.Fatal(err)
+func TestQuietTaskLeavesNoTraceUnlessItNeedsAttention(t *testing.T) {
+	cases := []struct {
+		status store.RunStatus
+		kept   bool
+	}{
+		{store.StatusSuccess, false},
+		{store.StatusRateLimited, false}, // resolves itself: the daemon resumes
+		{store.StatusFailed, true},
+		{store.StatusAuthError, true},
 	}
-	if len(runs) != 0 {
-		t.Fatalf("a quiet task's success must be dropped from history, got %+v", runs)
-	}
-	if _, err := os.Stat(st.LogPath("run-1")); !os.IsNotExist(err) {
-		t.Fatal("the dropped run's log must be deleted")
-	}
-	state, _ := st.LoadState()
-	if len(state.ReadRuns) != 0 {
-		t.Fatalf("no read-status must linger for a dropped run: %v", state.ReadRuns)
+	for _, c := range cases {
+		t.Run(string(c.status), func(t *testing.T) {
+			st := runQuietTask(t, c.status)
+			runs, err := st.Runs()
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, logErr := os.Stat(st.LogPath("run-1"))
+			if !c.kept {
+				if len(runs) != 0 {
+					t.Fatalf("a quiet %s must stay out of history, got %+v", c.status, runs)
+				}
+				if !os.IsNotExist(logErr) {
+					t.Fatal("the unrecorded run's log must be deleted")
+				}
+				return
+			}
+			if len(runs) != 1 || runs[0].Status != c.status || runs[0].RunID != "run-1" {
+				t.Fatalf("a quiet %s must be recorded like any other run, got %+v", c.status, runs)
+			}
+			if logErr != nil {
+				t.Fatal("the kept run's log must remain for inspection")
+			}
+			if state, _ := st.LoadState(); state.IsRead("run-1") {
+				t.Fatal("a kept quiet run is unread like any other")
+			}
+		})
 	}
 }
 
-func TestQuietTaskFailureIsKept(t *testing.T) {
-	st := runQuietTask(t, store.StatusFailed)
-
-	runs, err := st.Runs()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(runs) != 1 || runs[0].Status != store.StatusFailed {
-		t.Fatalf("a quiet task's failure must stay in history, got %+v", runs)
-	}
-	if !runs[0].Quiet() {
-		t.Fatal("the kept run must still carry the quiet flag (it never counts as unread)")
-	}
-	if _, err := os.Stat(st.LogPath("run-1")); err != nil {
-		t.Fatal("the failed run's log must remain for inspection")
-	}
-}
-
-func TestQuietRunIsRecordedWhileRunning(t *testing.T) {
+func TestQuietRunIsNotRecordedWhileRunning(t *testing.T) {
 	fc := clock.NewFake(time.Now())
 	r := &stub{block: make(chan struct{})}
 	e, st := newTestEngine(t, r, fc)
@@ -84,10 +87,12 @@ func TestQuietRunIsRecordedWhileRunning(t *testing.T) {
 	if err := e.Tick(context.Background()); err != nil {
 		t.Fatalf("Tick: %v", err)
 	}
-	waitFor(t, func() bool { runs, _ := st.Runs(); return len(runs) == 1 })
-	runs, _ := st.Runs()
-	if runs[0].Status != store.StatusRunning || !runs[0].Quiet() {
-		t.Fatalf("running quiet task must show up as running (and quiet): %+v", runs[0])
+	waitFor(t, func() bool { return len(r.requests()) == 1 })
+	if runs, _ := st.Runs(); len(runs) != 0 {
+		t.Fatalf("a quiet run must not enter history while running: %+v", runs)
+	}
+	if ids := e.ActiveTaskIDs(); len(ids) != 1 || ids[0] != "watch" {
+		t.Fatalf("the task still counts as running for the queue: %v", ids)
 	}
 	close(r.block)
 	e.WaitIdle()

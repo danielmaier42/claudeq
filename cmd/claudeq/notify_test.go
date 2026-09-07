@@ -17,6 +17,11 @@ func TestBuildNotification(t *testing.T) {
 	if got.Title != "Prod drifted" || got.Message != "3 commits behind" || got.URL != "https://example.com/deploys?env=prod" {
 		t.Fatalf("fields not trimmed/kept: %+v", got)
 	}
+	// A link with characters NSURL rejects raw is percent-encoded on the way in.
+	spaced, err := buildNotification("T", "M", "https://ci.internal/build 4821/über|log", src, now)
+	if err != nil || spaced.URL != "https://ci.internal/build%204821/%C3%BCber%7Clog" {
+		t.Fatalf("url not normalized: %q, err %v", spaced.URL, err)
+	}
 	if got.TaskID != "watch" || got.TaskName != "Prod watch" || got.RunID != src.runID {
 		t.Fatalf("attribution lost: %+v", got)
 	}

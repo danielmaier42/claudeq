@@ -153,3 +153,22 @@ func TestArtifactIDStaysOutOfTheMessageText(t *testing.T) {
 		t.Fatalf("artifact id leaked into the osascript text: %s", r.args[2])
 	}
 }
+
+func TestIsWebURL(t *testing.T) {
+	cases := map[string]bool{
+		"https://example.com/x?y=1":        true,
+		"http://ci.internal:8080/build/42": true,
+		"HTTPS://example.com":              true,
+		"":                                 false,
+		"example.com/x":                    false,
+		"https://":                         false,
+		"file:///etc/passwd":               false,
+		"x-apple.systempreferences:x":      false,
+		"javascript:alert(1)":              false,
+	}
+	for in, want := range cases {
+		if got := IsWebURL(in); got != want {
+			t.Errorf("IsWebURL(%q) = %v, want %v", in, got, want)
+		}
+	}
+}

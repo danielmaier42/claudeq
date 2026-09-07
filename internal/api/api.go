@@ -434,8 +434,7 @@ func (s *server) listRuns(w http.ResponseWriter, _ *http.Request) {
 	views := make([]runView, 0, len(runs))
 	// Newest first for the dashboard.
 	for i := len(runs) - 1; i >= 0; i-- {
-		r := runs[i]
-		views = append(views, runView{Run: r, Unread: !r.Quiet() && !st.IsRead(r.RunID)})
+		views = append(views, runView{Run: runs[i], Unread: !st.IsRead(runs[i].RunID)})
 	}
 	writeJSON(w, http.StatusOK, views)
 }

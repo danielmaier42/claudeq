@@ -28,6 +28,17 @@ type Notification struct {
 	URL string
 }
 
+// IsWebURL reports whether s is an absolute http or https URL — the only kind
+// of link a notification carries, because it is opened on click without
+// further ado.
+func IsWebURL(s string) bool {
+	u, err := url.Parse(s)
+	if err != nil {
+		return false
+	}
+	return (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+}
+
 // Notifier delivers a notification.
 type Notifier interface {
 	Notify(ctx context.Context, n Notification) error

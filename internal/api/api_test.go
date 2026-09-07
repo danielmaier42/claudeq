@@ -415,31 +415,6 @@ func TestRunsAndReadAll(t *testing.T) {
 	}
 }
 
-func TestQuietRunsNeverCountAsUnread(t *testing.T) {
-	srv, st := newServer(t, nil)
-	quiet := task.Task{ID: "watch", QuietHistory: true}
-	_ = st.AppendRun(store.Run{RunID: "r1", TaskID: "watch", TaskName: "watch", StartedAt: time.Now(), Status: store.StatusRunning, Task: &quiet})
-	_ = st.AppendRun(store.Run{RunID: "r2", TaskID: "a", TaskName: "a", StartedAt: time.Now(), Status: store.StatusSuccess})
-
-	var views []runView
-	do(t, srv, "GET", "/api/runs", nil).into(t, &views)
-	if len(views) != 2 {
-		t.Fatalf("expected both runs listed, got %+v", views)
-	}
-	for _, v := range views {
-		switch v.RunID {
-		case "r1":
-			if v.Unread {
-				t.Fatal("a quiet task's run must not be unread")
-			}
-		case "r2":
-			if !v.Unread {
-				t.Fatal("an ordinary run is unread until read")
-			}
-		}
-	}
-}
-
 func TestRunLogNotFound(t *testing.T) {
 	srv, _ := newServer(t, nil)
 	if r := do(t, srv, "GET", "/api/runs/nope/log", nil); r.Status != http.StatusNotFound {

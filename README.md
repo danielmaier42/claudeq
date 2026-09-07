@@ -92,10 +92,10 @@ The nightly cycle looks like this:
   prompt can say things like *"if you find something to optimize, queue it as a
   separate task instead of doing it now."* See
   [below](#letting-a-task-queue-follow-up-work).
-- **Quiet history** — a watcher that runs every few minutes can be told to drop
-  its successful runs on completion, so it neither floods Activity with unread
-  entries nor pushes real work out of the bounded run history. Failures stay.
-  See [below](#quiet-history-for-frequent-jobs).
+- **Quiet history** — a watcher that runs every few minutes can be told to keep
+  its successful runs out of the record, so it neither floods Activity with
+  unread entries nor pushes real work out of the bounded run history. Failures
+  are kept. See [below](#quiet-history-for-frequent-jobs).
 
 **Reliability**
 
@@ -176,8 +176,8 @@ The dashboard (and the native window that wraps it) has five views:
   the button needs the session to still exist — Claude Code prunes old sessions
   after ~30 days; mark one or
   all read; filter by a from–to date range; page through history; and replay a
-  task. Runs of a *quiet history* task appear here only while running (never
-  unread) and, once finished, only if they did not succeed.
+  task. Runs of a *quiet history* task appear here only if they did not
+  succeed.
 - **Artifacts** — files your tasks published, newest first, with an unread badge.
   Each shows its title, source task, file type, and size. **View** opens HTML,
   PDF, images, and text in an in-app viewer; **Open** opens any artifact in your
@@ -483,13 +483,15 @@ appended to the message). Nothing is stored: no artifact, no history entry. The
 run's own outcome is still announced according to the task's settings, so a
 watcher that finds nothing sends nothing and stays silent.
 
-- `--title` and `--message` are required.
+- `--title` and `--message` are required. A title longer than 250 characters
+  or a message longer than 1024 (Pushover's limits) is cut, not rejected.
 - `--url` is optional and must be an absolute `http` or `https` URL. Clicking
   the macOS notification opens it; Pushover shows it as the message's link.
 - The CLI hands the notification to the daemon, which sends it on its next tick
   (a few seconds). Exit code 0 means it was queued, not that a channel accepted
-  it — a broken channel is logged by the daemon, as with every other
-  notification.
+  it — a channel that fails is logged by the daemon (`claudeqd.err.log`).
+- A notification that waited more than 24 hours — the daemon was not running —
+  is dropped with a log line rather than delivered as if it were current.
 - It also works outside a run, from a shell: then it is sent without attribution.
 
 ## Quiet history for frequent jobs
@@ -500,17 +502,19 @@ the `Max run history` limit until it pushes a run you actually care about out of
 the record. Mark such a task **Quiet history** (the switch in the task form, or
 `--quiet-history` on `claudeq add` / `claudeq edit`) and:
 
-- A run that **finishes successfully is dropped** the moment it finishes — its
-  history entry and its log are removed as if it had never run.
-- While it is running it shows up in Activity like any other run (and can be
-  cancelled from there), but it is **never counted as unread**.
-- A run that **fails, hits an auth problem, is rate-limited, or is cancelled is
-  kept** with its log, exactly like an ordinary run, and notifies as usual.
+- A run that **succeeds leaves no trace**: it is never written to history, and
+  its log is deleted when it finishes. The same goes for a run paused by the
+  rate limit, which the daemon resumes by itself.
+- A run that **fails, hits an auth problem, or is cancelled is recorded** with
+  its log, unread, exactly like an ordinary run, and notifies as usual.
+- While it is running, the Queue shows the task's *running* badge as usual, but
+  there is no Activity entry to open (and so no live log or **Cancel task**).
 
 Everything else — notifications the run sends, artifacts it publishes, tasks it
-queues — is unaffected. A task queued from inside a quiet-history run inherits
-the flag along with the other settings. The trade-off: successful quiet runs
-leave no log to look at afterwards and are absent from the Usage statistics.
+queues — is unaffected. A task queued from inside a quiet-history run is **not**
+quiet itself: follow-up work is real work, and you will want to see its run.
+The trade-off: successful quiet runs leave no log to look at afterwards and are
+absent from the Usage statistics.
 
 ## How scheduling and the limit gate behave
 
@@ -538,7 +542,7 @@ Everything lives under `~/Library/Application Support/claudeq` (override with th
 | Path | Contents |
 |------|----------|
 | `config.toml` | Global settings + the ordered task list (human-readable, versionable). |
-| `history.jsonl` | Append-only index of every run. |
+| `history.jsonl` | Append-only index of every run (except a quiet-history task's successful ones, which are never written). |
 | `runs/<run-id>.log` | Full log for each run. |
 | `artifacts.json` | Index of published artifacts (title, source task/run, file name, size, type). |
 | `artifacts/<id>/<file>` | The published files themselves (snapshots copied at publish time). |

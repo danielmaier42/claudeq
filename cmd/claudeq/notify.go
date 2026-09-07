@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/danielmaier42/claudeq/internal/notify"
 	"github.com/danielmaier42/claudeq/internal/store"
 )
 
@@ -53,12 +54,16 @@ func buildNotification(title, message, link string, src runSource, now time.Time
 		if err != nil {
 			return store.Notification{}, fmt.Errorf("invalid --url: %w", err)
 		}
-		if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		if !notify.IsWebURL(link) {
 			return store.Notification{}, fmt.Errorf("invalid --url %q: want an absolute http or https URL", link)
 		}
+		// Re-serialize so a space or non-ASCII character in the path is
+		// percent-encoded: the macOS side parses the link with NSURL, which
+		// rejects the raw forms Go tolerates.
+		link = u.String()
 	}
 	return store.Notification{
-		ID:       newNotificationID(now),
+		ID:       newID("n-", now),
 		Title:    title,
 		Message:  message,
 		URL:      link,
@@ -67,10 +72,4 @@ func buildNotification(title, message, link string, src runSource, now time.Time
 		RunID:    src.runID,
 		QueuedAt: now,
 	}, nil
-}
-
-// newNotificationID builds a unique-ish id; the random suffix disambiguates
-// several notifications queued within the same second.
-func newNotificationID(now time.Time) string {
-	return "n-" + now.UTC().Format("20060102T150405") + "-" + shortHex(3)
 }

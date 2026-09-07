@@ -1,10 +1,6 @@
 package store
 
 import (
-	"encoding/json"
-	"errors"
-	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 )
@@ -45,10 +41,8 @@ const (
 	artifactsDir  = "artifacts"
 )
 
-// artifactsDoc is the on-disk container for the artifact list.
-type artifactsDoc struct {
-	Artifacts []Artifact `json:"artifacts"`
-}
+// artifactList is the on-disk artifact index ({"artifacts": [...]}).
+var artifactList = jsonList[Artifact]{file: artifactsFile, field: "artifacts"}
 
 // ArtifactsDir returns the directory holding all artifact files.
 func (s *Store) ArtifactsDir() string { return filepath.Join(s.home, artifactsDir) }
@@ -65,56 +59,12 @@ func (s *Store) ArtifactContentPath(a Artifact) string {
 func (s *Store) Artifacts() ([]Artifact, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.loadArtifactsLocked()
-}
-
-// loadArtifactsLocked reads artifacts.json. A missing file yields an empty list.
-// The caller must hold s.mu.
-func (s *Store) loadArtifactsLocked() ([]Artifact, error) {
-	data, err := os.ReadFile(s.path(artifactsFile))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("read artifacts: %w", err)
-	}
-	var doc artifactsDoc
-	if err := json.Unmarshal(data, &doc); err != nil {
-		return nil, fmt.Errorf("parse artifacts: %w", err)
-	}
-	return doc.Artifacts, nil
-}
-
-// saveArtifactsLocked atomically writes artifacts.json. The caller must hold s.mu.
-func (s *Store) saveArtifactsLocked(list []Artifact) error {
-	if list == nil {
-		list = []Artifact{}
-	}
-	data, err := json.MarshalIndent(artifactsDoc{Artifacts: list}, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encode artifacts: %w", err)
-	}
-	return writeAtomic(s.path(artifactsFile), data)
+	return artifactList.load(s)
 }
 
 // UpdateArtifacts atomically applies fn to the artifact list, serialized with
 // other updates (and cross-process via the write lock) so the daemon and a
 // publishing CLI process never clobber each other's changes.
 func (s *Store) UpdateArtifacts(fn func(*[]Artifact) error) error {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	return s.withWriteLock(func() error {
-		s.mu.Lock()
-		list, err := s.loadArtifactsLocked()
-		s.mu.Unlock()
-		if err != nil {
-			return err
-		}
-		if err := fn(&list); err != nil {
-			return err
-		}
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		return s.saveArtifactsLocked(list)
-	})
+	return artifactList.update(s, fn)
 }

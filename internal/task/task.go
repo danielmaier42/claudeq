@@ -70,10 +70,11 @@ type Task struct {
 	// message when the run finishes (success or failure), not just on failures.
 	NotifyOnResult bool `toml:"notify_on_result,omitempty" json:"notify_on_result,omitempty"`
 	// QuietHistory keeps the task's routine runs out of the way: a run that
-	// finishes successfully is dropped from history (log included) instead of
-	// being kept and flagged unread, so a frequent watcher job neither floods
-	// the Activity view nor pushes real work out of the bounded history. Runs
-	// that fail, hit a limit or are canceled are kept like any other.
+	// succeeds (or pauses on the rate limit, which resolves itself) is never
+	// written to history and its log is deleted, so a frequent watcher job
+	// neither floods the Activity view nor pushes real work out of the bounded
+	// history. Runs that fail, hit an auth problem or are canceled are recorded
+	// like any other.
 	QuietHistory bool `toml:"quiet_history,omitempty" json:"quiet_history,omitempty"`
 }
 

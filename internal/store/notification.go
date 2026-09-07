@@ -1,10 +1,9 @@
 package store
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -30,68 +29,17 @@ type Notification struct {
 
 const notificationsFile = "notifications.json"
 
-// notificationsDoc is the on-disk container for the outbox.
-type notificationsDoc struct {
-	Pending []Notification `json:"pending"`
-}
+// notificationList is the on-disk outbox ({"pending": [...]}). The file exists
+// only while something is waiting, so the daemon's per-tick check is a plain
+// ENOENT almost always.
+var notificationList = jsonList[Notification]{file: notificationsFile, field: "pending", dropWhenEmpty: true}
 
 // PendingNotifications returns the queued, not yet delivered notifications in
 // the order they were queued. A missing outbox yields an empty list.
 func (s *Store) PendingNotifications() ([]Notification, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.loadNotificationsLocked()
-}
-
-// loadNotificationsLocked reads notifications.json. The caller must hold s.mu.
-func (s *Store) loadNotificationsLocked() ([]Notification, error) {
-	data, err := os.ReadFile(s.path(notificationsFile))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("read notifications: %w", err)
-	}
-	var doc notificationsDoc
-	if err := json.Unmarshal(data, &doc); err != nil {
-		return nil, fmt.Errorf("parse notifications: %w", err)
-	}
-	return doc.Pending, nil
-}
-
-// saveNotificationsLocked atomically writes notifications.json. The caller must
-// hold s.mu.
-func (s *Store) saveNotificationsLocked(list []Notification) error {
-	if list == nil {
-		list = []Notification{}
-	}
-	data, err := json.MarshalIndent(notificationsDoc{Pending: list}, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encode notifications: %w", err)
-	}
-	return writeAtomic(s.path(notificationsFile), data)
-}
-
-// updateNotifications atomically applies fn to the outbox, serialized with
-// other updates (and cross-process via the write lock) so a queueing CLI
-// process and the delivering daemon never clobber each other's changes.
-func (s *Store) updateNotifications(fn func(*[]Notification) error) error {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	return s.withWriteLock(func() error {
-		s.mu.Lock()
-		list, err := s.loadNotificationsLocked()
-		s.mu.Unlock()
-		if err != nil {
-			return err
-		}
-		if err := fn(&list); err != nil {
-			return err
-		}
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		return s.saveNotificationsLocked(list)
-	})
+	return notificationList.load(s)
 }
 
 // QueueNotification appends n to the outbox for the daemon to deliver.
@@ -99,7 +47,7 @@ func (s *Store) QueueNotification(n Notification) error {
 	if n.ID == "" {
 		return fmt.Errorf("queue notification: missing id")
 	}
-	return s.updateNotifications(func(list *[]Notification) error {
+	return notificationList.update(s, func(list *[]Notification) error {
 		for _, q := range *list {
 			if q.ID == n.ID {
 				return fmt.Errorf("notification %q already queued", n.ID)
@@ -112,10 +60,25 @@ func (s *Store) QueueNotification(n Notification) error {
 
 // TakeNotifications empties the outbox and returns what it held, oldest first.
 // Taking is atomic across processes, so a notification is delivered by exactly
-// one daemon pass; one queued during the take lands in the next pass.
+// one daemon pass; one queued during the take lands in the next pass. An empty
+// outbox — the overwhelmingly common case — is answered by a plain read
+// without touching the write lock.
 func (s *Store) TakeNotifications() ([]Notification, error) {
+	pending, err := s.PendingNotifications()
+	if err != nil {
+		// A damaged outbox must not wedge every notification from now on: set
+		// the file aside (kept for inspection) so the next queue starts afresh.
+		aside := s.path(notificationsFile + ".corrupt")
+		if renameErr := os.Rename(s.path(notificationsFile), aside); renameErr != nil {
+			return nil, fmt.Errorf("%w (could not set it aside: %w)", err, renameErr)
+		}
+		return nil, fmt.Errorf("%w (set aside as %s)", err, filepath.Base(aside))
+	}
+	if len(pending) == 0 {
+		return nil, nil
+	}
 	var taken []Notification
-	err := s.updateNotifications(func(list *[]Notification) error {
+	err = notificationList.update(s, func(list *[]Notification) error {
 		taken = *list
 		*list = nil
 		return nil
