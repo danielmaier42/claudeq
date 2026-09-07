@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -83,6 +84,11 @@ func TestArgsAppendsSelfQueueSystemPrompt(t *testing.T) {
 	}
 	if !strings.Contains(selfQueueSystemPrompt, "queue --prompt") {
 		t.Fatal("self-queue prompt must document the `queue --prompt` command")
+	}
+	for _, f := range []string{"--model <name>", "--parallel=true|false", "--skip-permissions=true|false", "--notify=true|false", "--quiet-history=true|false"} {
+		if !strings.Contains(selfQueueSystemPrompt, f) {
+			t.Fatalf("self-queue prompt must document the %s override", f)
+		}
 	}
 	if !strings.Contains(builtinSystemPrompt, "publish --file") {
 		t.Fatal("built-in prompt must document the `publish --file` command")
@@ -201,11 +207,16 @@ func TestRunEnvOmitsUnsetPaths(t *testing.T) {
 
 func TestArgsNoModelWhenEmpty(t *testing.T) {
 	e := &Executor{}
-	args := strings.Join(e.Args(Request{Task: sampleTask(), SessionID: "S"}), " ")
-	if strings.Contains(args, "--model") {
+	// Compare whole arguments: the appended system prompt legitimately mentions
+	// "--model" when it documents the queue overrides.
+	args := e.Args(Request{Task: sampleTask(), SessionID: "S"})
+	isFlag := func(name string) func(string) bool {
+		return func(a string) bool { return a == name || strings.HasPrefix(a, name+"=") }
+	}
+	if slices.ContainsFunc(args, isFlag("--model")) {
 		t.Fatalf("no model should be passed when empty, got %q", args)
 	}
-	if strings.Contains(args, "--dangerously-skip-permissions") {
+	if slices.ContainsFunc(args, isFlag("--dangerously-skip-permissions")) {
 		t.Fatalf("skip should not be set by default, got %q", args)
 	}
 }

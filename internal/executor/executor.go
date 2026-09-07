@@ -40,7 +40,7 @@ const (
 
 // selfQueueSystemPrompt is appended to every run's system prompt so Claude knows
 // it can schedule follow-up work as a separate claudeq task instead of doing it
-// inline. Settings other than what is listed are inherited from the calling task.
+// inline. Settings it does not override are inherited from the calling task.
 const selfQueueSystemPrompt = `You are running as a task inside claudeq, a local queue that runs Claude Code jobs. When you find work that should run as its own separate job — later, at a specific time, on a schedule, or independently of this run — schedule it as a new claudeq task instead of doing it now, using the claudeq CLI:
 
   "${CLAUDEQ_BIN:-claudeq}" queue --prompt "<what the new task should do>"
@@ -55,7 +55,14 @@ Optional:
   --dir <path>      working directory for the new task (defaults to this task's directory)
   --name "<label>"  a short human-readable name
 
-The new task inherits this task's model, permissions, parallelism and notification settings automatically — do not attempt to set them. Only queue a task when the work genuinely belongs in a separate run; if something should simply be done now, just do it yourself.
+The new task inherits this task's model, permissions, parallelism and notification settings automatically; leave them alone unless the follow-up genuinely needs something different (for example a cheap watcher queueing a thorough review that must run on a stronger model with a visible run). To override, pass any of:
+  --model <name>                   model for the new task, e.g. --model opus
+  --parallel=true|false            whether it may run alongside other parallel tasks
+  --skip-permissions=true|false    bypass permission prompts; grant this only when the queued work cannot be done without it
+  --notify=true|false              send a notification with the outcome when it finishes
+  --quiet-history=true|false       keep its successful runs out of history (off by default, even when this task is quiet)
+
+Only queue a task when the work genuinely belongs in a separate run; if something should simply be done now, just do it yourself.
 
 claudeq stores its data in the directory named by the CLAUDEQ_HOME environment variable (falling back to ~/Library/Application Support/claudeq when unset). If a task needs to inspect previous runs, that directory contains:
   runs/<id>.log   per-run output logs (stdout/stderr of each run)

@@ -108,3 +108,12 @@ func TestCheckID(t *testing.T) {
 		}
 	}
 }
+
+func TestPermissionsFor(t *testing.T) {
+	if got := PermissionsFor(true); got != PermissionsSkip {
+		t.Fatalf("PermissionsFor(true) = %q, want skip", got)
+	}
+	if got := PermissionsFor(false); got != PermissionsDefault {
+		t.Fatalf("PermissionsFor(false) = %q, want default", got)
+	}
+}

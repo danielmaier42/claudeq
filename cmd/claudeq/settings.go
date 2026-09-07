@@ -18,9 +18,6 @@ func cmdSettings(st *store.Store, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if fs.NArg() > 0 {
-		return fmt.Errorf("unexpected argument %q", fs.Arg(0))
-	}
 	if err := p.resolve(fs, readPromptFile); err != nil {
 		return err
 	}
@@ -85,8 +82,10 @@ func (p *settingsPatch) register(fs *flag.FlagSet) {
 // resolve records which flags were passed and folds --system-prompt-file into
 // --system-prompt. readFile is injected so this stays testable.
 func (p *settingsPatch) resolve(fs *flag.FlagSet, readFile func(string) ([]byte, error)) error {
-	p.set = map[string]bool{}
-	fs.Visit(func(f *flag.Flag) { p.set[f.Name] = true })
+	var err error
+	if p.set, err = passedFlags(fs); err != nil {
+		return err
+	}
 	if p.set["system-prompt"] && p.set["system-prompt-file"] {
 		return fmt.Errorf("choose either --system-prompt or --system-prompt-file")
 	}
