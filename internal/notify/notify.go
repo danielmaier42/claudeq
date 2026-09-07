@@ -22,6 +22,21 @@ type Notification struct {
 	// the ClaudeQ window on click (see cmd/claudeqapp, notifyclick_cocoa.m).
 	// Channels that cannot carry a click target ignore it.
 	ArtifactID string
+	// URL, when set, is the notification's link: Pushover shows it as the
+	// message's supplementary URL, and clicking the macOS notification opens it
+	// (again via cmd/claudeqapp). Channels that cannot carry a link ignore it.
+	URL string
+}
+
+// IsWebURL reports whether s is an absolute http or https URL — the only kind
+// of link a notification carries, because it is opened on click without
+// further ado.
+func IsWebURL(s string) bool {
+	u, err := url.Parse(s)
+	if err != nil {
+		return false
+	}
+	return (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }
 
 // Notifier delivers a notification.
@@ -41,7 +56,7 @@ type Mac struct {
 // notifications show a generic script icon but always work from a LaunchAgent.
 func (m Mac) Notify(ctx context.Context, n Notification) error {
 	if nativeNotifyAvailable() {
-		if err := postNativeNotification(n.Title, n.Message, n.ArtifactID); err == nil {
+		if err := postNativeNotification(n.Title, n.Message, n.ArtifactID, n.URL); err == nil {
 			return nil
 		}
 		// fall through to osascript on failure
@@ -124,6 +139,9 @@ func (p Pushover) Notify(ctx context.Context, n Notification) error {
 		"user":    {p.UserKey},
 		"title":   {n.Title},
 		"message": {n.Message},
+	}
+	if n.URL != "" {
+		form.Set("url", n.URL)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
 	if err != nil {

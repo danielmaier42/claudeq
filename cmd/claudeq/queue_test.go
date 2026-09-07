@@ -22,13 +22,18 @@ func TestBuildQueuedTaskInheritsParentSettings(t *testing.T) {
 		ID: "nightly", Name: "nightly", Prompt: "check things",
 		WorkingDir: "/repo", Trigger: task.TriggerCron, Cron: "0 2 * * *",
 		Parallel: true, Enabled: true, Model: "claude-opus-4-8",
-		Permissions: task.PermissionsSkip, NotifyOnResult: true,
+		Permissions: task.PermissionsSkip, NotifyOnResult: true, QuietHistory: true,
 	}
 	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 
 	got, err := buildQueuedTask(parentJSON(t, parent), "q-1", queueOpts{prompt: "optimize the widget"}, now)
 	if err != nil {
 		t.Fatalf("buildQueuedTask: %v", err)
+	}
+
+	// Deliberately not inherited: a watcher's follow-up is real work.
+	if got.QuietHistory {
+		t.Fatal("quiet_history must not be inherited by a queued follow-up task")
 	}
 
 	// Inherited from the parent.

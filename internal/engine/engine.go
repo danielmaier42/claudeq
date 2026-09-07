@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -77,8 +78,10 @@ type Engine struct {
 	backoff      time.Duration
 	waker        Waker
 	lastWakeErr  string // loop-local, for once-only logging
-	// lastArtifactErr is loop-local too (see notifyNewArtifacts).
+	// lastArtifactErr and lastNotifyErr are loop-local too (see
+	// notifyNewArtifacts and deliverTaskNotifications).
 	lastArtifactErr string
+	lastNotifyErr   string
 	wakeErr         atomic.Pointer[string] // exposed to the API (thread-safe)
 	notifier        notify.Notifier
 
@@ -234,10 +237,14 @@ func (e *Engine) launchTask(t task.Task, settings store.Settings, sessionID stri
 		Task: &snapshot,
 	}
 	// Record the start before marking the task active, so a failure here leaves
-	// no task stuck in the running set (which would block the scheduler).
-	if err := e.store.AppendRun(rec); err != nil {
-		_ = logFile.Close()
-		return fmt.Errorf("record run start: %w", err)
+	// no task stuck in the running set (which would block the scheduler). A
+	// quiet-history task is the exception: its runs enter history only if they
+	// end in something worth seeing (see finish), so nothing is written now.
+	if !t.QuietHistory {
+		if err := e.store.AppendRun(rec); err != nil {
+			_ = logFile.Close()
+			return fmt.Errorf("record run start: %w", err)
+		}
 	}
 
 	e.active[t.ID] = true
@@ -402,29 +409,49 @@ func (e *Engine) finish(t task.Task, rec store.Run, res executor.Result, runErr 
 		}
 	}
 
-	_ = e.store.AppendRun(rec)
-
-	// Bound disk usage: prune old runs/logs beyond the configured limit.
-	if cfg, err := e.store.LoadConfig(); err == nil {
-		_ = e.store.PruneHistory(cfg.Settings.RunHistoryLimit())
-	}
-
-	// Record the final status/reason into the log so it shows in both the raw
-	// and chat views (especially useful for failures and interruptions).
-	if rec.Status != store.StatusSuccess {
-		reason := rec.Error
-		if reason == "" {
-			reason = string(rec.Status)
+	if quietDrop(t, rec.Status) {
+		// A quiet task's routine tick leaves no trace: the run was never
+		// recorded (see launchTask), and its log goes too.
+		if err := os.Remove(rec.LogPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintf(os.Stderr, "claudeqd: remove log of quiet run %s: %v\n", rec.RunID, err)
 		}
-		if line, err := json.Marshal(map[string]string{
-			"type": "claudeq_status", "status": string(rec.Status), "message": reason,
-		}); err == nil {
-			_ = e.store.AppendRunLog(rec.RunID, append(line, '\n'))
+	} else {
+		_ = e.store.AppendRun(rec)
+
+		// Bound disk usage: prune old runs/logs beyond the configured limit.
+		if cfg, err := e.store.LoadConfig(); err == nil {
+			_ = e.store.PruneHistory(cfg.Settings.RunHistoryLimit())
+		}
+
+		// Record the final status/reason into the log so it shows in both the
+		// raw and chat views (especially useful for failures and interruptions).
+		if rec.Status != store.StatusSuccess {
+			reason := rec.Error
+			if reason == "" {
+				reason = string(rec.Status)
+			}
+			if line, err := json.Marshal(map[string]string{
+				"type": "claudeq_status", "status": string(rec.Status), "message": reason,
+			}); err == nil {
+				_ = e.store.AppendRunLog(rec.RunID, append(line, '\n'))
+			}
 		}
 	}
 
 	// Notify outside any lock so channel I/O never blocks other finishing runs.
 	e.notifyOutcome(t, rec, res.ResultText)
+}
+
+// quietDrop reports whether a run of a quiet-history task leaves history
+// alone: a success is routine, and a rate-limit pause resolves itself (the
+// daemon resumes the session). Failures, auth problems and cancellations are
+// the outcomes the operator needs to see, so those are recorded like any other
+// run's.
+func quietDrop(t task.Task, status store.RunStatus) bool {
+	if !t.QuietHistory {
+		return false
+	}
+	return status == store.StatusSuccess || status == store.StatusRateLimited
 }
 
 // notifyOutcome sends a best-effort notification. Failures and auth problems
@@ -434,10 +461,7 @@ func (e *Engine) notifyOutcome(t task.Task, rec store.Run, resultText string) {
 	if e.notifier == nil {
 		return
 	}
-	msg := strings.TrimSpace(resultText)
-	if len(msg) > 300 {
-		msg = msg[:300] + "…"
-	}
+	msg := truncateRunes(strings.TrimSpace(resultText), 300)
 
 	var n notify.Notification
 	switch rec.Status {
@@ -465,9 +489,43 @@ func (e *Engine) notifyOutcome(t task.Task, rec store.Run, resultText string) {
 	default:
 		return
 	}
+	e.send(n)
+}
+
+// send delivers one notification, best-effort, and reports a failed channel
+// on stderr: the daemon runs unattended, so the log is the only place the
+// operator can find out why an alert never arrived. Deliberately not bound to
+// the loop's context — a notification raised moments before shutdown would
+// otherwise be lost.
+func (e *Engine) send(n notify.Notification) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	_ = e.notifier.Notify(ctx, n)
+	if err := e.notifier.Notify(ctx, n); err != nil {
+		fmt.Fprintf(os.Stderr, "claudeqd: notification %q not delivered: %v\n", n.Title, err)
+	}
+}
+
+// noteErr logs a recurring failure once: err is written to stderr only when it
+// differs from the last one recorded in last (this runs on every tick), and a
+// nil err clears the memo so the next failure is logged again.
+func noteErr(last *string, what string, err error) {
+	if err == nil {
+		*last = ""
+		return
+	}
+	if msg := err.Error(); msg != *last {
+		fmt.Fprintln(os.Stderr, "claudeqd: "+what+":", err)
+		*last = msg
+	}
+}
+
+// truncateRunes shortens s to at most limit runes, marking the cut with an
+// ellipsis, so a long text still fits a notification channel's limits.
+func truncateRunes(s string, limit int) string {
+	if r := []rune(s); len(r) > limit {
+		return string(r[:limit]) + "…"
+	}
+	return s
 }
 
 // WaitIdle blocks until all in-flight runs have completed.
@@ -497,6 +555,8 @@ func (e *Engine) Loop(ctx context.Context, interval time.Duration) error {
 		// Artifacts are published by the task's own claudeq CLI call, so the
 		// daemon learns about them by re-reading the list each tick.
 		e.notifyNewArtifacts()
+		// Same for notifications a task queued with `claudeq notify`.
+		e.deliverTaskNotifications()
 		if e.waker != nil {
 			// Wake scheduling is best-effort (needs root); never fatal. Log a
 			// given failure only once to avoid spamming on every tick.

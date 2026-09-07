@@ -1,11 +1,6 @@
 package engine
 
 import (
-	"context"
-	"fmt"
-	"os"
-	"time"
-
 	"github.com/danielmaier42/claudeq/internal/notify"
 	"github.com/danielmaier42/claudeq/internal/store"
 )
@@ -31,25 +26,13 @@ func (e *Engine) notifyNewArtifacts() {
 		return
 	}
 	pending, err := e.takeUnnotifiedArtifacts()
-	if err != nil {
-		// Log a given failure once — this runs on every tick.
-		if msg := err.Error(); msg != e.lastArtifactErr {
-			fmt.Fprintln(os.Stderr, "claudeqd: artifact notification failed:", err)
-			e.lastArtifactErr = msg
-		}
-		return
-	}
-	e.lastArtifactErr = ""
+	noteErr(&e.lastArtifactErr, "artifact notification failed", err)
 	for _, a := range pending {
-		// Deliberately not the loop's context: a publish moments before shutdown
-		// would otherwise be marked notified and never announced.
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		_ = e.notifier.Notify(ctx, notify.Notification{
+		e.send(notify.Notification{
 			Title:      artifactNotifyTitle,
 			Message:    artifactNotifyBody(a),
 			ArtifactID: a.ID,
 		})
-		cancel()
 	}
 }
 
@@ -128,8 +111,5 @@ func artifactNotifyBody(a store.Artifact) string {
 	if a.Description != "" {
 		body += "\n" + a.Description
 	}
-	if r := []rune(body); len(r) > artifactNotifyBodyLimit {
-		body = string(r[:artifactNotifyBodyLimit]) + "…"
-	}
-	return body
+	return truncateRunes(body, artifactNotifyBodyLimit)
 }

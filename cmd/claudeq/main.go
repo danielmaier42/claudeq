@@ -33,15 +33,18 @@ Usage:
   claudeq show   ID [--json]       (one task in full, prompt included)
   claudeq add    --id ID --prompt P --dir DIR [--name N] [--trigger asap|fixed|cron]
                  [--at RFC3339] [--cron EXPR] [--model M] [--parallel] [--skip-permissions]
+                 [--quiet-history]
   claudeq edit   ID                (open the whole task in $EDITOR)
   claudeq edit   ID [--name N] [--prompt P | --prompt-file PATH] [--dir DIR]
                  [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR] [--model M]
                  [--parallel=BOOL] [--enabled=BOOL] [--skip-permissions=BOOL]
-                 [--notify=BOOL]  (only the flags you pass are changed)
+                 [--notify=BOOL] [--quiet-history=BOOL]  (only the flags you pass are changed)
   claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [--name N]
                  (queue a follow-up task; inherits the calling task's settings)
   claudeq publish --file PATH [--title T] [--description D]
                  (publish a file as an artifact; shows up in the Artifacts view)
+  claudeq notify --title T --message M [--url U]
+                 (send a notification over the configured channels, no artifact)
   claudeq rm ID
   claudeq enable ID | claudeq disable ID
   claudeq move   ID INDEX          (0 = highest priority)
@@ -91,6 +94,8 @@ func run(args []string) error {
 		return cmdQueue(st, rest)
 	case "publish":
 		return cmdPublish(st, rest)
+	case "notify":
+		return cmdNotify(st, rest)
 	case "rm":
 		return withID(rest, func(id string) error { return app.RemoveTask(st, id) })
 	case "enable":
@@ -183,6 +188,7 @@ func cmdAdd(st *store.Store, args []string) error {
 		model   = fs.String("model", "", "model override (default: global)")
 		par     = fs.Bool("parallel", false, "allow running alongside other parallel tasks")
 		skip    = fs.Bool("skip-permissions", false, "bypass permission prompts for this task")
+		quiet   = fs.Bool("quiet-history", false, "drop successful runs from history (frequent watcher jobs)")
 	)
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -192,7 +198,7 @@ func cmdAdd(st *store.Store, args []string) error {
 		ID: *id, Name: *name, Prompt: *prompt, WorkingDir: *dir,
 		Trigger: task.Trigger(*trig), Cron: *cronArg, Model: *model,
 		Parallel: *par, Enabled: true,
-		Permissions: task.PermissionsDefault,
+		Permissions: task.PermissionsDefault, QuietHistory: *quiet,
 	}
 	if t.Name == "" {
 		t.Name = t.ID
@@ -277,12 +283,15 @@ func buildQueuedTask(parentJSON, id string, o queueOpts, now time.Time) (task.Ta
 
 	// Keep inherited settings (model, permissions, parallel, notify_on_result and
 	// working_dir as the default); reset everything that identifies or schedules.
+	// Quiet history is not inherited: it suits a watcher's routine ticks, but a
+	// follow-up it queues is real work whose run the operator wants to see.
 	t.ID = id
 	t.Prompt = o.prompt
 	t.Name = o.name
 	t.Enabled = true
 	t.FixedAt = time.Time{}
 	t.Cron = ""
+	t.QuietHistory = false
 	if o.dir != "" {
 		t.WorkingDir = o.dir
 	}
@@ -349,28 +358,15 @@ func cmdPublish(st *store.Store, args []string) error {
 		return fmt.Errorf("--file is required")
 	}
 
-	taskID := os.Getenv(executor.EnvTaskID)
-	taskName := taskID
-	if parent := os.Getenv(executor.EnvParentTask); parent != "" {
-		var pt task.Task
-		if err := json.Unmarshal([]byte(parent), &pt); err == nil {
-			if pt.ID != "" {
-				taskID = pt.ID
-			}
-			if pt.Name != "" {
-				taskName = pt.Name
-			}
-		}
-	}
-
+	src := callingRun()
 	now := time.Now()
 	in := app.PublishInput{
 		SourcePath:  *file,
 		Title:       *title,
 		Description: *desc,
-		TaskID:      taskID,
-		TaskName:    taskName,
-		RunID:       os.Getenv(executor.EnvRunID),
+		TaskID:      src.taskID,
+		TaskName:    src.taskName,
+		RunID:       src.runID,
 		Now:         now,
 	}
 
@@ -393,10 +389,38 @@ func cmdPublish(st *store.Store, args []string) error {
 	return lastErr
 }
 
-// newArtifactID builds a unique-ish artifact id; the random suffix disambiguates
-// several artifacts published within the same second.
-func newArtifactID(now time.Time) string {
-	return "a-" + now.UTC().Format("20060102T150405") + "-" + shortHex(3)
+// runSource identifies the task and run a CLI call was made from, for
+// attributing what it produces (an artifact, a notification).
+type runSource struct {
+	taskID, taskName, runID string
+}
+
+// callingRun reads the attribution the daemon injects into every run's
+// environment. Outside a run all fields are empty.
+func callingRun() runSource {
+	src := runSource{taskID: os.Getenv(executor.EnvTaskID), runID: os.Getenv(executor.EnvRunID)}
+	src.taskName = src.taskID
+	if parent := os.Getenv(executor.EnvParentTask); parent != "" {
+		var pt task.Task
+		if err := json.Unmarshal([]byte(parent), &pt); err == nil {
+			if pt.ID != "" {
+				src.taskID = pt.ID
+			}
+			if pt.Name != "" {
+				src.taskName = pt.Name
+			}
+		}
+	}
+	return src
+}
+
+// newArtifactID builds a unique-ish artifact id.
+func newArtifactID(now time.Time) string { return newID("a-", now) }
+
+// newID builds a unique-ish, time-sortable id; the random suffix disambiguates
+// several ids minted within the same second.
+func newID(prefix string, now time.Time) string {
+	return prefix + now.UTC().Format("20060102T150405") + "-" + shortHex(3)
 }
 
 // queueWhen describes when a just-queued task will run, for the CLI confirmation.
@@ -455,19 +479,22 @@ func cmdRunNow(st *store.Store, id string) error {
 	self, _ := os.Executable()
 	eng := engine.New(st, limit.New(c), &executor.Executor{Home: st.Home(), QueueBin: self}, c)
 	fmt.Printf("running task %q now...\n", id)
+	started := c.Now()
 	if err := eng.RunTaskNow(context.Background(), id); err != nil {
 		return err
 	}
-	return printLatestRun(st, id)
+	return printLatestRun(st, id, started)
 }
 
-func printLatestRun(st *store.Store, taskID string) error {
+// printLatestRun reports the task's run that started at or after since — the
+// one run-now just made — rather than whatever older run history holds.
+func printLatestRun(st *store.Store, taskID string, since time.Time) error {
 	runs, err := st.Runs()
 	if err != nil {
 		return err
 	}
 	for i := len(runs) - 1; i >= 0; i-- {
-		if runs[i].TaskID == taskID {
+		if runs[i].TaskID == taskID && !runs[i].StartedAt.Before(since) {
 			r := runs[i]
 			fmt.Printf("result: %s (exit %d)\n", r.Status, r.ExitCode)
 			if r.Error != "" {
@@ -476,6 +503,12 @@ func printLatestRun(st *store.Store, taskID string) error {
 			fmt.Printf("log:    %s\n", r.LogPath)
 			return nil
 		}
+	}
+	// A quiet-history task records only runs that need attention, so finding
+	// nothing is the expected outcome there, not a missing record.
+	if t, err := findTask(st, taskID); err == nil && t.QuietHistory {
+		fmt.Println("no run recorded (quiet history: only failures are kept)")
+		return nil
 	}
 	fmt.Println("no run recorded")
 	return nil
