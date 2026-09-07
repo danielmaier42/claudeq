@@ -221,6 +221,23 @@ check "NFA-05 postinstall sets up the LaunchAgent"         contains "$ROOT/scrip
 # /Applications — a case-insensitive-FS bug once made it rm the app it just
 # installed. It may reference the path (to locate the daemon), just never rm it.
 check "postinstall never removes anything under /Applications" bash -c '! grep -Eq "(rm|unlink|ditto .*--nocache)[^\\n]*/Applications" "'"$ROOT"'/scripts/pkg/postinstall"'
+check "postinstall waits for the daemon, then opens the installed app" bash -c 'grep -q "127.0.0.1:8765/api/tasks" "'"$ROOT"'/scripts/pkg/postinstall" && grep -q "open \"\$APP\"" "'"$ROOT"'/scripts/pkg/postinstall"'
+check "NFA-05 preinstall is valid shell"                   sh -n "$ROOT/scripts/pkg/preinstall"
+check "preinstall never removes anything under /Applications" bash -c '! grep -Eq "(rm|unlink|ditto .*--nocache)[^\\n]*/Applications" "'"$ROOT"'/scripts/pkg/preinstall"'
+# The preinstall closes only the dashboard window (by exact process name, so a
+# `go build` of the app is never hit); the daemon is postinstall's business.
+check "preinstall never touches the daemon"                bash -c '! grep -Eq "(pkill|kill|killall)[^\\n]*claudeqd" "'"$ROOT"'/scripts/pkg/preinstall"'
+# Run the real preinstall against fake pgrep/pkill: the window "runs" until the
+# fake pkill has been called once, so a TERM that works must never escalate.
+rm -f "$WORK/pkill.log"
+cat > "$FAKE/pgrep" <<EOF
+#!/bin/sh
+[ -f "$WORK/pkill.log" ] && exit 1 || exit 0
+EOF
+chmod +x "$FAKE/pgrep"
+sh "$ROOT/scripts/pkg/preinstall" >/dev/null 2>&1
+check "preinstall TERMs the window by exact process name"  contains "$WORK/pkill.log" "^-x claudeqapp$"
+check "preinstall does not force-quit a window that exits" bash -c '! grep -q -- "-9" "'"$WORK"'/pkill.log"'
 check "NFA-06 uninstall removes LaunchAgent and app"       contains "$ROOT/scripts/uninstall.sh" "uninstall"
 check "NFA-06 uninstall is valid shell"                    bash -n "$ROOT/scripts/uninstall.sh"
 check "release pipeline triggers on version tags"          contains "$ROOT/.github/workflows/release.yml" 'tags:'
