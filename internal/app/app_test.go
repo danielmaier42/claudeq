@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
@@ -176,5 +177,39 @@ func TestEditTask(t *testing.T) {
 	}
 	if len(after.Tasks) != 1 || after.Tasks[0].ID != "one" || after.Tasks[0].Prompt != "changed" {
 		t.Errorf("store disturbed by failed edits: %+v", after.Tasks)
+	}
+}
+
+func TestRemoveTaskForgetsSchedulingState(t *testing.T) {
+	s, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := AddTask(s, task.Task{ID: "once", Prompt: "p", WorkingDir: "/r", Trigger: task.TriggerASAP, Permissions: task.PermissionsDefault}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateState(func(st *store.State) error {
+		st.MarkCompletedOnce("once")
+		st.RecordStart("once", time.Now())
+		st.MarkCompletedOnce("other")
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveTask(s, "once"); err != nil {
+		t.Fatal(err)
+	}
+	st, err := s.LoadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := st.LastStart("once"); ok || st.IsCompletedOnce("once") {
+		t.Errorf("removed task's state survived: %+v", st)
+	}
+	if !st.IsCompletedOnce("other") {
+		t.Error("another task's state was dropped")
+	}
+	if err := RemoveTask(s, "once"); err == nil {
+		t.Error("removing a missing task succeeded")
 	}
 }

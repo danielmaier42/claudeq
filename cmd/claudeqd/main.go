@@ -145,6 +145,7 @@ func cmdRun(args []string) error {
 		Handler: api.Handler(api.Deps{
 			Store: st, Runner: eng, Canceler: eng, Models: api.BinaryModelLister(claudeBinOr(claudeBin)),
 			ChooseFolder: api.OSAScriptFolderChooser(system.Real{}), ActiveTasks: eng.ActiveTaskIDs,
+			SaveFile:     api.OSAScriptSaveFileDialog(system.Real{}),
 			OpenTerminal: api.OSAScriptTerminalOpener(system.Real{}),
 			WakeError:    eng.WakeError, WarmFileAccess: warmFileAccess, Updates: updSvc,
 			NotifyStatus: notify.MacAuthorization,

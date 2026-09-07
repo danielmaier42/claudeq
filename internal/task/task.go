@@ -4,6 +4,7 @@ package task
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -53,7 +54,7 @@ type Task struct {
 	// Trigger selects how the task becomes eligible.
 	Trigger Trigger `toml:"trigger" json:"trigger"`
 	// FixedAt is the earliest start time for TriggerFixed.
-	FixedAt time.Time `toml:"fixed_at,omitempty" json:"fixed_at,omitempty"`
+	FixedAt time.Time `toml:"fixed_at,omitempty" json:"fixed_at,omitzero"`
 	// Cron is the crontab expression for TriggerCron.
 	Cron string `toml:"cron,omitempty" json:"cron,omitempty"`
 
@@ -124,4 +125,55 @@ func (t Task) Validate() error {
 // validated TriggerCron task.
 func (t Task) CronSchedule() (cron.Schedule, error) {
 	return CronParser.Parse(t.Cron)
+}
+
+// Slug derives a URL-safe id fragment from a human-readable name: lower-case
+// letters and digits, with runs of spaces/dashes/underscores collapsed to one
+// dash, at most 24 characters. An empty result becomes "task", so it is never
+// empty.
+func Slug(name string) string {
+	var b strings.Builder
+	dash := true // suppress a leading dash
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			dash = false
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r + 32)
+			dash = false
+		case r == ' ' || r == '-' || r == '_':
+			if !dash {
+				b.WriteByte('-')
+				dash = true
+			}
+		}
+	}
+	slug := strings.TrimRight(b.String(), "-")
+	if len(slug) > 24 {
+		slug = strings.TrimRight(slug[:24], "-")
+	}
+	if slug == "" {
+		return "task"
+	}
+	return slug
+}
+
+// CheckID reports whether id is usable as a task id: letters, digits, dot,
+// dash and underscore only, starting with a letter or digit. Ids appear in
+// API paths and file names, so a slash, space or "..", would break the app's
+// own URLs. Generated ids (Slug plus a suffix) always pass; the check is for
+// ids that a user or a shared file supplies.
+func CheckID(id string) error {
+	if id == "" {
+		return fmt.Errorf("%w: missing id", ErrInvalidTask)
+	}
+	for i, r := range id {
+		ok := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' ||
+			i > 0 && (r == '.' || r == '-' || r == '_')
+		if !ok {
+			return fmt.Errorf("%w: id %q may only contain letters, digits, '.', '-' and '_' (and must start with a letter or digit)", ErrInvalidTask, id)
+		}
+	}
+	return nil
 }

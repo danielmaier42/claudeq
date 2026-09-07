@@ -78,3 +78,33 @@ func TestCronScheduleNext(t *testing.T) {
 		t.Fatalf("Next(%v) = %v, want %v", from, next, want)
 	}
 }
+
+func TestSlug(t *testing.T) {
+	cases := map[string]string{
+		"Nightly sweep":                        "nightly-sweep",
+		"  Ünïcode & Symbols!":                 "ncode-symbols",
+		"":                                     "task",
+		"---":                                  "task",
+		"a_very_long_name_that_goes_on_and_on": "a-very-long-name-that-go",
+	}
+	for in, want := range cases {
+		if got := Slug(in); got != want {
+			t.Errorf("Slug(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestCheckID(t *testing.T) {
+	ok := []string{"nightly", "nightly-sweep-2", "q-20260907T100943-abc123", "a.b_c", "7up"}
+	for _, id := range ok {
+		if err := CheckID(id); err != nil {
+			t.Errorf("CheckID(%q) = %v, want nil", id, err)
+		}
+	}
+	bad := []string{"", "team/nightly", "..", ".hidden", "-lead", "with space", "ümlaut", "a?b", "a#b"}
+	for _, id := range bad {
+		if err := CheckID(id); !errors.Is(err, ErrInvalidTask) {
+			t.Errorf("CheckID(%q) = %v, want ErrInvalidTask", id, err)
+		}
+	}
+}
