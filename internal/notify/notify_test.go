@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -70,6 +71,31 @@ func TestPushoverPostsExpectedForm(t *testing.T) {
 	}
 }
 
+func TestPushoverSendsLinkAsSupplementaryURL(t *testing.T) {
+	var gotForm url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		gotForm = r.Form
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	p := Pushover{Token: "tok", UserKey: "usr", URL: srv.URL, Client: srv.Client()}
+	if err := p.Notify(context.Background(), Notification{Title: "T", Message: "M"}); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	if _, ok := gotForm["url"]; ok {
+		t.Fatalf("a notification without a link must not send a url field, got %v", gotForm)
+	}
+	link := "https://example.com/status?x=1&y=2"
+	if err := p.Notify(context.Background(), Notification{Title: "T", Message: "M", URL: link}); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	if got := gotForm.Get("url"); got != link {
+		t.Fatalf("url = %q, want %q", got, link)
+	}
+}
+
 func TestPushoverErrorsOnNon2xx(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
@@ -125,5 +151,24 @@ func TestArtifactIDStaysOutOfTheMessageText(t *testing.T) {
 	}
 	if strings.Contains(r.args[2], "a-20260901T030000-abc") {
 		t.Fatalf("artifact id leaked into the osascript text: %s", r.args[2])
+	}
+}
+
+func TestIsWebURL(t *testing.T) {
+	cases := map[string]bool{
+		"https://example.com/x?y=1":        true,
+		"http://ci.internal:8080/build/42": true,
+		"HTTPS://example.com":              true,
+		"":                                 false,
+		"example.com/x":                    false,
+		"https://":                         false,
+		"file:///etc/passwd":               false,
+		"x-apple.systempreferences:x":      false,
+		"javascript:alert(1)":              false,
+	}
+	for in, want := range cases {
+		if got := IsWebURL(in); got != want {
+			t.Errorf("IsWebURL(%q) = %v, want %v", in, got, want)
+		}
 	}
 }

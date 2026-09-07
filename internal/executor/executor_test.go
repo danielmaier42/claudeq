@@ -87,6 +87,9 @@ func TestArgsAppendsSelfQueueSystemPrompt(t *testing.T) {
 	if !strings.Contains(builtinSystemPrompt, "publish --file") {
 		t.Fatal("built-in prompt must document the `publish --file` command")
 	}
+	if !strings.Contains(builtinSystemPrompt, "notify --title") {
+		t.Fatal("built-in prompt must document the `notify --title` command")
+	}
 }
 
 func TestArgsAppendsCustomSystemPrompt(t *testing.T) {

@@ -81,6 +81,23 @@ Notes:
   - Publish only finished deliverables worth keeping — not intermediate scratch files, logs, or work you are still editing.
   - HTML and PDF artifacts get an in-app viewer, so they are good formats for anything meant to be read.`
 
+// notifySystemPrompt is appended to every run's system prompt so Claude knows
+// it can send the operator a notification directly — the way a watcher job
+// reports a change without producing an artifact.
+const notifySystemPrompt = `
+
+When something needs the operator's attention right now — a watched condition changed, a check found a problem, a result they asked to be told about — send a notification over the operator's configured channels (macOS Notification Center and, if set up, Pushover):
+
+  "${CLAUDEQ_BIN:-claudeq}" notify --title "<short title>" --message "<what happened>"
+
+Optional:
+  --url "<https://...>"   a link the notification opens when clicked
+
+Notes:
+  - Use it only when the task's instructions call for it or the finding genuinely warrants an alert; the run's own outcome (success or failure) is announced by claudeq according to the task's settings, so do not repeat that.
+  - A job that should report only on change sends nothing when nothing changed.
+  - The notification is attributed to this task automatically; keep the title and message about the finding.`
+
 // customSystemPromptIntro precedes the operator's custom system prompt (see
 // Settings.SystemPrompt). It frames that text as claudeq-configured guidance and
 // resolves conflicts in favour of the built-in prompt above.
@@ -91,8 +108,8 @@ The following are additional instructions configured by the operator of this cla
 `
 
 // builtinSystemPrompt is claudeq's own guidance, always prepended to a run: the
-// self-queue instructions followed by the artifact-publishing instructions.
-const builtinSystemPrompt = selfQueueSystemPrompt + artifactSystemPrompt
+// self-queue instructions, then artifact publishing, then notifications.
+const builtinSystemPrompt = selfQueueSystemPrompt + artifactSystemPrompt + notifySystemPrompt
 
 // systemPrompt combines the built-in prompt (always first) with the operator's
 // optional custom system prompt (last, introduced by customSystemPromptIntro). A

@@ -1,0 +1,31 @@
+#!/bin/sh
+# preinstall — close the ClaudeQ window before the payload replaces the app.
+# Only the dashboard app (claudeqapp) is closed: the daemon keeps running and
+# is restarted by postinstall once the new binaries are in place. A window
+# left open would keep running the old code (or crash once macOS re-checks
+# the signature of the replaced executable), and postinstall reopens the
+# freshly installed app anyway.
+set -e
+
+# Match the process name exactly. `pkill -f claudeqapp` would also kill
+# unrelated commands whose arguments mention the name, such as a `go build`
+# of the app or an editor with its source open.
+if ! pgrep -x claudeqapp >/dev/null 2>&1; then
+	exit 0
+fi
+
+echo "claudeq: closing the open ClaudeQ window"
+pkill -x claudeqapp 2>/dev/null || true
+
+# Give it a moment to exit; a window that ignores TERM is force-quit so the
+# install never stalls on it.
+i=0
+while pgrep -x claudeqapp >/dev/null 2>&1 && [ "$i" -lt 50 ]; do
+	sleep 0.1
+	i=$((i + 1))
+done
+if pgrep -x claudeqapp >/dev/null 2>&1; then
+	pkill -9 -x claudeqapp 2>/dev/null || true
+fi
+
+exit 0
