@@ -370,7 +370,9 @@ audience is Mac-using developers who already run Claude Code.
   `notarytool` + `staple` steps. No structural rework; the Gatekeeper friction then disappears.
 
 ### 11.2 Installer (`.pkg`) contents & postinstall
-Built with `pkgbuild`/`productbuild`. The **root postinstall** script performs the auto-setup:
+Built with `pkgbuild`/`productbuild`. A **preinstall** closes the open ClaudeQ window (only
+the dashboard app; the daemon keeps running). The **root postinstall** script performs the
+auto-setup and, at the end, reopens the freshly installed app in the user's GUI session:
 - Install the Wails **app** to `/Applications`.
 - Install the **LaunchAgent** plist (user daemon) and bootstrap it (`launchctl bootstrap`).
 - Write a **`/etc/sudoers.d/claudeq`** entry granting the user passwordless `/usr/bin/pmset`

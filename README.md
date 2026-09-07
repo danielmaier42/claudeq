@@ -142,7 +142,8 @@ The nightly cycle looks like this:
 - **Native macOS** — its own app window, Dock icon, menu bar, About panel, and
   live system accent color; light/dark aware.
 - **Automatic updates** — checks GitHub for a newer release hourly and flags it
-  in Settings; one click downloads the installer and opens it. Dismiss a version
+  in Settings; one click downloads the installer and opens it, and the new
+  version is running again as soon as the installer finishes. Dismiss a version
   to only hear about the next one. The banner aggregates the notes of every
   version you skipped.
 - **Local & private** — data is human-readable TOML/JSON under your Library
@@ -206,9 +207,12 @@ The dashboard is also reachable in a normal browser at
    [Releases](https://github.com/danielmaier42/claudeq/releases) page.
 2. Open it and follow the installer.
 
-The package installs **ClaudeQ** to `/Applications` and sets up a per-user
-LaunchAgent so the daemon starts at login. Open **ClaudeQ** from Applications to
-start adding tasks.
+The package installs **ClaudeQ** to `/Applications`, sets up a per-user
+LaunchAgent so the daemon starts at login, and opens **ClaudeQ** when it is
+done, so you can start adding tasks right away. Installing over an existing
+version works the same way: the installer closes the open ClaudeQ window first
+(the daemon and any running task are not interrupted) and reopens the new
+version at the end, so an update takes effect without a manual restart.
 
 > The package is not notarized, so on first launch macOS may warn that it is from
 > an unidentified developer. Right-click **ClaudeQ → Open**, then confirm — or
