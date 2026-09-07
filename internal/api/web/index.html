@@ -116,6 +116,7 @@
   /* Chips / pills */
   .chip { font-size:11px; font-weight:600; padding:2px 8px; border-radius:20px; background:var(--seg-bg); color:var(--fg2); }
   .hint-time { cursor:help; text-decoration:underline dotted; text-underline-offset:2px; text-decoration-color:var(--fg2); }
+  .chip.accent { background:color-mix(in srgb, var(--accent) 18%, transparent); color:var(--accent); }
   .chip.warn { background:color-mix(in srgb, var(--warn) 18%, transparent); color:var(--warn); }
   .chip.running { background:color-mix(in srgb, var(--accent) 18%, transparent); color:var(--accent); }
   .chip.running::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--accent); margin-right:5px; vertical-align:middle; animation:cqpulse 1.2s ease-in-out infinite; }
@@ -527,7 +528,7 @@ async function loadTasks(){
     else if(t.trigger==='cron') when=`<span class="cron"${t.next_run?` data-tip="Next run: ${esc(new Date(t.next_run).toLocaleString())}"`:''}>${esc(t.cron)}</span>`;
     else when='as soon as possible';
     const row=el('div','row');
-    const grow=el('div','grow'); grow.innerHTML=`<div class="title">${esc(t.name)} ${t.running?'<span class="chip running">running…</span>':''} ${t.parallel?'<span class="chip" title="Runs alongside other parallel tasks">parallel</span>':''} ${t.permissions==='skip'?'<span class="chip warn" title="Skips permission prompts">skips permissions</span>':''} ${t.notify_on_result?'<span class="chip" title="Sends outcome and last message when it finishes">notifies</span>':''}</div>
+    const grow=el('div','grow'); grow.innerHTML=`<div class="title">${esc(t.name)} ${t.running?'<span class="chip running">running…</span>':''} ${t.parallel?'<span class="chip" title="Runs alongside other parallel tasks">parallel</span>':''} ${t.permissions==='skip'?'<span class="chip warn" title="Skips permission prompts">granted</span>':''} ${t.notify_on_result?'<span class="chip accent" title="Sends outcome and last message when it finishes">notifies</span>':''}</div>
       <div class="sub"><span class="mono">${esc(t.id)}</span> · ${esc(t.trigger)} · ${when}</div>`;
     row.append(grow);
     const up=el('button','btn small','↑'); up.disabled=i===0; up.title='Move up'; up.onclick=()=>move(t.id,i-1);
