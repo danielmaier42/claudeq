@@ -33,14 +33,17 @@ Usage:
   claudeq show   ID [--json]       (one task in full, prompt included)
   claudeq add    --id ID --prompt P --dir DIR [--name N] [--trigger asap|fixed|cron]
                  [--at RFC3339] [--cron EXPR] [--model M] [--parallel] [--skip-permissions]
-                 [--quiet-history]
+                 [--notify] [--quiet-history]
   claudeq edit   ID                (open the whole task in $EDITOR)
   claudeq edit   ID [--name N] [--prompt P | --prompt-file PATH] [--dir DIR]
                  [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR] [--model M]
                  [--parallel=BOOL] [--enabled=BOOL] [--skip-permissions=BOOL]
                  [--notify=BOOL] [--quiet-history=BOOL]  (only the flags you pass are changed)
   claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [--name N]
-                 (queue a follow-up task; inherits the calling task's settings)
+                 [--model M] [--parallel=BOOL] [--skip-permissions=BOOL] [--notify=BOOL]
+                 [--quiet-history=BOOL]
+                 (queue a follow-up task; settings you do not pass are inherited from
+                 the calling task)
   claudeq publish --file PATH [--title T] [--description D]
                  (publish a file as an artifact; shows up in the Artifacts view)
   claudeq notify --title T --message M [--url U]
@@ -166,7 +169,7 @@ func cmdList(st *store.Store, args []string) error {
 	fmt.Fprintln(w, "#\tID\tNAME\tTRIGGER\tWHEN\tPARALLEL\tENABLED")
 	for i, t := range cfg.Tasks {
 		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%t\t%t\n",
-			i, t.ID, t.Name, t.Trigger, triggerWhen(t), t.Parallel, t.Enabled)
+			i, t.ID, listName(t.Name), t.Trigger, triggerWhen(t), t.Parallel, t.Enabled)
 	}
 	return w.Flush()
 }
@@ -192,26 +195,21 @@ func cmdAdd(st *store.Store, args []string) error {
 		trig    = fs.String("trigger", "asap", "asap|fixed|cron")
 		at      = fs.String("at", "", "RFC3339 time for --trigger fixed")
 		cronArg = fs.String("cron", "", "crontab expression for --trigger cron")
-		model   = fs.String("model", "", "model override (default: global)")
-		par     = fs.Bool("parallel", false, "allow running alongside other parallel tasks")
-		skip    = fs.Bool("skip-permissions", false, "bypass permission prompts for this task")
-		quiet   = fs.Bool("quiet-history", false, "drop successful runs from history (frequent watcher jobs)")
+		s       taskSettings
 	)
+	s.register(fs, "off")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
 	t := task.Task{
 		ID: *id, Name: *name, Prompt: *prompt, WorkingDir: *dir,
-		Trigger: task.Trigger(*trig), Cron: *cronArg, Model: *model,
-		Parallel: *par, Enabled: true,
-		Permissions: task.PermissionsDefault, QuietHistory: *quiet,
+		Trigger: task.Trigger(*trig), Cron: *cronArg, Enabled: true,
+		Model: s.model, Parallel: s.parallel, NotifyOnResult: s.notify,
+		QuietHistory: s.quietHistory, Permissions: task.PermissionsFor(s.skipPerms),
 	}
 	if t.Name == "" {
 		t.Name = t.ID
-	}
-	if *skip {
-		t.Permissions = task.PermissionsSkip
 	}
 	if *at != "" {
 		parsed, err := time.Parse(time.RFC3339, *at)
@@ -233,8 +231,8 @@ func cmdAdd(st *store.Store, args []string) error {
 	return nil
 }
 
-// queueOpts are the caller-supplied parts of `claudeq queue`. Everything else
-// (model, permissions, parallel, notify, and the default working dir) is
+// queueOpts are the caller-supplied parts of `claudeq queue`. Everything not
+// passed (model, permissions, parallel, notify, and the default working dir) is
 // inherited from the calling task via the CLAUDEQ_PARENT_TASK environment.
 type queueOpts struct {
 	prompt string
@@ -243,11 +241,18 @@ type queueOpts struct {
 	cron   string // 5-field cron expression (--cron)
 	dir    string // working directory override (--dir)
 	name   string // display name (--name)
+
+	// Per-call overrides of the inherited settings, the same flags `add` and
+	// `edit` take; set records which of them were passed.
+	taskSettings
+	set map[string]bool
 }
 
-// cmdQueue enqueues a follow-up task. It is meant to be run by Claude from
-// inside a task (see executor.selfQueueSystemPrompt) but also works standalone.
-func cmdQueue(st *store.Store, args []string) error {
+func (o queueOpts) has(name string) bool { return o.set[name] }
+
+// parseQueueOpts parses the `claudeq queue` flags and records which of the
+// override flags were passed.
+func parseQueueOpts(args []string) (queueOpts, error) {
 	fs := flag.NewFlagSet("queue", flag.ContinueOnError)
 	var o queueOpts
 	fs.StringVar(&o.prompt, "prompt", "", "prompt sent to Claude Code (required)")
@@ -256,7 +261,22 @@ func cmdQueue(st *store.Store, args []string) error {
 	fs.StringVar(&o.cron, "cron", "", "5-field cron expression for a recurring task")
 	fs.StringVar(&o.dir, "dir", "", "working directory (default: the calling task's dir)")
 	fs.StringVar(&o.name, "name", "", "display name (default: derived from the prompt)")
+	o.register(fs, "inherited")
 	if err := fs.Parse(args); err != nil {
+		return queueOpts{}, err
+	}
+	var err error
+	if o.set, err = passedFlags(fs); err != nil {
+		return queueOpts{}, err
+	}
+	return o, nil
+}
+
+// cmdQueue enqueues a follow-up task. It is meant to be run by Claude from
+// inside a task (see executor.selfQueueSystemPrompt) but also works standalone.
+func cmdQueue(st *store.Store, args []string) error {
+	o, err := parseQueueOpts(args)
+	if err != nil {
 		return err
 	}
 
@@ -281,8 +301,8 @@ func cmdQueue(st *store.Store, args []string) error {
 
 // buildQueuedTask assembles the task to enqueue. It starts from the calling task
 // (parentJSON, empty when run standalone) so settings are inherited, then resets
-// the identity/scheduling fields and applies the queue options. id is the
-// pre-generated task id; now anchors --in.
+// the identity/scheduling fields, applies the queue options and finally any
+// per-call overrides. id is the pre-generated task id; now anchors --in.
 func buildQueuedTask(parentJSON, id string, o queueOpts, now time.Time) (task.Task, error) {
 	var t task.Task
 	if parentJSON != "" {
@@ -294,7 +314,8 @@ func buildQueuedTask(parentJSON, id string, o queueOpts, now time.Time) (task.Ta
 	// Keep inherited settings (model, permissions, parallel, notify_on_result and
 	// working_dir as the default); reset everything that identifies or schedules.
 	// Quiet history is not inherited: it suits a watcher's routine ticks, but a
-	// follow-up it queues is real work whose run the operator wants to see.
+	// follow-up it queues is real work whose run the operator wants to see. The
+	// caller can still ask for it explicitly with --quiet-history below.
 	t.ID = id
 	t.Prompt = o.prompt
 	t.Name = o.name
@@ -308,6 +329,10 @@ func buildQueuedTask(parentJSON, id string, o queueOpts, now time.Time) (task.Ta
 	if t.Permissions == "" {
 		t.Permissions = task.PermissionsDefault
 	}
+
+	// Explicit overrides win over inheritance, e.g. a cheap watcher queueing a
+	// review that must run on a stronger model with a visible run.
+	o.apply(&t, o.has)
 
 	set := 0
 	for _, v := range []string{o.at, o.in, o.cron} {
@@ -441,16 +466,41 @@ func queueWhen(t task.Task) string {
 	return string(t.Trigger) + " " + triggerWhen(t)
 }
 
+// nameWidth is how many runes of a name fit on one line: the NAME column of
+// `claudeq list` is cut to it (the full name stays in `show` and `--json`),
+// and a name derived from a prompt is never longer.
+const nameWidth = 40
+
+// listName renders a task name for the `claudeq list` table: on one line
+// (a name with a newline or tab in it would break the columns) and cut to
+// nameWidth.
+func listName(name string) string {
+	return truncate(strings.Join(strings.Fields(name), " "), nameWidth)
+}
+
+// truncate cuts s to at most width runes, ending in an ellipsis when it had to
+// cut anything. A width below one yields the empty string.
+func truncate(s string, width int) string {
+	if width < 1 {
+		return ""
+	}
+	if len(s) <= width { // bytes >= runes, so this cannot need cutting
+		return s
+	}
+	r := []rune(s)
+	if len(r) <= width {
+		return s
+	}
+	return string(r[:width-1]) + "…"
+}
+
 // defaultQueueName derives a short single-line name from the prompt.
 func defaultQueueName(prompt string) string {
-	s := strings.TrimSpace(strings.Join(strings.Fields(prompt), " "))
+	s := strings.Join(strings.Fields(prompt), " ")
 	if s == "" {
 		return "queued task"
 	}
-	if r := []rune(s); len(r) > 40 {
-		return string(r[:39]) + "…"
-	}
-	return s
+	return truncate(s, nameWidth)
 }
 
 // newQueueID builds a unique-ish task id; the random suffix disambiguates

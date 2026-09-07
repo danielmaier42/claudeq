@@ -131,23 +131,76 @@ func cmdEdit(st *store.Store, args []string) error {
 	return nil
 }
 
+// taskSettings are the per-task settings that `edit`, `queue` and `add` all
+// take as the same flags. Each one is applied only when its flag was passed
+// (see passedFlags), so an explicit --parallel=false still overrides an
+// existing or inherited true.
+type taskSettings struct {
+	model        string
+	parallel     bool
+	skipPerms    bool
+	notify       bool
+	quietHistory bool
+}
+
+// register declares the setting flags on fs. dflt names what applies when a
+// flag is left out, e.g. "inherited" for queue; it is appended to each help.
+func (s *taskSettings) register(fs *flag.FlagSet, dflt string) {
+	fs.StringVar(&s.model, "model", "", "model override; empty = global default (default: "+dflt+")")
+	fs.BoolVar(&s.parallel, "parallel", false, "allow running alongside other parallel tasks (default: "+dflt+")")
+	fs.BoolVar(&s.skipPerms, "skip-permissions", false, "bypass permission prompts (default: "+dflt+")")
+	fs.BoolVar(&s.notify, "notify", false, "notify on the run's result, not just failures (default: "+dflt+")")
+	fs.BoolVar(&s.quietHistory, "quiet-history", false, "drop successful runs from history (default: "+dflt+")")
+}
+
+// apply copies onto t every setting whose flag was passed, per has.
+func (s taskSettings) apply(t *task.Task, has func(string) bool) {
+	if has("model") {
+		t.Model = s.model
+	}
+	if has("parallel") {
+		t.Parallel = s.parallel
+	}
+	if has("notify") {
+		t.NotifyOnResult = s.notify
+	}
+	if has("quiet-history") {
+		t.QuietHistory = s.quietHistory
+	}
+	if has("skip-permissions") {
+		t.Permissions = task.PermissionsFor(s.skipPerms)
+	}
+}
+
+// passedFlags reports which flags of a parsed FlagSet were actually given. A
+// stray positional argument is an error: for a boolean flag it usually means
+// the value was written with a space, which the flag package cannot accept.
+func passedFlags(fs *flag.FlagSet) (map[string]bool, error) {
+	if fs.NArg() > 0 {
+		arg := fs.Arg(0)
+		if arg == "true" || arg == "false" {
+			return nil, fmt.Errorf("unexpected argument %q (write boolean flags as --flag=%s)", arg, arg)
+		}
+		return nil, fmt.Errorf("unexpected argument %q", arg)
+	}
+	set := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	return set, nil
+}
+
 // taskPatch is a parsed set of `claudeq edit` flags: the values plus which of
 // them the caller actually passed. Only the passed ones are applied, so editing
 // the prompt never resets the schedule.
 type taskPatch struct {
-	set            map[string]bool
-	name           string
-	prompt         string
-	dir            string
-	trigger        string
-	at             string
-	cron           string
-	model          string
-	parallel       bool
-	enabled        bool
-	skipPermission bool
-	notify         bool
-	quietHistory   bool
+	taskSettings
+	set     map[string]bool
+	name    string
+	prompt  string
+	dir     string
+	trigger string
+	at      string
+	cron    string
+	enabled bool
 }
 
 func (p taskPatch) has(name string) bool { return p.set[name] }
@@ -164,21 +217,15 @@ func parseTaskPatch(args []string, readFile func(string) ([]byte, error)) (taskP
 	fs.StringVar(&p.trigger, "trigger", "", "asap|fixed|cron")
 	fs.StringVar(&p.at, "at", "", "RFC3339 start time (implies --trigger fixed)")
 	fs.StringVar(&p.cron, "cron", "", "crontab expression (implies --trigger cron)")
-	fs.StringVar(&p.model, "model", "", "model override (empty = global default)")
-	fs.BoolVar(&p.parallel, "parallel", false, "allow running alongside other parallel tasks")
 	fs.BoolVar(&p.enabled, "enabled", false, "enable or pause the task")
-	fs.BoolVar(&p.skipPermission, "skip-permissions", false, "bypass permission prompts")
-	fs.BoolVar(&p.notify, "notify", false, "notify on the run's result, not just failures")
-	fs.BoolVar(&p.quietHistory, "quiet-history", false, "drop successful runs from history")
+	p.register(fs, "unchanged")
 	if err := fs.Parse(args); err != nil {
 		return taskPatch{}, err
 	}
-	if fs.NArg() > 0 {
-		return taskPatch{}, fmt.Errorf("unexpected argument %q", fs.Arg(0))
+	var err error
+	if p.set, err = passedFlags(fs); err != nil {
+		return taskPatch{}, err
 	}
-
-	p.set = map[string]bool{}
-	fs.Visit(func(f *flag.Flag) { p.set[f.Name] = true })
 	if len(p.set) == 0 {
 		return taskPatch{}, fmt.Errorf("no changes given")
 	}
@@ -209,27 +256,10 @@ func (p taskPatch) apply(t task.Task) (task.Task, error) {
 	if p.has("dir") {
 		t.WorkingDir = p.dir
 	}
-	if p.has("model") {
-		t.Model = p.model
-	}
-	if p.has("parallel") {
-		t.Parallel = p.parallel
-	}
 	if p.has("enabled") {
 		t.Enabled = p.enabled
 	}
-	if p.has("notify") {
-		t.NotifyOnResult = p.notify
-	}
-	if p.has("quiet-history") {
-		t.QuietHistory = p.quietHistory
-	}
-	if p.has("skip-permissions") {
-		t.Permissions = task.PermissionsDefault
-		if p.skipPermission {
-			t.Permissions = task.PermissionsSkip
-		}
-	}
+	p.taskSettings.apply(&t, p.has)
 
 	trigger := t.Trigger
 	switch {

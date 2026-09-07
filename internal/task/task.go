@@ -79,6 +79,16 @@ type Task struct {
 	QuietHistory bool `toml:"quiet_history,omitempty" json:"quiet_history,omitempty"`
 }
 
+// PermissionsFor maps the CLI's "skip permission prompts" switch onto the
+// stored value: on is PermissionsSkip, off falls back to PermissionsDefault
+// (which defers to the global setting rather than forcing prompts).
+func PermissionsFor(skip bool) Permissions {
+	if skip {
+		return PermissionsSkip
+	}
+	return PermissionsDefault
+}
+
 // ErrInvalidTask is the base error for validation failures.
 var ErrInvalidTask = errors.New("invalid task")
 

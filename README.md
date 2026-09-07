@@ -323,13 +323,16 @@ claudeq list [--json]                          # show the queue
 claudeq show   ID [--json]                     # one task in full, prompt included
 claudeq add    --id ID --prompt P --dir DIR [--name N]
                [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR]
-               [--model M] [--parallel] [--skip-permissions] [--quiet-history]
+               [--model M] [--parallel] [--skip-permissions] [--notify]
+               [--quiet-history]
 claudeq edit   ID                              # open the whole task in $EDITOR
 claudeq edit   ID [--name N] [--prompt P | --prompt-file PATH] [--dir DIR]
                [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR]
                [--model M] [--parallel=BOOL] [--enabled=BOOL]
                [--skip-permissions=BOOL] [--notify=BOOL] [--quiet-history=BOOL]
 claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [--name N]
+               [--model M] [--parallel=BOOL] [--skip-permissions=BOOL]
+               [--notify=BOOL] [--quiet-history=BOOL]
 claudeq publish --file PATH [--title T] [--description D]   # publish a file as an artifact
 claudeq notify --title T --message M [--url U]  # send a notification, no artifact
 claudeq export ID [--out PATH] [--force]       # write the task to a .claudeq file
@@ -357,9 +360,11 @@ claudeq --version
 0  nightly-sweep   Nightly sweep   cron     0 3 * * *    false     true
 ```
 
-Prompts are often pages long, so that table leaves them out. `claudeq show ID`
-prints every setting of one task and then its complete prompt. Add `--json` to
-either command for the same data as JSON, prompts included.
+Prompts are often pages long, so that table leaves them out, and a name longer
+than 40 characters is cut with an ellipsis so the columns stay readable.
+`claudeq show ID` prints every setting of one task, its full name and then its
+complete prompt. Add `--json` to either command for the same data as JSON,
+prompts and full names included.
 
 ### Editing a task
 
@@ -453,9 +458,34 @@ claudeq queue --prompt "…"
 with an optional time (`--at <RFC3339>`, `--in <duration>` like `90m`, or
 `--cron "<expr>"`; default is as-soon-as-possible), an optional `--dir`, and an
 optional `--name`. The new task **inherits** the calling task's model,
-permissions, parallelism, and notification settings automatically — only the
-prompt, timing, and directory are set per call. This works because the daemon
-injects the CLI's path and the parent task into each run's environment.
+permissions, parallelism, and notification settings automatically. This works
+because the daemon injects the CLI's path and the parent task into each run's
+environment.
+
+When the follow-up needs different settings from the task that queues it, pass
+the same flags `claudeq add` takes; anything you leave out keeps inheriting:
+
+```sh
+claudeq queue --prompt "Review the change thoroughly …" --model claude-opus-5 --notify
+```
+
+- `--model M` runs the new task on another model (an empty value means the
+  global default). This is what lets a cheap watcher — Haiku every five minutes,
+  quiet history — hand expensive work to a visible Opus run.
+- `--parallel=BOOL` and `--notify=BOOL` switch the respective setting on or
+  off regardless of what the caller has.
+- `--skip-permissions=BOOL` grants or withdraws the task's own permission
+  bypass. `false` puts the task back on the global *Skip permission prompts by
+  default* setting rather than forcing prompts. Note that a run can grant a
+  follow-up more than it has itself; the system prompt tells Claude to do so
+  only when the queued work cannot be done without it.
+- `--quiet-history=BOOL` opts the new task into (or, explicitly, out of) quiet
+  history. Without it a queued task is never quiet, even when the caller is
+  (see [below](#quiet-history-for-frequent-jobs)).
+
+A long `--name` is accepted as given; `claudeq list` and the Queue view cut it
+to fit their column (hover the app's row for the whole name), `claudeq show` and
+`--json` print it in full.
 
 ## Letting a task publish artifacts
 
@@ -518,7 +548,7 @@ A task that runs every few minutes would, by default, produce hundreds of
 successful runs a day: each one unread in Activity, each one counting against
 the `Max run history` limit until it pushes a run you actually care about out of
 the record. Mark such a task **Quiet history** (the switch in the task form, or
-`--quiet-history` on `claudeq add` / `claudeq edit`) and:
+`--quiet-history` on `claudeq add` / `claudeq edit` / `claudeq queue`) and:
 
 - A run that **succeeds leaves no trace**: it is never written to history, and
   its log is deleted when it finishes. The same goes for a run paused by the
@@ -530,7 +560,8 @@ the record. Mark such a task **Quiet history** (the switch in the task form, or
 
 Everything else — notifications the run sends, artifacts it publishes, tasks it
 queues — is unaffected. A task queued from inside a quiet-history run is **not**
-quiet itself: follow-up work is real work, and you will want to see its run.
+quiet itself unless the call says `--quiet-history`: follow-up work is real
+work, and you will want to see its run.
 The trade-off: successful quiet runs leave no log to look at afterwards and are
 absent from the Usage statistics.
 ## Sharing tasks as files
