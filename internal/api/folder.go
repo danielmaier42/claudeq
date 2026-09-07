@@ -21,20 +21,40 @@ func OSAScriptFolderChooser(r system.Runner) FolderChooser {
 		if loc := existingDir(start); loc != "" {
 			expr += fmt.Sprintf(` default location (POSIX file %q)`, loc)
 		}
-		out, err := r.Run(ctx, "osascript", "-e", "POSIX path of ("+expr+")")
-		text := strings.TrimSpace(string(out))
-		if err != nil {
-			// -128 / "User canceled" is a normal cancel, not a failure.
-			if strings.Contains(text, "-128") || strings.Contains(strings.ToLower(text), "cancel") {
-				return "", false, nil
-			}
-			return "", false, fmt.Errorf("osascript choose folder: %w (%s)", err, text)
-		}
-		if text == "" {
+		return chooseWithOSAScript(ctx, r, "choose folder", "-e", "POSIX path of ("+expr+")")
+	}
+}
+
+// OSAScriptSaveFileDialog returns a SaveFileDialog that opens the native macOS
+// "Save as" panel via `osascript`. The panel itself asks before replacing an
+// existing file. The prompt and default name reach the AppleScript as run
+// arguments (`on run argv`), so they need no AppleScript string escaping.
+func OSAScriptSaveFileDialog(r system.Runner) SaveFileDialog {
+	return func(ctx context.Context, prompt, defaultName string) (string, bool, error) {
+		return chooseWithOSAScript(ctx, r, "choose file name",
+			"-e", "on run argv",
+			"-e", "return POSIX path of (choose file name with prompt (item 1 of argv) default name (item 2 of argv))",
+			"-e", "end run",
+			prompt, defaultName)
+	}
+}
+
+// chooseWithOSAScript runs an osascript dialog that returns a POSIX path.
+// A user cancel (AppleScript error -128) is reported as chosen=false, not an
+// error; what is the dialog's name for error messages.
+func chooseWithOSAScript(ctx context.Context, r system.Runner, what string, args ...string) (string, bool, error) {
+	out, err := r.Run(ctx, "osascript", args...)
+	text := strings.TrimSpace(string(out))
+	if err != nil {
+		if strings.Contains(text, "-128") || strings.Contains(strings.ToLower(text), "cancel") {
 			return "", false, nil
 		}
-		return text, true, nil
+		return "", false, fmt.Errorf("osascript %s: %w (%s)", what, err, text)
 	}
+	if text == "" {
+		return "", false, nil
+	}
+	return text, true, nil
 }
 
 // existingDir maps a requested start location onto a directory that actually

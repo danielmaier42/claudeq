@@ -146,6 +146,16 @@ func (s *State) SetPendingResume(taskID, sessionID string) {
 // ClearPendingResume clears any pending resume for a task.
 func (s *State) ClearPendingResume(taskID string) { delete(s.PendingResumes, taskID) }
 
+// ForgetTask drops everything recorded about a task id — last start,
+// completed-once flag, pending resume — so a task created later under the
+// same id starts from a clean slate instead of inheriting a dead task's
+// scheduling history.
+func (s *State) ForgetTask(taskID string) {
+	delete(s.LastStarted, taskID)
+	delete(s.CompletedOnce, taskID)
+	delete(s.PendingResumes, taskID)
+}
+
 // DismissUpdate records that the user dismissed the update prompt for a version.
 func (s *State) DismissUpdate(version string) { s.DismissedUpdateVersion = version }
 

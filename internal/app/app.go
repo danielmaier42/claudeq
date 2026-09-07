@@ -22,14 +22,28 @@ func AddTask(s *store.Store, t task.Task) error {
 	})
 }
 
-// RemoveTask deletes a task by id.
+// RemoveTask deletes a task by id, along with its scheduling state, so the id
+// can be reused (by a re-import, say) without inheriting the old task's
+// completed-once flag or cron anchor.
 func RemoveTask(s *store.Store, id string) error {
-	return s.UpdateConfig(func(cfg *store.Config) error {
+	err := s.UpdateConfig(func(cfg *store.Config) error {
 		idx := indexOf(cfg.Tasks, id)
 		if idx < 0 {
 			return fmt.Errorf("task %q not found", id)
 		}
 		cfg.Tasks = append(cfg.Tasks[:idx], cfg.Tasks[idx+1:]...)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return forgetTaskState(s, id)
+}
+
+// forgetTaskState clears the scheduling bookkeeping kept for a task id.
+func forgetTaskState(s *store.Store, id string) error {
+	return s.UpdateState(func(st *store.State) error {
+		st.ForgetTask(id)
 		return nil
 	})
 }

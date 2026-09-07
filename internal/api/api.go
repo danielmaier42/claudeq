@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/danielmaier42/claudeq/internal/app"
@@ -43,6 +42,11 @@ type RunCanceler interface {
 // POSIX path (chosen=false if the user cancelled). Optional.
 type FolderChooser func(ctx context.Context, start string) (path string, chosen bool, err error)
 
+// SaveFileDialog opens a native "Save as" panel titled prompt, pre-filled with
+// defaultName, and returns the chosen POSIX path (chosen=false if the user
+// cancelled). Optional; enables exporting a task to a file from the app.
+type SaveFileDialog func(ctx context.Context, prompt, defaultName string) (path string, chosen bool, err error)
+
 // Deps are the API server's dependencies.
 type Deps struct {
 	Store        *store.Store
@@ -51,6 +55,7 @@ type Deps struct {
 	OpenTerminal TerminalOpener  // optional; enables the continue-run endpoint
 	Models       func() []Model  // optional; enables dynamic model listing
 	ChooseFolder FolderChooser   // optional; enables the native folder dialog
+	SaveFile     SaveFileDialog  // optional; enables the task export dialog
 	ActiveTasks  func() []string // optional; ids of currently-running tasks (hidden from the queue)
 	WakeError    func() string   // optional; last scheduled-wake error ("" if healthy)
 	// NotifyStatus reports whether macOS will actually show notifications
@@ -72,6 +77,8 @@ func Handler(d Deps) http.Handler {
 
 	mux.HandleFunc("GET /api/tasks", s.listTasks)
 	mux.HandleFunc("POST /api/tasks", s.addTask)
+	mux.HandleFunc("POST /api/tasks/import", s.importTask)
+	mux.HandleFunc("POST /api/tasks/{id}/export", s.exportTask)
 	mux.HandleFunc("PUT /api/tasks/{id}", s.updateTask)
 	mux.HandleFunc("DELETE /api/tasks/{id}", s.deleteTask)
 	mux.HandleFunc("POST /api/tasks/{id}/enable", s.enableTask(true))
@@ -173,6 +180,9 @@ func (s *server) addTask(w http.ResponseWriter, r *http.Request) {
 	}
 	if t.ID == "" {
 		t.ID = genTaskID(t.Name)
+	} else if err := task.CheckID(t.ID); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
 	}
 	if t.Name == "" {
 		t.Name = t.ID
@@ -666,25 +676,7 @@ func (s *server) chooseFolder(w http.ResponseWriter, r *http.Request) {
 // genTaskID builds a URL-safe id from a name plus a short random suffix, so the
 // user never has to supply one.
 func genTaskID(name string) string {
-	slug := strings.Map(func(r rune) rune {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-			return r
-		case r >= 'A' && r <= 'Z':
-			return r + 32
-		case r == ' ' || r == '-' || r == '_':
-			return '-'
-		default:
-			return -1
-		}
-	}, name)
-	slug = strings.Trim(slug, "-")
-	if slug == "" {
-		slug = "task"
-	}
-	if len(slug) > 24 {
-		slug = strings.Trim(slug[:24], "-")
-	}
+	slug := task.Slug(name)
 	b := make([]byte, 3)
 	if _, err := rand.Read(b); err != nil {
 		return slug

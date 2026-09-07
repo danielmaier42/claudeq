@@ -42,6 +42,9 @@ Usage:
                  (queue a follow-up task; inherits the calling task's settings)
   claudeq publish --file PATH [--title T] [--description D]
                  (publish a file as an artifact; shows up in the Artifacts view)
+  claudeq export ID [--out PATH] [--force]
+                 (write the task to a shareable .claudeq file; default ./ID.claudeq)
+  claudeq import PATH [--id ID]   (add the task from a .claudeq file, settings as-is)
   claudeq rm ID
   claudeq enable ID | claudeq disable ID
   claudeq move   ID INDEX          (0 = highest priority)
@@ -91,6 +94,10 @@ func run(args []string) error {
 		return cmdQueue(st, rest)
 	case "publish":
 		return cmdPublish(st, rest)
+	case "export":
+		return cmdExport(st, rest)
+	case "import":
+		return cmdImport(st, rest)
 	case "rm":
 		return withID(rest, func(id string) error { return app.RemoveTask(st, id) })
 	case "enable":
@@ -206,6 +213,9 @@ func cmdAdd(st *store.Store, args []string) error {
 			return fmt.Errorf("invalid --at time: %w", err)
 		}
 		t.FixedAt = parsed
+	}
+	if err := task.CheckID(t.ID); err != nil {
+		return err
 	}
 	if err := t.Validate(); err != nil {
 		return err

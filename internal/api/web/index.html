@@ -347,6 +347,7 @@
   <div class="sheet-ft"><button class="btn" id="confirmNo">Cancel</button><button class="btn danger" id="confirmYes">Delete</button></div>
 </dialog>
 
+<input type="file" id="importFile" accept=".claudeq,application/zip" hidden>
 <div id="toasts"></div>
 
 <script>
@@ -378,9 +379,13 @@ const EYE='<svg viewBox="0 0 20 20"><path d="M1.5 10S5 4.5 10 4.5 18.5 10 18.5 1
 const PENCIL='<svg viewBox="0 0 20 20"><path d="M13.2 3.4l3.4 3.4L7.3 16 3.5 16.5 4 12.7z"/></svg>';
 const REPLAY='<svg viewBox="0 0 20 20"><path d="M5 10a5 5 0 1 1 1.6 3.7"/><path d="M5 6.2V10h3.8"/></svg>';
 const SAVE='<svg viewBox="0 0 20 20"><path d="M4 10.5l3.5 3.5L16 5.5"/></svg>';
+const EXPORT='<svg viewBox="0 0 20 20"><path d="M10 12.5V3.5"/><path d="M6.5 7L10 3.5 13.5 7"/><path d="M4 11.5v4a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-4"/></svg>';
+const IMPORT='<svg viewBox="0 0 20 20"><path d="M10 3.5v9"/><path d="M6.5 9L10 12.5 13.5 9"/><path d="M4 11.5v4a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-4"/></svg>';
 
 async function api(m,path,body){
-  const r=await fetch(path,{method:m,headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});
+  // A Blob/File body is sent as-is (an upload); anything else is JSON.
+  const raw=body instanceof Blob;
+  const r=await fetch(path,{method:m,headers:body?{'Content-Type':raw?(body.type||'application/octet-stream'):'application/json'}:{},body:raw?body:(body?JSON.stringify(body):undefined)});
   if(!r.ok&&r.status!==204){let e;try{e=(await r.json()).error}catch{e=r.statusText} throw new Error(e);}
   const ct=r.headers.get('content-type')||''; return ct.includes('json')?r.json():r.text();
 }
@@ -438,7 +443,10 @@ function select(tab){ current=tab;
   document.querySelectorAll('.tab').forEach(t=>t.hidden=t.id!==tab);
   $('#pageTitle').textContent=TITLES[tab];
   const ta=$('#toolbarActions'); ta.innerHTML='';
-  if(tab==='tasks'){ const b=el('button','btn primary','+ New task'); b.onclick=openAdd; ta.append(b); loadTasks(); }
+  if(tab==='tasks'){
+    const imp=el('button','btn',IMPORT+'<span>Import…</span>'); imp.title='Add a task from a .claudeq file'; imp.onclick=()=>$('#importFile').click(); ta.append(imp);
+    const b=el('button','btn primary','+ New task'); b.onclick=openAdd; ta.append(b); loadTasks();
+  }
   if(tab==='news'){
     const mkDate=(val,on)=>{ const i=el('input','date-in'); i.type='date'; if(val)i.value=val; i.onchange=on; return i; };
     const from=mkDate(actFrom,e=>{actFrom=e.target.value;actPage=0;runsSig='';loadRuns();}); from.title='From date';
@@ -532,10 +540,11 @@ async function loadTasks(){
     const up=el('button','btn small','↑'); up.disabled=i===0; up.title='Move up'; up.onclick=()=>move(t.id,i-1);
     const run=el('button','btn small','Run now'); run.disabled=!!t.running; run.title=t.running?'Already running':'Run now'; run.onclick=()=>runNow(t.id);
     const edit=el('button','btn small iconly',PENCIL); edit.title='Edit'; edit.onclick=()=>openEdit(t);
+    const exp=el('button','btn small iconly',EXPORT); exp.title='Export as .claudeq file'; exp.onclick=()=>exportTask(t,exp);
     const sw=el('label','switch'); sw.innerHTML=`<input type="checkbox" ${t.enabled?'checked':''}><span class="sl"></span>`;
     sw.querySelector('input').onchange=()=>toggle(t.id,t.enabled);
     const del=el('button','btn small danger','✕'); del.title='Delete'; del.onclick=()=>del_(t.id,t.name);
-    row.append(up,run,edit,sw,del);
+    row.append(up,run,edit,exp,sw,del);
     g.append(row);
   });
   c.append(g);
@@ -550,7 +559,7 @@ function prefillTask(t){
   $('#f-model').innerHTML=modelOptions(t.model||'','Global default');
   $('#f-parallel').checked=!!t.parallel; $('#f-skip').checked=(t.permissions==='skip'); $('#f-notify').checked=!!t.notify_on_result;
   setSeg(t.trigger||'asap');
-  $('#f-at').value=(t.trigger==='fixed'&&t.fixed_at&&!String(t.fixed_at).startsWith('0001'))?toLocalDT(t.fixed_at):'';
+  $('#f-at').value=(t.trigger==='fixed'&&t.fixed_at)?toLocalDT(t.fixed_at):'';
   $('#f-cron').value=t.trigger==='cron'?(t.cron||''):'';
 }
 function openSheet(title,submitLabel){ $('#addErr').textContent=''; $('#addSheetTitle').textContent=title; $('#addSubmitBtn').textContent=submitLabel; $('#addSheet').showModal(); }
@@ -596,6 +605,20 @@ async function chooseFolder(){
   }catch(e){ toast('Folder dialog unavailable: '+e.message,'err'); }
 }
 
+/* ---- Sharing tasks as .claudeq files (zip: task.json + prompt.md) ---- */
+async function exportTask(t,btn){
+  btn.disabled=true; // one save panel at a time; the row re-renders on the next change anyway
+  try{
+    const r=await api('POST',`/api/tasks/${encodeURIComponent(t.id)}/export`);
+    if(r&&r.path) toast('Exported to '+r.path,'ok'); // 204/empty => cancelled
+  }catch(e){ toast('Export failed: '+e.message,'err'); }
+  finally{ btn.disabled=false; }
+}
+$('#importFile').onchange=async e=>{
+  const f=e.target.files[0]; e.target.value=''; if(!f) return;
+  try{ const t=await api('POST','/api/tasks/import',f); toast('Imported “'+t.name+'”','ok'); loadTasks(); }
+  catch(err){ toast('Import failed: '+err.message,'err'); }
+};
 async function runNow(id){
   try{ await api('POST',`/api/tasks/${id}/run-now`); }catch(e){ toast(e.message,'err'); return; }
   toast('Started');

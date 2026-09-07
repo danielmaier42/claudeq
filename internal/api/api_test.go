@@ -77,6 +77,18 @@ func TestAddAndListTasks(t *testing.T) {
 	}
 }
 
+func TestAddTaskRejectsUnsafeID(t *testing.T) {
+	srv, st := newServer(t, nil)
+	bad := sampleTask("team/nightly")
+	if r := do(t, srv, "POST", "/api/tasks", bad); r.Status != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", r.Status)
+	}
+	cfg, _ := st.LoadConfig()
+	if len(cfg.Tasks) != 0 {
+		t.Errorf("unsafe id was stored: %+v", cfg.Tasks)
+	}
+}
+
 func TestWarmFileAccessOnAddAndUpdate(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {

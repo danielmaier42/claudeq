@@ -26,11 +26,17 @@ import (
 // rest are flags. Keeping the id positional and first is what makes
 // `claudeq edit ID --prompt-file P` unambiguous.
 func splitTaskID(args []string) (string, []string, error) {
+	return splitPositional(args, "a task id")
+}
+
+// splitPositional takes one positional argument (described by what, for the
+// error message) off the front of a command's arguments; the rest are flags.
+func splitPositional(args []string, what string) (string, []string, error) {
 	if len(args) == 0 {
-		return "", nil, fmt.Errorf("expected a task id")
+		return "", nil, fmt.Errorf("expected %s", what)
 	}
 	if strings.HasPrefix(args[0], "-") {
-		return "", nil, fmt.Errorf("expected a task id before the flags, got %q", args[0])
+		return "", nil, fmt.Errorf("expected %s before the flags, got %q", what, args[0])
 	}
 	return args[0], args[1:], nil
 }

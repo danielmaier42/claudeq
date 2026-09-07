@@ -26,6 +26,7 @@ update checks) ever leaves the machine.
 - [From another tool or agent](#from-another-tool-or-agent)
 - [Letting a task queue follow-up work](#letting-a-task-queue-follow-up-work)
 - [Letting a task publish artifacts](#letting-a-task-publish-artifacts)
+- [Sharing tasks as files](#sharing-tasks-as-files)
 - [How scheduling and the limit gate behave](#how-scheduling-and-the-limit-gate-behave)
 - [Data on disk](#data-on-disk)
 - [Uninstall](#uninstall)
@@ -132,6 +133,11 @@ The nightly cycle looks like this:
   HTML and PDF get an in-app viewer; anything opens externally — and opening one
   marks it read. Each publish also raises a notification that opens the artifact
   when clicked. See [below](#letting-a-task-publish-artifacts).
+- **Share a task** — export any task as a `.claudeq` file (a zip holding its
+  settings as JSON and its prompt as Markdown) and hand it to a colleague, who
+  imports it with one click or `claudeq import`. The task arrives exactly as
+  exported, ready to be adjusted like any other. See
+  [below](#sharing-tasks-as-files).
 
 **Platform & distribution**
 
@@ -155,7 +161,9 @@ The dashboard (and the native window that wraps it) has five views:
 - **Queue** — the pending tasks in priority order. Add, edit, delete, enable/pause,
   reorder, or **run now** (a manual test run, independent of the trigger). A
   running one-shot task moves to Activity; a recurring task stays here with a
-  *running* badge and shows its next occurrence on hover.
+  *running* badge and shows its next occurrence on hover. Each task also has an
+  **export** button that saves it as a `.claudeq` file via the native save
+  panel, and **Import…** in the toolbar adds a task from such a file.
 - **Activity** — every run, newest first, with an unread badge for new results.
   Open a run to see the live/finished log as a chat view or raw output, along
   with the prompt; a running task can be stopped from there with **Cancel task**
@@ -307,6 +315,8 @@ claudeq edit   ID [--name N] [--prompt P | --prompt-file PATH] [--dir DIR]
                [--skip-permissions=BOOL] [--notify=BOOL]
 claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [--name N]
 claudeq publish --file PATH [--title T] [--description D]   # publish a file as an artifact
+claudeq export ID [--out PATH] [--force]       # write the task to a .claudeq file
+claudeq import PATH [--id ID]                  # add the task from a .claudeq file
 claudeq rm ID
 claudeq enable ID | claudeq disable ID
 claudeq move   ID INDEX                        # 0 = highest priority
@@ -396,9 +406,11 @@ this document to work with ClaudeQ.
 - **Read with `--json`.** `claudeq list --json`, `claudeq show ID --json` and
   `claudeq settings --json` emit structured output. The other commands print for
   humans.
-- **Write with `edit`, `add`, `rm`, `enable`, `disable` and `move`** instead of
-  editing `config.toml` by hand. Those commands validate the change and write it
-  atomically alongside the app's own writes.
+- **Write with `edit`, `add`, `import`, `rm`, `enable`, `disable` and `move`**
+  instead of editing `config.toml` by hand. Those commands validate the change
+  and write it atomically alongside the app's own writes.
+- **Move a task between machines with `export` and `import`.** The `.claudeq`
+  file carries the whole task; see [Sharing tasks as files](#sharing-tasks-as-files).
 - **Exit code 0 means success.** Any failure exits non-zero and writes the reason
   to stderr, prefixed `claudeq:`.
 - **Test a change with `claudeq run-now ID`** rather than waiting for the
@@ -449,6 +461,56 @@ announced retroactively. HTML and PDF open in an in-app viewer; any type can be 
 browser. Artifacts are kept until you delete them, independent of run-history
 pruning. `--title` defaults to the file name; `--file` may be relative to the
 task's working directory.
+
+## Sharing tasks as files
+
+A task can be handed to a colleague as a single `.claudeq` file. It is a plain
+zip archive with two entries:
+
+| Entry | Contents |
+|-------|----------|
+| `task.json` | Every setting of the task (id, name, working directory, trigger and schedule, parallel, enabled, model, permissions, notify) inside a small envelope: `format` (`claudeq-task`), `format_version` (`1`), `exported_at`, and `task`. |
+| `prompt.md` | The prompt, byte for byte, as Markdown. |
+
+Unzip it to read or edit either part by hand; zip the two files back up and the
+result imports again (a folder around them, as Finder's *Compress* adds, is
+fine).
+
+**Export.** In the app, the export button on a task row opens the native save
+panel, pre-filled with `<id>.claudeq`. From the CLI:
+
+```
+claudeq export nightly-sweep                       # ./nightly-sweep.claudeq
+claudeq export nightly-sweep --out ~/Desktop       # a directory: default name inside it
+claudeq export nightly-sweep --out share/brief     # a file: .claudeq is appended
+claudeq export nightly-sweep --out x.claudeq --force   # overwrite an existing file
+```
+
+Without `--force` the CLI refuses to overwrite; the app's save panel asks
+before replacing a file.
+
+**Import.** In the app, **Import…** on the Queue toolbar picks a file. From the
+CLI, `claudeq import PATH` (optionally `--id ID` to choose the id). Either way
+the task is added to the end of the queue with its settings **exactly as
+exported** — working directory, schedule, model, permissions and enabled state
+included. Adjust anything afterwards with the normal edit sheet or
+`claudeq edit`. Two things are decided on import, because the file cannot:
+
+- If the file's id is already in use, the imported task gets a numeric suffix
+  (`nightly-sweep-2`, `-3`, …); the existing task is never touched. A file with
+  no id gets one derived from its name. Ids may contain only letters, digits,
+  `.`, `-` and `_` (they appear in the app's own URLs); anything else is
+  rejected.
+- Missing `permissions` mean `default`; a missing name falls back to the id.
+- Any scheduling history left behind by an earlier task with the same id
+  (deleted before this version cleaned up after itself) is dropped, so the
+  import starts fresh.
+
+Because settings arrive as-is, a task exported as *enabled* with an *as soon as
+possible* trigger is eligible to run right after import, and its working
+directory is the exporter's path unless you change it. Pause or edit it first
+if that is not what you want. A file with an invalid task (no prompt, unknown
+trigger, bad cron) is rejected and nothing is added.
 
 ## How scheduling and the limit gate behave
 
