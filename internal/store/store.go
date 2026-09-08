@@ -264,6 +264,41 @@ func (s *Store) ReconcileRunningRuns(now time.Time) (int, error) {
 	return n, nil
 }
 
+// BackfillLastRuns fills in State.LastRunAt from run history for tasks that
+// have no entry yet. It exists for installs that predate the field: without it
+// a recurring task would show no last execution until it next runs. Tasks
+// already recorded are left untouched. Returns how many entries it added.
+func (s *Store) BackfillLastRuns() (int, error) {
+	runs, err := s.Runs()
+	if err != nil {
+		return 0, err
+	}
+	latest := map[string]time.Time{}
+	for _, r := range runs {
+		if r.TaskID == "" {
+			continue
+		}
+		if prev, ok := latest[r.TaskID]; !ok || r.StartedAt.After(prev) {
+			latest[r.TaskID] = r.StartedAt
+		}
+	}
+	n := 0
+	if err := s.UpdateState(func(cur *State) error {
+		n = 0
+		for id, at := range latest {
+			if _, ok := cur.LastRun(id); ok {
+				continue
+			}
+			cur.RecordRun(id, at)
+			n++
+		}
+		return nil
+	}); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 // PruneHistory keeps only the most recent `limit` runs: it compacts
 // history.jsonl to one latest event per kept run and deletes the log files of
 // the dropped runs. limit <= 0 keeps everything.

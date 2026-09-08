@@ -329,3 +329,44 @@ func TestIdleTimeoutAndHistoryDefaults(t *testing.T) {
 		t.Fatalf("explicit history = %d, want 100", h.RunHistoryLimit())
 	}
 }
+
+func TestBackfillLastRunsFromHistory(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	old := time.Date(2026, 9, 1, 20, 0, 0, 0, time.UTC)
+	recent := time.Date(2026, 9, 6, 20, 0, 0, 0, time.UTC)
+	for _, r := range []Run{
+		{RunID: "r1", TaskID: "a", StartedAt: recent, Status: StatusSuccess},
+		{RunID: "r2", TaskID: "a", StartedAt: old, Status: StatusSuccess},
+		{RunID: "r3", TaskID: "b", StartedAt: old, Status: StatusFailed},
+	} {
+		if err := s.AppendRun(r); err != nil {
+			t.Fatalf("AppendRun: %v", err)
+		}
+	}
+	// An already recorded task keeps its entry, history or not.
+	known := time.Date(2026, 9, 7, 20, 0, 0, 0, time.UTC)
+	if err := s.UpdateState(func(cur *State) error { cur.RecordRun("b", known); return nil }); err != nil {
+		t.Fatalf("UpdateState: %v", err)
+	}
+
+	n, err := s.BackfillLastRuns()
+	if err != nil {
+		t.Fatalf("BackfillLastRuns: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("backfilled %d, want 1", n)
+	}
+	st, err := s.LoadState()
+	if err != nil {
+		t.Fatalf("LoadState: %v", err)
+	}
+	if at, _ := st.LastRun("a"); !at.Equal(recent) {
+		t.Fatalf("last run of a = %v, want the most recent %v", at, recent)
+	}
+	if at, _ := st.LastRun("b"); !at.Equal(known) {
+		t.Fatalf("last run of b = %v, want the untouched %v", at, known)
+	}
+}

@@ -180,6 +180,7 @@ func (e *Engine) Tick(_ context.Context) error {
 			e.seedCronAnchors(cfg, cur, now)
 			for _, id := range startIDs {
 				cur.RecordStart(id, now)
+				cur.RecordRun(id, now)
 			}
 			return nil
 		}); err != nil {
@@ -676,6 +677,7 @@ func (e *Engine) RunTaskNow(_ context.Context, taskID string) error {
 	now := e.clock.Now()
 	if err := e.store.UpdateState(func(cur *store.State) error {
 		cur.RecordStart(taskID, now)
+		cur.RecordRun(taskID, now)
 		return nil
 	}); err != nil {
 		e.mu.Unlock()

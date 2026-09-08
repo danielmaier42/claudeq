@@ -457,3 +457,48 @@ func TestExclusiveTaskRunsAlone(t *testing.T) {
 		t.Fatalf("expected max 1 concurrent run, got %d", r.maxActive)
 	}
 }
+
+// A cron task is anchored the first time the daemon sees it, which must not be
+// mistaken for an execution: the dashboard shows LastRunAt as "last run".
+func TestCronAnchorIsNotRecordedAsARun(t *testing.T) {
+	fc := clock.NewFake(time.Date(2026, 9, 7, 8, 0, 0, 0, time.UTC))
+	r := &stub{}
+	e, st := newTestEngine(t, r, fc)
+	cron := asapTask("nightly", false)
+	cron.Trigger = task.TriggerCron
+	cron.Cron = "0 20 * * *"
+	saveTasks(t, st, cron)
+
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	e.WaitIdle()
+
+	state, err := st.LoadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := state.LastStart("nightly"); !ok {
+		t.Fatal("a fresh cron task should be anchored")
+	}
+	if at, ok := state.LastRun("nightly"); ok {
+		t.Fatalf("anchoring must not count as a run, got %v", at)
+	}
+
+	if err := e.RunTaskNow(context.Background(), "nightly"); err != nil {
+		t.Fatalf("RunTaskNow: %v", err)
+	}
+	e.WaitIdle()
+
+	state, err = st.LoadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	at, ok := state.LastRun("nightly")
+	if !ok {
+		t.Fatal("an actual run should be recorded as the last run")
+	}
+	if !at.Equal(fc.Now()) {
+		t.Fatalf("last run = %v, want %v", at, fc.Now())
+	}
+}

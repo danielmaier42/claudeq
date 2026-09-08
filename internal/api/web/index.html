@@ -246,7 +246,8 @@
   .tip { position:fixed; z-index:1000; pointer-events:none; background:var(--fg); color:var(--bg);
          font-size:12px; font-weight:500; padding:5px 9px; border-radius:7px; box-shadow:0 4px 14px rgba(0,0,0,.28);
          /* popover resets: shown via showPopover() so it paints above modal <dialog>s (top layer) */
-         margin:0; inset:auto; border:0; overflow:visible; width:max-content; max-width:min(340px,calc(100vw - 24px)); }
+         margin:0; inset:auto; border:0; overflow:visible; width:max-content; max-width:min(340px,calc(100vw - 24px));
+         white-space:pre-line; }
 </style>
 </head>
 <body>
@@ -526,10 +527,17 @@ function barChart(days, valueOf, fmt){
 }
 
 /* ---- Tasks ---- */
+// Hover text for a cron expression: when it runs next, and when it last ran
+// (absent until the task has actually run once).
+function cronTip(t){ const l=[];
+  if(t.next_run) l.push('Next run: '+new Date(t.next_run).toLocaleString());
+  l.push('Last run: '+(t.last_run?new Date(t.last_run).toLocaleString()+' ('+relTime(t.last_run)+')':'never'));
+  return l.join('\n'); }
+
 let tasksSig='';
 async function loadTasks(){
   let tasks; try{ tasks=await api('GET','/api/tasks'); setConn(true);}catch(e){ setConn(false); return; }
-  const sig=JSON.stringify((tasks||[]).map(t=>[t.id,t.name,t.trigger,t.enabled,t.parallel,t.permissions,t.notify_on_result,t.fixed_at,t.cron,t.next_run,t.running]));
+  const sig=JSON.stringify((tasks||[]).map(t=>[t.id,t.name,t.trigger,t.enabled,t.parallel,t.permissions,t.notify_on_result,t.fixed_at,t.cron,t.next_run,t.last_run,t.running]));
   if(sig===tasksSig && $('#tasks').childElementCount) return;   // avoid flicker on poll
   tasksSig=sig;
   const c=$('#tasks'); c.innerHTML='';
@@ -539,7 +547,7 @@ async function loadTasks(){
   tasks.forEach((t,i)=>{
     let when;
     if(t.trigger==='fixed') when=esc(new Date(t.fixed_at).toLocaleString());
-    else if(t.trigger==='cron') when=`<span class="cron"${t.next_run?` data-tip="Next run: ${esc(new Date(t.next_run).toLocaleString())}"`:''}>${esc(t.cron)}</span>`;
+    else if(t.trigger==='cron'){ const tip=cronTip(t); when=`<span class="cron"${tip?` data-tip="${esc(tip)}"`:''}>${esc(t.cron)}</span>`; }
     else when='as soon as possible';
     const row=el('div','row');
     const grow=el('div','grow'), name=esc(t.name); grow.innerHTML=`<div class="title task-title"><span class="name" data-tip="${name}">${name}</span> ${t.running?'<span class="chip running">running…</span>':''} ${t.parallel?'<span class="chip" title="Runs alongside other parallel tasks">parallel</span>':''} ${t.permissions==='skip'?'<span class="chip warn" title="Skips permission prompts">granted</span>':''} ${t.notify_on_result?'<span class="chip accent" title="Sends outcome and last message when it finishes">notifies</span>':''}</div>

@@ -132,6 +132,9 @@ func (s *server) listTasks(w http.ResponseWriter, _ *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	// Scheduling bookkeeping is a nice-to-have here: without it the queue simply
+	// shows no last-run time.
+	st, _ := s.d.Store.LoadState()
 	active := map[string]bool{}
 	if s.d.ActiveTasks != nil {
 		for _, id := range s.d.ActiveTasks() {
@@ -155,6 +158,11 @@ func (s *server) listTasks(w http.ResponseWriter, _ *http.Request) {
 				next := sched.Next(time.Now())
 				v.NextRun = &next
 			}
+			if st != nil {
+				if last, ok := st.LastRun(t.ID); ok {
+					v.LastRun = &last
+				}
+			}
 		}
 		out = append(out, v)
 	}
@@ -167,6 +175,8 @@ type taskView struct {
 	Running bool `json:"running"`
 	// NextRun is the next scheduled occurrence for a cron task, if computable.
 	NextRun *time.Time `json:"next_run,omitempty"`
+	// LastRun is when a cron task last actually started a run, if it ever did.
+	LastRun *time.Time `json:"last_run,omitempty"`
 }
 
 func (s *server) addTask(w http.ResponseWriter, r *http.Request) {
