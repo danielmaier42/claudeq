@@ -346,7 +346,7 @@
   <div class="sheet-hd"><b id="viewerTitle">Artifact</b><div class="spacer" style="flex:1"></div>
     <div id="viewerActions" class="row-actions"></div></div>
   <div class="sheet-bd" id="viewerBody"></div>
-  <div class="sheet-ft"><button class="btn" onclick="viewerSheet.close()">Done</button></div>
+  <div class="sheet-ft"><button class="btn" id="viewerContinueBtn" hidden data-tip="Opens Terminal in the task's folder and resumes the chat that published this artifact (claude --resume) — with the full conversation context" onclick="continueArtifactRun()">Continue with Claude</button><button class="btn" onclick="viewerSheet.close()">Done</button></div>
 </dialog>
 
 <!-- Confirm sheet -->
@@ -855,8 +855,10 @@ async function loadArtifacts(){
       +`<div class="sub">${srcHtml}${meta}</div>`;
     if(a.task_name && a.run_id){ const s=grow.querySelector('.art-src'); if(s) s.onclick=()=>openArtifactRun(a); }
     const actions=el('div','row-actions');
+    // Viewable types open in the in-app viewer; the rest can only be handed to
+    // the browser, so those keep an Open button as their single affordance.
     if(canView(a.content_type)){ const v=el('button','btn small','View'); v.onclick=()=>openViewer(a); actions.append(v); }
-    const open=el('button','btn small','Open'); open.title='Open in your browser'; open.onclick=()=>openArtifactExternal(a); actions.append(open);
+    else { const open=el('button','btn small','Open'); open.title='Open in your browser'; open.onclick=()=>openArtifactExternal(a); actions.append(open); }
     const del=el('button','btn small danger','Delete'); del.title='Delete'; del.onclick=()=>deleteArtifact(a); actions.append(del);
     const kind=el('span','art-meta',extLabel(a.file_name,a.content_type));
     card.append(grow,actions,kind);
@@ -873,6 +875,7 @@ let viewerGen=0;
 async function openViewer(a){
   const gen=++viewerGen;
   $('#viewerTitle').textContent=a.title;
+  updateViewerContinue(a,gen);   // async: reveals "Continue with Claude" if the producing run can be resumed
   const body=$('#viewerBody'); body.innerHTML='';
   const kind=artifactKind(a.content_type);
   const src=contentURL(a,false);
@@ -901,6 +904,25 @@ async function openViewer(a){
   const open=el('button','btn small','Open externally'); open.onclick=()=>openArtifactExternal(a); acts.append(open);
   $('#viewerSheet').showModal();
   markReadOnOpen(a);   // opening an artifact marks it read
+}
+// "Continue with Claude" resumes the chat that published the artifact, the same
+// way the log sheet does. Artifacts outlive runs, so the producing run has to be
+// looked up first: it may be gone from history, or not resumable (still running,
+// no session id, no working dir), in which case the button stays hidden.
+let viewerRunId='';
+async function updateViewerContinue(a,gen){
+  $('#viewerContinueBtn').hidden=true; viewerRunId='';
+  if(!a.run_id) return;
+  let runs=[]; try{ runs=await api('GET','/api/runs'); }catch{ return; }
+  if(gen!==viewerGen) return;   // a newer open (or a close) superseded us
+  const run=runs.find(r=>r.run_id===a.run_id);
+  if(!canContinue(run)) return;
+  viewerRunId=run.run_id; $('#viewerContinueBtn').hidden=false;
+}
+async function continueArtifactRun(){
+  if(!viewerRunId) return;
+  try{ await api('POST',`/api/runs/${viewerRunId}/continue`); toast('Opening Terminal…','ok'); }
+  catch(e){ toast('Continue failed: '+e.message,'err'); }
 }
 // On close, clear the body (stops iframe playback/loading) only if no newer
 // viewer has since opened — deferred so a close-then-reopen keeps the new view.

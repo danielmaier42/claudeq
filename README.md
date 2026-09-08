@@ -191,8 +191,11 @@ The dashboard (and the native window that wraps it) has five views:
   succeed.
 - **Artifacts** — files your tasks published, newest first, with an unread badge.
   Each shows its title, source task, file type, and size. **View** opens HTML,
-  PDF, images, and text in an in-app viewer; **Open** opens any artifact in your
-  browser. Either way, opening an artifact marks it read automatically; you can
+  PDF, images, and text in an in-app viewer (anything else gets an **Open**
+  button that hands the file to your browser instead); the viewer itself offers
+  **Open externally** and, when the run that published the artifact can still be
+  resumed, **Continue with Claude** — the same interactive resume as in a run's
+  log. Either way, opening an artifact marks it read automatically; you can
   also mark one or all read by hand, or delete one (which removes the stored copy).
   Clicking the notification of a newly published artifact lands here with that
   artifact already open.
