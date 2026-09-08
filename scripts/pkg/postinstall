@@ -1,13 +1,24 @@
 #!/bin/sh
-# postinstall — set up the per-user LaunchAgent so the claudeq daemon starts at
-# login. The installer runs as root, but the LaunchAgent belongs to the logged-in
-# user, so we drop into that user's GUI launchd context to install it. The
-# bundled daemon's own `install` command writes ~/Library/LaunchAgents and
-# bootstraps gui/<uid>, pointing the plist at the daemon inside the app bundle.
+# postinstall — hand the machine over to the version that was just installed:
+# set up the per-user LaunchAgent so the claudeq daemon starts at login, make
+# sure the *new* daemon is the one actually running, and reopen the app.
+#
+# The installer runs as root, but the LaunchAgent belongs to the logged-in user,
+# so we drop into that user's GUI launchd context to install it. The bundled
+# daemon's own `install` command writes ~/Library/LaunchAgents and bootstraps
+# gui/<uid>, pointing the plist at the daemon inside the app bundle.
+#
+# The hand-over is verified, not assumed. The dashboard reports the version of
+# the *running daemon*, so an old daemon that survives the install leaves the
+# user on the old version with the update prompt still up — an install that
+# looks successful and changed nothing. If the takeover cannot be completed,
+# this script fails the install rather than reporting success.
 set -e
 
 APP="/Applications/ClaudeQ.app"
 DAEMON="$APP/Contents/MacOS/claudeqd"
+LABEL="de.maierdaniel.claudeq"
+PORT=8765
 
 if [ ! -x "$DAEMON" ]; then
 	echo "claudeq: daemon not found at $DAEMON; skipping autostart setup"
@@ -22,16 +33,111 @@ if [ -z "$consoleUser" ] || [ "$consoleUser" = "root" ]; then
 	exit 0
 fi
 uid=$(id -u "$consoleUser")
+# The LaunchAgent plist lives in the console user's home. Resolve it defensively:
+# an empty home would make "$homeDir/Library/..." point at the *system*
+# LaunchAgents directory, which this script must never touch.
+homeDir=$(dscl . -read "/Users/$consoleUser" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+plist=""
+if [ -n "$homeDir" ] && [ -d "$homeDir" ]; then
+	plist="$homeDir/Library/LaunchAgents/$LABEL.plist"
+fi
 
-# Stop any stray daemon (an orphan from a prior version/label still holding the
-# loopback port). Otherwise the freshly-installed daemon can't bind and the old
-# one keeps serving — so a reinstall would appear to have no effect.
-pkill -f 'claudeqd run' 2>/dev/null || true
+# The version this package just put in /Applications. The running daemon must
+# report exactly this once the takeover is done.
+want=$("$DAEMON" --version 2>/dev/null | tr -d ' \t\n' | sed 's/^v//' || true)
+echo "claudeq: installed version ${want:-unknown}"
 
-# `launchctl asuser` enters the user's GUI launchd domain; `sudo -u` adopts the
-# user's identity and HOME so the plist lands in their LaunchAgents directory.
-if ! launchctl asuser "$uid" sudo -u "$consoleUser" "$DAEMON" install; then
-	echo "claudeq: autostart setup failed; open ClaudeQ.app to enable it"
+# asuser runs a command in the console user's GUI launchd domain; sudo -u adopts
+# their identity and HOME so launchctl and the plist land in the right place.
+as_user() {
+	launchctl asuser "$uid" sudo -u "$consoleUser" "$@"
+}
+
+# running_version echoes the version the live daemon reports, "" if nothing
+# answers on the loopback port.
+running_version() {
+	curl -sf --max-time 1 "http://127.0.0.1:$PORT/api/update" 2>/dev/null |
+		sed -n 's/.*"current":"\([^"]*\)".*/\1/p'
+}
+
+# stop_daemons kills every claudeq daemon, by name and by whoever holds the
+# port. Matching the name alone is not enough: a daemon from an older layout,
+# or one started from a copy of the app somewhere else, still squats the port
+# and would keep serving the old version. `-f 'claudeqd run'` never matches this
+# script or the `claudeqd install` we run below.
+stop_daemons() {
+	sig="$1"
+	pkill "$sig" -f 'claudeqd run' 2>/dev/null || true
+	# -a ANDs the filters (lsof ORs them by default): only a *claudeqd* that
+	# listens on our port. An unrelated process holding it is not ours to kill.
+	holders=$(lsof -ti -a -c claudeqd -sTCP:LISTEN -i "tcp:$PORT" 2>/dev/null || true)
+	if [ -n "$holders" ]; then
+		# shellcheck disable=SC2086 # deliberate word splitting: one pid per line
+		kill $sig $holders 2>/dev/null || true
+	fi
+	# Give launchd and the OS a moment to reap the processes and free the port.
+	sleep 1
+}
+
+# takeover points the LaunchAgent at the freshly installed daemon and starts it.
+takeover() {
+	stop_daemons "-TERM"
+	if ! as_user "$DAEMON" install; then
+		echo "claudeq: launchctl hand-over failed"
+		return 1
+	fi
+	return 0
+}
+
+# settled waits until the running daemon reports the version we installed.
+# Bounded by wall time, not by a number of attempts: a port held by something
+# that accepts connections but never answers would otherwise stretch each
+# attempt to the curl timeout and stall the installer for minutes.
+settled() {
+	deadline=$(($(date +%s) + 20))
+	while [ "$(date +%s)" -lt "$deadline" ]; do
+		if [ "$(running_version)" = "$want" ]; then
+			return 0
+		fi
+		sleep 0.2
+	done
+	return 1
+}
+
+takeover || true
+
+if [ -n "$want" ] && ! settled; then
+	echo "claudeq: the running daemon is still $(running_version), not $want — retrying"
+	# A LaunchAgent left over from an older install can point at a copy of the
+	# app somewhere else entirely (a second ClaudeQ.app the user kept around).
+	# launchd then keeps restarting *that* binary, and the new one never gets
+	# the port. Drop the stale job and its plist before trying again.
+	as_user launchctl bootout "gui/$uid/$LABEL" 2>/dev/null || true
+	if [ -n "$plist" ] && [ -f "$plist" ]; then
+		rm -f "$plist"
+	fi
+	stop_daemons "-KILL"
+	takeover || true
+fi
+
+if [ -n "$want" ] && ! settled; then
+	echo "claudeq: FAILED to start ClaudeQ $want — the machine is still running $(running_version)"
+	echo "claudeq: LaunchAgent plist: ${plist:-<unknown home>}"
+	[ -n "$plist" ] && grep -A1 'ProgramArguments' "$plist" 2>/dev/null || true
+	echo "claudeq: port $PORT is held by:"
+	lsof -i "tcp:$PORT" -sTCP:LISTEN 2>/dev/null || true
+	echo "claudeq: ClaudeQ.app copies on this machine:"
+	as_user mdfind "kMDItemCFBundleIdentifier == '$LABEL'" 2>/dev/null || true
+	exit 1
+fi
+
+# Warn about other copies of the app even on success: whichever one the user
+# opens, the dashboard talks to the daemon installed here — but a second copy
+# is what makes a future update look like it did nothing.
+others=$(as_user mdfind "kMDItemCFBundleIdentifier == '$LABEL'" 2>/dev/null | grep -v "^$APP$" || true)
+if [ -n "$others" ]; then
+	echo "claudeq: other ClaudeQ.app copies found (delete them to avoid confusion):"
+	echo "$others"
 fi
 
 # Allow the daemon to schedule wake-ups (pmset) without a password, so timed
@@ -50,18 +156,10 @@ fi
 rm -f "$tmp"
 
 # Reopen ClaudeQ for the user (preinstall closed the old window) so the new
-# version is running as soon as the installer finishes. Wait for the daemon
-# the LaunchAgent just started to answer first: if the window comes up while
-# the daemon is still binding, the app starts a second daemon of its own and
-# the two fight over the loopback port.
-i=0
-while ! curl -sf -o /dev/null --max-time 1 http://127.0.0.1:8765/api/tasks && [ "$i" -lt 100 ]; do
-	sleep 0.1
-	i=$((i + 1))
-done
-# `open` must run inside the user's GUI session, or the window would belong
-# to the installer's root context and never show up on their desktop.
-if launchctl asuser "$uid" sudo -u "$consoleUser" open "$APP"; then
+# version is running as soon as the installer finishes. `open` must run inside
+# the user's GUI session, or the window would belong to the installer's root
+# context and never show up on their desktop.
+if as_user open "$APP"; then
 	echo "claudeq: opened $APP for $consoleUser"
 else
 	echo "claudeq: could not open ClaudeQ automatically; open it from Applications"

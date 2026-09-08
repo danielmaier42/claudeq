@@ -54,6 +54,10 @@ func newUpdateServer(t *testing.T, current string, rels ...update.Release) (*htt
 		}
 	}
 
+	// The host's /Applications must not decide the outcome of these tests; the
+	// installed-version cases below set this explicitly.
+	stubInstalled(t, "")
+
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
@@ -197,6 +201,10 @@ func TestUpdateDownloadOpensInstaller(t *testing.T) {
 }
 
 func TestUpdateEndpointsUnavailableWithoutService(t *testing.T) {
+	// The host's /Applications must not decide the outcome of these tests; the
+	// installed-version cases below set this explicitly.
+	stubInstalled(t, "")
+
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
@@ -213,5 +221,89 @@ func TestUpdateEndpointsUnavailableWithoutService(t *testing.T) {
 	// Mutating endpoints report unavailable.
 	if r := do(t, srv, "POST", "/api/update/download", nil); r.Status != http.StatusServiceUnavailable {
 		t.Errorf("download without service = %d, want 503", r.Status)
+	}
+}
+
+// stubInstalled pins the "newest ClaudeQ.app on disk" lookup for one test, so
+// the host's /Applications never decides the outcome. An empty version means
+// nothing is installed.
+func stubInstalled(t *testing.T, version string) string {
+	t.Helper()
+	app := "/Applications/ClaudeQ.app"
+	var inst *update.Installed
+	if version != "" {
+		inst = &update.Installed{Version: version, Path: app}
+	}
+	prev := installedApp
+	installedApp = func() *update.Installed { return inst }
+	t.Cleanup(func() { installedApp = prev })
+	return app
+}
+
+// An update that was installed but never took over (the old daemon kept
+// running) must not be offered for download again — it is already on disk.
+func TestUpdateStatusRestartRequired(t *testing.T) {
+	tests := []struct {
+		name            string
+		current         string
+		installed       string
+		wantRestart     bool
+		wantAvailable   bool
+		wantInstalledIn string
+	}{
+		{"stale daemon", "v0.7.0", "0.8.1", true, false, "0.8.1"},
+		{"in sync", "v0.8.1", "0.8.1", false, false, "0.8.1"},
+		{"nothing installed", "v0.7.0", "", false, true, ""},
+		{"dev build", "dev", "0.8.1", false, false, "0.8.1"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, _, _ := newUpdateServer(t, tc.current, update.Release{
+				Version: "0.8.1", Tag: "v0.8.1", PkgURL: "https://example.test/x.pkg", PkgName: "p.pkg",
+			})
+			stubInstalled(t, tc.installed)
+
+			var s updateStatus
+			do(t, srv, "GET", "/api/update", nil).into(t, &s)
+
+			if s.RestartRequired != tc.wantRestart {
+				t.Errorf("restart_required = %v, want %v (%+v)", s.RestartRequired, tc.wantRestart, s)
+			}
+			if s.Available != tc.wantAvailable {
+				t.Errorf("available = %v, want %v (%+v)", s.Available, tc.wantAvailable, s)
+			}
+			if s.Installed != tc.wantInstalledIn {
+				t.Errorf("installed = %q, want %q", s.Installed, tc.wantInstalledIn)
+			}
+		})
+	}
+}
+
+// The relaunch endpoint hands the LaunchAgent to the installed bundle.
+func TestRelaunchUpdate(t *testing.T) {
+	srv, _, _ := newUpdateServer(t, "v0.7.0")
+
+	app := stubInstalled(t, "0.8.1")
+	var got string
+	prev := relaunchInstalled
+	relaunchInstalled = func(path string) error { got = path; return nil }
+	t.Cleanup(func() { relaunchInstalled = prev })
+
+	r := do(t, srv, "POST", "/api/update/relaunch", nil)
+	if r.Status != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202 (%s)", r.Status, r.Body)
+	}
+	if got != app {
+		t.Fatalf("relaunched %q, want %q", got, app)
+	}
+}
+
+// With no ClaudeQ.app on disk there is nothing to hand over to.
+func TestRelaunchUpdateWithoutInstalledApp(t *testing.T) {
+	srv, _, _ := newUpdateServer(t, "v0.7.0")
+	stubInstalled(t, "")
+
+	if r := do(t, srv, "POST", "/api/update/relaunch", nil); r.Status != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503 (%s)", r.Status, r.Body)
 	}
 }

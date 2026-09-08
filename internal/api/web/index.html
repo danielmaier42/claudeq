@@ -1064,11 +1064,12 @@ async function loadUpdate(){
 // Red "1" badge next to Settings whenever a non-dismissed update is available.
 function renderUpdateBadge(){
   const b=$('#updateBadge'); if(!b) return;
-  const on=!!(UPDATE&&UPDATE.available); b.hidden=!on; if(on) b.textContent='1';
+  const on=!!(UPDATE&&(UPDATE.available||UPDATE.restart_required)); b.hidden=!on; if(on) b.textContent='1';
 }
 // Yellow banner at the top of the Settings pane.
 function renderUpdateBox(){
   const box=$('#updateBox'); if(!box) return;
+  if(UPDATE&&UPDATE.restart_required){ renderRestartBox(box); return; }
   if(!UPDATE||!UPDATE.available){ box.hidden=true; box.innerHTML=''; return; }
   box.hidden=false;
   const notes=(UPDATE.notes||'').trim();
@@ -1089,11 +1090,43 @@ function renderUpdateBox(){
   $('#u-download').onclick=downloadUpdate;
   $('#u-dismiss').onclick=()=>dismissUpdate(UPDATE.latest);
 }
+// The installer replaced the app but the background service kept running the
+// old build, so the update never took effect. Offer the hand-over instead of
+// another download of a version that is already on disk.
+function renderRestartBox(box){
+  box.hidden=false;
+  box.innerHTML=`<b>⬆ ClaudeQ ${esc(UPDATE.installed)} is installed — but not running</b>`
+    +`The background service is still on ${esc(UPDATE.current||'?')}. Finish the update to switch it over; `
+    +`your queue and running tasks are untouched.`
+    +`<div class="upd-actions"><button class="btn primary" id="u-relaunch">Finish update</button></div>`;
+  $('#u-relaunch').onclick=finishUpdate;
+}
+async function finishUpdate(){
+  const btn=$('#u-relaunch'); if(btn){ btn.disabled=true; btn.textContent='Switching over…'; }
+  try{ await api('POST','/api/update/relaunch'); }
+  catch(e){
+    toast('Could not finish the update: '+e.message,'err');
+    if(btn){ btn.disabled=false; btn.textContent='Finish update'; }
+    return;
+  }
+  // The daemon we are talking to is being replaced, so wait for the new one to
+  // answer before reloading — otherwise the page reloads into a dead port.
+  for(let i=0;i<100;i++){
+    await new Promise(r=>setTimeout(r,300));
+    try{
+      const st=await api('GET','/api/update');
+      if(!st.restart_required){ location.reload(); return; }
+    }catch(e){ /* still restarting */ }
+  }
+  toast('The background service did not come back — reopen ClaudeQ','err');
+  if(btn){ btn.disabled=false; btn.textContent='Finish update'; }
+}
 function renderVersionRow(){
   const v=$('#s-version'); if(v) v.textContent=UPDATE&&UPDATE.current?('v'+UPDATE.current):'';
   const sub=$('#s-update-sub');
   if(sub&&UPDATE){
-    if(UPDATE.available) sub.textContent='ClaudeQ '+UPDATE.latest+' is available';
+    if(UPDATE.restart_required) sub.textContent='ClaudeQ '+UPDATE.installed+' is installed but not running yet';
+    else if(UPDATE.available) sub.textContent='ClaudeQ '+UPDATE.latest+' is available';
     else if(!UPDATE.supported) sub.textContent='Development build — updates are checked in released versions';
     else sub.textContent='You’re on the latest version'+(UPDATE.current?(' ('+UPDATE.current+')'):'');
   }
@@ -1121,7 +1154,8 @@ async function checkForUpdates(){
   finally{ if(btn){ btn.disabled=false; btn.textContent=orig||'Check for updates'; } }
   renderUpdateBadge(); renderUpdateBox(); renderVersionRow();
   if(UPDATE){
-    if(UPDATE.available) toast('Update available: ClaudeQ '+UPDATE.latest,'ok');
+    if(UPDATE.restart_required) toast('ClaudeQ '+UPDATE.installed+' is installed but not running — finish the update below','ok');
+    else if(UPDATE.available) toast('Update available: ClaudeQ '+UPDATE.latest,'ok');
     else if(!UPDATE.supported) toast('Running a development build','ok');
     else if(UPDATE.error) toast('Check failed: '+UPDATE.error,'err');
     else toast('You’re up to date','ok');
