@@ -11,13 +11,16 @@ import (
 
 	"github.com/danielmaier42/claudeq/internal/app"
 	"github.com/danielmaier42/claudeq/internal/bundle"
-	"github.com/danielmaier42/claudeq/internal/task"
 )
 
-// importTask adds a task from a .claudeq bundle sent as the request body (the
-// dashboard uploads the file the user picked). Responds 201 with the stored
-// task — its id may differ from the file's when that id was already taken.
-func (s *server) importTask(w http.ResponseWriter, r *http.Request) {
+// readImport reads a .claudeq bundle sent as the request body (the dashboard
+// uploads the file the user picked) and answers 200 with the task it holds —
+// without queueing anything. The dashboard prefills its task sheet with the
+// draft so the prompt and the paths, which come from the exporter's machine,
+// can be adjusted; creating the task is the normal POST /api/tasks that
+// follows. A working directory that does not exist here is reported separately
+// and left out of the draft.
+func (s *server) readImport(w http.ResponseWriter, r *http.Request) {
 	data, err := readAllLimited(w, r, bundle.MaxSize)
 	if err != nil {
 		var tooBig *http.MaxBytesError
@@ -33,18 +36,12 @@ func (s *server) importTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	t, err = app.ImportTask(s.d.Store, t)
+	draft, err := app.ReadImport(t)
 	if err != nil {
-		// The file's task is the client's problem; a store failure is ours.
-		if errors.Is(err, task.ErrInvalidTask) {
-			writeErr(w, http.StatusBadRequest, err)
-		} else {
-			writeErr(w, http.StatusInternalServerError, err)
-		}
+		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	s.warmAccess(t.WorkingDir)
-	writeJSON(w, http.StatusCreated, t)
+	writeJSON(w, http.StatusOK, draft)
 }
 
 func readAllLimited(w http.ResponseWriter, r *http.Request, limit int64) ([]byte, error) {

@@ -52,46 +52,54 @@ func upload(t *testing.T, srv *httptest.Server, data []byte) resp {
 	return resp{Status: r.StatusCode, Body: buf.Bytes()}
 }
 
-func TestImportTaskEndpoint(t *testing.T) {
-	st, err := store.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	warmed := make(chan []string, 4)
-	srv := newServerDeps(t, Deps{Store: st, WarmFileAccess: func(d []string) { warmed <- d }})
+func TestImportTaskEndpointReadsWithoutQueueing(t *testing.T) {
+	srv, st := newServer(t, nil)
+	dir := t.TempDir()
 
-	shared := task.Task{ID: "shared", Name: "Shared", Prompt: "p", WorkingDir: "/colleague/repo",
+	shared := task.Task{ID: "shared", Name: "Shared", Prompt: "p", WorkingDir: dir,
 		Trigger: task.TriggerCron, Cron: "0 4 * * *", Model: "opus", Permissions: task.PermissionsSkip, Enabled: true}
 
 	r := upload(t, srv, bundleOf(t, shared))
-	if r.Status != http.StatusCreated {
+	if r.Status != http.StatusOK {
 		t.Fatalf("import: %d %s", r.Status, r.Body)
 	}
-	var got task.Task
+	var got app.ImportDraft
 	r.into(t, &got)
-	if got != shared {
-		t.Errorf("imported %+v, want %+v", got, shared)
+	if got.Task != shared {
+		t.Errorf("draft %+v, want %+v", got.Task, shared)
+	}
+	if got.MissingWorkingDir != "" {
+		t.Errorf("missing_working_dir = %q for an existing folder", got.MissingWorkingDir)
 	}
 
-	// Same file again: the id is taken, so the copy gets a suffix.
-	r = upload(t, srv, bundleOf(t, shared))
-	if r.Status != http.StatusCreated {
-		t.Fatalf("second import: %d %s", r.Status, r.Body)
-	}
-	r.into(t, &got)
-	if got.ID != "shared-2" {
-		t.Errorf("second import id = %q, want shared-2", got.ID)
-	}
-
-	for i := 0; i < 2; i++ {
-		if dirs := waitWarm(t, warmed); len(dirs) != 1 || dirs[0] != "/colleague/repo" {
-			t.Errorf("warm on import %d = %v", i, dirs)
-		}
-	}
-
+	// The file is only read: adding the task is the sheet's job afterwards.
 	cfg, _ := st.LoadConfig()
-	if len(cfg.Tasks) != 2 {
-		t.Errorf("stored %d tasks", len(cfg.Tasks))
+	if len(cfg.Tasks) != 0 {
+		t.Errorf("import queued %d tasks", len(cfg.Tasks))
+	}
+}
+
+// A working directory from the exporter's machine that is not here must not
+// reach the sheet: the field stays empty so the importer picks a real folder.
+func TestImportTaskEndpointDropsMissingWorkingDir(t *testing.T) {
+	srv, _ := newServer(t, nil)
+	gone := filepath.Join(t.TempDir(), "no-such-dir")
+
+	r := upload(t, srv, bundleOf(t, task.Task{ID: "shared", Name: "Shared", Prompt: "p",
+		WorkingDir: gone, Trigger: task.TriggerASAP, Permissions: task.PermissionsDefault}))
+	if r.Status != http.StatusOK {
+		t.Fatalf("import: %d %s", r.Status, r.Body)
+	}
+	var got app.ImportDraft
+	r.into(t, &got)
+	if got.Task.WorkingDir != "" {
+		t.Errorf("working_dir = %q, want empty", got.Task.WorkingDir)
+	}
+	if got.MissingWorkingDir != gone {
+		t.Errorf("missing_working_dir = %q, want %q", got.MissingWorkingDir, gone)
+	}
+	if got.Task.ID != "shared" || got.Task.Prompt != "p" {
+		t.Errorf("rest of the draft lost: %+v", got.Task)
 	}
 }
 

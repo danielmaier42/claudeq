@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
 	"strconv"
 	"time"
 
@@ -40,22 +42,11 @@ func ExportTask(s *store.Store, id string, w io.Writer, now time.Time) (task.Tas
 // task. Any scheduling state left behind by an earlier task with the final
 // id is dropped, so the import starts fresh. The stored task is returned.
 func ImportTask(s *store.Store, t task.Task) (task.Task, error) {
-	if t.ID == "" {
-		t.ID = task.Slug(t.Name)
-	}
-	if t.Name == "" {
-		t.Name = t.ID
-	}
-	if t.Permissions == "" {
-		t.Permissions = task.PermissionsDefault
-	}
-	if err := task.CheckID(t.ID); err != nil {
+	t, err := completeImport(t)
+	if err != nil {
 		return task.Task{}, err
 	}
-	if err := t.Validate(); err != nil {
-		return task.Task{}, err
-	}
-	err := s.UpdateConfig(func(cfg *store.Config) error {
+	err = s.UpdateConfig(func(cfg *store.Config) error {
 		t.ID = uniqueID(cfg.Tasks, t.ID)
 		cfg.Tasks = append(cfg.Tasks, t)
 		return nil
@@ -79,4 +70,67 @@ func uniqueID(tasks []task.Task, want string) string {
 			return id
 		}
 	}
+}
+
+// ImportDraft is a task read from a .claudeq bundle, prepared for review before
+// anything is queued: the app prefills its task sheet with it so the importer
+// can adjust the prompt and the paths, which come from the exporter's machine.
+type ImportDraft struct {
+	Task task.Task `json:"task"`
+	// MissingWorkingDir is the working directory named in the file when there
+	// is no such directory here. Task.WorkingDir is empty in that case, so the
+	// importer has to point the task at a folder that exists on this machine.
+	MissingWorkingDir string `json:"missing_working_dir,omitempty"`
+}
+
+// ReadImport turns a task from a bundle into a draft. The file is validated as
+// strictly as an actual import, so a broken file is refused before it reaches
+// the sheet; only the working directory is allowed to fall away.
+func ReadImport(t task.Task) (ImportDraft, error) {
+	t, err := completeImport(t)
+	if err != nil {
+		return ImportDraft{}, err
+	}
+	d := ImportDraft{Task: t}
+	if !DirExists(t.WorkingDir) {
+		d.MissingWorkingDir = t.WorkingDir
+		d.Task.WorkingDir = ""
+	}
+	return d, nil
+}
+
+// completeImport fills in what a bundle cannot decide and validates the result:
+// a missing id is derived from the name, a missing name from the id, and
+// missing permissions mean "default".
+func completeImport(t task.Task) (task.Task, error) {
+	if t.ID == "" {
+		t.ID = task.Slug(t.Name)
+	}
+	if t.Name == "" {
+		t.Name = t.ID
+	}
+	if t.Permissions == "" {
+		t.Permissions = task.PermissionsDefault
+	}
+	if err := task.CheckID(t.ID); err != nil {
+		return task.Task{}, err
+	}
+	if err := t.Validate(); err != nil {
+		return task.Task{}, err
+	}
+	return t, nil
+}
+
+// DirExists reports whether path is a directory on this machine. A path we are
+// not allowed to look at counts as existing: the daemon may well lack access to
+// a folder that is perfectly real, and dropping it then would be wrong.
+func DirExists(path string) bool {
+	if path == "" {
+		return false
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return errors.Is(err, fs.ErrPermission)
+	}
+	return fi.IsDir()
 }

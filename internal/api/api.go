@@ -77,7 +77,7 @@ func Handler(d Deps) http.Handler {
 
 	mux.HandleFunc("GET /api/tasks", s.listTasks)
 	mux.HandleFunc("POST /api/tasks", s.addTask)
-	mux.HandleFunc("POST /api/tasks/import", s.importTask)
+	mux.HandleFunc("POST /api/tasks/import", s.readImport)
 	mux.HandleFunc("POST /api/tasks/{id}/export", s.exportTask)
 	mux.HandleFunc("PUT /api/tasks/{id}", s.updateTask)
 	mux.HandleFunc("DELETE /api/tasks/{id}", s.deleteTask)

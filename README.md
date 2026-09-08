@@ -144,8 +144,9 @@ The nightly cycle looks like this:
   when clicked. See [below](#letting-a-task-publish-artifacts).
 - **Share a task** — export any task as a `.claudeq` file (a zip holding its
   settings as JSON and its prompt as Markdown) and hand it to a colleague, who
-  imports it with one click or `claudeq import`. The task arrives exactly as
-  exported, ready to be adjusted like any other. See
+  imports it in the app or with `claudeq import`. In the app the file opens in
+  the task sheet first, so the prompt and the working directory — the exporter's
+  path, not yours — are adjusted before the task is queued. See
   [below](#sharing-tasks-as-files).
 
 **Platform & distribution**
@@ -178,7 +179,7 @@ The dashboard (and the native window that wraps it) has five views:
   switched on: *parallel*, *granted* (orange, the task skips permission
   prompts), and *notifies* (blue). An **export** button on each row saves the
   task as a `.claudeq` file via the native save panel, and **Import…** in the
-  toolbar adds a task from such a file.
+  toolbar opens such a file in the task sheet for review.
 - **Activity** — every run, newest first, with an unread badge for new results.
   Open a run to see the live/finished log as a chat view or raw output, along
   with the prompt; a running task can be stopped from there with **Cancel task**
@@ -351,7 +352,7 @@ claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [-
 claudeq publish --file PATH [--title T] [--description D]   # publish a file as an artifact
 claudeq notify --title T --message M [--url U]  # send a notification, no artifact
 claudeq export ID [--out PATH] [--force]       # write the task to a .claudeq file
-claudeq import PATH [--id ID]                  # add the task from a .claudeq file
+claudeq import PATH [--id ID]                  # add the task from a .claudeq file (as exported)
 claudeq rm ID
 claudeq enable ID | claudeq disable ID
 claudeq move   ID INDEX                        # 0 = highest priority
@@ -606,28 +607,42 @@ claudeq export nightly-sweep --out x.claudeq --force   # overwrite an existing f
 Without `--force` the CLI refuses to overwrite; the app's save panel asks
 before replacing a file.
 
-**Import.** In the app, **Import…** on the Queue toolbar picks a file. From the
-CLI, `claudeq import PATH` (optionally `--id ID` to choose the id). Either way
-the task is added to the end of the queue with its settings **exactly as
-exported** — working directory, schedule, model, permissions and enabled state
-included. Adjust anything afterwards with the normal edit sheet or
-`claudeq edit`. Two things are decided on import, because the file cannot:
+**Import in the app.** **Import…** on the Queue toolbar picks a file and opens
+its task in the normal task sheet, titled *Import task*. Nothing is queued yet:
+prompt, working directory, schedule and every switch come from the file and can
+be changed, and **Add task** creates the task, exactly as if you had typed it in.
+Cancel and nothing happened.
 
-- If the file's id is already in use, the imported task gets a numeric suffix
-  (`nightly-sweep-2`, `-3`, …); the existing task is never touched. A file with
-  no id gets one derived from its name. Ids may contain only letters, digits,
-  `.`, `-` and `_` (they appear in the app's own URLs); anything else is
-  rejected.
-- Missing `permissions` mean `default`; a missing name falls back to the id.
-- Any scheduling history left behind by an earlier task with the same id
-  (deleted before this version cleaned up after itself) is dropped, so the
-  import starts fresh.
+The working directory is the one place where a shared file cannot be trusted, so
+it is checked against this machine: if that folder does not exist here, the field
+is left empty and the sheet says which path was dropped — you pick a real one
+before the task can be added. A folder that exists but that ClaudeQ may not read
+yet counts as existing and is kept.
 
+**Import from the CLI.** `claudeq import PATH` (optionally `--id ID` to choose
+the id) adds the task straight to the end of the queue with its settings
+**exactly as exported** — working directory, schedule, model, permissions and
+enabled state included. A working directory that does not exist on this machine
+is kept, with a warning naming it; fix it with `claudeq edit ID --dir PATH`.
 Because settings arrive as-is, a task exported as *enabled* with an *as soon as
-possible* trigger is eligible to run right after import, and its working
-directory is the exporter's path unless you change it. Pause or edit it first
-if that is not what you want. A file with an invalid task (no prompt, unknown
-trigger, bad cron) is rejected and nothing is added.
+possible* trigger is eligible to run right after a CLI import; pause or edit it
+first if that is not what you want.
+
+What the file cannot decide is filled in, either way:
+
+- Ids may contain only letters, digits, `.`, `-` and `_` (they appear in the
+  app's own URLs); anything else is rejected. A CLI import keeps the file's id,
+  or a numeric suffix (`nightly-sweep-2`, `-3`, …) when that id is already in
+  use — the existing task is never touched; a file with no id gets one derived
+  from its name. A task added from the sheet gets a fresh id like any other new
+  task.
+- Missing `permissions` mean `default`; a missing name falls back to the id.
+- On a CLI import, any scheduling history left behind by an earlier task with
+  the same id (deleted before this version cleaned up after itself) is dropped,
+  so the import starts fresh.
+
+A file with an invalid task (no prompt, unknown trigger, bad cron) is rejected
+in both paths and nothing is added.
 
 ## How scheduling and the limit gate behave
 
