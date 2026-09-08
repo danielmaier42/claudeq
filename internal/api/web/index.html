@@ -808,7 +808,6 @@ function artifactKind(ct){ ct=(ct||'').toLowerCase();
   return 'other'; }
 function extLabel(name,ct){ const m=String(name).match(/\.([a-z0-9]+)$/i); if(m)return m[1].toUpperCase();
   const k=artifactKind(ct); return k==='other'?'FILE':k.toUpperCase(); }
-function canView(ct){ const k=artifactKind(ct); return k!=='other'; }
 function contentURL(a,download){ return '/api/artifacts/'+encodeURIComponent(a.id)+'/content'+(download?'?download=1':''); }
 function openArtifactExternal(a){ const url=location.origin+contentURL(a,false);
   if(window.cqOpenExternal) window.cqOpenExternal(url); else window.open(url,'_blank','noopener');
@@ -855,10 +854,9 @@ async function loadArtifacts(){
       +`<div class="sub">${srcHtml}${meta}</div>`;
     if(a.task_name && a.run_id){ const s=grow.querySelector('.art-src'); if(s) s.onclick=()=>openArtifactRun(a); }
     const actions=el('div','row-actions');
-    // Viewable types open in the in-app viewer; the rest can only be handed to
-    // the browser, so those keep an Open button as their single affordance.
-    if(canView(a.content_type)){ const v=el('button','btn small','View'); v.onclick=()=>openViewer(a); actions.append(v); }
-    else { const open=el('button','btn small','Open'); open.title='Open in your browser'; open.onclick=()=>openArtifactExternal(a); actions.append(open); }
+    // Every artifact opens the viewer — types without a preview get a placeholder
+    // there, and keep the sheet's "Open externally" and "Continue with Claude".
+    const v=el('button','btn small','View'); v.onclick=()=>openViewer(a); actions.append(v);
     const del=el('button','btn small danger','Delete'); del.title='Delete'; del.onclick=()=>deleteArtifact(a); actions.append(del);
     const kind=el('span','art-meta',extLabel(a.file_name,a.content_type));
     card.append(grow,actions,kind);
@@ -892,13 +890,19 @@ async function openViewer(a){
     // does not expose the dashboard's origin to the document.
     const frame=document.createElement('iframe'); frame.className='viewer-frame';
     frame.src=src; body.append(frame);
-  } else { // html
+  } else if(kind==='html'){
     // HTML runs in an opaque origin (sandbox without allow-same-origin) so it
     // cannot reach the loopback API or the parent DOM; the content CSP
     // additionally blocks any network access, so it cannot phone home.
     const frame=document.createElement('iframe'); frame.className='viewer-frame';
     frame.setAttribute('sandbox','allow-scripts');
     frame.src=src; body.append(frame);
+  } else {
+    // Archives, binaries and anything else the browser cannot render inline:
+    // the sheet still opens, so the file can be handed to the browser from the
+    // header and the publishing session continued from the footer.
+    body.append(emptyState('This file type has no preview',
+      a.file_name+' · '+fmtBytes(a.size)+' · use “Open externally” to open or save it'));
   }
   const acts=$('#viewerActions'); acts.innerHTML='';
   const open=el('button','btn small','Open externally'); open.onclick=()=>openArtifactExternal(a); acts.append(open);
@@ -930,15 +934,14 @@ $('#viewerSheet').addEventListener('close',()=>{ const gen=viewerGen;
   setTimeout(()=>{ if(gen===viewerGen && !$('#viewerSheet').open) $('#viewerBody').innerHTML=''; },0); });
 // Open one artifact by id. This is what a click on a "new artifact"
 // notification ends up calling (the app window pushes the id in from
-// cqOpenPendingArtifact): show the Artifacts view, then open the artifact
-// itself — in the in-app viewer when its type has one, otherwise in the
-// browser. If it is already gone, the view alone is the fallback.
+// cqOpenPendingArtifact): show the Artifacts view, then open the artifact in
+// the viewer. If it is already gone, the view alone is the fallback.
 window.cqOpenArtifact=async function(id){
   select('artifacts');
   let arts; try{ arts=await api('GET','/api/artifacts'); }catch(e){ toast(e.message,'err'); return; }
   const a=arts.find(x=>x.id===id);
   if(!a){ toast('That artifact is no longer available','err'); return; }
-  if(canView(a.content_type)) openViewer(a); else openArtifactExternal(a);
+  openViewer(a);
 };
 async function readArtifact(id){ try{ await api('POST','/api/artifacts/'+encodeURIComponent(id)+'/read'); }catch{} artifactsSig=''; loadArtifacts(); }
 async function markAllArtifactsRead(){ try{ await api('POST','/api/artifacts/read-all'); toast('All marked read','ok'); artifactsSig=''; loadArtifacts();}catch(e){toast(e.message,'err');} }
