@@ -300,6 +300,7 @@
     <label class="fld">Working directory</label>
     <div class="dir-row"><input type="text" id="f-dir" placeholder="Choose a folder…" readonly>
       <button class="btn" id="f-dir-btn" title="Choose folder">📁</button></div>
+    <div id="f-dir-hint" class="hint" style="color:var(--warn)" hidden></div>
     <label class="fld">Trigger</label>
     <div class="seg" id="f-trigger">
       <button data-v="asap" class="active">As soon as possible</button>
@@ -579,7 +580,8 @@ function prefillTask(t){
   $('#f-at').value=(t.trigger==='fixed'&&t.fixed_at)?toLocalDT(t.fixed_at):'';
   $('#f-cron').value=t.trigger==='cron'?(t.cron||''):'';
 }
-function openSheet(title,submitLabel){ $('#addErr').textContent=''; $('#addSheetTitle').textContent=title; $('#addSubmitBtn').textContent=submitLabel; $('#addSheet').showModal(); }
+function openSheet(title,submitLabel){ $('#addErr').textContent=''; $('#f-dir-hint').hidden=true; $('#f-dir-hint').textContent='';
+  $('#addSheetTitle').textContent=title; $('#addSubmitBtn').textContent=submitLabel; $('#addSheet').showModal(); }
 function openAdd(){ taskMode='add'; taskEditId='';
   ['f-name','f-prompt','f-dir','f-at','f-cron'].forEach(x=>$('#'+x).value='');
   $('#f-model').innerHTML=modelOptions('','Global default');
@@ -631,10 +633,19 @@ async function exportTask(t,btn){
   }catch(e){ toast('Export failed: '+e.message,'err'); }
   finally{ btn.disabled=false; }
 }
+// Importing does not queue anything by itself: the file is read, then its task
+// opens in the sheet so the prompt and the paths — which come from whoever
+// exported it — can be adjusted before the task is added.
 $('#importFile').onchange=async e=>{
   const f=e.target.files[0]; e.target.value=''; if(!f) return;
-  try{ const t=await api('POST','/api/tasks/import',f); toast('Imported “'+t.name+'”','ok'); loadTasks(); }
-  catch(err){ toast('Import failed: '+err.message,'err'); }
+  let d; try{ d=await api('POST','/api/tasks/import',f); }
+  catch(err){ toast('Import failed: '+err.message,'err'); return; }
+  taskMode='add'; taskEditId=''; prefillTask(d.task); openSheet('Import task','Add task');
+  if(d.missing_working_dir){
+    const h=$('#f-dir-hint');
+    h.textContent='The file’s working directory ('+d.missing_working_dir+') does not exist on this Mac. Choose a folder.';
+    h.hidden=false;
+  }
 };
 async function runNow(id){
   try{ await api('POST',`/api/tasks/${id}/run-now`); }catch(e){ toast(e.message,'err'); return; }

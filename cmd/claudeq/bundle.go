@@ -91,5 +91,10 @@ func cmdImport(st *store.Store, args []string) error {
 	} else {
 		fmt.Printf("imported task %q\n", t.ID)
 	}
+	// The working directory comes from the machine the task was exported on, so
+	// it may not exist here — the task would fail at run time without a hint.
+	if !app.DirExists(t.WorkingDir) {
+		fmt.Fprintf(os.Stderr, "warning: working directory %q does not exist here; set it with: claudeq edit %s --dir PATH\n", t.WorkingDir, t.ID)
+	}
 	return nil
 }

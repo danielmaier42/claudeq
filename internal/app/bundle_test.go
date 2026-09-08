@@ -2,6 +2,8 @@ package app
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -152,5 +154,60 @@ func TestImportTaskStartsFromCleanState(t *testing.T) {
 	}
 	if _, ok := st.LastStart(got.ID); ok || st.IsCompletedOnce(got.ID) || st.PendingResume(got.ID) != "" {
 		t.Errorf("stale state survived the import: %+v", st)
+	}
+}
+
+func TestReadImportKeepsAnExistingWorkingDir(t *testing.T) {
+	dir := t.TempDir()
+	in := task.Task{Name: "Shared", Prompt: "p", WorkingDir: dir, Trigger: task.TriggerASAP}
+	d, err := ReadImport(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.MissingWorkingDir != "" {
+		t.Errorf("missing = %q for an existing folder", d.MissingWorkingDir)
+	}
+	// The gaps a file can leave open are filled, everything else is untouched.
+	want := in
+	want.ID, want.Permissions = "shared", task.PermissionsDefault
+	if d.Task != want {
+		t.Errorf("draft %+v, want %+v", d.Task, want)
+	}
+}
+
+func TestReadImportDropsAWorkingDirThatIsNotHere(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "a-file")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]string{
+		"gone":     filepath.Join(t.TempDir(), "no-such-dir"),
+		"a file":   file,
+		"below it": filepath.Join(file, "sub"),
+	}
+	for name, dir := range cases {
+		d, err := ReadImport(task.Task{ID: "shared", Prompt: "p", WorkingDir: dir, Trigger: task.TriggerASAP})
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if d.Task.WorkingDir != "" || d.MissingWorkingDir != dir {
+			t.Errorf("%s: working_dir = %q, missing = %q", name, d.Task.WorkingDir, d.MissingWorkingDir)
+		}
+	}
+}
+
+// The file itself is validated as strictly as on a real import — only the
+// working directory may fall away.
+func TestReadImportRejectsInvalid(t *testing.T) {
+	cases := map[string]task.Task{
+		"no prompt":      {ID: "a", WorkingDir: "/r", Trigger: task.TriggerASAP},
+		"no working dir": {ID: "a", Prompt: "p", Trigger: task.TriggerASAP},
+		"bad cron":       {ID: "a", Prompt: "p", WorkingDir: "/r", Trigger: task.TriggerCron, Cron: "nope"},
+		"unsafe id":      {ID: "team/nightly", Prompt: "p", WorkingDir: "/r", Trigger: task.TriggerASAP},
+	}
+	for name, in := range cases {
+		if _, err := ReadImport(in); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
 	}
 }
