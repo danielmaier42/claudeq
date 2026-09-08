@@ -160,7 +160,9 @@ The nightly cycle looks like this:
   in Settings; one click downloads the installer and opens it, and the new
   version is running again as soon as the installer finishes. Dismiss a version
   to only hear about the next one. The banner aggregates the notes of every
-  version you skipped.
+  version you skipped. If a version was installed but the background service
+  never switched over to it, Settings says so and a **Finish update** button
+  hands it over.
 - **Local & private** — data is human-readable TOML/JSON under your Library
   folder; the API is loopback-only.
 
@@ -232,6 +234,14 @@ done, so you can start adding tasks right away. Installing over an existing
 version works the same way: the installer closes the open ClaudeQ window first
 (the daemon and any running task are not interrupted) and reopens the new
 version at the end, so an update takes effect without a manual restart.
+
+The installer verifies the hand-over instead of assuming it: it waits until the
+daemon that answers on `127.0.0.1:8765` reports the version it just installed,
+retries once (dropping a stale LaunchAgent that still points at an old copy of
+the app), and reports the install as *failed* if the new daemon never takes
+over — rather than finishing green while the machine keeps running the old
+version. It also lists any other `ClaudeQ.app` copies it finds, since a second
+copy is the usual reason an update looks like it did nothing.
 
 > The package is not notarized, so on first launch macOS may warn that it is from
 > an unidentified developer. Right-click **ClaudeQ → Open**, then confirm — or

@@ -15,6 +15,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -38,6 +39,12 @@ import (
 	"github.com/danielmaier42/claudeq/internal/version"
 	"github.com/danielmaier42/claudeq/internal/wake"
 )
+
+// defaultAddr is the loopback address the dashboard/API listens on. The
+// LaunchAgent starts the daemon without flags, so this is the address in
+// practice — and the one an old daemon has to release before a new one can
+// take over.
+const defaultAddr = "127.0.0.1:8765"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -71,7 +78,7 @@ func cmdRun(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	interval := fs.Duration("interval", 5*time.Second, "scheduler tick interval")
 	noWake := fs.Bool("no-wake", false, "do not schedule pmset wakes")
-	addr := fs.String("addr", "127.0.0.1:8765", "dashboard/API listen address (loopback only)")
+	addr := fs.String("addr", defaultAddr, "dashboard/API listen address (loopback only)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -291,12 +298,40 @@ func cmdInstall() error {
 	return nil
 }
 
-// killStrayDaemons terminates any running `claudeqd run` process. The current
-// process is `claudeqd install`, so it never matches itself. Best-effort.
+// killStrayDaemons terminates any running `claudeqd run` process and waits for
+// the loopback port to come free, so the daemon the caller is about to
+// bootstrap can actually bind it. The current process is `claudeqd install`, so
+// the pattern never matches itself.
+//
+// Waiting on the port rather than on a fixed delay matters: a daemon that keeps
+// the port keeps serving its own (older) version, which is what makes an update
+// look like it did nothing.
 func killStrayDaemons() {
 	_ = exec.Command("pkill", "-f", "claudeqd run").Run()
-	// Give the OS a moment to release the port before the caller re-bootstraps.
-	time.Sleep(500 * time.Millisecond)
+	if waitPortFree(3 * time.Second) {
+		return
+	}
+	// Still held — a daemon that ignored SIGTERM, or one started from another
+	// copy of the app. Escalate rather than bootstrapping into a taken port.
+	_ = exec.Command("pkill", "-9", "-f", "claudeqd run").Run()
+	_ = waitPortFree(2 * time.Second)
+}
+
+// waitPortFree reports whether nothing is listening on the dashboard port,
+// waiting up to d for a dying daemon to let go of it.
+func waitPortFree(d time.Duration) bool {
+	deadline := time.Now().Add(d)
+	for {
+		conn, err := net.DialTimeout("tcp", defaultAddr, 200*time.Millisecond)
+		if err != nil {
+			return true
+		}
+		_ = conn.Close()
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func cmdUninstall() error {

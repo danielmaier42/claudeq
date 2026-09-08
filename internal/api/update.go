@@ -4,7 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -47,6 +51,15 @@ type updateStatus struct {
 	PublishedAt *time.Time `json:"published_at,omitempty"`
 	// Dismissed is the version the user dismissed, "" if none.
 	Dismissed string `json:"dismissed,omitempty"`
+	// Installed is the version of the newest ClaudeQ.app on disk. It differs
+	// from Current only when an installed update never took over from the
+	// running daemon.
+	Installed string `json:"installed,omitempty"`
+	// RestartRequired is true when a newer build is installed on disk than the
+	// one this daemon is running: the update is already there, the background
+	// service just never switched to it. Downloading it again would not help,
+	// so no update is offered while this is set.
+	RestartRequired bool `json:"restart_required,omitempty"`
 	// Checking / Downloading reflect in-flight background work.
 	Checking    bool `json:"checking"`
 	Downloading bool `json:"downloading"`
@@ -56,18 +69,26 @@ type updateStatus struct {
 	Error string `json:"error,omitempty"`
 }
 
-// buildUpdateStatus assembles the response from the current version, the
-// dismissed version, and the cached check snapshot.
-func buildUpdateStatus(current, dismissed string, snap update.Snapshot) updateStatus {
+// buildUpdateStatus assembles the response from the running build's version,
+// the newest version installed on disk, the dismissed version, and the cached
+// check snapshot.
+func buildUpdateStatus(current, installed, dismissed string, snap update.Snapshot) updateStatus {
 	cur := update.Normalize(current)
+	inst := update.Normalize(installed)
+	// A development build is never "behind" an installed bundle — it is simply
+	// not the installed one.
+	restart := update.IsReleaseVersion(current) &&
+		update.IsReleaseVersion(inst) && update.IsNewer(inst, cur)
 	st := updateStatus{
-		Current:        cur,
-		Supported:      update.IsReleaseVersion(current),
-		Dismissed:      dismissed,
-		Checking:       snap.Checking,
-		Downloading:    snap.Downloading,
-		Error:          snap.Err,
-		AllReleasesURL: update.ReleasesPageURL(""),
+		Current:         cur,
+		Installed:       inst,
+		RestartRequired: restart,
+		Supported:       update.IsReleaseVersion(current),
+		Dismissed:       dismissed,
+		Checking:        snap.Checking,
+		Downloading:     snap.Downloading,
+		Error:           snap.Err,
+		AllReleasesURL:  update.ReleasesPageURL(""),
 	}
 	if !snap.CheckedAt.IsZero() {
 		t := snap.CheckedAt
@@ -96,7 +117,7 @@ func buildUpdateStatus(current, dismissed string, snap update.Snapshot) updateSt
 	// An update is offered only when we can compare versions, the release is
 	// strictly newer, it ships an installer, and the user hasn't dismissed
 	// exactly this version.
-	if st.Supported && rel.PkgURL != "" &&
+	if st.Supported && !restart && rel.PkgURL != "" &&
 		update.IsNewer(rel.Version, cur) &&
 		rel.Version != update.Normalize(dismissed) {
 		st.Available = true
@@ -124,6 +145,32 @@ func aggregateNotes(skipped []update.Release, latest *update.Release) string {
 	return b.String()
 }
 
+// installedApp is the newest ClaudeQ.app on disk, nil when none is found. Its
+// version is what the running daemon's version is compared against to notice
+// an update that was installed but never took over (see updateStatus.
+// RestartRequired), and what the relaunch endpoint hands the LaunchAgent to.
+// It is a variable so tests are not at the mercy of whatever is installed on
+// the machine running them.
+var installedApp = detectInstalledApp
+
+func detectInstalledApp() *update.Installed { return update.InstalledApp(selfPath()) }
+
+func installedVersion() string {
+	if inst := installedApp(); inst != nil {
+		return inst.Version
+	}
+	return ""
+}
+
+// selfPath is this executable's path, "" if it cannot be determined.
+func selfPath() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return exe
+}
+
 // currentStatus reads the dismissed version from the store and combines it with
 // the update service snapshot.
 func (s *server) currentStatus() updateStatus {
@@ -132,12 +179,12 @@ func (s *server) currentStatus() updateStatus {
 	if st, err := s.d.Store.LoadState(); err == nil {
 		dismissed = st.DismissedUpdate()
 	}
-	return buildUpdateStatus(version.String(), dismissed, snap)
+	return buildUpdateStatus(version.String(), installedVersion(), dismissed, snap)
 }
 
 func (s *server) getUpdate(w http.ResponseWriter, _ *http.Request) {
 	if s.d.Updates == nil {
-		writeJSON(w, http.StatusOK, updateStatus{Current: update.Normalize(version.String())})
+		writeJSON(w, http.StatusOK, buildUpdateStatus(version.String(), installedVersion(), "", update.Snapshot{}))
 		return
 	}
 	writeJSON(w, http.StatusOK, s.currentStatus())
@@ -203,4 +250,44 @@ func (s *server) downloadUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"path": path})
+}
+
+// relaunchInstalled hands the LaunchAgent over to the ClaudeQ.app at path by
+// running that bundle's own `claudeqd install`. Injectable for tests.
+var relaunchInstalled = spawnInstalledDaemon
+
+// spawnInstalledDaemon starts `<app>/Contents/MacOS/claudeqd install` detached.
+// That command stops the running daemon (this process) and re-bootstraps the
+// LaunchAgent at the installed binary — the same hand-over the installer's
+// postinstall performs, minus the parts that need root.
+func spawnInstalledDaemon(app string) error {
+	bin := filepath.Join(app, "Contents", "MacOS", "claudeqd")
+	if _, err := os.Stat(bin); err != nil {
+		return fmt.Errorf("installed daemon not found at %s: %w", bin, err)
+	}
+	cmd := exec.Command(bin, "install")
+	detach(cmd)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start %s install: %w", bin, err)
+	}
+	// Reap it if this process happens to outlive the hand-over.
+	go func() { _ = cmd.Wait() }()
+	return nil
+}
+
+// relaunchUpdate switches the background service over to the newest ClaudeQ.app
+// on disk. It answers the case where an installer ran fine but the old daemon
+// kept running: the update is already installed, it just never took effect.
+func (s *server) relaunchUpdate(w http.ResponseWriter, _ *http.Request) {
+	inst := installedApp()
+	if inst == nil {
+		writeErr(w, http.StatusServiceUnavailable, errors.New("no installed ClaudeQ.app was found"))
+		return
+	}
+	if err := relaunchInstalled(inst.Path); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	// The daemon is about to be replaced, so answer before that happens.
+	writeJSON(w, http.StatusAccepted, map[string]string{"version": inst.Version, "app": inst.Path})
 }

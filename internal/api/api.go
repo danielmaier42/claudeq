@@ -108,6 +108,7 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/update/check", s.checkUpdate)
 	mux.HandleFunc("POST /api/update/dismiss", s.dismissUpdate)
 	mux.HandleFunc("POST /api/update/download", s.downloadUpdate)
+	mux.HandleFunc("POST /api/update/relaunch", s.relaunchUpdate)
 
 	sub, _ := fs.Sub(webFS, "web")
 	mux.Handle("GET /", noCache(http.FileServer(http.FS(sub))))
