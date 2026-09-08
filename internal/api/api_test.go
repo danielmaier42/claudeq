@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -543,6 +545,17 @@ func TestCancelRunEndpoint(t *testing.T) {
 	}
 }
 
+// fakeBin writes an executable stub and returns its path, for settings that
+// must point at a claude binary that actually exists.
+func fakeBin(t *testing.T) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "claude")
+	if err := os.WriteFile(p, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write fake claude: %v", err)
+	}
+	return p
+}
+
 // continueFixture seeds a store with one run and returns a server whose
 // TerminalOpener records its invocation. The run's fields are shaped by
 // mutate, the stored settings by mutateSettings (both optional).
@@ -555,9 +568,10 @@ func continueFixture(t *testing.T, mutate func(*store.Run), mutateSettings func(
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
-	// A fixed binary path keeps the expected argv deterministic (no host detection).
+	// A fixed binary keeps the expected argv deterministic (no host detection).
+	// It has to exist: a configured path that is gone is skipped on purpose.
 	cfg, _ := st.LoadConfig()
-	cfg.Settings.ClaudePath = "/opt/claude"
+	cfg.Settings.ClaudePath = fakeBin(t)
 	if mutateSettings != nil {
 		mutateSettings(&cfg.Settings)
 	}
@@ -595,7 +609,10 @@ func TestContinueRunOpensTerminal(t *testing.T) {
 	if got.dir == "" || !strings.HasPrefix(got.dir, "/") {
 		t.Fatalf("opener dir = %q, want the task's working dir", got.dir)
 	}
-	want := []string{"/opt/claude", "--resume", "sess-1"}
+	want := []string{got.argv[0], "--resume", "sess-1"}
+	if !strings.HasSuffix(got.argv[0], "/claude") {
+		t.Fatalf("opener argv[0] = %q, want the configured claude path", got.argv[0])
+	}
 	if len(got.argv) != len(want) || got.argv[0] != want[0] || got.argv[1] != want[1] || got.argv[2] != want[2] {
 		t.Fatalf("opener argv = %v, want %v", got.argv, want)
 	}

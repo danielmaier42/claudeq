@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -256,11 +257,39 @@ func (e *Executor) binFor(req Request) string {
 	return e.bin()
 }
 
+// resolveBin picks the binary for a run and checks it is actually there. The
+// daemon resolves the CLI once, at startup, so an install that moves afterwards
+// (Claude Code's native installer migrates a homebrew/npm install to
+// ~/.local/bin and removes the old one) would otherwise leave every run failing
+// with a bare "no such file or directory" until the daemon is restarted. We
+// look again instead, and only give up when there is really no CLI to run.
+func (e *Executor) resolveBin(req Request) (string, string, error) {
+	bin := e.binFor(req)
+	if Usable(bin) {
+		return bin, "", nil
+	}
+	// A relative path is resolved by exec against the run's working directory,
+	// not ours, so we cannot judge it here: hand it over unchanged.
+	if !filepath.IsAbs(bin) && strings.ContainsRune(bin, os.PathSeparator) {
+		return bin, "", nil
+	}
+	if alt := DetectBinary(); alt != bin && Usable(alt) {
+		return alt, fmt.Sprintf("claudeq: claude is no longer at %s; using %s instead\n", bin, alt), nil
+	}
+	if filepath.IsAbs(bin) {
+		return "", "", fmt.Errorf("the Claude Code CLI is not at %s any more, and could not be found anywhere else; install it, or point claudeq at it with 'claudeq settings --claude-path /path/to/claude'", bin)
+	}
+	return "", "", fmt.Errorf("could not find the Claude Code CLI (%q is not on the daemon's PATH); install it, or point claudeq at it with 'claudeq settings --claude-path /path/to/claude'", bin)
+}
+
 // Run executes the request, streaming output to req.Log, and returns the
 // classified result. A non-nil error indicates claudeq failed to run the CLI
 // at all (as opposed to the CLI reporting a task failure, which is a Result).
 func (e *Executor) Run(ctx context.Context, req Request) (Result, error) {
-	bin := e.binFor(req)
+	bin, note, err := e.resolveBin(req)
+	if err != nil {
+		return Result{}, err
+	}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, bin, e.Args(req)...)
@@ -274,6 +303,9 @@ func (e *Executor) Run(ctx context.Context, req Request) (Result, error) {
 	}
 	log := &syncWriter{w: req.Log}
 	cmd.Stderr = log
+	if note != "" {
+		_, _ = log.Write([]byte(note))
+	}
 
 	if err := cmd.Start(); err != nil {
 		return Result{}, fmt.Errorf("start %s: %w", bin, err)

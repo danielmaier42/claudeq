@@ -68,6 +68,19 @@ func viaLoginShell() string {
 	return ""
 }
 
+// Usable reports whether name can actually be executed right now: a path must
+// point at an executable file, a bare name must resolve on PATH.
+func Usable(name string) bool {
+	if name == "" {
+		return false
+	}
+	if strings.ContainsRune(name, os.PathSeparator) {
+		return isExecutableFile(name)
+	}
+	_, err := exec.LookPath(name)
+	return err == nil
+}
+
 func isExecutableFile(p string) bool {
 	fi, err := os.Stat(p)
 	if err != nil || fi.IsDir() {

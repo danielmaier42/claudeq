@@ -272,6 +272,79 @@ func TestRequestBinOverridesExecutorDefault(t *testing.T) {
 	}
 }
 
+// A CLI that moved after the daemon resolved it (homebrew → ~/.local/bin, which
+// Claude Code's native installer does) must not fail every run until the daemon
+// is restarted: the executor looks again and uses what it finds.
+func TestRunRecoversWhenConfiguredBinaryIsGone(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX-only fake")
+	}
+	out := `{"type":"result","subtype":"success","is_error":false,"result":"OK","session_id":"real-sid"}`
+	moved := fakeClaude(t, out, 0)
+	t.Setenv("CLAUDEQ_CLAUDE_BIN", moved) // what detection now finds
+	e := &Executor{Bin: "/opt/homebrew/bin/claude-gone"}
+	tk := sampleTask()
+	tk.WorkingDir = t.TempDir()
+	var log bytes.Buffer
+	res, err := e.Run(context.Background(), Request{Task: tk, SessionID: "sid", Log: &log})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Status != store.StatusSuccess {
+		t.Fatalf("status = %q, want success (should have re-detected the CLI)", res.Status)
+	}
+	if !strings.Contains(log.String(), "no longer at /opt/homebrew/bin/claude-gone") {
+		t.Fatalf("log = %q, want a note about the moved binary", log.String())
+	}
+}
+
+// With no CLI anywhere, the run must fail with something the user can act on,
+// not with a bare fork/exec error.
+func TestRunMissingBinaryExplainsHowToFixIt(t *testing.T) {
+	t.Setenv("CLAUDEQ_CLAUDE_BIN", filepath.Join(t.TempDir(), "nowhere")) // detection finds nothing usable
+	e := &Executor{Bin: "/opt/homebrew/bin/claude"}
+	tk := sampleTask()
+	tk.WorkingDir = t.TempDir()
+	var log bytes.Buffer
+	_, err := e.Run(context.Background(), Request{Task: tk, SessionID: "sid", Log: &log})
+	if err == nil {
+		t.Fatal("Run: want an error when no claude binary exists")
+	}
+	for _, want := range []string{"/opt/homebrew/bin/claude", "--claude-path"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, want it to mention %q", err, want)
+		}
+	}
+}
+
+// A relative binary is resolved by exec against the run's working directory, so
+// the executor must pass it through rather than judge it against its own cwd.
+func TestRunRelativeBinaryIsResolvedAgainstWorkingDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX-only fake")
+	}
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out := `{"type":"result","subtype":"success","is_error":false,"result":"OK","session_id":"real-sid"}`
+	script := "#!/bin/sh\ncat <<'EOF'\n" + out + "\nEOF\n"
+	if err := os.WriteFile(filepath.Join(dir, "bin", "claude"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	e := &Executor{Bin: filepath.Join("bin", "claude")}
+	tk := sampleTask()
+	tk.WorkingDir = dir
+	var log bytes.Buffer
+	res, err := e.Run(context.Background(), Request{Task: tk, SessionID: "sid", Log: &log})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Status != store.StatusSuccess {
+		t.Fatalf("status = %q, want success", res.Status)
+	}
+}
+
 func TestRunIdleTimeoutKillsHungRun(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX-only fake")

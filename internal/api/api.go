@@ -410,9 +410,12 @@ func (s *server) continueRun(w http.ResponseWriter, r *http.Request) {
 
 // claudeBin resolves the Claude Code binary for the resume command the same
 // way the daemon does for runs: explicit setting first, then auto-detection,
-// then a bare name for the interactive shell to resolve.
+// then a bare name for the interactive shell to resolve. A configured path that
+// no longer exists is skipped rather than handed to the terminal, so a CLI that
+// moved (the native installer migrates homebrew/npm installs to ~/.local/bin)
+// does not turn every resume into a "command not found".
 func claudeBin(s store.Settings) string {
-	if s.ClaudePath != "" {
+	if s.ClaudePath != "" && executor.Usable(s.ClaudePath) {
 		return s.ClaudePath
 	}
 	if p := executor.DetectBinary(); p != "" {

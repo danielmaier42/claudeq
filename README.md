@@ -218,7 +218,7 @@ The dashboard is also reachable in a normal browser at
 | **General** | Default model | Model used for runs unless a task overrides it (empty = Claude's own default). |
 | | Skip permission prompts by default | Global "may do anything" default for runs. |
 | | Check for due tasks every | How often the daemon wakes to look for work (15 min – 6 h; also the wake safety-net interval). |
-| **Claude Code CLI** | Claude binary | Absolute path to the `claude` executable. The daemon can't see your shell `PATH`, so this is auto-detected and pre-filled; override if needed. |
+| **Claude Code CLI** | Claude binary | Absolute path to the `claude` executable. The daemon can't see your shell `PATH`, so this is auto-detected and pre-filled; override if needed. If that path later stops existing (the CLI moved, e.g. from Homebrew to `~/.local/bin`), claudeq looks for it again at the start of each run instead of failing. |
 | **System prompt** | Custom system prompt | Extra instructions appended to every run after the built-in prompt. |
 | **Reliability** | Stop a run with no output for | Idle-timeout watchdog: kills a hung run (default 30 min; a working run keeps streaming and is unaffected; Off disables it). |
 | | Keep run history | How many runs (and their logs) to retain before pruning (default 500; Unlimited keeps everything). |
