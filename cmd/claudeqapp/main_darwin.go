@@ -51,6 +51,7 @@ func main() {
 	notify.RequestMacAuthorization()
 	w.SetTitle("ClaudeQ")
 	w.SetSize(1120, 760, webview.HintNone)
+	installOpenPanel(w.Window())
 
 	// Native menu bar (webview_go creates none). Custom items drive the dashboard
 	// via the same JS the sidebar uses: openAdd() and select('settings').
