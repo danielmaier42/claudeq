@@ -175,11 +175,12 @@ The dashboard (and the native window that wraps it) has five views:
   reorder, or **run now** (a manual test run, independent of the trigger). A
   running one-shot task moves to Activity; a recurring task stays here with a
   *running* badge; hovering its cron expression shows the next occurrence and
-  when it last ran. Each task also carries a badge for every option it has
+  when it last ran. Underneath each task sits a badge for every option it has
   switched on: *parallel*, *granted* (orange, the task skips permission
-  prompts), and *notifies* (blue). An **export** button on each row saves the
-  task as a `.claudeq` file via the native save panel, and **Import…** in the
-  toolbar opens such a file in the task sheet for review.
+  prompts), *notifies* (blue), and *silent* (quiet history). An **export**
+  button on each row saves the task as a `.claudeq` file via the native save
+  panel, and **Import…** in the toolbar opens such a file in the task sheet for
+  review.
 - **Activity** — every run, newest first, with an unread badge for new results.
   Open a run to see the live/finished log as a chat view or raw output, along
   with the prompt; a running task can be stopped from there with **Cancel task**
