@@ -308,6 +308,47 @@ func TestListTasksReportsCronNextRun(t *testing.T) {
 	}
 }
 
+func TestListTasksReportsCronLastRun(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(Handler(Deps{Store: st}))
+	t.Cleanup(srv.Close)
+	cron := sampleTask("c")
+	cron.Trigger = task.TriggerCron
+	cron.Cron = "0 20 * * *"
+	do(t, srv, "POST", "/api/tasks", cron)
+
+	var tasks []struct {
+		ID      string     `json:"id"`
+		LastRun *time.Time `json:"last_run"`
+	}
+	do(t, srv, "GET", "/api/tasks", nil).into(t, &tasks)
+	if len(tasks) != 1 || tasks[0].LastRun != nil {
+		t.Fatalf("a cron task that never ran should report no last_run, got %v", tasks)
+	}
+
+	ran := time.Now().Add(-90 * time.Minute).Truncate(time.Second)
+	if err := st.UpdateState(func(cur *store.State) error {
+		// The scheduling anchor alone must not count as an execution.
+		cur.RecordStart("c", time.Now())
+		cur.RecordRun("c", ran)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	tasks = nil
+	do(t, srv, "GET", "/api/tasks", nil).into(t, &tasks)
+	if len(tasks) != 1 || tasks[0].LastRun == nil {
+		t.Fatalf("cron task should report a last_run, got %v", tasks)
+	}
+	if !tasks[0].LastRun.Equal(ran) {
+		t.Fatalf("last_run = %v, want %v", tasks[0].LastRun, ran)
+	}
+}
+
 func TestHealthReportsWakeError(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {

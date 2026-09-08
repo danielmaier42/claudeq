@@ -21,8 +21,13 @@ type State struct {
 	// an upgrade (or a fresh state file) would notify for the whole backlog.
 	ArtifactNotifyPrimed bool `json:"artifact_notify_primed"`
 	// LastStarted maps a task id to the start time of its most recent run,
-	// used to compute the next cron occurrence (FA-18).
+	// used to compute the next cron occurrence (FA-18). A freshly added cron
+	// task is anchored here without having run, so this is not a run history.
 	LastStarted map[string]time.Time `json:"last_started"`
+	// LastRunAt maps a task id to the start time of its most recent actual run.
+	// Unlike LastStarted it is only written when a run is really launched, so
+	// the dashboard can show when a recurring task last executed.
+	LastRunAt map[string]time.Time `json:"last_run_at"`
 	// CompletedOnce marks one-shot tasks (asap/fixed) that have already run so
 	// they are not re-enqueued (PLAN.md §7).
 	CompletedOnce map[string]bool `json:"completed_once"`
@@ -53,6 +58,9 @@ func (s *State) ensureMaps() {
 	}
 	if s.LastStarted == nil {
 		s.LastStarted = map[string]time.Time{}
+	}
+	if s.LastRunAt == nil {
+		s.LastRunAt = map[string]time.Time{}
 	}
 	if s.CompletedOnce == nil {
 		s.CompletedOnce = map[string]bool{}
@@ -123,6 +131,22 @@ func (s *State) RecordStart(taskID string, t time.Time) {
 	s.LastStarted[taskID] = t
 }
 
+// RecordRun records that a task actually began a run at t. Callers that only
+// anchor a cron schedule use RecordStart alone.
+func (s *State) RecordRun(taskID string, t time.Time) {
+	if s.LastRunAt == nil {
+		s.LastRunAt = map[string]time.Time{}
+	}
+	s.LastRunAt[taskID] = t
+}
+
+// LastRun returns the start time of a task's most recent actual run and
+// whether one exists.
+func (s *State) LastRun(taskID string) (time.Time, bool) {
+	t, ok := s.LastRunAt[taskID]
+	return t, ok
+}
+
 // LastStart returns the last start time for a task and whether one exists.
 func (s *State) LastStart(taskID string) (time.Time, bool) {
 	t, ok := s.LastStarted[taskID]
@@ -152,6 +176,7 @@ func (s *State) ClearPendingResume(taskID string) { delete(s.PendingResumes, tas
 // scheduling history.
 func (s *State) ForgetTask(taskID string) {
 	delete(s.LastStarted, taskID)
+	delete(s.LastRunAt, taskID)
 	delete(s.CompletedOnce, taskID)
 	delete(s.PendingResumes, taskID)
 }

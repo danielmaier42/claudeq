@@ -93,6 +93,10 @@ func cmdRun(args []string) error {
 	if cfg, err := st.LoadConfig(); err == nil {
 		_ = st.PruneHistory(cfg.Settings.RunHistoryLimit())
 	}
+	// Installs predating the last-run bookkeeping have it only in history.
+	if _, err := st.BackfillLastRuns(); err != nil {
+		fmt.Fprintln(os.Stderr, "claudeqd: backfill last runs:", err)
+	}
 
 	// Resolve the Claude Code binary. An explicit setting wins; otherwise detect
 	// it (the daemon's launchd PATH excludes ~/.local/bin, so a plain lookup at
