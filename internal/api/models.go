@@ -14,23 +14,20 @@ type Model struct {
 	Label string `json:"label"`
 }
 
-// fallbackModels is used when the claude binary cannot be queried. These are
-// stable aliases that always resolve to the latest model of each tier.
-var fallbackModels = []Model{
-	{ID: "opus", Label: "Opus (latest)"},
-	{ID: "sonnet", Label: "Sonnet (latest)"},
-	{ID: "haiku", Label: "Haiku (latest)"},
-	{ID: "fable", Label: "Fable (latest)"},
-}
-
-// aliasPref orders known aliases; unknown ones are appended alphabetically.
+// aliasPref are the tier aliases we know claude accepts, in the order we offer
+// them. Every one is always selectable: the binary's --model help text only
+// names a couple of them as examples, so it cannot be read as the full set.
 var aliasPref = []string{"opus", "sonnet", "haiku", "fable"}
+
+// fallbackModels is used when the claude binary cannot be queried at all.
+var fallbackModels = orderAliases(nil)
 
 var quotedRe = regexp.MustCompile(`'([a-zA-Z0-9-]+)'`)
 
-// BinaryModelLister returns a cached lister that derives the model list from the
-// claude binary's own `--help` output (the aliases it advertises for --model).
-// It falls back to fallbackModels if the binary can't be run or advertises none.
+// BinaryModelLister returns a cached lister for the selectable models: the
+// known tier aliases, plus any further alias the claude binary's own `--help`
+// advertises for --model. It falls back to the known tiers alone if the binary
+// can't be run.
 func BinaryModelLister(bin string) func() []Model {
 	var once sync.Once
 	var cached []Model
@@ -73,6 +70,9 @@ func modelsFromHelp(help string) []Model {
 	return orderAliases(aliases)
 }
 
+// orderAliases turns the aliases advertised by --help into the selectable list:
+// every known tier first, in aliasPref order, then any alias the help mentions
+// that we don't know about, in the order it appeared.
 func orderAliases(aliases []string) []Model {
 	in := map[string]bool{}
 	for _, a := range aliases {
@@ -80,10 +80,8 @@ func orderAliases(aliases []string) []Model {
 	}
 	var out []Model
 	for _, pref := range aliasPref {
-		if in[pref] {
-			out = append(out, Model{ID: pref, Label: title(pref) + " (latest)"})
-			delete(in, pref)
-		}
+		out = append(out, Model{ID: pref, Label: title(pref) + " (latest)"})
+		delete(in, pref)
 	}
 	// Any advertised aliases we don't have a preference for, in input order.
 	for _, a := range aliases {
