@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/danielmaier42/claudeq/internal/app"
@@ -79,6 +80,9 @@ type Deps struct {
 	// OSVersion reports the macOS product version (e.g. "15.6") for the
 	// environment line of a feedback issue. Optional; empty leaves it out.
 	OSVersion func() string
+	// Review checks a draft prompt against this machine before it is queued.
+	// Optional; when nil the dashboard shows no suggestions.
+	Review PromptReviewer
 }
 
 // Handler builds the HTTP handler (REST API under /api + dashboard at /).
@@ -112,6 +116,7 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/pause", s.setPaused)
 	mux.HandleFunc("GET /api/models", s.listModels)
 	mux.HandleFunc("GET /api/cron/check", s.checkCron)
+	mux.HandleFunc("POST /api/review/prompt", s.reviewPrompt)
 	mux.HandleFunc("GET /api/claude/which", s.whichClaude)
 	mux.HandleFunc("POST /api/fs/choose", s.chooseFolder)
 	mux.HandleFunc("POST /api/fs/warm", s.warmNow)
@@ -141,7 +146,15 @@ func noCache(h http.Handler) http.Handler {
 	})
 }
 
-type server struct{ d Deps }
+type server struct {
+	d Deps
+	// Only the newest prompt review matters, so each one cancels its
+	// predecessor; the generation counter keeps a finishing review from
+	// clearing a newer one's cancel (see beginReview).
+	reviewMu     sync.Mutex
+	reviewGen    uint64
+	reviewCancel context.CancelFunc
+}
 
 // activeTasks is the set of task ids running right now (empty when the daemon
 // does not report them).

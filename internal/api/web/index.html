@@ -12,6 +12,7 @@
     --fg:#1d1d1f; --fg2:#6e6e73; --hairline:rgba(0,0,0,.10);
     --seg-bg:rgba(120,120,128,.12); --seg-active:#fff; --switch-off:rgba(120,120,128,.32);
     --ok:#34c759; --warn:#ff9f0a; --danger:#ff3b30; --running:#007aff;
+    --ai:#7c3aed;                      /* suggestions come from Claude, so they get their own colour */
     --shadow:0 1px 3px rgba(0,0,0,.08),0 6px 20px rgba(0,0,0,.06);
   }
   @media (prefers-color-scheme: dark) {
@@ -20,6 +21,7 @@
       --fg:#f5f5f7; --fg2:#98989d; --hairline:rgba(255,255,255,.12);
       --seg-bg:rgba(120,120,128,.24); --seg-active:#636366; --switch-off:rgba(120,120,128,.5);
       --ok:#30d158; --warn:#ff9f0a; --danger:#ff453a; --running:#0a84ff;
+      --ai:#bf9dff;
       --shadow:0 1px 3px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
     }
   }
@@ -198,6 +200,8 @@
   /* Sheet (dialog) */
   dialog { border:none; border-radius:14px; padding:0; background:var(--card); color:var(--fg);
            box-shadow:0 20px 60px rgba(0,0,0,.35); width:520px; max-width:92vw; }
+  #addSheet { width:720px; }
+  #f-prompt { min-height:190px; }
   #logSheet { width:1040px; }
   #logSheet pre.log { max-height:70vh; }
   #viewerSheet { width:1040px; }
@@ -235,6 +239,20 @@
   .tool pre { margin:5px 0 0; white-space:pre-wrap; word-break:break-word; color:var(--fg2);
               font-family:"SF Mono",ui-monospace,monospace; font-size:11px; max-height:150px; overflow:auto; }
   .rawline { font-family:"SF Mono",ui-monospace,monospace; font-size:11px; color:var(--fg2); white-space:pre-wrap; word-break:break-word; opacity:.65; }
+
+  /* Claude's suggestions about a prompt (purple, not a warning — nothing is wrong yet) */
+  .ai-banner { display:flex; gap:9px; align-items:flex-start; margin-top:9px; padding:10px 12px; border-radius:10px;
+    border:.5px solid color-mix(in srgb, var(--ai) 42%, transparent);
+    background:color-mix(in srgb, var(--ai) 11%, transparent); font-size:12px; line-height:1.5; }
+  .ai-banner[hidden] { display:none; }
+  .ai-banner .spark { flex:none; line-height:0; margin-top:1px; color:var(--ai); }
+  .ai-banner .spark svg { width:15px; height:15px; fill:currentColor; stroke:none; display:block; }
+  .ai-banner.busy .spark { animation:cqpulse 1.2s ease-in-out infinite; }
+  .ai-banner.busy { color:var(--fg2); }
+  .ai-banner .who { font-weight:600; color:var(--ai); }
+  .ai-banner .msg { margin-top:2px; white-space:pre-wrap; word-break:break-word; }
+  .ai-banner .acts { display:flex; gap:8px; margin-top:9px; }
+  .ai-banner .btn.ai { color:var(--ai); font-weight:600; border-color:color-mix(in srgb, var(--ai) 42%, transparent); }
 
   /* Toasts */
   #toasts { position:fixed; bottom:18px; right:18px; display:flex; flex-direction:column; gap:8px; z-index:50; }
@@ -320,7 +338,8 @@
   <div class="sheet-hd"><b id="addSheetTitle">New task</b></div>
   <div class="sheet-bd">
     <label class="fld">Name</label><input type="text" id="f-name" placeholder="Nightly build">
-    <label class="fld">Prompt</label><textarea id="f-prompt" rows="3" placeholder="What should Claude do?"></textarea>
+    <label class="fld">Prompt</label><textarea id="f-prompt" rows="10" placeholder="What should Claude do?"></textarea>
+    <div class="ai-banner" id="f-review" hidden></div>
     <label class="fld">Working directory</label>
     <div class="dir-row"><input type="text" id="f-dir" placeholder="Choose a folder…" readonly>
       <button class="btn" id="f-dir-btn" title="Choose folder">📁</button></div>
@@ -440,10 +459,10 @@ const SAVE='<svg viewBox="0 0 20 20"><path d="M4 10.5l3.5 3.5L16 5.5"/></svg>';
 const EXPORT='<svg viewBox="0 0 20 20"><path d="M10 12.5V3.5"/><path d="M6.5 7L10 3.5 13.5 7"/><path d="M4 11.5v4a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-4"/></svg>';
 const IMPORT='<svg viewBox="0 0 20 20"><path d="M10 3.5v9"/><path d="M6.5 9L10 12.5 13.5 9"/><path d="M4 11.5v4a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-4"/></svg>';
 
-async function api(m,path,body){
+async function api(m,path,body,signal){
   // A Blob/File body is sent as-is (an upload); anything else is JSON.
   const raw=body instanceof Blob;
-  const r=await fetch(path,{method:m,headers:body?{'Content-Type':raw?(body.type||'application/octet-stream'):'application/json'}:{},body:raw?body:(body?JSON.stringify(body):undefined)});
+  const r=await fetch(path,{method:m,signal,headers:body?{'Content-Type':raw?(body.type||'application/octet-stream'):'application/json'}:{},body:raw?body:(body?JSON.stringify(body):undefined)});
   if(!r.ok&&r.status!==204){let e;try{e=(await r.json()).error}catch{e=r.statusText} throw new Error(e);}
   const ct=r.headers.get('content-type')||''; return ct.includes('json')?r.json():r.text();
 }
@@ -698,7 +717,8 @@ function prefillTask(t){
 }
 function openSheet(title,submitLabel){ $('#addErr').textContent=''; $('#f-dir-hint').hidden=true; $('#f-dir-hint').textContent='';
   clearTimeout(cronTimer); cronVerdict.expr=null; showCronStatus(null); cronRecheck();
-  $('#addSheetTitle').textContent=title; $('#addSubmitBtn').textContent=submitLabel; $('#addSheet').showModal(); }
+  $('#addSheetTitle').textContent=title; $('#addSubmitBtn').textContent=submitLabel; $('#addSheet').showModal();
+  taskReview.run(); }   // an imported, edited or replayed prompt is reviewed as it opens; an empty new one costs nothing
 function openAdd(){ taskMode='add'; taskEditId='';
   ['f-name','f-prompt','f-dir','f-at','f-cron'].forEach(x=>$('#'+x).value='');
   $('#f-model').innerHTML=modelOptions('','Global default');
@@ -783,9 +803,70 @@ async function chooseFolder(){
   try{
     const q=$('#f-dir').value?('?path='+encodeURIComponent($('#f-dir').value)):'';
     const r=await api('POST','/api/fs/choose'+q);
-    if(r && typeof r!=='string' && r.path) $('#f-dir').value=r.path; // 204/empty => cancelled
+    if(r && typeof r!=='string' && r.path){ $('#f-dir').value=r.path; taskReview.run(); } // 204/empty => cancelled
   }catch(e){ toast('Folder dialog unavailable: '+e.message,'err'); }
 }
+
+/* ---- Prompt review: Claude checks a draft prompt against this machine ---- */
+// Purely advisory — it never blocks saving. A review runs when a prompt sheet
+// opens and again, from scratch, on every change to the prompt or the working
+// directory, because a finding about the previous text says nothing about the
+// new one. Whatever is in flight is aborted first (which kills the daemon's
+// Claude process too), so only the newest answer can reach the banner.
+const SPARK='<svg viewBox="0 0 20 20"><path d="M8.4 2.3a.6.6 0 0 1 1.14 0l1.2 3.36 3.36 1.2a.6.6 0 0 1 0 1.14l-3.36 1.2-1.2 3.36a.6.6 0 0 1-1.14 0l-1.2-3.36-3.36-1.2a.6.6 0 0 1 0-1.14l3.36-1.2z"/><path d="M14.9 12.1a.5.5 0 0 1 .94 0l.62 1.74 1.74.62a.5.5 0 0 1 0 .94l-1.74.62-.62 1.74a.5.5 0 0 1-.94 0l-.62-1.74-1.74-.62a.5.5 0 0 1 0-.94l1.74-.62z"/></svg>';
+const REVIEW_DELAY=900;   // ms of quiet typing before a review is worth starting
+
+// area is the textarea under review, banner the element to render into, and
+// dir() the working directory to resolve relative paths against ('' for the
+// global system prompt, which has none).
+function makeReview({kind,area,banner,dir}){
+  let timer=null, ctrl=null, seq=0;
+
+  // stop() retires whatever is pending or in flight: the bumped sequence number
+  // makes any answer still on its way arrive too late to be rendered.
+  function stop(){ clearTimeout(timer); timer=null; if(ctrl){ ctrl.abort(); ctrl=null; } seq++; }
+  function hide(){ banner.hidden=true; banner.innerHTML=''; banner.classList.remove('busy'); }
+  function head(cls,who){ banner.className='ai-banner'+(cls?' '+cls:''); banner.hidden=false;
+    banner.innerHTML=`<span class="spark">${SPARK}</span><div class="grow"><span class="who">${esc(who)}</span></div>`;
+    return banner.querySelector('.grow'); }
+
+  function show(res){
+    const box=head('','ClaudeQ suggests:');
+    box.append(el('div','msg',esc(res.message)));
+    const acts=el('div','acts'); box.append(acts);
+    if(res.revised_prompt){
+      const ap=el('button','btn small ai','Apply');
+      ap.dataset.tip='Rewrites the prompt as suggested. The result lands in the box above, where you can still change it.';
+      ap.onclick=()=>{ area.value=res.revised_prompt; toast('Prompt rewritten','ok'); run(); };
+      acts.append(ap);
+    }
+    const no=el('button','btn small','Dismiss'); no.onclick=()=>{ stop(); hide(); }; acts.append(no);
+  }
+
+  async function run(){
+    stop();
+    const mine=seq;
+    const prompt=area.value;
+    if(!prompt.trim()){ hide(); return; }
+    ctrl=new AbortController();
+    head('busy','ClaudeQ is checking this prompt…');
+    let res;
+    // A review that is aborted, unreachable or fails is silently dropped: it is
+    // an extra pair of eyes, and a broken one must never get in the way of
+    // writing a task.
+    try{ res=await api('POST','/api/review/prompt',{kind,prompt,working_dir:dir()},ctrl.signal); }
+    catch(e){ if(mine===seq) hide(); return; }
+    if(mine!==seq) return;
+    ctrl=null;
+    if(res && res.enabled && !res.ok && res.message) show(res); else hide();
+  }
+
+  return { run, stop, reset(){ stop(); hide(); }, schedule(){ stop(); hide(); timer=setTimeout(run,REVIEW_DELAY); } };
+}
+
+const taskReview=makeReview({kind:'task',area:$('#f-prompt'),banner:$('#f-review'),dir:()=>$('#f-dir').value.trim()});
+$('#f-prompt').addEventListener('input',()=>taskReview.schedule());
+$('#addSheet').addEventListener('close',()=>taskReview.reset());
 
 /* ---- Sharing tasks as .claudeq files (zip: task.json + prompt.md) ---- */
 async function exportTask(t,btn){
@@ -1201,7 +1282,17 @@ async function loadSettings(){
           <div class="title" style="font-weight:500">Custom system prompt</div>
           <div style="color:var(--fg2);font-size:12px;margin:1px 0 8px">Appended to every run after claudeq's built-in instructions (built-in first, yours last). Use it for standing guidance you want on every task — coding conventions, tone, tools to prefer. Leave empty for none.</div>
           <textarea id="s-sysprompt" rows="6" placeholder="e.g. Follow the repo's existing conventions. Always run the tests before finishing." style="width:100%;box-sizing:border-box"></textarea>
+          <div class="ai-banner" id="s-sysprompt-review" hidden></div>
         </div>
+      </div>
+      <div class="section-label">Prompt review</div>
+      <div class="group">
+        <div class="row"><div class="grow"><div class="title">Check prompts with Claude</div>
+          <div class="sub multi">Before a task is added, imported or edited, Claude reads its prompt against this Mac — paths that aren't here, a file to be written into a folder that doesn't exist, guidelines it points at — and offers a rewrite under the prompt box. It reviews the system prompt above the same way.</div></div>
+          <label class="switch"><input type="checkbox" id="s-review"><span class="sl"></span></label></div>
+        <div class="row"><div class="grow"><div class="title">Review model</div>
+          <div class="sub">Runs on every prompt change, so a fast model earns its keep</div></div>
+          <select id="s-review-model" style="max-width:230px">${modelOptions(s.prompt_review_model||'','Same as default model')}</select></div>
       </div>
       <div class="section-label">Execution</div>
       <div class="group">
@@ -1267,6 +1358,15 @@ async function loadSettings(){
   $('#s-po-enabled').checked=poOn; $('#s-po-token').value=s.pushover?.token||''; $('#s-po-user').value=s.pushover?.user_key||'';
   $('#s-claude').value=s.claude_path||'';
   $('#s-sysprompt').value=s.system_prompt||'';
+  // The Settings view is rebuilt on every visit, so its review controller is
+  // bound to the fresh nodes here. The system prompt has no working directory:
+  // it is appended to every task, wherever that task runs.
+  const sysReview=makeReview({kind:'system',area:$('#s-sysprompt'),banner:$('#s-sysprompt-review'),dir:()=>''});
+  $('#s-sysprompt').addEventListener('input',()=>sysReview.schedule());
+  const reviewOn=!s.prompt_review_disabled;
+  $('#s-review').checked=reviewOn; $('#s-review-model').disabled=!reviewOn;
+  $('#s-review').onchange=e=>{ $('#s-review-model').disabled=!e.target.checked; if(!e.target.checked) sysReview.reset(); };
+  if(reviewOn) sysReview.run();
   $('#s-check-updates').onclick=checkForUpdates;
   $('#s-notif-settings').onclick=openNotificationSettings;
   c.querySelectorAll('#s-tabs button').forEach(b=>b.onclick=()=>selectSettingsPane(b.dataset.pane));
@@ -1300,6 +1400,8 @@ async function saveSettings(){
     idle_timeout_minutes:parseInt($('#s-idle').value||'30',10),
     max_run_history:parseInt($('#s-hist').value||'500',10),
     system_prompt:$('#s-sysprompt').value,
+    prompt_review_disabled:!$('#s-review').checked,
+    prompt_review_model:$('#s-review-model').value,
     pushover:{enabled:$('#s-po-enabled').checked,token:$('#s-po-token').value,user_key:$('#s-po-user').value}};
   try{ await api('PUT','/api/settings',body); toast('Settings saved','ok'); }catch(e){ toast(e.message,'err'); }
 }
