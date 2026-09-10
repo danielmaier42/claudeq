@@ -11,11 +11,12 @@ func TestModelsFromHelpParsesAliases(t *testing.T) {
                                         'claude-fable-5').
   --no-something                        other flag`
 	got := modelsFromHelp(help)
-	if len(got) != 3 {
-		t.Fatalf("expected 3 aliases, got %d: %+v", len(got), got)
+	// Haiku is offered even though the help text only names it by example
+	// omission; claude-fable-5 is excluded as a full model name.
+	want := []string{"opus", "sonnet", "haiku", "fable"}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d aliases, got %d: %+v", len(want), len(got), got)
 	}
-	// Ordered by preference: opus, sonnet, then fable; claude-fable-5 excluded.
-	want := []string{"opus", "sonnet", "fable"}
 	for i, w := range want {
 		if got[i].ID != w {
 			t.Fatalf("model %d = %q, want %q", i, got[i].ID, w)
@@ -29,6 +30,14 @@ func TestModelsFromHelpParsesAliases(t *testing.T) {
 func TestModelsFromHelpNoModelFlag(t *testing.T) {
 	if got := modelsFromHelp("no model flag here"); got != nil {
 		t.Fatalf("expected nil, got %+v", got)
+	}
+}
+
+func TestModelsFromHelpKeepsUnknownAliases(t *testing.T) {
+	help := `  --model <model>  Provide an alias (e.g. 'sonnet' or 'quartz').`
+	got := modelsFromHelp(help)
+	if len(got) != 5 || got[4].ID != "quartz" {
+		t.Fatalf("expected the unknown alias appended last, got %+v", got)
 	}
 }
 
