@@ -416,8 +416,12 @@ permissions = 'skip'
 		t.Fatal("legacy setting still set after migration")
 	}
 
-	if err := s.SaveConfig(cfg); err != nil {
-		t.Fatalf("SaveConfig: %v", err)
+	migrated, err := s.MigrateConfig()
+	if err != nil {
+		t.Fatalf("MigrateConfig: %v", err)
+	}
+	if !migrated {
+		t.Fatal("MigrateConfig reported no change for a legacy config")
 	}
 	data, err := os.ReadFile(filepath.Join(s.Home(), configFile))
 	if err != nil {
@@ -425,5 +429,25 @@ permissions = 'skip'
 	}
 	if strings.Contains(string(data), "skip_permissions_default") {
 		t.Fatalf("retired key written back:\n%s", data)
+	}
+	if !strings.Contains(string(data), "permissions = 'skip'") {
+		t.Fatalf("migrated permissions not persisted:\n%s", data)
+	}
+
+	// Idempotent: a current config is left alone.
+	if migrated, err := s.MigrateConfig(); err != nil || migrated {
+		t.Fatalf("second MigrateConfig = (%t, %v), want (false, nil)", migrated, err)
+	}
+}
+
+// TestMigrateConfigNoFile guards the fresh-install path: nothing to migrate,
+// and no config.toml conjured up.
+func TestMigrateConfigNoFile(t *testing.T) {
+	s := openTemp(t)
+	if migrated, err := s.MigrateConfig(); err != nil || migrated {
+		t.Fatalf("MigrateConfig = (%t, %v), want (false, nil)", migrated, err)
+	}
+	if _, err := os.Stat(filepath.Join(s.Home(), configFile)); !os.IsNotExist(err) {
+		t.Fatalf("config.toml created by MigrateConfig (stat err = %v)", err)
 	}
 }

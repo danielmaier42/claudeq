@@ -107,6 +107,14 @@ func cmdRun(args []string) error {
 			fmt.Fprintln(os.Stdout, "claudeqd: all runs are paused (Settings → Pause all runs); nothing will start")
 		}
 	}
+	// Rewrite a config left over from an older version, so the file on disk says
+	// what the daemon does (e.g. the retired global skip-permissions default,
+	// which every task that relied on it now carries itself).
+	if migrated, err := st.MigrateConfig(); err != nil {
+		fmt.Fprintln(os.Stderr, "claudeqd: migrate config:", err)
+	} else if migrated {
+		fmt.Fprintln(os.Stdout, "claudeqd: migrated config.toml to the current format")
+	}
 	// Installs predating the last-run bookkeeping have it only in history.
 	if _, err := st.BackfillLastRuns(); err != nil {
 		fmt.Fprintln(os.Stderr, "claudeqd: backfill last runs:", err)

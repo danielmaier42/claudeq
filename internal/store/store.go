@@ -79,25 +79,36 @@ func (s *Store) LoadConfig() (Config, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	cfg, _, err := s.readConfig()
+	if err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+// readConfig parses config.toml and applies the migrations, reporting whether
+// they changed anything. The caller holds the appropriate lock.
+func (s *Store) readConfig() (Config, bool, error) {
 	data, err := os.ReadFile(s.path(configFile))
 	if errors.Is(err, os.ErrNotExist) {
-		return Config{}, nil
+		return Config{}, false, nil
 	}
 	if err != nil {
-		return Config{}, fmt.Errorf("read config: %w", err)
+		return Config{}, false, fmt.Errorf("read config: %w", err)
 	}
 
 	var cfg Config
 	if err := toml.Unmarshal(data, &cfg); err != nil {
-		return Config{}, fmt.Errorf("parse config: %w", err)
+		return Config{}, false, fmt.Errorf("parse config: %w", err)
 	}
-	cfg.migrate()
-	return cfg, nil
+	return cfg, cfg.migrate(), nil
 }
 
-// migrate rewrites configs written by older versions. It runs on every load and
-// must stay idempotent; the result is persisted by the next SaveConfig.
-func (c *Config) migrate() {
+// migrate rewrites configs written by older versions and reports whether it
+// changed anything. Every load applies it in memory, so an old config behaves
+// correctly even before it is rewritten; MigrateConfig writes the result back.
+// It must stay idempotent.
+func (c *Config) migrate() bool {
 	// The global skip-permissions default is gone: a task that relied on it
 	// keeps its authority by carrying the setting itself.
 	if c.Settings.LegacySkipPermissions {
@@ -107,7 +118,27 @@ func (c *Config) migrate() {
 			}
 		}
 		c.Settings.LegacySkipPermissions = false
+		return true
 	}
+	return false
+}
+
+// MigrateConfig persists the migrations LoadConfig applies in memory, so the
+// file on disk says what the daemon actually does. It reports whether the file
+// was rewritten and is a no-op for an already-current config.
+func (s *Store) MigrateConfig() (bool, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	changed := false
+	err := s.withWriteLock(func() error {
+		cfg, migrated, err := s.readConfig()
+		if err != nil || !migrated {
+			return err
+		}
+		changed = true
+		return s.SaveConfig(cfg)
+	})
+	return changed, err
 }
 
 // SaveConfig atomically writes config.toml after validating every task.
