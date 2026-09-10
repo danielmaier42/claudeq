@@ -3,6 +3,8 @@ package engine
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -500,5 +502,186 @@ func TestCronAnchorIsNotRecordedAsARun(t *testing.T) {
 	}
 	if !at.Equal(fc.Now()) {
 		t.Fatalf("last run = %v, want %v", at, fc.Now())
+	}
+}
+
+// rateLimitedTask brings a task to the point where its run is paused on the
+// rate limit with a resume pending, which is the state the cancel-resume path
+// works on.
+func rateLimitedTask(t *testing.T, tk task.Task, fc *clock.Fake) (*Engine, *store.Store, *stub) {
+	t.Helper()
+	r := &stub{result: func(req executor.Request, call int) executor.Result {
+		if call == 1 {
+			return executor.Result{Status: store.StatusRateLimited, SessionID: req.SessionID, RetryAfter: time.Hour}
+		}
+		return executor.Result{Status: store.StatusSuccess, SessionID: req.SessionID}
+	}}
+	e, st := newTestEngine(t, r, fc)
+	saveTasks(t, st, tk)
+	if tk.Trigger == task.TriggerCron {
+		// A fresh cron task is only anchored by the first tick; its first
+		// occurrence comes after that.
+		if err := e.Tick(context.Background()); err != nil {
+			t.Fatalf("anchor tick: %v", err)
+		}
+		fc.Advance(31 * time.Minute)
+	}
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	e.WaitIdle()
+	return e, st, r
+}
+
+func runByID(t *testing.T, st *store.Store, runID string) store.Run {
+	t.Helper()
+	runs, err := st.Runs()
+	if err != nil {
+		t.Fatalf("Runs: %v", err)
+	}
+	for _, r := range runs {
+		if r.RunID == runID {
+			return r
+		}
+	}
+	t.Fatalf("run %q not in history (%d runs)", runID, len(runs))
+	return store.Run{}
+}
+
+func TestRateLimitedRunRecordsItsResumeTime(t *testing.T) {
+	start := time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC)
+	fc := clock.NewFake(start)
+	e, st, _ := rateLimitedTask(t, asapTask("a", false), fc)
+
+	rec := runByID(t, st, "run-1")
+	if rec.ResumeAt == nil {
+		t.Fatal("a rate-limited run must record when it resumes")
+	}
+	if want := e.gate.BlockedUntil(); !rec.ResumeAt.Equal(want) {
+		t.Fatalf("resume_at = %v, want the gate's reopen time %v", rec.ResumeAt, want)
+	}
+}
+
+func TestCancelResumeTakesOneShotOutOfTheQueue(t *testing.T) {
+	start := time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC)
+	fc := clock.NewFake(start)
+	e, st, r := rateLimitedTask(t, asapTask("a", false), fc)
+
+	if err := e.CancelRun("run-1"); err != nil {
+		t.Fatalf("CancelRun on a waiting run: %v", err)
+	}
+
+	rec := runByID(t, st, "run-1")
+	if rec.Status != store.StatusCanceled {
+		t.Fatalf("status = %q, want canceled", rec.Status)
+	}
+	if rec.Error != "resume canceled by the user" {
+		t.Fatalf("unexpected error text: %q", rec.Error)
+	}
+	if rec.ResumeAt != nil {
+		t.Fatal("a canceled run must not still advertise a resume time")
+	}
+	state, _ := st.LoadState()
+	if state.PendingResume("a") != "" {
+		t.Fatal("pending resume should be cleared")
+	}
+	cfg, _ := st.LoadConfig()
+	if len(cfg.Tasks) != 0 {
+		t.Fatalf("one-shot task should leave the queue, still have %d", len(cfg.Tasks))
+	}
+
+	// The point of the whole exercise: once the gate reopens, nothing starts.
+	fc.Advance(2 * time.Hour)
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick after the reset: %v", err)
+	}
+	e.WaitIdle()
+	if got := len(r.requests()); got != 1 {
+		t.Fatalf("canceled task ran again: %d runs", got)
+	}
+
+	// Cancelling a second time is not silently accepted.
+	if err := e.CancelRun("run-1"); err == nil {
+		t.Fatal("cancelling an already-canceled resume should error")
+	}
+}
+
+func TestCancelResumeKeepsRecurringSchedule(t *testing.T) {
+	start := time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC)
+	fc := clock.NewFake(start)
+	cron := task.Task{
+		ID: "c", Name: "c", Prompt: "watch", WorkingDir: "/repo",
+		Trigger: task.TriggerCron, Cron: "*/30 * * * *", Enabled: true,
+		Permissions: task.PermissionsDefault,
+	}
+	e, st, r := rateLimitedTask(t, cron, fc)
+
+	if err := e.CancelRun("run-1"); err != nil {
+		t.Fatalf("CancelRun on a waiting run: %v", err)
+	}
+	state, _ := st.LoadState()
+	if state.PendingResume("c") != "" {
+		t.Fatal("pending resume should be cleared")
+	}
+	if state.IsCompletedOnce("c") {
+		t.Fatal("a recurring task must not be marked completed")
+	}
+	cfg, _ := st.LoadConfig()
+	if len(cfg.Tasks) != 1 {
+		t.Fatalf("recurring task should keep its place in the queue, have %d", len(cfg.Tasks))
+	}
+
+	// Its next occurrence runs, but as a fresh session — the canceled one is gone.
+	fc.Advance(2 * time.Hour)
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick after the reset: %v", err)
+	}
+	e.WaitIdle()
+	reqs := r.requests()
+	if len(reqs) != 2 {
+		t.Fatalf("expected the next occurrence to run, got %d runs", len(reqs))
+	}
+	if reqs[1].Resume {
+		t.Fatal("the canceled session must not be resumed")
+	}
+}
+
+func TestCancelResumeRejectsRunsThatAreNotWaiting(t *testing.T) {
+	start := time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC)
+	fc := clock.NewFake(start)
+	e, st, _ := rateLimitedTask(t, asapTask("a", false), fc)
+
+	// A successful run of another task is not a resume to cancel.
+	done := store.Run{RunID: "run-9", TaskID: "b", TaskName: "b", StartedAt: start, Status: store.StatusSuccess}
+	if err := st.AppendRun(done); err != nil {
+		t.Fatalf("AppendRun: %v", err)
+	}
+	if err := e.CancelRun("run-9"); err == nil {
+		t.Fatal("cancelling a finished run should error")
+	}
+
+	// Neither is a rate-limited run whose session the state no longer holds.
+	if err := st.UpdateState(func(s *store.State) error { s.ClearPendingResume("a"); return nil }); err != nil {
+		t.Fatalf("UpdateState: %v", err)
+	}
+	if err := e.CancelRun("run-1"); err == nil {
+		t.Fatal("cancelling a resume that is no longer scheduled should error")
+	}
+}
+
+func TestCancelResumeWritesTheReasonIntoTheLog(t *testing.T) {
+	start := time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC)
+	fc := clock.NewFake(start)
+	e, st, _ := rateLimitedTask(t, asapTask("a", false), fc)
+
+	if err := e.CancelRun("run-1"); err != nil {
+		t.Fatalf("CancelRun: %v", err)
+	}
+	data, err := os.ReadFile(st.LogPath("run-1"))
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	if !strings.Contains(string(data), "resume canceled by the user") {
+		t.Fatalf("log does not mention the cancellation:\n%s", data)
 	}
 }

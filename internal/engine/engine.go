@@ -66,6 +66,11 @@ func (e *Engine) WakeError() string {
 	return ""
 }
 
+// LimitedUntil returns the time the global rate-limit gate reopens, or the zero
+// time when nothing is blocked. Surfaced in the UI so a queue that is waiting
+// (rather than stuck) says so, and names the time it continues.
+func (e *Engine) LimitedUntil() time.Time { return e.gate.BlockedUntil() }
+
 // Engine orchestrates task execution. Construct it with [New].
 type Engine struct {
 	store *store.Store
@@ -302,9 +307,12 @@ func (e *Engine) runGuarded(ctx context.Context, req executor.Request) (res exec
 	return e.run.Run(ctx, req)
 }
 
-// CancelRun stops a currently running run: its process (group) is terminated
-// and the run is recorded as canceled. Returns an error when the run id is not
-// in flight (already finished or unknown).
+// CancelRun stops a run the user no longer wants. A run that is in flight has
+// its process (group) terminated and is recorded as canceled. A run that has
+// already paused on the rate limit is not a process any more but a plan — its
+// scheduled resume is dropped instead, so the interrupted session is not picked
+// up when the gate reopens (see cancelResume). Returns an error when the run id
+// is neither in flight nor waiting to resume.
 func (e *Engine) CancelRun(runID string) error {
 	e.mu.Lock()
 	cancel, ok := e.cancels[runID]
@@ -312,11 +320,130 @@ func (e *Engine) CancelRun(runID string) error {
 		e.canceled[runID] = true
 	}
 	e.mu.Unlock()
-	if !ok {
-		return fmt.Errorf("run %q is not running", runID)
+	if ok {
+		cancel()
+		return nil
 	}
-	cancel()
+	return e.cancelResume(runID)
+}
+
+// cancelResume drops the scheduled resume of a rate-limited run: the pending
+// session is forgotten, a one-shot task leaves the queue (so it never runs
+// again), and the run is recorded as canceled. A recurring task keeps its
+// schedule — only the interrupted session is discarded, its next occurrence
+// starts fresh.
+func (e *Engine) cancelResume(runID string) error {
+	runs, err := e.store.Runs()
+	if err != nil {
+		return fmt.Errorf("read history: %w", err)
+	}
+	var rec *store.Run
+	for i := range runs {
+		if runs[i].RunID == runID {
+			rec = &runs[i]
+			break
+		}
+	}
+	switch {
+	case rec == nil:
+		return fmt.Errorf("run %q is not running", runID)
+	case rec.Status != store.StatusRateLimited:
+		return fmt.Errorf("run %q is not waiting to resume", runID)
+	}
+
+	e.mu.Lock()
+	active := e.active[rec.TaskID]
+	e.mu.Unlock()
+	if active {
+		// The task is running again already (a resume in flight); cancel that
+		// run by its own id instead of retracting a plan that has been acted on.
+		return fmt.Errorf("run %q has already resumed", runID)
+	}
+
+	st, err := e.store.LoadState()
+	if err != nil {
+		return fmt.Errorf("load state: %w", err)
+	}
+	if sid := st.PendingResume(rec.TaskID); sid == "" || sid != rec.SessionID {
+		return fmt.Errorf("run %q is no longer scheduled to resume", runID)
+	}
+
+	e.retire(rec.TaskID, e.isOneShot(*rec))
+
+	canceled := *rec
+	canceled.Status = store.StatusCanceled
+	canceled.ResumeAt = nil
+	canceled.Error = "resume canceled by the user"
+	if canceled.FinishedAt == nil {
+		now := e.clock.Now()
+		canceled.FinishedAt = &now
+	}
+	if err := e.store.AppendRun(canceled); err != nil {
+		return fmt.Errorf("record canceled resume: %w", err)
+	}
+	e.logStatus(canceled)
 	return nil
+}
+
+// isOneShot reports whether the run's task runs only once, so cancelling its
+// resume must take it out of the queue. The queued definition decides (its
+// trigger may have been edited since the run started); the run's own snapshot
+// is the fallback for a task that has meanwhile left the queue.
+func (e *Engine) isOneShot(rec store.Run) bool {
+	if cfg, err := e.store.LoadConfig(); err == nil {
+		for _, t := range cfg.Tasks {
+			if t.ID == rec.TaskID {
+				return oneShotTrigger(t.Trigger)
+			}
+		}
+	}
+	return rec.Task != nil && oneShotTrigger(rec.Task.Trigger)
+}
+
+func oneShotTrigger(tr task.Trigger) bool {
+	return tr == task.TriggerASAP || tr == task.TriggerFixed
+}
+
+// retire clears a task's pending resume and, for a one-shot task, marks it
+// completed and takes it out of the queue — it stays in history and can be
+// replayed from there. Recurring tasks remain queued for their next occurrence.
+func (e *Engine) retire(taskID string, oneShot bool) {
+	_ = e.store.UpdateState(func(st *store.State) error {
+		st.ClearPendingResume(taskID)
+		if oneShot {
+			st.MarkCompletedOnce(taskID)
+		}
+		return nil
+	})
+	if !oneShot {
+		return
+	}
+	_ = e.store.UpdateConfig(func(cfg *store.Config) error {
+		for i := range cfg.Tasks {
+			if cfg.Tasks[i].ID == taskID {
+				cfg.Tasks = append(cfg.Tasks[:i], cfg.Tasks[i+1:]...)
+				break
+			}
+		}
+		return nil
+	})
+}
+
+// logStatus records a run's final status and reason into its log, so the reason
+// shows in both the raw and the chat view (especially for failures, pauses and
+// interruptions).
+func (e *Engine) logStatus(rec store.Run) {
+	reason := rec.Error
+	if reason == "" {
+		reason = string(rec.Status)
+	}
+	line, err := json.Marshal(map[string]string{
+		"type": "claudeq_status", "status": string(rec.Status), "message": reason,
+	})
+	if err != nil {
+		return
+	}
+	_ = e.store.AppendRunLog(rec.RunID, append(line, '\n'))
 }
 
 // sessionFor returns the session id to use and whether it is a resume. A task
@@ -388,32 +515,18 @@ func (e *Engine) finish(t task.Task, rec store.Run, res executor.Result, runErr 
 			}
 			e.gate.BlockFor(delay) // wait for reset, then resume this session
 		}
+		// Record when the session is planned to continue (the gate keeps the
+		// longest known block, so this is the real time, not just this run's),
+		// so the pause reads as a scheduled resume instead of a dead end.
+		if resume := e.gate.BlockedUntil(); !resume.IsZero() {
+			rec.ResumeAt = &resume
+		}
 		_ = e.store.UpdateState(func(st *store.State) error {
 			st.SetPendingResume(t.ID, res.SessionID)
 			return nil
 		})
 	default:
-		oneShot := t.Trigger == task.TriggerASAP || t.Trigger == task.TriggerFixed
-		_ = e.store.UpdateState(func(st *store.State) error {
-			st.ClearPendingResume(t.ID)
-			if oneShot {
-				st.MarkCompletedOnce(t.ID)
-			}
-			return nil
-		})
-		// A finished one-shot task leaves the queue; it stays in history and can
-		// be replayed from there. Recurring (cron) tasks remain.
-		if oneShot {
-			_ = e.store.UpdateConfig(func(cfg *store.Config) error {
-				for i := range cfg.Tasks {
-					if cfg.Tasks[i].ID == t.ID {
-						cfg.Tasks = append(cfg.Tasks[:i], cfg.Tasks[i+1:]...)
-						break
-					}
-				}
-				return nil
-			})
-		}
+		e.retire(t.ID, oneShotTrigger(t.Trigger))
 	}
 
 	if quietDrop(t, rec.Status) {
@@ -430,18 +543,8 @@ func (e *Engine) finish(t task.Task, rec store.Run, res executor.Result, runErr 
 			_ = e.store.PruneHistory(cfg.Settings.RunHistoryLimit())
 		}
 
-		// Record the final status/reason into the log so it shows in both the
-		// raw and chat views (especially useful for failures and interruptions).
 		if rec.Status != store.StatusSuccess {
-			reason := rec.Error
-			if reason == "" {
-				reason = string(rec.Status)
-			}
-			if line, err := json.Marshal(map[string]string{
-				"type": "claudeq_status", "status": string(rec.Status), "message": reason,
-			}); err == nil {
-				_ = e.store.AppendRunLog(rec.RunID, append(line, '\n'))
-			}
+			e.logStatus(rec)
 		}
 	}
 

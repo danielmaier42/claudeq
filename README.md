@@ -58,7 +58,10 @@ The nightly cycle looks like this:
 2. The daemon watches the queue and starts due tasks with the Claude Code CLI in
    headless mode, one at a time by default.
 3. If a run hits the **rate limit**, ClaudeQ pauses the whole queue and, once the
-   limit clears, resumes the *same* Claude session — no work is lost.
+   limit clears, resumes the *same* Claude session — no work is lost. The pause is
+   visible while it lasts: a banner names the time the queue continues, the run is
+   marked **rescheduled** in Activity with its resume time, and you can drop that
+   resume there so the task does not start again.
 4. To run a timed task past a scheduled sleep, it wakes the Mac with `pmset`, and
    holds the Mac awake (`caffeinate`) while a run is in flight so a task never
    freezes mid-run.
@@ -112,7 +115,9 @@ The nightly cycle looks like this:
 - **Rate-limit aware** — a reactive global gate: a run that hits the limit is
   paused, the wait is derived from the CLI's retry signal, and the session is
   resumed automatically once the limit resets (falling back to a fresh restart if
-  resume fails), so a task never gets stuck.
+  resume fails), so a task never gets stuck. A waiting run says so — *rescheduled*
+  with the time it continues — and its resume can be cancelled if you no longer
+  want the work.
 - **Auth-error aware** — a login/authentication failure is detected, surfaced as
   its own outcome, and notified — never silently retried.
 - **Unattended-safe** — kills hung runs (no output for a configurable timeout,
@@ -188,14 +193,20 @@ The dashboard (and the native window that wraps it) has five views:
   *running* badge; hovering its cron expression shows the next occurrence and
   when it last ran. Underneath each task sits a badge for every option it has
   switched on: *parallel*, *granted* (orange, the task skips permission
-  prompts), *notifies* (blue), and *silent* (quiet history). An **export**
-  button on each row saves the task as a `.claudeq` file via the native save
-  panel, and **Import…** in the toolbar opens such a file in the task sheet for
-  review.
+  prompts), *notifies* (blue), and *silent* (quiet history). A task the rate
+  limit interrupted carries a *rescheduled* badge (orange) whose tooltip names
+  when its interrupted session continues. An **export** button on each row saves
+  the task as a `.claudeq` file via the native save panel, and **Import…** in the
+  toolbar opens such a file in the task sheet for review.
 - **Activity** — every run, newest first, with an unread badge for new results.
   Open a run to see the live/finished log as a chat view or raw output, along
   with the prompt; a running task can be stopped from there with **Cancel task**
-  (its process is terminated and the run is recorded as `canceled`); a finished
+  (its process is terminated and the run is recorded as `canceled`); a run the
+  rate limit paused shows as **rescheduled** with the time it continues, and
+  **Cancel resume** — on the row and in its log view — drops that plan: the
+  interrupted session is discarded, the run is recorded as `canceled`, and a
+  one-shot task leaves the queue instead of starting again (a recurring task
+  keeps its schedule and starts fresh at its next occurrence); a finished
   run offers **Continue with Claude**, which opens Terminal in the task's folder
   and resumes the run's Claude session interactively (`claude --resume`) so you
   can keep chatting with full context — with the same permission mode the run
@@ -611,6 +622,9 @@ the record. Mark such a task **Quiet history** (the switch in the task form, or
   its log, unread, exactly like an ordinary run, and notifies as usual.
 - While it is running, the Queue shows the task's *running* badge as usual, but
   there is no Activity entry to open (and so no live log or **Cancel task**).
+  Same for a pause on the rate limit: the Queue shows the task's *rescheduled*
+  badge, but with no Activity entry there is no **Cancel resume** — pause or
+  delete the task in the Queue to stop it from continuing.
 
 Everything else — notifications the run sends, artifacts it publishes, tasks it
 queues — is unaffected. A task queued from inside a quiet-history run is **not**
@@ -695,6 +709,13 @@ in both paths and nothing is added.
   pause until the reset. The wait comes from the CLI's `retry_delay_ms` signal
   (falling back to 15 minutes when none is exposed). At reset the gate reopens and
   the blocked task **resumes its session** rather than starting over.
+- **A blocked queue says so.** While the gate is closed a banner names the time
+  it reopens, the paused run is marked *rescheduled* in Activity with that time,
+  and the task carries a *rescheduled* badge in the Queue — a waiting queue is
+  never mistaken for a stuck one. **Cancel resume** on the run drops the plan:
+  the pending session is forgotten, the run is recorded as `canceled`, and a
+  one-shot task leaves the queue. The gate itself stays closed until the reset,
+  since the limit is not yours to lift.
 - **Auth problems don't retry.** A login/authentication error is recorded as
   `auth_error` and notified so you can re-login; it is not retried automatically.
 - **Wake-ups.** After each pass the daemon registers a `pmset` wake at the nearest
@@ -702,8 +723,9 @@ in both paths and nothing is added.
   recurring heartbeat wake, so the Mac can sleep between runs and wake when
   there's work.
 - **Run outcomes** are one of: `running`, `success`, `failed`,
-  `rate_limited_waiting`, `auth_error`, `canceled` (stopped by the user from the
-  run's log view).
+  `rate_limited_waiting` (shown as *rescheduled* while its session is still
+  queued to continue), `auth_error`, `canceled` (stopped by the user — either the
+  running process or a scheduled resume).
 
 ## Data on disk
 

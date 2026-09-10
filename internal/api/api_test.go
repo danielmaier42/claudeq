@@ -856,3 +856,126 @@ func TestRunNowRefusedWhilePaused(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 	}
 }
+
+// A rate-limited run is only "rescheduled" while the daemon still holds its
+// session for a resume — that is what the dashboard labels and offers to cancel.
+func TestRunsReportPendingResume(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC)
+	resume := start.Add(time.Hour)
+	waiting := store.Run{
+		RunID: "run-1", TaskID: "a", TaskName: "a", StartedAt: start,
+		Status: store.StatusRateLimited, SessionID: "sess-1", ResumeAt: &resume,
+	}
+	stale := store.Run{
+		RunID: "run-0", TaskID: "b", TaskName: "b", StartedAt: start,
+		Status: store.StatusRateLimited, SessionID: "sess-0",
+	}
+	for _, r := range []store.Run{stale, waiting} {
+		if err := st.AppendRun(r); err != nil {
+			t.Fatalf("AppendRun: %v", err)
+		}
+	}
+	if err := st.UpdateState(func(s *store.State) error {
+		s.SetPendingResume("a", "sess-1")
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateState: %v", err)
+	}
+
+	active := []string{}
+	srv := httptest.NewServer(Handler(Deps{Store: st, ActiveTasks: func() []string { return active }}))
+	t.Cleanup(srv.Close)
+
+	get := func() map[string]runView {
+		var views []runView
+		do(t, srv, "GET", "/api/runs", nil).into(t, &views)
+		byID := map[string]runView{}
+		for _, v := range views {
+			byID[v.RunID] = v
+		}
+		return byID
+	}
+
+	got := get()
+	if !got["run-1"].ResumePending {
+		t.Fatal("the run whose session is queued should report resume_pending")
+	}
+	if got["run-1"].ResumeAt == nil || !got["run-1"].ResumeAt.Equal(resume) {
+		t.Fatalf("resume_at = %v, want %v", got["run-1"].ResumeAt, resume)
+	}
+	if got["run-0"].ResumePending {
+		t.Fatal("a rate-limited run without a pending session must not report resume_pending")
+	}
+
+	// Once the task is running again the resume has happened; there is nothing
+	// left to cancel on the old run.
+	active = []string{"a"}
+	if get()["run-1"].ResumePending {
+		t.Fatal("a task that is running again must not report a pending resume")
+	}
+}
+
+func TestTasksReportWaitingForLimit(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	waiting := task.Task{
+		ID: "a", Name: "a", Prompt: "p", WorkingDir: "/repo",
+		Trigger: task.TriggerCron, Cron: "*/30 * * * *", Enabled: true,
+		Permissions: task.PermissionsDefault,
+	}
+	idle := waiting
+	idle.ID, idle.Name = "b", "b"
+	if err := st.SaveConfig(store.Config{Tasks: []task.Task{waiting, idle}}); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	if err := st.UpdateState(func(s *store.State) error {
+		s.SetPendingResume("a", "sess-1")
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateState: %v", err)
+	}
+
+	srv := httptest.NewServer(Handler(Deps{Store: st}))
+	t.Cleanup(srv.Close)
+
+	var views []taskView
+	do(t, srv, "GET", "/api/tasks", nil).into(t, &views)
+	if len(views) != 2 {
+		t.Fatalf("expected 2 tasks, got %d", len(views))
+	}
+	for _, v := range views {
+		if want := v.ID == "a"; v.WaitingForLimit != want {
+			t.Fatalf("task %q waiting_for_limit = %t, want %t", v.ID, v.WaitingForLimit, want)
+		}
+	}
+}
+
+func TestHealthReportsLimitedUntil(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	until := time.Now().Add(time.Hour).Truncate(time.Second)
+	blocked := until
+	srv := httptest.NewServer(Handler(Deps{Store: st, LimitedUntil: func() time.Time { return blocked }}))
+	t.Cleanup(srv.Close)
+
+	var got map[string]string
+	do(t, srv, "GET", "/api/health", nil).into(t, &got)
+	if got["limited_until"] != until.Format(time.RFC3339) {
+		t.Fatalf("limited_until = %q, want %q", got["limited_until"], until.Format(time.RFC3339))
+	}
+
+	// An open gate reports nothing rather than a zero timestamp.
+	blocked = time.Time{}
+	do(t, srv, "GET", "/api/health", nil).into(t, &got)
+	if got["limited_until"] != "" {
+		t.Fatalf("limited_until = %q, want empty while the gate is open", got["limited_until"])
+	}
+}
