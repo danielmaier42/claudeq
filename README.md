@@ -12,7 +12,8 @@ allowance has reset, and you review the results in the morning.
 Everything stays on your Mac: tasks, settings, and run history live under
 `~/Library/Application Support/claudeq`, and the daemon listens only on loopback.
 Nothing but the `claude` CLI (and, on demand, GitHub's public release API for
-update checks) ever leaves the machine.
+update checks) ever leaves the machine. The one thing you can send out is
+[feedback](#sending-feedback), and only by pressing *Create* on GitHub yourself.
 
 ## Contents
 
@@ -30,6 +31,7 @@ update checks) ever leaves the machine.
 - [Letting a task send a notification](#letting-a-task-send-a-notification)
 - [Quiet history for frequent jobs](#quiet-history-for-frequent-jobs)
 - [Sharing tasks as files](#sharing-tasks-as-files)
+- [Sending feedback](#sending-feedback)
 - [How scheduling and the limit gate behave](#how-scheduling-and-the-limit-gate-behave)
 - [Data on disk](#data-on-disk)
 - [Uninstall](#uninstall)
@@ -178,12 +180,19 @@ The nightly cycle looks like this:
   version you skipped. If a version was installed but the background service
   never switched over to it, Settings says so and a **Finish update** button
   hands it over.
+- **Feedback that writes itself** — the **Feedback** entry at the bottom of the
+  sidebar opens a short chat. Describe a bug or a wish, Claude asks at most one
+  clarifying question and drafts a GitHub issue, and you edit it before anything
+  is filed. The last step just opens GitHub's prefilled *new issue* page in your
+  browser — ClaudeQ holds no GitHub credentials and files nothing itself. See
+  [below](#sending-feedback).
 - **Local & private** — data is human-readable TOML/JSON under your Library
   folder; the API is loopback-only.
 
 ## The app
 
-The dashboard (and the native window that wraps it) has five views:
+The dashboard (and the native window that wraps it) has five views, plus a
+**Feedback** entry at the bottom of the sidebar ([below](#sending-feedback)):
 
 - **Queue** — the pending tasks in priority order. Add, edit, delete, enable/pause,
   reorder, or **run now** (a manual test run, independent of the trigger). While
@@ -695,6 +704,36 @@ What the file cannot decide is filled in, either way:
 
 A file with an invalid task (no prompt, unknown trigger, bad cron) is rejected
 in both paths and nothing is added.
+
+## Sending feedback
+
+**Feedback** at the bottom of the sidebar turns a bug report or a wish into a
+GitHub issue without you having to write one.
+
+1. Say what is wrong, or what ClaudeQ should be able to do — in whatever
+   language you think in.
+2. Claude reads it and either asks one short clarifying question (at most twice,
+   and only when the report cannot be acted on as it stands) or goes straight to
+   a draft. This runs through your local `claude` CLI on Haiku and costs a
+   fraction of a cent per message; it does not go through the queue, so it works
+   while tasks are running.
+3. You get the finished issue — an English title and body — in editable fields,
+   with your ClaudeQ version and macOS version filled in below it. Change or
+   clear anything, including the two versions.
+4. **Open on GitHub** opens GitHub's prefilled *new issue* page in your browser.
+   The issue exists only once you press **Create** there.
+
+ClaudeQ never talks to GitHub for this and stores no token: your browser is
+already signed in, and the whole issue travels in the page's URL. If the
+assistant cannot be reached — no `claude` binary, or your usage limit is
+exhausted — the sheet keeps what you typed and lets you write the issue by hand.
+
+The chat runs the CLI with tools, MCP servers, skills and `CLAUDE.md` files all
+switched off, in an empty throwaway directory, so it can neither touch your
+machine nor pull project context into a public issue. It is told not to put
+personal data (paths, names, addresses, prompt contents) in the issue — and
+because you see the text before anything is filed, you have the last word on
+that.
 
 ## How scheduling and the limit gate behave
 
