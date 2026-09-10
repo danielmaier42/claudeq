@@ -249,18 +249,23 @@ The dashboard is also reachable in a normal browser at
 
 ## Settings
 
-| Group | Setting | What it does |
-|-------|---------|--------------|
-| **Execution** | Pause all runs | Global stop switch: nothing starts while it is on, not even *Run now*; a run already in flight keeps going. Applies immediately, without pressing Save. |
-| **General** | Default model | Model used for runs unless a task overrides it (empty = Claude's own default). |
-| | Check for due tasks every | How often the daemon wakes to look for work (15 min – 6 h; also the wake safety-net interval). |
-| **Claude Code CLI** | Claude binary | Absolute path to the `claude` executable. The daemon can't see your shell `PATH`, so this is auto-detected and pre-filled; override if needed. |
-| **System prompt** | Custom system prompt | Extra instructions appended to every run after the built-in prompt. |
-| **Reliability** | Stop a run with no output for | Idle-timeout watchdog: kills a hung run (default 30 min; a working run keeps streaming and is unaffected; Off disables it). |
-| | Keep run history | How many runs (and their logs) to retain before pruning (default 500; Unlimited keeps everything). |
-| **Notifications · macOS** | Alerts that wait for you | Opens System Settings → Notifications, where ClaudeQ's alert style lives: *Banners* disappear on their own, *Alerts* stay until you click them. |
-| **Notifications · Pushover** | Send to Pushover | Toggle plus API token and user key for phone push. |
-| **About** | Version / Software updates | Current version and a manual "Check for updates" button. |
+Settings is split into three tabs — **General**, **Notifications** and
+**System**. An available update is announced by a banner above the tabs and by
+a red dot on **General**, which is where the About section and the update
+button live.
+
+| Tab | Group | Setting | What it does |
+|-----|-------|---------|--------------|
+| **General** | Defaults for every run | Default model | Model used for runs unless a task overrides it (empty = Claude's own default). |
+| | | Custom system prompt | Extra instructions appended to every run after the built-in prompt. |
+| | Execution | Pause all runs | Global stop switch: nothing starts while it is on, not even *Run now*; a run already in flight keeps going. Applies immediately, without pressing Save. |
+| | About | Version / Software updates | Current version and a manual "Check for updates" button. |
+| **Notifications** | macOS | Alerts that wait for you | Opens System Settings → Notifications, where ClaudeQ's alert style lives: *Banners* disappear on their own, *Alerts* stay until you click them. |
+| | Pushover | Send to Pushover | Toggle plus API token and user key for phone push. |
+| **System** | Runs | Stop a run with no output for | Idle-timeout watchdog: kills a hung run (default 30 min; a working run keeps streaming and is unaffected; Off disables it). |
+| | | Keep run history | How many runs (and their logs) to retain before pruning (default 500; Unlimited keeps everything). |
+| | Scheduler | Check for due tasks every | How often the daemon wakes to look for work (15 min – 6 h; also the wake safety-net interval). |
+| | Claude Code CLI | Claude binary | Absolute path to the `claude` executable. The daemon can't see your shell `PATH`, so this is auto-detected and pre-filled; override if needed. |
 
 ## Install
 
