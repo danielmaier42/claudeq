@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/danielmaier42/claudeq/internal/system"
 )
@@ -125,6 +124,18 @@ type Pushover struct {
 // Configured reports whether credentials are present.
 func (p Pushover) Configured() bool { return p.Token != "" && p.UserKey != "" }
 
+// ValidatePushover checks credentials before they are saved, so an enabled
+// channel with a missing key is refused instead of quietly delivering nothing.
+func ValidatePushover(token, userKey string) error {
+	if strings.TrimSpace(token) == "" {
+		return fmt.Errorf("pushover: the API token is required")
+	}
+	if strings.TrimSpace(userKey) == "" {
+		return fmt.Errorf("pushover: the user key is required")
+	}
+	return nil
+}
+
 // Notify posts the message to Pushover.
 func (p Pushover) Notify(ctx context.Context, n Notification) error {
 	if !p.Configured() {
@@ -143,25 +154,7 @@ func (p Pushover) Notify(ctx context.Context, n Notification) error {
 	if n.URL != "" {
 		form.Set("url", n.URL)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
-	if err != nil {
-		return fmt.Errorf("build pushover request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	client := p.Client
-	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Second}
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("pushover request: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("pushover returned status %d", resp.StatusCode)
-	}
-	return nil
+	return post(ctx, p.Client, "pushover", endpoint, "application/x-www-form-urlencoded", form.Encode(), nil)
 }
 
 // Multi fans a notification out to several notifiers, best-effort: it attempts

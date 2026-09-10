@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/danielmaier42/claudeq/internal/app"
 	"github.com/danielmaier42/claudeq/internal/store"
 )
 
@@ -32,6 +33,12 @@ func cmdSettings(st *store.Store, args []string) error {
 	} else if err := st.UpdateConfig(func(cfg *store.Config) error {
 		s, err := p.apply(cfg.Settings)
 		if err != nil {
+			return err
+		}
+		// Same check the app's Settings form runs: a channel switched on from
+		// here must be able to deliver, or the operator would only find out
+		// from a missing notification.
+		if err := app.ValidateNotifications(s); err != nil {
 			return err
 		}
 		cfg.Settings = s
@@ -65,6 +72,13 @@ type settingsPatch struct {
 	pushoverOn       bool
 	pushoverToken    string
 	pushoverUser     string
+	ntfyOn           bool
+	ntfyServer       string
+	ntfyTopic        string
+	ntfyToken        string
+	webhookOn        bool
+	webhookURL       string
+	webhookTemplate  string
 }
 
 func (p *settingsPatch) register(fs *flag.FlagSet) {
@@ -81,6 +95,13 @@ func (p *settingsPatch) register(fs *flag.FlagSet) {
 	fs.BoolVar(&p.pushoverOn, "pushover", false, "send notifications to Pushover")
 	fs.StringVar(&p.pushoverToken, "pushover-token", "", "Pushover API token")
 	fs.StringVar(&p.pushoverUser, "pushover-user", "", "Pushover user key")
+	fs.BoolVar(&p.ntfyOn, "ntfy", false, "send notifications to an ntfy topic")
+	fs.StringVar(&p.ntfyServer, "ntfy-server", "", "ntfy server (empty = https://ntfy.sh)")
+	fs.StringVar(&p.ntfyTopic, "ntfy-topic", "", "ntfy topic to publish to")
+	fs.StringVar(&p.ntfyToken, "ntfy-token", "", "ntfy access token (only for a protected topic)")
+	fs.BoolVar(&p.webhookOn, "webhook", false, "post notifications to a webhook")
+	fs.StringVar(&p.webhookURL, "webhook-url", "", "webhook endpoint (http or https)")
+	fs.StringVar(&p.webhookTemplate, "webhook-template", "", "webhook JSON body template (empty = claudeq's own)")
 }
 
 // resolve records which flags were passed and folds --system-prompt-file into
@@ -144,6 +165,27 @@ func (p settingsPatch) apply(s store.Settings) (store.Settings, error) {
 	if p.set["pushover-user"] {
 		s.Pushover.UserKey = p.pushoverUser
 	}
+	if p.set["ntfy"] {
+		s.Ntfy.Enabled = p.ntfyOn
+	}
+	if p.set["ntfy-server"] {
+		s.Ntfy.Server = p.ntfyServer
+	}
+	if p.set["ntfy-topic"] {
+		s.Ntfy.Topic = p.ntfyTopic
+	}
+	if p.set["ntfy-token"] {
+		s.Ntfy.Token = p.ntfyToken
+	}
+	if p.set["webhook"] {
+		s.Webhook.Enabled = p.webhookOn
+	}
+	if p.set["webhook-url"] {
+		s.Webhook.URL = p.webhookURL
+	}
+	if p.set["webhook-template"] {
+		s.Webhook.Template = p.webhookTemplate
+	}
 	return s, nil
 }
 
@@ -162,6 +204,12 @@ type settingsView struct {
 	Paused             bool   `json:"paused"`
 	PushoverEnabled    bool   `json:"pushover_enabled"`
 	PushoverConfigured bool   `json:"pushover_configured"`
+	NtfyEnabled        bool   `json:"ntfy_enabled"`
+	NtfyServer         string `json:"ntfy_server"`
+	NtfyTopic          string `json:"ntfy_topic"`
+	NtfyTokenSet       bool   `json:"ntfy_token_set"`
+	WebhookEnabled     bool   `json:"webhook_enabled"`
+	WebhookConfigured  bool   `json:"webhook_configured"`
 }
 
 func newSettingsView(s store.Settings) settingsView {
@@ -177,6 +225,12 @@ func newSettingsView(s store.Settings) settingsView {
 		Paused:             s.Paused,
 		PushoverEnabled:    s.Pushover.Enabled,
 		PushoverConfigured: s.Pushover.Token != "" && s.Pushover.UserKey != "",
+		NtfyEnabled:        s.Ntfy.Enabled,
+		NtfyServer:         s.Ntfy.Server,
+		NtfyTopic:          s.Ntfy.Topic,
+		NtfyTokenSet:       s.Ntfy.Token != "",
+		WebhookEnabled:     s.Webhook.Enabled,
+		WebhookConfigured:  s.Webhook.URL != "",
 	}
 }
 
@@ -191,6 +245,8 @@ func printSettings(s store.Settings) {
 	fmt.Printf("prompt_review:             %s\n", boolLabel(v.PromptReview))
 	fmt.Printf("prompt_review_model:       %s\n", orDefault(v.PromptReviewModel, "(same as the default model)"))
 	fmt.Printf("pushover:                  %s\n", pushoverLabel(v))
+	fmt.Printf("ntfy:                      %s\n", ntfyLabel(v))
+	fmt.Printf("webhook:                   %s\n", webhookLabel(v))
 	if strings.TrimSpace(v.SystemPrompt) == "" {
 		fmt.Printf("system_prompt:             (none)\n")
 		return
@@ -245,4 +301,38 @@ func pushoverLabel(v settingsView) string {
 		creds = "credentials set"
 	}
 	return state + ", " + creds
+}
+
+func ntfyLabel(v settingsView) string {
+	state := "off"
+	if v.NtfyEnabled {
+		state = "on"
+	}
+	topic := "no topic"
+	if v.NtfyTopic != "" {
+		topic = v.NtfyTopic
+	}
+	server := v.NtfyServer
+	if server == "" {
+		server = "ntfy.sh"
+	}
+	line := state + ", topic: " + topic + ", server: " + server
+	// Only worth a word when there is one: most topics are public and need no
+	// token at all, so "no token" would read as something missing.
+	if v.NtfyTokenSet {
+		line += ", token set"
+	}
+	return line
+}
+
+func webhookLabel(v settingsView) string {
+	state := "off"
+	if v.WebhookEnabled {
+		state = "on"
+	}
+	urlStatus := "no URL"
+	if v.WebhookConfigured {
+		urlStatus = "URL set"
+	}
+	return state + ", " + urlStatus
 }

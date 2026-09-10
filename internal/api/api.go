@@ -680,6 +680,13 @@ func (s *server) putSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	// A channel that is switched on but cannot deliver is refused here, while
+	// the operator is looking at the form — not at three in the morning, where
+	// the only trace would be a line in the daemon's log.
+	if err := app.ValidateNotifications(in); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
 	// The pause switch belongs to POST /api/pause alone. It can be flipped from
 	// the Queue banner or the CLI at any time, so a settings form filled in
 	// before that must not carry a stale value back and quietly resume the queue.
