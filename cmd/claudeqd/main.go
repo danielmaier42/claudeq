@@ -35,6 +35,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/launchd"
 	"github.com/danielmaier42/claudeq/internal/limit"
 	"github.com/danielmaier42/claudeq/internal/notify"
+	"github.com/danielmaier42/claudeq/internal/review"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/system"
 	"github.com/danielmaier42/claudeq/internal/update"
@@ -177,6 +178,7 @@ func cmdRun(args []string) error {
 			LimitedUntil: eng.LimitedUntil,
 			NotifyStatus: notify.MacAuthorization,
 			Feedback:     feedback.New(nil), OSVersion: osVersion(system.Real{}),
+			Review: &review.Reviewer{Bin: claudeBinOr(claudeBin)},
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}

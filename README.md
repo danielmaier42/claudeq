@@ -31,6 +31,7 @@ update checks) ever leaves the machine. The one thing you can send out is
 - [Letting a task send a notification](#letting-a-task-send-a-notification)
 - [Quiet history for frequent jobs](#quiet-history-for-frequent-jobs)
 - [Sharing tasks as files](#sharing-tasks-as-files)
+- [The prompt review](#the-prompt-review)
 - [Sending feedback](#sending-feedback)
 - [How scheduling and the limit gate behave](#how-scheduling-and-the-limit-gate-behave)
 - [Data on disk](#data-on-disk)
@@ -105,6 +106,11 @@ The nightly cycle looks like this:
   *"waiting for the build"*. See [below](#what-every-run-is-told).
 - **Custom system prompt** — standing guidance (conventions, tone, tools to
   prefer) appended to every run after ClaudeQ's built-in instructions.
+- **Prompt review** — before a task is queued, Claude reads its prompt against
+  *this* Mac and says what would go wrong at 3 a.m.: a path that isn't there, a
+  report to be written into a folder that doesn't exist, a guidelines file it
+  would depend on, a question nobody will be awake to answer. One click applies
+  the rewrite. See [below](#the-prompt-review).
 - **Self-queueing** — a running task can schedule follow-up tasks itself, so a
   prompt can say things like *"if you find something to optimize, queue it as a
   separate task instead of doing it now."* See
@@ -211,7 +217,10 @@ The dashboard (and the native window that wraps it) has five views, plus a
   *rescheduled* badge (orange) whose tooltip names when its interrupted session
   continues. An **export** button on each row saves the task as a `.claudeq`
   file via the native save panel, and **Import…** in the toolbar opens such a
-  file in the task sheet for review.
+  file in the task sheet for review. Whenever that sheet is open — new task,
+  edit, replay or import — Claude checks the prompt against this Mac and shows
+  what it found in a purple banner under the prompt box, with **Apply** to take
+  the rewrite; see [The prompt review](#the-prompt-review).
 - **Activity** — every run, newest first, with an unread badge for new results.
   Open a run to see the live/finished log as a chat view or raw output, along
   with the prompt; a running task can be stopped from there with **Cancel task**
@@ -243,7 +252,8 @@ The dashboard (and the native window that wraps it) has five views, plus a
   artifact already open.
 - **Usage** — a per-day bar chart of runs, tokens, and cost for the last 14 days,
   plus totals and a 7-day summary.
-- **Settings** — global defaults and integrations (below). A red badge here means
+- **Settings** — global defaults and integrations (below). The custom system
+  prompt gets the same review banner as a task prompt. A red badge here means
   an update is available.
 
 The dashboard is also reachable in a normal browser at
@@ -260,6 +270,8 @@ button live.
 |-----|-------|---------|--------------|
 | **General** | Defaults for every run | Default model | Model used for runs unless a task overrides it (empty = Claude's own default). |
 | | | Custom system prompt | Extra instructions appended to every run after the built-in prompt. |
+| | Prompt review | Check prompts with Claude | Whether Claude reviews a prompt against this Mac before the task is queued (on by default). |
+| | | Review model | Model used for that review; *Same as default model* falls back to the tab's Default model. |
 | | Execution | Pause all runs | Global stop switch: nothing starts while it is on, not even *Run now*; a run already in flight keeps going. Applies immediately, without pressing Save. |
 | | About | Version / Software updates | Current version and a manual "Check for updates" button. |
 | **Notifications** | macOS | Alerts that wait for you | Opens System Settings → Notifications, where ClaudeQ's alert style lives: *Banners* disappear on their own, *Alerts* stay until you click them. |
@@ -473,6 +485,8 @@ claudeq settings --system-prompt-file ./house-style.md   # custom system prompt
 claudeq settings --idle-timeout-minutes 45 --max-run-history 1000
 claudeq settings --paused=true                          # stop every run
 claudeq settings --paused=false                         # let the queue run again
+claudeq settings --prompt-review=false                  # turn the prompt review off
+claudeq settings --prompt-review-model haiku            # ("" = same as the default model)
 claudeq settings --pushover=true --pushover-token T --pushover-user U
 ```
 
@@ -716,6 +730,67 @@ What the file cannot decide is filled in, either way:
 A file with an invalid task (no prompt, unknown trigger, bad cron) is rejected
 in both paths and nothing is added.
 
+## The prompt review
+
+A prompt written for one Mac rarely fits the next one unchanged, and a task
+queued for 3 a.m. has nobody around to notice. So while the task sheet is open —
+new task, edit, replay or import — ClaudeQ has Claude read the draft prompt
+against *this* machine and, if something is off, shows it in a purple banner
+under the prompt box:
+
+> ✦ **ClaudeQ suggests:** docs/spec.md does not exist here, so the run has
+> nothing to read. Also out/weekly.md would be written into an out/ directory
+> that does not exist yet, so the rewrite creates it first.
+>
+> [ Apply ] [ Dismiss ]
+
+**Apply** replaces the prompt with the rewrite, in the box, where you can still
+change it before saving; the review then runs again on the result. **Dismiss**
+just hides the banner. Nothing is ever saved, queued or changed on your behalf,
+and a task can always be added exactly as written — the banner is advice, not a
+gate.
+
+What it looks for:
+
+- **A path that isn't there.** ClaudeQ resolves every path the prompt mentions
+  (absolute, `~/…`, or relative to the task's working directory) and checks it.
+  An input file or folder that does not exist is reported; the right path is
+  yours to supply, so no rewrite is offered.
+- **A file to be written into a folder that doesn't exist.** The missing file is
+  normal; the missing parent directory is the problem. The rewrite tells the run
+  to create it first.
+- **Guidelines it would depend on.** If the prompt says to follow the rules in
+  some file and that file is small, the rewrite pastes its content straight into
+  the prompt, so the task no longer depends on the file still being readable
+  when it runs.
+- **A prompt that waits for you.** A question, a confirmation, a choice — an
+  unattended run has nobody to answer it, so the rewrite decides up front.
+
+The same banner sits under the **custom system prompt** in Settings, with the
+rules adjusted to what that text is: it applies to every task, in every
+directory, so a relative path there means something different every time.
+
+Practicalities:
+
+- It runs on the **Claude Code CLI**, so it costs a little usage each time.
+  Choose a fast model under Settings → General → Prompt review → *Review
+  model*, or switch the whole thing off with the toggle next to it.
+- The review itself is the narrowest invocation ClaudeQ makes: no tools at all
+  (ClaudeQ hands it the path checks and the small files it read), no CLAUDE.md,
+  skills, plugins, hooks or MCP servers, and no saved session. It reads; it
+  never writes.
+- It re-runs from scratch on every change to the prompt or the working
+  directory, and cancels the review still in flight — including its Claude
+  process — so only the newest answer is ever shown. An answer is remembered
+  for a few minutes, so reopening the same task's sheet costs nothing; any edit
+  is a real review again.
+- A task sheet without a working directory yet — an imported task, whose folder
+  came from another Mac — waits for you to choose one before reviewing, since
+  every relative path would otherwise be unresolvable.
+- File content it was given is treated as data. Instructions found inside a
+  file cannot steer the review, and any rewrite is shown to you in the prompt
+  box before it can run.
+
 ## Sending feedback
 
 **Feedback** at the bottom of the sidebar turns a bug report or a wish into a
@@ -830,7 +905,9 @@ A headless Go daemon owns all state and logic; a thin WKWebView app is the only
 UI, talking to the daemon over loopback. The daemon spawns the `claude` CLI once
 per task in the task's directory using `--output-format stream-json`, which lets
 it watch for rate-limit and auth events as they happen and capture the session id,
-token usage, and cost from the final result. ClaudeQ performs **no Git
+token usage, and cost from the final result. It also spawns a second, far
+smaller kind of `claude` call for the [prompt review](#the-prompt-review):
+one turn, no tools, no session. ClaudeQ performs **no Git
 operations** — any branch/commit behavior is driven entirely by your prompts and
 the repo's own configuration. The full design, decisions, and verification notes
 are in [PLAN.md](PLAN.md).

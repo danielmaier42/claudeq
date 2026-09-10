@@ -28,7 +28,8 @@ func TestSettingsPatchApply(t *testing.T) {
 	base := store.Settings{
 		DefaultModel: "sonnet", ClaudePath: "/bin/claude",
 		HeartbeatMinutes: 30, IdleTimeoutMinutes: 45, MaxRunHistory: 100,
-		SystemPrompt: "old", Paused: true, Pushover: store.Pushover{Enabled: true, Token: "tok", UserKey: "usr"},
+		SystemPrompt: "old", Paused: true, PromptReviewModel: "opus",
+		Pushover: store.Pushover{Enabled: true, Token: "tok", UserKey: "usr"},
 	}
 
 	tests := []struct {
@@ -66,6 +67,21 @@ func TestSettingsPatchApply(t *testing.T) {
 				s.ClaudePath, s.SystemPrompt = "/usr/local/bin/claude", "be brief"
 				return s
 			},
+		},
+		{
+			name: "prompt review off",
+			args: []string{"--prompt-review=false"},
+			want: func(s store.Settings) store.Settings { s.PromptReviewDisabled = true; return s },
+		},
+		{
+			name: "prompt review model",
+			args: []string{"--prompt-review-model", "haiku"},
+			want: func(s store.Settings) store.Settings { s.PromptReviewModel = "haiku"; return s },
+		},
+		{
+			name: "prompt review model cleared falls back to the default model",
+			args: []string{"--prompt-review-model", ""},
+			want: func(s store.Settings) store.Settings { s.PromptReviewModel = ""; return s },
 		},
 		{
 			name: "pushover toggle keeps the credentials",

@@ -524,6 +524,23 @@ type Settings struct {
 	// neither a due task nor a manual "run now" — and the machine is no longer
 	// woken for scheduled work. Runs already in flight are left alone.
 	Paused bool `toml:"paused" json:"paused"`
+	// PromptReviewDisabled turns off the prompt review that checks a task's
+	// prompt against this machine before it is queued. The zero value keeps the
+	// review on, so an existing config gains the feature without being edited.
+	PromptReviewDisabled bool `toml:"prompt_review_disabled" json:"prompt_review_disabled"`
+	// PromptReviewModel is the model used for that review. Empty means "the same
+	// model as everything else", i.e. DefaultModel.
+	PromptReviewModel string `toml:"prompt_review_model,omitempty" json:"prompt_review_model"`
+}
+
+// ReviewModel returns the model the prompt review runs on: its own setting when
+// one is chosen, otherwise the global default (which may itself be empty, in
+// which case Claude Code picks).
+func (s Settings) ReviewModel() string {
+	if s.PromptReviewModel != "" {
+		return s.PromptReviewModel
+	}
+	return s.DefaultModel
 }
 
 // ErrPaused is what a refused run carries while Settings.Paused is on. A pause

@@ -451,3 +451,49 @@ func TestMigrateConfigNoFile(t *testing.T) {
 		t.Fatalf("config.toml created by MigrateConfig (stat err = %v)", err)
 	}
 }
+
+func TestReviewModelFallsBackToTheDefaultModel(t *testing.T) {
+	var s Settings
+	if s.ReviewModel() != "" {
+		t.Errorf("nothing configured should mean nothing passed to the CLI, got %q", s.ReviewModel())
+	}
+	s.DefaultModel = "opus"
+	if s.ReviewModel() != "opus" {
+		t.Errorf("ReviewModel() = %q, want the default model", s.ReviewModel())
+	}
+	s.PromptReviewModel = "haiku"
+	if s.ReviewModel() != "haiku" {
+		t.Errorf("ReviewModel() = %q, want its own setting to win", s.ReviewModel())
+	}
+}
+
+func TestPromptReviewIsOnForAnExistingConfig(t *testing.T) {
+	// The setting is stored as "disabled" so a config.toml written before the
+	// feature existed gains it switched on rather than silently off.
+	st := openTemp(t)
+	if err := st.SaveConfig(Config{}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	cfg, err := st.LoadConfig()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Settings.PromptReviewDisabled {
+		t.Error("a config that never mentioned the review must come back with it enabled")
+	}
+}
+
+func TestPromptReviewSettingsRoundTrip(t *testing.T) {
+	st := openTemp(t)
+	want := Settings{PromptReviewDisabled: true, PromptReviewModel: "haiku"}
+	if err := st.SaveConfig(Config{Settings: want}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	cfg, err := st.LoadConfig()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Settings != want {
+		t.Errorf("got %+v, want %+v", cfg.Settings, want)
+	}
+}
