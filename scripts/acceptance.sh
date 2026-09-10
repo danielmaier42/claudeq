@@ -31,6 +31,15 @@ num_check() { # num_check "desc" <actual> <op> <expected>
   else printf '  FAIL  %s (got %s, expected %s %s)\n' "$desc" "$2" "$3" "$4"; fail=$((fail + 1)); fi
 }
 lines() { grep -c -- "$2" "$1" 2>/dev/null; :; }
+# precedes <file> <earlier> <later>: both patterns occur, and the *last* match of
+# <earlier> still comes before the *first* match of <later> — i.e. the file does
+# the one thing before the other, whatever the exact wording of either line.
+precedes() {
+  local a b
+  a=$(grep -n -- "$2" "$1" | tail -1 | cut -d: -f1)
+  b=$(grep -n -- "$3" "$1" | head -1 | cut -d: -f1)
+  [ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ]
+}
 
 echo "== building binaries =="
 go build -o "$WORK/claudeq"  "$ROOT/cmd/claudeq"  || exit 2
@@ -255,7 +264,13 @@ check "NFA-05 postinstall sets up the LaunchAgent"         contains "$ROOT/scrip
 # /Applications — a case-insensitive-FS bug once made it rm the app it just
 # installed. It may reference the path (to locate the daemon), just never rm it.
 check "postinstall never removes anything under /Applications" bash -c '! grep -Eq "(rm|unlink|ditto .*--nocache)[^\\n]*/Applications" "'"$ROOT"'/scripts/pkg/postinstall"'
-check "postinstall waits for the daemon, then opens the installed app" bash -c 'grep -q "127.0.0.1:8765/api/tasks" "'"$ROOT"'/scripts/pkg/postinstall" && grep -q "open \"\$APP\"" "'"$ROOT"'/scripts/pkg/postinstall"'
+# The install is only done once the *new* daemon answers on its own loopback
+# port; only then may the app be reopened. Both halves are matched by intent,
+# not by literals: the port lives in a PORT= variable, and `open` has to run
+# inside the console user's GUI session (as_user), never as root.
+check "postinstall polls the daemon on its configured port"          contains "$ROOT/scripts/pkg/postinstall" '127\.0\.0\.1:\$PORT/api/'
+check "postinstall defines that port in one place"                   contains "$ROOT/scripts/pkg/postinstall" '^PORT=[0-9]\{1,\}$'
+check "postinstall waits for the daemon, then opens the installed app" precedes "$ROOT/scripts/pkg/postinstall" 'settled' 'as_user open "\$APP"'
 check "NFA-05 preinstall is valid shell"                   sh -n "$ROOT/scripts/pkg/preinstall"
 check "preinstall never removes anything under /Applications" bash -c '! grep -Eq "(rm|unlink|ditto .*--nocache)[^\\n]*/Applications" "'"$ROOT"'/scripts/pkg/preinstall"'
 # The preinstall closes only the dashboard window (by exact process name, so a
