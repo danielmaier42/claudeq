@@ -717,7 +717,8 @@ GitHub issue without you having to write one.
    a draft. This runs through your local `claude` CLI on Haiku and costs a
    fraction of a cent per message; it does not go through the queue, so it works
    while tasks are running.
-3. You get the finished issue — an English title and body — in editable fields.
+3. You get the finished issue — an English title and body, labelled either
+   `bug` or `enhancement` — in editable fields.
    Your ClaudeQ version and macOS version are named there and ride along as a
    last line of the issue.
 4. **Open on GitHub** opens GitHub's prefilled *new issue* page in your browser.

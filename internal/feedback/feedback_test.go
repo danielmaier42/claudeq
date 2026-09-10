@@ -193,7 +193,7 @@ func TestSanitizeDropsUnknownLabelsAndTidiesTheTitle(t *testing.T) {
 	if d.Title != "Multi line title" {
 		t.Fatalf("title = %q", d.Title)
 	}
-	if got, want := strings.Join(d.Labels, ","), "bug,enhancement"; got != want {
+	if got, want := strings.Join(d.Labels, ","), "bug"; got != want {
 		t.Fatalf("labels = %q, want %q", got, want)
 	}
 }

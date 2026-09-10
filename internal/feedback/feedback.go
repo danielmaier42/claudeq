@@ -41,9 +41,11 @@ const sessionTTL = time.Hour
 // cannot blow up the prompt.
 const maxInputChars = 4000
 
-// Labels are the only labels a draft may carry. They exist in the repository;
-// letting the model invent its own would produce labels GitHub silently drops.
-var Labels = []string{"bug", "enhancement", "documentation", "question"}
+// Labels are the only labels a draft may carry: every report is either a defect
+// or a wish, and a triage label beyond that is the maintainer's call, not the
+// reporter's. Both exist in the repository — letting the model invent its own
+// would produce labels GitHub drops.
+var Labels = []string{"bug", "enhancement"}
 
 // systemPrompt drives the whole conversation. It is deliberately explicit about
 // privacy: the issue it writes ends up on a public tracker.
@@ -64,7 +66,7 @@ Rules for the issue:
 - Report only what the user actually said. Never invent versions, steps, error messages or a diagnosis, and do not speculate about the cause in the code.
 - The issue is public. Never include personal data: no real names, e-mail addresses, user names, machine names, absolute file paths, folder or repository names, tokens, or the contents of the user's own task prompts. Where such a detail is needed for the report to make sense, replace it with a placeholder like <path>.
 - Never mention this conversation, yourself, or that the text was generated.
-- Labels: at most two, only from the list the schema allows.`
+- Labels: exactly one - "bug" when something is broken, "enhancement" when something is missing.`
 
 // lastTurnNudge is appended to the final user message instead of the system
 // prompt: the CLI records the system prompt on a conversation's first request
@@ -294,7 +296,8 @@ func keepKnownLabels(in []string) []string {
 				break
 			}
 		}
-		if len(out) == 2 {
+		// The two labels are mutually exclusive, so a draft carries exactly one.
+		if len(out) == 1 {
 			break
 		}
 	}
