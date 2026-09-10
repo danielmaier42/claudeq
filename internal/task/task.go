@@ -111,11 +111,8 @@ func (t Task) Validate() error {
 			return fmt.Errorf("%w: trigger %q requires fixed_at", ErrInvalidTask, t.Trigger)
 		}
 	case TriggerCron:
-		if t.Cron == "" {
-			return fmt.Errorf("%w: trigger %q requires cron", ErrInvalidTask, t.Trigger)
-		}
-		if _, err := CronParser.Parse(t.Cron); err != nil {
-			return fmt.Errorf("%w: invalid cron %q: %w", ErrInvalidTask, t.Cron, err)
+		if err := CheckCron(t.Cron); err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidTask, err)
 		}
 	default:
 		return fmt.Errorf("%w: unknown trigger %q", ErrInvalidTask, t.Trigger)

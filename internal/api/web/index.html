@@ -245,6 +245,8 @@
   @keyframes slidein { from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none} }
   .hint { font-size:12px; color:var(--fg2); margin-top:6px; }
   .cron-help .mono { font-family:"SF Mono",ui-monospace,Menlo,monospace; }
+  input.bad { border-color:var(--danger); }
+  .cron-status.bad { color:var(--danger); }
   .cron-help span[data-tip] { font-family:"SF Mono",ui-monospace,Menlo,monospace; cursor:help;
     text-decoration:underline dotted; text-underline-offset:2px; text-decoration-color:var(--fg2); }
   .meter { height:8px; border-radius:6px; background:var(--seg-bg); overflow:hidden; width:100%; margin-top:8px; }
@@ -331,6 +333,7 @@
     </div>
     <div id="f-at-wrap" hidden><label class="fld">Earliest start</label><input type="datetime-local" id="f-at"></div>
     <div id="f-cron-wrap" hidden><label class="fld">Cron schedule</label><input type="text" id="f-cron" placeholder="0 20 * * *">
+      <div id="f-cron-status" class="hint cron-status" hidden></div>
       <div class="hint cron-help">5 fields:
         <span data-tip="Minute of the hour (0–59). '*' = every minute, '*/15' = every 15 minutes, '0' = on the hour.">minute</span>
         <span data-tip="Hour of the day (0–23). '20' = 8 pm, '*' = every hour, '9-17' = 9 am through 5 pm.">hour</span>
@@ -694,6 +697,7 @@ function prefillTask(t){
   $('#f-cron').value=t.trigger==='cron'?(t.cron||''):'';
 }
 function openSheet(title,submitLabel){ $('#addErr').textContent=''; $('#f-dir-hint').hidden=true; $('#f-dir-hint').textContent='';
+  clearTimeout(cronTimer); cronVerdict.expr=null; showCronStatus(null); cronRecheck();
   $('#addSheetTitle').textContent=title; $('#addSubmitBtn').textContent=submitLabel; $('#addSheet').showModal(); }
 function openAdd(){ taskMode='add'; taskEditId='';
   ['f-name','f-prompt','f-dir','f-at','f-cron'].forEach(x=>$('#'+x).value='');
@@ -710,7 +714,46 @@ async function openEdit(t){ taskMode='edit'; taskEditId=t.id;
 function openReplay(t){ if(!t){ toast('No saved definition to replay','err'); return; } taskMode='add'; taskEditId=''; prefillTask(t); openSheet('Replay task','Schedule again'); }
 $('#f-trigger').querySelectorAll('button').forEach(b=>b.onclick=()=>setSeg(b.dataset.v));
 function setSeg(v){ $('#f-trigger').querySelectorAll('button').forEach(b=>b.classList.toggle('active',b.dataset.v===v));
-  $('#f-trigger').dataset.value=v; $('#f-at-wrap').hidden=v!=='fixed'; $('#f-cron-wrap').hidden=v!=='cron'; }
+  $('#f-trigger').dataset.value=v; $('#f-at-wrap').hidden=v!=='fixed'; $('#f-cron-wrap').hidden=v!=='cron';
+  if(v==='cron') cronRecheck(); }
+
+/* ---- Cron field: checked while it is typed, not only when the task is saved ----
+   The daemon owns the verdict (same parser that will run the schedule), so the
+   sheet asks it instead of re-implementing crontab rules here. An answer that a
+   later keystroke has overtaken is dropped, and the last verdict is cached so
+   saving does not ask again for text that was just checked. */
+const cronVerdict={expr:null,valid:false,error:'',next:[]};
+let cronSeq=0, cronTimer=0;
+async function cronValidate(expr){
+  if(cronVerdict.expr===expr) return cronVerdict;
+  const seq=++cronSeq;
+  let r;
+  // No answer from the daemon: don't block the save on a guess — the POST/PUT
+  // validates the expression again server-side and reports it there.
+  try{ r=await api('GET','/api/cron/check?expr='+encodeURIComponent(expr)); }
+  catch(e){ return {expr,valid:false,error:'',next:[],unchecked:true}; }
+  const v={expr,valid:!!r.valid,error:r.error||'',next:r.next||[]};
+  if(seq===cronSeq) Object.assign(cronVerdict,v);
+  return v;
+}
+// force shows the verdict even for an empty field, which is silent while typing
+// (an untouched field is not an error) but must speak up on save.
+function showCronStatus(v,force){
+  const box=$('#f-cron-status'), inp=$('#f-cron');
+  const off=!v||v.unchecked||v.expr!==inp.value.trim()||(v.expr===''&&!force);
+  inp.classList.toggle('bad',!off&&!v.valid);
+  if(off){ box.hidden=true; box.textContent=''; box.classList.remove('bad'); return; }
+  box.hidden=false; box.classList.toggle('bad',!v.valid);
+  box.textContent=v.valid
+    ? 'Runs next: '+v.next.map(x=>new Date(x).toLocaleString()).join(' · ')
+    : v.error;
+}
+async function cronRecheck(){
+  const expr=$('#f-cron').value.trim();
+  if(!expr){ showCronStatus(null); return; }
+  showCronStatus(await cronValidate(expr));
+}
+$('#f-cron').oninput=()=>{ clearTimeout(cronTimer); cronTimer=setTimeout(cronRecheck,250); };
 async function submitTask(){
   $('#addErr').textContent='';
   const trig=$('#f-trigger').dataset.value||'asap';
@@ -721,6 +764,13 @@ async function submitTask(){
     parallel:$('#f-parallel').checked, enabled:true, permissions:$('#f-skip').checked?'skip':'default',
     notify_on_result:$('#f-notify').checked, quiet_history:$('#f-quiet').checked};
   if(!t.working_dir){ $('#addErr').textContent='Please choose a working directory.'; return; }
+  if(trig==='cron'){
+    // The reason stays on the field itself — repeating it at the footer would say
+    // the same thing twice; the field is scrolled into view instead.
+    const v=await cronValidate(t.cron||'');
+    showCronStatus(v,true);
+    if(!v.valid && !v.unchecked){ $('#f-cron').focus(); $('#f-cron').scrollIntoView({block:'center'}); return; }
+  }
   try{
     if(taskMode==='edit'){ await api('PUT','/api/tasks/'+encodeURIComponent(taskEditId),t); toast('Task updated','ok'); }
     else { await api('POST','/api/tasks',t); toast('Task added','ok'); }

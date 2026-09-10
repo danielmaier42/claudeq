@@ -111,6 +111,7 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("PUT /api/settings", s.putSettings)
 	mux.HandleFunc("POST /api/pause", s.setPaused)
 	mux.HandleFunc("GET /api/models", s.listModels)
+	mux.HandleFunc("GET /api/cron/check", s.checkCron)
 	mux.HandleFunc("GET /api/claude/which", s.whichClaude)
 	mux.HandleFunc("POST /api/fs/choose", s.chooseFolder)
 	mux.HandleFunc("POST /api/fs/warm", s.warmNow)
