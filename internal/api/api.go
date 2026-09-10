@@ -58,6 +58,10 @@ type Deps struct {
 	SaveFile     SaveFileDialog  // optional; enables the task export dialog
 	ActiveTasks  func() []string // optional; ids of currently-running tasks (hidden from the queue)
 	WakeError    func() string   // optional; last scheduled-wake error ("" if healthy)
+	// LimitedUntil reports when the global rate-limit gate reopens (zero time
+	// when it is open), so the dashboard can say the queue is waiting rather
+	// than stuck. Optional (engine.Engine.LimitedUntil).
+	LimitedUntil func() time.Time
 	// NotifyStatus reports whether macOS will actually show notifications
 	// (notify.MacAuthorization). Optional; empty means "don't know".
 	NotifyStatus func() string
@@ -128,6 +132,18 @@ func noCache(h http.Handler) http.Handler {
 
 type server struct{ d Deps }
 
+// activeTasks is the set of task ids running right now (empty when the daemon
+// does not report them).
+func (s *server) activeTasks() map[string]bool {
+	active := map[string]bool{}
+	if s.d.ActiveTasks != nil {
+		for _, id := range s.d.ActiveTasks() {
+			active[id] = true
+		}
+	}
+	return active
+}
+
 func (s *server) listTasks(w http.ResponseWriter, _ *http.Request) {
 	cfg, err := s.d.Store.LoadConfig()
 	if err != nil {
@@ -137,12 +153,7 @@ func (s *server) listTasks(w http.ResponseWriter, _ *http.Request) {
 	// Scheduling bookkeeping is a nice-to-have here: without it the queue simply
 	// shows no last-run time.
 	st, _ := s.d.Store.LoadState()
-	active := map[string]bool{}
-	if s.d.ActiveTasks != nil {
-		for _, id := range s.d.ActiveTasks() {
-			active[id] = true
-		}
-	}
+	active := s.activeTasks()
 	out := make([]taskView, 0, len(cfg.Tasks))
 	for _, t := range cfg.Tasks {
 		// A running one-shot task moves to Activity and is hidden here. Recurring
@@ -152,6 +163,11 @@ func (s *server) listTasks(w http.ResponseWriter, _ *http.Request) {
 			continue
 		}
 		v := taskView{Task: t, Running: active[t.ID]}
+		// A task whose session is waiting for the rate limit is not idle: say so
+		// in the queue, so it does not look like a job that simply hangs.
+		if !active[t.ID] && st != nil && st.PendingResume(t.ID) != "" {
+			v.WaitingForLimit = true
+		}
 		// For recurring tasks, surface the next scheduled occurrence so the UI can
 		// show it (e.g. as a tooltip on the cron expression). The task is already
 		// validated on save, so a parse error here is not expected; skip silently.
@@ -179,6 +195,9 @@ type taskView struct {
 	NextRun *time.Time `json:"next_run,omitempty"`
 	// LastRun is when a cron task last actually started a run, if it ever did.
 	LastRun *time.Time `json:"last_run,omitempty"`
+	// WaitingForLimit marks a task whose interrupted Claude session is queued to
+	// resume once the rate-limit gate reopens.
+	WaitingForLimit bool `json:"waiting_for_limit,omitempty"`
 }
 
 func (s *server) addTask(w http.ResponseWriter, r *http.Request) {
@@ -433,10 +452,16 @@ func claudeBin(s store.Settings) string {
 	return "claude"
 }
 
-// runView is a run plus its unread flag.
+// runView is a run plus its unread flag and whether its interrupted session is
+// still scheduled to resume.
 type runView struct {
 	store.Run
 	Unread bool `json:"unread"`
+	// ResumePending marks a rate-limited run whose session the daemon is still
+	// going to pick up once the gate reopens. It is what separates a run that is
+	// merely waiting from one whose pause is history (already resumed, canceled,
+	// or the task is gone).
+	ResumePending bool `json:"resume_pending,omitempty"`
 }
 
 func (s *server) listRuns(w http.ResponseWriter, _ *http.Request) {
@@ -450,12 +475,29 @@ func (s *server) listRuns(w http.ResponseWriter, _ *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	active := s.activeTasks()
 	views := make([]runView, 0, len(runs))
 	// Newest first for the dashboard.
 	for i := len(runs) - 1; i >= 0; i-- {
-		views = append(views, runView{Run: runs[i], Unread: !st.IsRead(runs[i].RunID)})
+		r := runs[i]
+		views = append(views, runView{
+			Run:           r,
+			Unread:        !st.IsRead(r.RunID),
+			ResumePending: resumePending(r, st, active),
+		})
 	}
 	writeJSON(w, http.StatusOK, views)
+}
+
+// resumePending reports whether a rate-limited run's session is still queued to
+// be resumed: the task must still hold exactly this run's session as its
+// pending resume, and must not be running right now (a resume already in
+// flight shows up as its own running run).
+func resumePending(r store.Run, st *store.State, active map[string]bool) bool {
+	if r.Status != store.StatusRateLimited || active[r.TaskID] {
+		return false
+	}
+	return r.SessionID != "" && st.PendingResume(r.TaskID) == r.SessionID
 }
 
 func (s *server) readRun(w http.ResponseWriter, r *http.Request) {
@@ -674,9 +716,16 @@ func (s *server) getHealth(w http.ResponseWriter, _ *http.Request) {
 	if s.d.NotifyStatus != nil {
 		notifyStatus = s.d.NotifyStatus()
 	}
+	limitedUntil := ""
+	if s.d.LimitedUntil != nil {
+		if until := s.d.LimitedUntil(); !until.IsZero() {
+			limitedUntil = until.Format(time.RFC3339)
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]string{
 		"wake_error":    wakeErr,
 		"notify_status": notifyStatus,
+		"limited_until": limitedUntil,
 	})
 }
 

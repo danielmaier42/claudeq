@@ -53,6 +53,11 @@ type Run struct {
 	// replayed from history even after the task leaves the queue.
 	Task *task.Task `json:"task,omitempty"`
 
+	// ResumeAt is when a rate-limited run is scheduled to resume its session,
+	// so the pause is visible as a plan rather than a dead end. Set only for
+	// StatusRateLimited.
+	ResumeAt *time.Time `json:"resume_at,omitempty"`
+
 	// Metrics reported by the CLI's result event (zero when unavailable).
 	CostUSD      float64 `json:"cost_usd,omitempty"`
 	InputTokens  int     `json:"input_tokens,omitempty"`

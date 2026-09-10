@@ -140,6 +140,40 @@ DPID=$!; sleep 5; kill -INT $DPID 2>/dev/null; wait $DPID 2>/dev/null
 check "D4 second attempt used --resume"               contains "$CQ_FAKE_ARGS" "--resume"
 check "D4 task succeeded after resume"                bash -c ''"$CQ"' status | grep " res " | grep -q success'
 
+# A limit pause must read as a plan, not a hang: the run says when it resumes,
+# and cancelling that resume keeps the task from starting again at the reset.
+export CLAUDEQ_HOME="$WORK/home4b"; mkdir -p "$CLAUDEQ_HOME"; : > "$CQ_FAKE_ARGS"
+API="http://127.0.0.1:8792"
+"$CQ" add --id rlc --prompt "p" --dir "$REPO_A" --trigger asap >/dev/null
+CQ_FAKE_MODE=rl CQ_FAKE_RETRY_MS=4000 "$CQD" run --interval 300ms --no-wake --addr 127.0.0.1:8792 >/dev/null 2>&1 &
+DPID=$!
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+  case "$(curl -s $API/api/runs)" in *'"resume_pending":true'*) break;; esac
+  sleep 0.3
+done
+runs_json=$(curl -s $API/api/runs); tasks_json=$(curl -s $API/api/tasks); health_json=$(curl -s $API/api/health)
+case "$runs_json"   in *'"resume_pending":true'*) r1=0;; *) r1=1;; esac
+num_check "paused run is marked as scheduled to resume"  "$r1" -eq 0
+case "$runs_json"   in *'"resume_at":'*) r2=0;; *) r2=1;; esac
+num_check "paused run carries its resume time"           "$r2" -eq 0
+case "$health_json" in *'"limited_until":"2'*) r3=0;; *) r3=1;; esac
+num_check "health reports when the gate reopens"         "$r3" -eq 0
+case "$tasks_json"  in *'"waiting_for_limit":true'*) r4=0;; *) r4=1;; esac
+num_check "queue marks the task as rescheduled"          "$r4" -eq 0
+
+RLC_RUN=$(printf '%s' "$runs_json" | grep -o '"run_id":"[^"]*"' | head -1 | cut -d'"' -f4)
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/api/runs/$RLC_RUN/cancel")
+num_check "cancelling the scheduled resume is accepted"  "$code" -eq 204
+sleep 5   # past the 4s reset: the gate reopens and nothing may start
+runs_json=$(curl -s $API/api/runs); tasks_json=$(curl -s $API/api/tasks)
+kill -INT $DPID 2>/dev/null; wait $DPID 2>/dev/null
+case "$runs_json"  in *'"status":"canceled"'*) r5=0;; *) r5=1;; esac
+num_check "the canceled resume is recorded as canceled"  "$r5" -eq 0
+case "$tasks_json" in *'"id":"rlc"'*) r6=1;; *) r6=0;; esac
+num_check "the one-shot task left the queue"             "$r6" -eq 0
+starts=$(grep -c "^ARGS:" "$CQ_FAKE_ARGS")
+num_check "the task did not start again after the reset" "${starts:-0}" -eq 1
+
 echo
 echo "== News/unread persistence =="
 export CLAUDEQ_HOME="$WORK/home5"; mkdir -p "$CLAUDEQ_HOME"

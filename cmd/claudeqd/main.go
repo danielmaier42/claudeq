@@ -164,6 +164,7 @@ func cmdRun(args []string) error {
 			SaveFile:     api.OSAScriptSaveFileDialog(system.Real{}),
 			OpenTerminal: api.OSAScriptTerminalOpener(system.Real{}),
 			WakeError:    eng.WakeError, WarmFileAccess: warmFileAccess, Updates: updSvc,
+			LimitedUntil: eng.LimitedUntil,
 			NotifyStatus: notify.MacAuthorization,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
