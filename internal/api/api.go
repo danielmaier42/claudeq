@@ -19,6 +19,7 @@ import (
 
 	"github.com/danielmaier42/claudeq/internal/app"
 	"github.com/danielmaier42/claudeq/internal/executor"
+	"github.com/danielmaier42/claudeq/internal/feedback"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
 	"github.com/danielmaier42/claudeq/internal/update"
@@ -72,6 +73,12 @@ type Deps struct {
 	// Updates checks GitHub for newer releases and downloads the installer.
 	// Optional; when nil the update endpoints report "unsupported".
 	Updates *update.Service
+	// Feedback drafts a GitHub issue from a short chat with the user. Optional;
+	// when nil the dashboard offers the plain feedback form instead.
+	Feedback *feedback.Service
+	// OSVersion reports the macOS product version (e.g. "15.6") for the
+	// environment line of a feedback issue. Optional; empty leaves it out.
+	OSVersion func() string
 }
 
 // Handler builds the HTTP handler (REST API under /api + dashboard at /).
@@ -114,6 +121,9 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/update/dismiss", s.dismissUpdate)
 	mux.HandleFunc("POST /api/update/download", s.downloadUpdate)
 	mux.HandleFunc("POST /api/update/relaunch", s.relaunchUpdate)
+	mux.HandleFunc("GET /api/feedback", s.getFeedback)
+	mux.HandleFunc("POST /api/feedback/turn", s.feedbackTurn)
+	mux.HandleFunc("POST /api/feedback/url", s.feedbackURL)
 
 	sub, _ := fs.Sub(webFS, "web")
 	mux.Handle("GET /", noCache(http.FileServer(http.FS(sub))))

@@ -22,6 +22,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/clock"
 	"github.com/danielmaier42/claudeq/internal/engine"
 	"github.com/danielmaier42/claudeq/internal/executor"
+	"github.com/danielmaier42/claudeq/internal/feedback"
 	"github.com/danielmaier42/claudeq/internal/fileaccess"
 	"github.com/danielmaier42/claudeq/internal/launchd"
 	"github.com/danielmaier42/claudeq/internal/limit"
@@ -166,6 +168,7 @@ func cmdRun(args []string) error {
 			WakeError:    eng.WakeError, WarmFileAccess: warmFileAccess, Updates: updSvc,
 			LimitedUntil: eng.LimitedUntil,
 			NotifyStatus: notify.MacAuthorization,
+			Feedback:     feedback.New(nil), OSVersion: osVersion(system.Real{}),
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
@@ -397,4 +400,24 @@ func currentUser() string {
 		return u
 	}
 	return "<your-username>"
+}
+
+// osVersion reports the macOS product version (e.g. "15.6") for the feedback
+// issue's environment line. It is asked once and cached: the version cannot
+// change while the daemon runs, and an unreadable one simply stays empty.
+func osVersion(r system.Runner) func() string {
+	var once sync.Once
+	var cached string
+	return func() string {
+		once.Do(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			out, err := r.Run(ctx, "sw_vers", "-productVersion")
+			if err != nil {
+				return
+			}
+			cached = strings.TrimSpace(string(out))
+		})
+		return cached
+	}
 }
