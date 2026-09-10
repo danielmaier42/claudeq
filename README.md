@@ -717,11 +717,12 @@ GitHub issue without you having to write one.
    a draft. This runs through your local `claude` CLI on Haiku and costs a
    fraction of a cent per message; it does not go through the queue, so it works
    while tasks are running.
-3. You get the finished issue — an English title and body — in editable fields,
-   with your ClaudeQ version and macOS version filled in below it. Change or
-   clear anything, including the two versions.
+3. You get the finished issue — an English title and body — in editable fields.
+   Your ClaudeQ version and macOS version are named there and ride along as a
+   last line of the issue.
 4. **Open on GitHub** opens GitHub's prefilled *new issue* page in your browser.
-   The issue exists only once you press **Create** there.
+   The issue exists only once you press **Create** there — and everything,
+   including that version line, can still be changed or deleted on that page.
 
 ClaudeQ never talks to GitHub for this and stores no token: your browser is
 already signed in, and the whole issue travels in the page's URL. If the

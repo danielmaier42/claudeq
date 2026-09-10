@@ -374,17 +374,13 @@
     <div id="fb-ask">
       <label class="fld" id="fb-ask-label">What would you like to report?</label>
       <textarea id="fb-text" rows="5" placeholder="Something that does not work, or something ClaudeQ should be able to do…"></textarea>
-      <div class="hint">Claude turns this into a GitHub issue and may ask one short question first. You see and edit the text before anything leaves your Mac.</div>
+      <div class="hint">Claude turns this into a GitHub issue and may ask one short question first.</div>
     </div>
     <div id="fb-review" hidden>
       <label class="fld">Title</label><input type="text" id="fb-title" placeholder="Short, concrete title">
       <label class="fld">Description</label><textarea id="fb-body" rows="10" placeholder="What happens, and what you expected"></textarea>
-      <div class="form-row" style="margin-top:12px">
-        <div><label class="fld">ClaudeQ version</label><input type="text" id="fb-appver" placeholder="unknown"></div>
-        <div><label class="fld">macOS version</label><input type="text" id="fb-osver" placeholder="unknown"></div>
-      </div>
-      <div class="hint">Both are added at the end of the issue — change or clear them as you like.<span id="fb-labels"></span></div>
-      <div class="hint" style="margin-top:8px">Nothing has been sent yet. The button opens a prefilled new issue on <span id="fb-repo" class="mono"></span> in your browser; it is created only when you press <b>Create</b> there.</div>
+      <div class="hint" style="margin-top:12px" id="fb-meta"></div>
+      <div class="hint" style="margin-top:8px">Nothing has been sent yet. The button opens a prefilled new issue on <span id="fb-repo" class="mono"></span> in your browser; it is created only when you press <b>Create</b> there — and you can still change or delete anything on that page.</div>
     </div>
     <p id="fb-err" class="hint" style="color:var(--danger)"></p>
   </div>
@@ -1391,15 +1387,23 @@ async function openFeedback(){
   $('#fb-text').placeholder='Something that does not work, or something ClaudeQ should be able to do…';
   try{ fbInfo=await api('GET','/api/feedback'); }
   catch(e){ fbInfo={available:false,reason:e.message,repo:'',app_version:'',os_version:''}; }
-  $('#fb-appver').value=fbInfo.app_version||'';
-  $('#fb-osver').value=fbInfo.os_version||'';
   $('#fb-repo').textContent=fbInfo.repo||'GitHub';
+  fbRenderMeta();
   if(fbInfo.available){ fbSetMode('chat'); }
   else { fbSetMode('review'); $('#fb-err').textContent='The assistant is unavailable ('+(fbInfo.reason||'unknown reason')+'). Write the issue yourself:'; }
   // Two quick clicks both get here before the status request resolves, and a
   // second showModal() on an open dialog throws.
   if(!$('#fbSheet').open) $('#fbSheet').showModal();
   (fbInfo.available?$('#fb-text'):$('#fb-title')).focus();
+}
+// The environment line and the labels are stated here rather than edited here:
+// they travel in the prefilled page, where they can still be removed.
+function fbRenderMeta(){
+  const env=[fbInfo.app_version&&('ClaudeQ '+fbInfo.app_version), fbInfo.os_version&&('macOS '+fbInfo.os_version)].filter(Boolean).join(' · ');
+  const parts=[];
+  if(env) parts.push(env+' is appended at the end of the issue.');
+  if(fbLabels.length) parts.push('Labels: '+fbLabels.join(', ')+'.');
+  $('#fb-meta').textContent=parts.join(' ');
 }
 function fbSetMode(m){ fbMode=m;
   $('#fb-ask').hidden=m!=='chat'; $('#fb-review').hidden=m!=='review';
@@ -1427,8 +1431,7 @@ async function fbSendTurn(){
     wait.remove(); fbSession=d.session_id||'';
     if(d.status==='ask'){ fbBubble('assistant','Claude',d.question||'');
       $('#fb-ask-label').textContent='Your answer'; $('#fb-text').placeholder='Answer Claude\u2019s question…'; $('#fb-text').focus(); }
-    else { $('#fb-title').value=d.title||''; $('#fb-body').value=d.body||''; fbLabels=d.labels||[];
-      $('#fb-labels').textContent=fbLabels.length?(' Labels: '+fbLabels.join(', ')+'.'):'';
+    else { $('#fb-title').value=d.title||''; $('#fb-body').value=d.body||''; fbLabels=d.labels||[]; fbRenderMeta();
       fbBubble('result','Claude','Drafted the issue below — check it before filing.');
       fbSetMode('review'); $('#fb-title').focus(); }
   }catch(e){
@@ -1442,8 +1445,7 @@ async function fbOpenIssue(){
   if(!title){ $('#fb-err').textContent='The issue needs a title.'; $('#fb-title').focus(); return; }
   $('#fb-err').textContent=''; fbSetBusy(true);
   try{
-    const r=await api('POST','/api/feedback/url',{title,body:$('#fb-body').value,labels:fbLabels,
-      app_version:$('#fb-appver').value,os_version:$('#fb-osver').value});
+    const r=await api('POST','/api/feedback/url',{title,body:$('#fb-body').value,labels:fbLabels});
     const u=httpsOnly(r.url);
     if(!u) throw new Error('the issue link could not be built');
     if(window.cqOpenExternal) window.cqOpenExternal(u); else window.open(u,'_blank','noopener');

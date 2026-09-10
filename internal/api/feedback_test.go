@@ -112,12 +112,11 @@ func TestFeedbackTurnIsUnavailableWithoutTheService(t *testing.T) {
 	}
 }
 
-func TestFeedbackURLAppendsTheEditedEnvironment(t *testing.T) {
+func TestFeedbackURLAppendsTheEnvironment(t *testing.T) {
 	srv, _ := newFeedbackServer(t, fakeCLI{})
 	var got map[string]string
 	do(t, srv, http.MethodPost, "/api/feedback/url", map[string]any{
 		"title": "  A  title ", "body": "The report.", "labels": []string{"bug"},
-		"app_version": "v9.9.9", "os_version": "26.0",
 	}).into(t, &got)
 	u, err := url.Parse(got["url"])
 	if err != nil {
@@ -130,20 +129,29 @@ func TestFeedbackURLAppendsTheEditedEnvironment(t *testing.T) {
 	if !strings.HasPrefix(body, "The report.") {
 		t.Fatalf("body = %q", body)
 	}
-	if !strings.Contains(body, "ClaudeQ v9.9.9") || !strings.Contains(body, "macOS 26.0") {
+	if !strings.Contains(body, "ClaudeQ "+version.String()) || !strings.Contains(body, "macOS 15.6") {
 		t.Fatalf("body does not carry the environment line: %q", body)
 	}
 }
 
-func TestFeedbackURLLeavesOutClearedEnvironmentFields(t *testing.T) {
-	srv, _ := newFeedbackServer(t, fakeCLI{})
+func TestFeedbackURLLeavesOutAnUnknownOSVersion(t *testing.T) {
+	// A daemon that cannot read sw_vers must not write "macOS " with nothing
+	// after it into a public issue.
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	srv := httptest.NewServer(Handler(Deps{Store: st}))
+	t.Cleanup(srv.Close)
 	var got map[string]string
-	do(t, srv, http.MethodPost, "/api/feedback/url", map[string]any{
-		"title": "T", "body": "B", "app_version": "  ", "os_version": "",
-	}).into(t, &got)
+	do(t, srv, http.MethodPost, "/api/feedback/url", map[string]any{"title": "T", "body": "B"}).into(t, &got)
 	u, _ := url.Parse(got["url"])
-	if body := u.Query().Get("body"); body != "B" {
-		t.Fatalf("body = %q, want no environment line", body)
+	body := u.Query().Get("body")
+	if strings.Contains(body, "macOS") {
+		t.Fatalf("body = %q, want no macOS line", body)
+	}
+	if !strings.Contains(body, "ClaudeQ "+version.String()) {
+		t.Fatalf("body = %q, want the app version", body)
 	}
 }
 

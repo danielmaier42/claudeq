@@ -22,9 +22,10 @@ type feedbackStatus struct {
 	Reason string `json:"reason,omitempty"`
 	// Repo is the "owner/name" the issue is filed against.
 	Repo string `json:"repo"`
-	// AppVersion is this build's version, editable by the user before filing.
+	// AppVersion is this build's version. It is appended to the issue body and
+	// named in the review step, so the user knows what travels along.
 	AppVersion string `json:"app_version"`
-	// OSVersion is the macOS product version, also editable.
+	// OSVersion is the macOS product version, appended the same way.
 	OSVersion string `json:"os_version,omitempty"`
 	// MaxTurns is how many messages the user may send before the assistant has
 	// to deliver a draft.
@@ -35,10 +36,8 @@ func (s *server) getFeedback(w http.ResponseWriter, _ *http.Request) {
 	st := feedbackStatus{
 		Repo:       update.DefaultRepo,
 		AppVersion: version.String(),
+		OSVersion:  s.osVersion(),
 		MaxTurns:   feedback.MaxUserTurns,
-	}
-	if s.d.OSVersion != nil {
-		st.OSVersion = s.d.OSVersion()
 	}
 	switch {
 	case s.d.Feedback == nil:
@@ -80,11 +79,9 @@ func (s *server) feedbackTurn(w http.ResponseWriter, r *http.Request) {
 }
 
 type feedbackURLReq struct {
-	Title      string   `json:"title"`
-	Body       string   `json:"body"`
-	Labels     []string `json:"labels"`
-	AppVersion string   `json:"app_version"`
-	OSVersion  string   `json:"os_version"`
+	Title  string   `json:"title"`
+	Body   string   `json:"body"`
+	Labels []string `json:"labels"`
 }
 
 // feedbackURL builds the prefilled GitHub "new issue" page from the text the
@@ -104,14 +101,16 @@ func (s *server) feedbackURL(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, errors.New("the issue needs a title"))
 		return
 	}
-	body := strings.TrimSpace(req.Body) + envFooter(req.AppVersion, req.OSVersion)
+	body := strings.TrimSpace(req.Body) + envFooter(version.String(), s.osVersion())
 	writeJSON(w, http.StatusOK, map[string]string{
 		"url": feedback.IssueURL(update.DefaultRepo, title, body, req.Labels),
 	})
 }
 
-// envFooter renders the two environment details the user can edit (or clear) in
-// the review step. An empty field is simply left out.
+// envFooter renders the two environment details that ride along with the issue.
+// They are stated in the review step and land in the prefilled page, where the
+// user can still delete the line before pressing Create. An unknown value is
+// simply left out.
 func envFooter(app, osv string) string {
 	var parts []string
 	if app = oneLine(app, 60); app != "" {
@@ -135,6 +134,14 @@ func oneLine(s string, limit int) string {
 		s = strings.TrimSpace(string(r[:limit]))
 	}
 	return s
+}
+
+// osVersion reports the macOS product version, "" when the daemon cannot ask.
+func (s *server) osVersion() string {
+	if s.d.OSVersion == nil {
+		return ""
+	}
+	return s.d.OSVersion()
 }
 
 // feedbackBin resolves the Claude Code binary for a feedback turn, reporting ""
