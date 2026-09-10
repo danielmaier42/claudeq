@@ -98,6 +98,31 @@ func TestArgsAppendsSelfQueueSystemPrompt(t *testing.T) {
 	}
 }
 
+func TestBuiltinSystemPromptFramesTheHeadlessRun(t *testing.T) {
+	// The headless framing must come first: everything else in the built-in
+	// prompt (queueing, publishing, notifying) assumes the run is unattended and
+	// ends when Claude stops writing.
+	if !strings.HasPrefix(builtinSystemPrompt, headlessSystemPrompt) {
+		t.Fatal("the headless framing must open the built-in prompt")
+	}
+	for _, want := range []string{
+		"no next turn",          // there is nobody to hand work back to
+		"ScheduleWakeup",        // deferring to a later turn does not work
+		"Monitor",               // nor does leaving something in the background
+		"waiting for something", // so a run must not end by announcing a wait
+		"ids and links",         // unfinished work is named concretely instead
+	} {
+		if !strings.Contains(headlessSystemPrompt, want) {
+			t.Fatalf("headless prompt must mention %q", want)
+		}
+	}
+	// It points at the self-queue block for the "stop and continue later" route,
+	// which therefore has to follow it rather than precede it.
+	if strings.Index(builtinSystemPrompt, "queue --prompt") < strings.Index(builtinSystemPrompt, "queue a follow-up claudeq task") {
+		t.Fatal("the self-queue instructions must follow the headless framing that refers to them")
+	}
+}
+
 func TestArgsAppendsCustomSystemPrompt(t *testing.T) {
 	e := &Executor{}
 	tk := sampleTask()
