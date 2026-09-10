@@ -81,6 +81,16 @@ func SetEnabled(s *store.Store, id string, enabled bool) error {
 	})
 }
 
+// SetPaused flips the global pause switch: while it is on, the daemon starts no
+// run at all (see store.Settings.Paused). Only that one field is touched, so a
+// concurrent settings change is not clobbered.
+func SetPaused(s *store.Store, paused bool) error {
+	return s.UpdateConfig(func(cfg *store.Config) error {
+		cfg.Settings.Paused = paused
+		return nil
+	})
+}
+
 // Move changes a task's position in the list, which is its priority: index 0 is
 // highest (FA-11). The target index is clamped to the valid range.
 func Move(s *store.Store, id string, to int) error {
