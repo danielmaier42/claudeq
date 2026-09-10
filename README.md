@@ -81,7 +81,9 @@ The nightly cycle looks like this:
     is blocked at that time, it starts when the gate reopens.
   - *Cron* — recurring, on a standard 5-field cron schedule (e.g. `0 3 * * *`).
     If a new occurrence is due while the previous run is still going, it is
-    skipped.
+    skipped. The expression is checked while you type it: the task sheet either
+    lists the next three runs or says which of the five fields it rejects, and
+    it refuses to save a schedule that would never run.
 - **Manual priority** — tasks run in list order, top = highest. Reorder them with
   the up/down controls (or `claudeq move`).
 - **Concurrency control** — one task at a time by default; mark a task *parallel*
@@ -313,7 +315,8 @@ echo "$USER ALL=(root) NOPASSWD: /usr/bin/pmset" | sudo tee /etc/sudoers.d/claud
 ## Using it
 
 1. **New task** — give it a prompt, pick the working folder, and choose a trigger
-   (as-soon-as-possible, earliest start, or cron). Optionally override the model
+   (as-soon-as-possible, earliest start, or cron; a cron schedule is validated as
+   you type, with a preview of its next three runs). Optionally override the model
    or permissions, or enable *parallel* / *notify on result*. The folder dialog
    starts at the folder currently set for the task; if that folder no longer
    exists it opens at the nearest existing parent, and at your home folder when
