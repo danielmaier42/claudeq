@@ -991,8 +991,6 @@ async function loadSettings(){
     <div class="group">
       <div class="row"><div class="grow"><div class="title">Default model</div><div class="sub">Used unless a task overrides it</div></div>
         <select id="s-model" style="max-width:230px">${modelOptions(s.default_model||'','Claude default')}</select></div>
-      <div class="row"><div class="grow"><div class="title">Skip permission prompts by default</div><div class="sub">Global “may do anything”</div></div>
-        <label class="switch"><input type="checkbox" id="s-skip"><span class="sl"></span></label></div>
       <div class="row"><div class="grow"><div class="title">Check for due tasks every</div><div class="sub">How often the daemon wakes to look for work</div></div>
         <select id="s-hb" style="max-width:170px">${hbHtml}</select></div>
     </div>
@@ -1044,7 +1042,6 @@ async function loadSettings(){
     </div>
     <div class="sub" style="text-align:center;margin-top:10px">Made with <span style="color:var(--accent)">♥</span> by
       <a href="https://github.com/danielmaier42" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">danielmaier42</a></div>`;
-  $('#s-skip').checked=!!s.skip_permissions_default;
   $('#s-po-enabled').checked=poOn; $('#s-po-token').value=s.pushover?.token||''; $('#s-po-user').value=s.pushover?.user_key||'';
   $('#s-claude').value=s.claude_path||'';
   $('#s-sysprompt').value=s.system_prompt||'';
@@ -1063,7 +1060,7 @@ function openNotificationSettings(){
   else toast('Open System Settings → Notifications → ClaudeQ','ok');
 }
 async function saveSettings(){
-  const body={default_model:$('#s-model').value,skip_permissions_default:$('#s-skip').checked,
+  const body={default_model:$('#s-model').value,
     heartbeat_minutes:parseInt($('#s-hb').value||'60',10),
     claude_path:$('#s-claude').value.trim(),
     idle_timeout_minutes:parseInt($('#s-idle').value||'30',10),

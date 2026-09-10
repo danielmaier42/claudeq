@@ -191,7 +191,6 @@ Thin client over the daemon's local API:
 | Field | Notes |
 |-------|-------|
 | `default_model` | model for runs unless overridden (FA-28) |
-| `skip_permissions_default` | "may do anything" default (FA-29) |
 | `heartbeat_interval` | wake safety-net interval, default 1h (D8) |
 | `pushover.token`, `pushover.user_key` | Pushover credentials (FA-41) |
 
@@ -263,7 +262,7 @@ flow above is preferred for the nightly power profile.
 - **Session id**: claudeq **assigns** the UUID via `--session-id <uuid>` up front (no need to
   parse it out), and reuses it for `--resume <uuid>` after a limit wait (D4).
 - **Model** (FA-28/30): `--model <name>`; per-task `model` overrides `default_model`.
-- **Permissions** (FA-29/31): "skip" → `--dangerously-skip-permissions` (≡
+- **Permissions** (FA-31): the task's own "skip" → `--dangerously-skip-permissions` (≡
   `--permission-mode bypassPermissions`). A safer non-default option exists for later:
   `--permission-mode dontAsk` + `--allowedTools "…"`.
 - **Auth detection** (FA-38): auth failures exit non-zero with category

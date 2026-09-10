@@ -53,7 +53,6 @@ func cmdSettings(st *store.Store, args []string) error {
 type settingsPatch struct {
 	set              map[string]bool
 	model            string
-	skipPermissions  bool
 	claudePath       string
 	heartbeat        int
 	idleTimeout      int
@@ -67,7 +66,6 @@ type settingsPatch struct {
 
 func (p *settingsPatch) register(fs *flag.FlagSet) {
 	fs.StringVar(&p.model, "default-model", "", "global default model (empty = Claude's own default)")
-	fs.BoolVar(&p.skipPermissions, "skip-permissions", false, "global skip-permissions default")
 	fs.StringVar(&p.claudePath, "claude-path", "", "absolute path to the claude binary (empty = auto-detect)")
 	fs.IntVar(&p.heartbeat, "heartbeat-minutes", 0, "how often to look for due tasks (0 = default)")
 	fs.IntVar(&p.idleTimeout, "idle-timeout-minutes", 0, "kill a run with no output for this long (0 = default, negative = never)")
@@ -104,9 +102,6 @@ func (p settingsPatch) apply(s store.Settings) (store.Settings, error) {
 	if p.set["default-model"] {
 		s.DefaultModel = p.model
 	}
-	if p.set["skip-permissions"] {
-		s.SkipPermissionsDefault = p.skipPermissions
-	}
 	if p.set["claude-path"] {
 		s.ClaudePath = p.claudePath
 	}
@@ -141,35 +136,32 @@ func (p settingsPatch) apply(s store.Settings) (store.Settings, error) {
 // credentials reduced to whether they are set — config.toml holds them in clear
 // text and printing them would leak them into terminal scrollback and logs.
 type settingsView struct {
-	DefaultModel           string `json:"default_model"`
-	SkipPermissionsDefault bool   `json:"skip_permissions_default"`
-	ClaudePath             string `json:"claude_path"`
-	HeartbeatMinutes       int    `json:"heartbeat_minutes"`
-	IdleTimeoutMinutes     int    `json:"idle_timeout_minutes"`
-	MaxRunHistory          int    `json:"max_run_history"`
-	SystemPrompt           string `json:"system_prompt"`
-	PushoverEnabled        bool   `json:"pushover_enabled"`
-	PushoverConfigured     bool   `json:"pushover_configured"`
+	DefaultModel       string `json:"default_model"`
+	ClaudePath         string `json:"claude_path"`
+	HeartbeatMinutes   int    `json:"heartbeat_minutes"`
+	IdleTimeoutMinutes int    `json:"idle_timeout_minutes"`
+	MaxRunHistory      int    `json:"max_run_history"`
+	SystemPrompt       string `json:"system_prompt"`
+	PushoverEnabled    bool   `json:"pushover_enabled"`
+	PushoverConfigured bool   `json:"pushover_configured"`
 }
 
 func newSettingsView(s store.Settings) settingsView {
 	return settingsView{
-		DefaultModel:           s.DefaultModel,
-		SkipPermissionsDefault: s.SkipPermissionsDefault,
-		ClaudePath:             s.ClaudePath,
-		HeartbeatMinutes:       s.HeartbeatMinutes,
-		IdleTimeoutMinutes:     s.IdleTimeoutMinutes,
-		MaxRunHistory:          s.MaxRunHistory,
-		SystemPrompt:           s.SystemPrompt,
-		PushoverEnabled:        s.Pushover.Enabled,
-		PushoverConfigured:     s.Pushover.Token != "" && s.Pushover.UserKey != "",
+		DefaultModel:       s.DefaultModel,
+		ClaudePath:         s.ClaudePath,
+		HeartbeatMinutes:   s.HeartbeatMinutes,
+		IdleTimeoutMinutes: s.IdleTimeoutMinutes,
+		MaxRunHistory:      s.MaxRunHistory,
+		SystemPrompt:       s.SystemPrompt,
+		PushoverEnabled:    s.Pushover.Enabled,
+		PushoverConfigured: s.Pushover.Token != "" && s.Pushover.UserKey != "",
 	}
 }
 
 func printSettings(s store.Settings) {
 	v := newSettingsView(s)
 	fmt.Printf("default_model:             %s\n", orDefault(v.DefaultModel, "(Claude's own default)"))
-	fmt.Printf("skip_permissions_default:  %t\n", v.SkipPermissionsDefault)
 	fmt.Printf("claude_path:               %s\n", orDefault(v.ClaudePath, "(auto-detect)"))
 	fmt.Printf("heartbeat_minutes:         %s\n", numericLabel(v.HeartbeatMinutes, store.DefaultHeartbeatMinutes, ""))
 	fmt.Printf("idle_timeout_minutes:      %s\n", numericLabel(v.IdleTimeoutMinutes, store.DefaultIdleTimeoutMinutes, "never kill a run"))

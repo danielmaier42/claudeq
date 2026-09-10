@@ -477,13 +477,13 @@ func TestRunLogNotFound(t *testing.T) {
 
 func TestSettingsRoundTrip(t *testing.T) {
 	srv, _ := newServer(t, nil)
-	in := store.Settings{DefaultModel: "claude-opus-4-8", SkipPermissionsDefault: true, HeartbeatMinutes: 30}
+	in := store.Settings{DefaultModel: "claude-opus-4-8", HeartbeatMinutes: 30}
 	if r := do(t, srv, "PUT", "/api/settings", in); r.Status != http.StatusOK {
 		t.Fatalf("put status = %d", r.Status)
 	}
 	var out store.Settings
 	do(t, srv, "GET", "/api/settings", nil).into(t, &out)
-	if out.DefaultModel != "claude-opus-4-8" || !out.SkipPermissionsDefault || out.HeartbeatMinutes != 30 {
+	if out.DefaultModel != "claude-opus-4-8" || out.HeartbeatMinutes != 30 {
 		t.Fatalf("settings round-trip mismatch: %+v", out)
 	}
 }
@@ -602,19 +602,16 @@ func TestContinueRunOpensTerminal(t *testing.T) {
 }
 
 // TestContinueRunPermissionFlag verifies the resume carries the same permission
-// mode the unattended run had: the task's explicit override wins, "default"
-// falls back to the global setting.
+// mode the unattended run had, which is the task's own setting.
 func TestContinueRunPermissionFlag(t *testing.T) {
 	const flag = "--dangerously-skip-permissions"
 	cases := []struct {
-		name       string
-		perms      task.Permissions
-		globalSkip bool
-		want       bool
+		name  string
+		perms task.Permissions
+		want  bool
 	}{
-		{"task skips", task.PermissionsSkip, false, true},
-		{"default with global skip", task.PermissionsDefault, true, true},
-		{"default without global skip", task.PermissionsDefault, false, false},
+		{"task skips", task.PermissionsSkip, true},
+		{"task keeps prompts", task.PermissionsDefault, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -623,8 +620,7 @@ func TestContinueRunPermissionFlag(t *testing.T) {
 					tk := *r.Task
 					tk.Permissions = c.perms
 					r.Task = &tk
-				},
-				func(s *store.Settings) { s.SkipPermissionsDefault = c.globalSkip })
+				}, nil)
 			if r := do(t, srv, "POST", "/api/runs/r1/continue", nil); r.Status != http.StatusNoContent {
 				t.Fatalf("continue status = %d (%s)", r.Status, r.Body)
 			}

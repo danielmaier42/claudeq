@@ -26,7 +26,7 @@ const (
 type Permissions string
 
 const (
-	// PermissionsDefault uses the global default permission behaviour.
+	// PermissionsDefault leaves Claude Code's permission prompts in place.
 	PermissionsDefault Permissions = "default"
 	// PermissionsSkip bypasses all permission prompts for this task.
 	PermissionsSkip Permissions = "skip"
@@ -65,7 +65,7 @@ type Task struct {
 
 	// Model overrides the global default model when non-empty.
 	Model string `toml:"model,omitempty" json:"model,omitempty"`
-	// Permissions overrides the global default permission behaviour.
+	// Permissions decides how Claude Code's permission prompts are handled.
 	Permissions Permissions `toml:"permissions" json:"permissions"`
 	// NotifyOnResult sends a notification with the outcome and last result
 	// message when the run finishes (success or failure), not just on failures.
@@ -80,8 +80,7 @@ type Task struct {
 }
 
 // PermissionsFor maps the CLI's "skip permission prompts" switch onto the
-// stored value: on is PermissionsSkip, off falls back to PermissionsDefault
-// (which defers to the global setting rather than forcing prompts).
+// stored value: on is PermissionsSkip, off is PermissionsDefault.
 func PermissionsFor(skip bool) Permissions {
 	if skip {
 		return PermissionsSkip
