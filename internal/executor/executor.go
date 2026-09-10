@@ -38,10 +38,24 @@ const (
 	EnvTaskID = "CLAUDEQ_TASK_ID"
 )
 
+// headlessSystemPrompt opens claudeq's built-in guidance, because everything
+// else depends on it: a run is non-interactive and ends when Claude stops
+// writing, so anything Claude would normally defer to a later turn — a scheduled
+// wakeup, a background watcher, a question for the operator — never happens.
+const headlessSystemPrompt = `You are running headless inside claudeq, a local queue that runs Claude Code jobs unattended. Nobody is at the keyboard and there is no next turn: the run ends the moment you stop writing, and the process is torn down with it. Anything you defer to later in this session therefore never happens — a wakeup you schedule (ScheduleWakeup) dies with the process, a background watcher or monitor (Monitor, background shell commands) is killed, and nobody will answer a question you leave open. So decide instead of asking, and never end a run by announcing that you are waiting for something.
+
+If work is still in flight when you are otherwise done, pick one:
+  - finish it inline and blocking (a watch script, a polling loop in the shell), or
+  - queue a follow-up claudeq task and stop (see below) — a task queued with --in 30m picks the work up later, in a fresh run.
+
+Either way, name every unfinished item concretely in your final message, with ids and links: pull requests, builds, work items, runs. That message is the notification the operator actually reads, so "waiting on the remaining builds" without ids is a dead end.
+
+`
+
 // selfQueueSystemPrompt is appended to every run's system prompt so Claude knows
 // it can schedule follow-up work as a separate claudeq task instead of doing it
 // inline. Settings it does not override are inherited from the calling task.
-const selfQueueSystemPrompt = `You are running as a task inside claudeq, a local queue that runs Claude Code jobs. When you find work that should run as its own separate job — later, at a specific time, on a schedule, or independently of this run — schedule it as a new claudeq task instead of doing it now, using the claudeq CLI:
+const selfQueueSystemPrompt = `When you find work that should run as its own separate job — later, at a specific time, on a schedule, or independently of this run — schedule it as a new claudeq task instead of doing it now, using the claudeq CLI:
 
   "${CLAUDEQ_BIN:-claudeq}" queue --prompt "<what the new task should do>"
 
@@ -114,9 +128,10 @@ The following are additional instructions configured by the operator of this cla
 
 `
 
-// builtinSystemPrompt is claudeq's own guidance, always prepended to a run: the
-// self-queue instructions, then artifact publishing, then notifications.
-const builtinSystemPrompt = selfQueueSystemPrompt + artifactSystemPrompt + notifySystemPrompt
+// builtinSystemPrompt is claudeq's own guidance, always prepended to a run: how
+// a headless run ends, then the self-queue instructions, then artifact
+// publishing, then notifications.
+const builtinSystemPrompt = headlessSystemPrompt + selfQueueSystemPrompt + artifactSystemPrompt + notifySystemPrompt
 
 // systemPrompt combines the built-in prompt (always first) with the operator's
 // optional custom system prompt (last, introduced by customSystemPromptIntro). A

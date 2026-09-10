@@ -24,6 +24,7 @@ update checks) ever leaves the machine.
 - [Using it](#using-it)
 - [Command-line interface](#command-line-interface)
 - [From another tool or agent](#from-another-tool-or-agent)
+- [What every run is told](#what-every-run-is-told)
 - [Letting a task queue follow-up work](#letting-a-task-queue-follow-up-work)
 - [Letting a task publish artifacts](#letting-a-task-publish-artifacts)
 - [Letting a task send a notification](#letting-a-task-send-a-notification)
@@ -87,6 +88,9 @@ The nightly cycle looks like this:
 - **Per-task overrides** — model, permission handling (default vs.
   "skip permission prompts"), whether to notify on the result, and *quiet
   history* for frequent jobs — layered over your global defaults.
+- **Built-in run framing** — every run is told up front that it is headless and
+  unattended, so it finishes its work or hands it on instead of ending on
+  *"waiting for the build"*. See [below](#what-every-run-is-told).
 - **Custom system prompt** — standing guidance (conventions, tone, tools to
   prefer) appended to every run after ClaudeQ's built-in instructions.
 - **Self-queueing** — a running task can schedule follow-up tasks itself, so a
@@ -455,11 +459,34 @@ this document to work with ClaudeQ.
   to stderr, prefixed `claudeq:`.
 - **Test a change with `claudeq run-now ID`** rather than waiting for the
   schedule.
+- Every run is framed as a [headless, unattended run](#what-every-run-is-told)
+  with no next turn — it finishes or hands work on, it does not wait.
 - A task that is itself a ClaudeQ run has three extra abilities, described below:
   [queueing follow-up work](#letting-a-task-queue-follow-up-work),
   [publishing artifacts](#letting-a-task-publish-artifacts) and
   [sending a notification](#letting-a-task-send-a-notification).
 - [Data on disk](#data-on-disk) lists the files these commands read and write.
+
+## What every run is told
+
+Every run starts with a built-in system prompt from ClaudeQ, ahead of your own
+[custom system prompt](#settings). Most of it documents the three abilities
+below — queueing, publishing, notifying — but it opens with the one thing a run
+cannot work out for itself: **it is headless**. Nobody is at the keyboard, there
+is no next turn, and the process is torn down the moment Claude stops writing.
+Without that framing a model behaves as if a conversation continues: it
+schedules a wakeup for later, leaves a watcher running in the background, or
+ends with a question — all of which die with the run. So the prompt tells it to
+
+- decide rather than ask,
+- never end a run by announcing that it is waiting for something,
+- either finish work in flight inline and blocking, or
+  [queue a follow-up task](#letting-a-task-queue-follow-up-work) (`--in 30m`)
+  and stop, and
+- name anything unfinished concretely — pull request, build, run ids and links —
+  in the last message, because that message is what reaches your phone.
+
+You don't need to repeat any of this in a task's prompt.
 
 ## Letting a task queue follow-up work
 
