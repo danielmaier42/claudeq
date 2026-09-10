@@ -91,7 +91,23 @@ func (s *Store) LoadConfig() (Config, error) {
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("parse config: %w", err)
 	}
+	cfg.migrate()
 	return cfg, nil
+}
+
+// migrate rewrites configs written by older versions. It runs on every load and
+// must stay idempotent; the result is persisted by the next SaveConfig.
+func (c *Config) migrate() {
+	// The global skip-permissions default is gone: a task that relied on it
+	// keeps its authority by carrying the setting itself.
+	if c.Settings.LegacySkipPermissions {
+		for i := range c.Tasks {
+			if c.Tasks[i].Permissions == task.PermissionsDefault {
+				c.Tasks[i].Permissions = task.PermissionsSkip
+			}
+		}
+		c.Settings.LegacySkipPermissions = false
+	}
 }
 
 // SaveConfig atomically writes config.toml after validating every task.
@@ -450,8 +466,10 @@ func (c Config) checkUniqueIDs() error {
 type Settings struct {
 	// DefaultModel is used for runs unless a task overrides it (FA-28).
 	DefaultModel string `toml:"default_model" json:"default_model"`
-	// SkipPermissionsDefault is the global "may do anything" default (FA-29).
-	SkipPermissionsDefault bool `toml:"skip_permissions_default" json:"skip_permissions_default"`
+	// LegacySkipPermissions is the removed global "may do anything" default.
+	// It is only read to migrate old configs (see migrate) and never written
+	// back or exposed over the API; permissions live on the task now.
+	LegacySkipPermissions bool `toml:"skip_permissions_default,omitempty" json:"-"`
 	// HeartbeatMinutes is the safety-net wake interval in minutes (PLAN.md D8).
 	// Zero means use the default (see HeartbeatOrDefault).
 	HeartbeatMinutes int `toml:"heartbeat_minutes" json:"heartbeat_minutes"`

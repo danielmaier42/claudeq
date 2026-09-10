@@ -222,7 +222,6 @@ The dashboard is also reachable in a normal browser at
 | Group | Setting | What it does |
 |-------|---------|--------------|
 | **General** | Default model | Model used for runs unless a task overrides it (empty = Claude's own default). |
-| | Skip permission prompts by default | Global "may do anything" default for runs. |
 | | Check for due tasks every | How often the daemon wakes to look for work (15 min – 6 h; also the wake safety-net interval). |
 | **Claude Code CLI** | Claude binary | Absolute path to the `claude` executable. The daemon can't see your shell `PATH`, so this is auto-detected and pre-filled; override if needed. |
 | **System prompt** | Custom system prompt | Extra instructions appended to every run after the built-in prompt. |
@@ -364,8 +363,8 @@ claudeq move   ID INDEX                        # 0 = highest priority
 claudeq run-now ID                             # run once, now, for testing
 claudeq status [--all]                         # recent runs; unread marked *
 claudeq read RUNID | claudeq read-all
-claudeq settings [--json] [--default-model M] [--skip-permissions=BOOL]
-                 [--claude-path PATH] [--heartbeat-minutes N]
+claudeq settings [--json] [--default-model M] [--claude-path PATH]
+                 [--heartbeat-minutes N]
                  [--idle-timeout-minutes N] [--max-run-history N]
                  [--system-prompt S | --system-prompt-file PATH]
                  [--pushover=BOOL] [--pushover-token T] [--pushover-user U]
@@ -519,10 +518,9 @@ claudeq queue --prompt "Review the change thoroughly …" --model claude-opus-5 
 - `--parallel=BOOL` and `--notify=BOOL` switch the respective setting on or
   off regardless of what the caller has.
 - `--skip-permissions=BOOL` grants or withdraws the task's own permission
-  bypass. `false` puts the task back on the global *Skip permission prompts by
-  default* setting rather than forcing prompts. Note that a run can grant a
-  follow-up more than it has itself; the system prompt tells Claude to do so
-  only when the queued work cannot be done without it.
+  bypass. Note that a run can grant a follow-up more than it has itself; the
+  system prompt tells Claude to do so only when the queued work cannot be done
+  without it.
 - `--quiet-history=BOOL` opts the new task into (or, explicitly, out of) quiet
   history. Without it a queued task is never quiet, even when the caller is
   (see [below](#quiet-history-for-frequent-jobs)).

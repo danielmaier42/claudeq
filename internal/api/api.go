@@ -398,7 +398,7 @@ func (s *server) continueRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	argv := []string{claudeBin(cfg.Settings), "--resume", run.SessionID}
-	if resumeSkipsPermissions(run.Task, cfg.Settings) {
+	if run.Task.Permissions == task.PermissionsSkip {
 		argv = append(argv, "--dangerously-skip-permissions")
 	}
 	if err := s.d.OpenTerminal(r.Context(), run.Task.WorkingDir, argv); err != nil {
@@ -419,20 +419,6 @@ func claudeBin(s store.Settings) string {
 		return p
 	}
 	return "claude"
-}
-
-// resumeSkipsPermissions mirrors the engine's per-run permission resolution
-// (task override first, then the global default), so the interactive resume
-// runs with the same authority the unattended run had.
-func resumeSkipsPermissions(t *task.Task, s store.Settings) bool {
-	switch t.Permissions {
-	case task.PermissionsSkip:
-		return true
-	case task.PermissionsDefault:
-		return s.SkipPermissionsDefault
-	default:
-		return false
-	}
 }
 
 // runView is a run plus its unread flag.

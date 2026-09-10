@@ -262,7 +262,7 @@ func (e *Engine) launchTask(t task.Task, settings store.Settings, sessionID stri
 		SessionID:          sessionID,
 		Resume:             resume,
 		Model:              effectiveModel(t, settings),
-		SkipPermissions:    skipPermissions(t, settings),
+		SkipPermissions:    t.Permissions == task.PermissionsSkip,
 		Bin:                settings.ClaudePath,
 		CustomSystemPrompt: settings.SystemPrompt,
 		IdleTimeout:        settings.IdleTimeout(),
@@ -697,18 +697,6 @@ func effectiveModel(t task.Task, s store.Settings) string {
 		return t.Model
 	}
 	return s.DefaultModel
-}
-
-// skipPermissions resolves the permission behaviour (FA-29/31).
-func skipPermissions(t task.Task, s store.Settings) bool {
-	switch t.Permissions {
-	case task.PermissionsSkip:
-		return true
-	case task.PermissionsDefault:
-		return s.SkipPermissionsDefault
-	default:
-		return false
-	}
 }
 
 func shortHex(n int) string {

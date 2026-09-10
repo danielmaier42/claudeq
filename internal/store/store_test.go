@@ -3,6 +3,8 @@ package store
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -46,9 +48,8 @@ func TestSaveLoadConfigRoundTripPreservesOrder(t *testing.T) {
 	s := openTemp(t)
 	in := Config{
 		Settings: Settings{
-			DefaultModel:           "claude-opus-4-8",
-			SkipPermissionsDefault: true,
-			Pushover:               Pushover{Token: "tok", UserKey: "usr"},
+			DefaultModel: "claude-opus-4-8",
+			Pushover:     Pushover{Token: "tok", UserKey: "usr"},
 		},
 		Tasks: []task.Task{sampleTask("a"), sampleTask("b"), sampleTask("c")},
 	}
@@ -368,5 +369,60 @@ func TestBackfillLastRunsFromHistory(t *testing.T) {
 	}
 	if at, _ := st.LastRun("b"); !at.Equal(known) {
 		t.Fatalf("last run of b = %v, want the untouched %v", at, known)
+	}
+}
+
+// TestLoadConfigMigratesGlobalSkipPermissions covers the removal of the global
+// skip-permissions default: a task that relied on it must keep its authority,
+// and the retired key must not survive the next save.
+func TestLoadConfigMigratesGlobalSkipPermissions(t *testing.T) {
+	s := openTemp(t)
+	raw := `[settings]
+skip_permissions_default = true
+
+[[tasks]]
+id = 'a'
+name = 'a'
+prompt = 'do a'
+working_dir = '/repo/a'
+trigger = 'asap'
+enabled = true
+permissions = 'default'
+
+[[tasks]]
+id = 'b'
+name = 'b'
+prompt = 'do b'
+working_dir = '/repo/b'
+trigger = 'asap'
+enabled = true
+permissions = 'skip'
+`
+	if err := os.WriteFile(filepath.Join(s.Home(), configFile), []byte(raw), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := s.LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	for _, tk := range cfg.Tasks {
+		if tk.Permissions != task.PermissionsSkip {
+			t.Fatalf("task %q permissions = %q, want skip", tk.ID, tk.Permissions)
+		}
+	}
+	if cfg.Settings.LegacySkipPermissions {
+		t.Fatal("legacy setting still set after migration")
+	}
+
+	if err := s.SaveConfig(cfg); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(s.Home(), configFile))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if strings.Contains(string(data), "skip_permissions_default") {
+		t.Fatalf("retired key written back:\n%s", data)
 	}
 }

@@ -26,7 +26,7 @@ func parsePatch(t *testing.T, args []string, readFile func(string) ([]byte, erro
 
 func TestSettingsPatchApply(t *testing.T) {
 	base := store.Settings{
-		DefaultModel: "sonnet", SkipPermissionsDefault: true, ClaudePath: "/bin/claude",
+		DefaultModel: "sonnet", ClaudePath: "/bin/claude",
 		HeartbeatMinutes: 30, IdleTimeoutMinutes: 45, MaxRunHistory: 100,
 		SystemPrompt: "old", Pushover: store.Pushover{Enabled: true, Token: "tok", UserKey: "usr"},
 	}
