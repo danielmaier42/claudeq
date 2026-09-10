@@ -781,7 +781,12 @@ Practicalities:
   never writes.
 - It re-runs from scratch on every change to the prompt or the working
   directory, and cancels the review still in flight — including its Claude
-  process — so only the newest answer is ever shown.
+  process — so only the newest answer is ever shown. An answer is remembered
+  for a few minutes, so reopening the same task's sheet costs nothing; any edit
+  is a real review again.
+- A task sheet without a working directory yet — an imported task, whose folder
+  came from another Mac — waits for you to choose one before reviewing, since
+  every relative path would otherwise be unresolvable.
 - File content it was given is treated as data. Instructions found inside a
   file cannot steer the review, and any rewrite is shown to you in the prompt
   box before it can run.

@@ -530,7 +530,11 @@ let current='tasks';
 // When the global rate-limit gate reopens (a Date), or null while it is open.
 let LIMITED_UNTIL=null;
 document.querySelectorAll('.nav button[data-tab]').forEach(b=>b.onclick=()=>select(b.dataset.tab));
-function select(tab){ current=tab;
+// The Settings view's review controller, kept here so leaving the tab can stop a
+// review in flight instead of letting the daemon run it out.
+let settingsReview=null;
+function select(tab){ if(settingsReview){ settingsReview.reset(); settingsReview=null; }
+  current=tab;
   document.querySelectorAll('.nav button[data-tab]').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));
   document.querySelectorAll('.tab').forEach(t=>t.hidden=t.id!==tab);
   $('#pageTitle').textContent=TITLES[tab];
@@ -819,6 +823,19 @@ const REVIEW_DELAY=900;   // ms of quiet typing before a review is worth startin
 // area is the textarea under review, banner the element to render into, and
 // dir() the working directory to resolve relative paths against ('' for the
 // global system prompt, which has none).
+// Answers are remembered for a few minutes, keyed by exactly what was asked, so
+// reopening the same task's sheet or stepping back into Settings shows the last
+// finding instead of paying for the same review again. Any edit changes the key
+// and really is analysed from scratch.
+const reviewCache=new Map();
+const REVIEW_CACHE_TTL=180000, REVIEW_CACHE_MAX=20;
+function reviewCached(key){ const hit=reviewCache.get(key);
+  if(!hit) return null;
+  if(Date.now()-hit.at>REVIEW_CACHE_TTL){ reviewCache.delete(key); return null; }  // the machine may have changed since
+  return hit.res; }
+function reviewRemember(key,res){ reviewCache.set(key,{at:Date.now(),res});
+  while(reviewCache.size>REVIEW_CACHE_MAX) reviewCache.delete(reviewCache.keys().next().value); }
+
 function makeReview({kind,area,banner,dir}){
   let timer=null, ctrl=null, seq=0;
 
@@ -843,22 +860,32 @@ function makeReview({kind,area,banner,dir}){
     const no=el('button','btn small','Dismiss'); no.onclick=()=>{ stop(); hide(); }; acts.append(no);
   }
 
+  function render(res){ if(res && res.enabled && !res.ok && res.message) show(res); else hide(); }
+
   async function run(){
     stop();
     const mine=seq;
-    const prompt=area.value;
-    if(!prompt.trim()){ hide(); return; }
+    const prompt=area.value, workingDir=dir();
+    // An imported task lands here with its folder dropped, because the exporter's
+    // path is not on this Mac. Reviewing then would call every relative path
+    // unresolvable and bury the sheet's own "choose a folder" hint under it, so
+    // the review waits for the folder — chooseFolder starts it.
+    if(!prompt.trim() || (kind==='task' && !workingDir)){ hide(); return; }
+    const key=JSON.stringify([kind,prompt,workingDir]);
+    const cached=reviewCached(key);
+    if(cached){ render(cached); return; }
     ctrl=new AbortController();
     head('busy','ClaudeQ is checking this prompt…');
     let res;
     // A review that is aborted, unreachable or fails is silently dropped: it is
     // an extra pair of eyes, and a broken one must never get in the way of
     // writing a task.
-    try{ res=await api('POST','/api/review/prompt',{kind,prompt,working_dir:dir()},ctrl.signal); }
+    try{ res=await api('POST','/api/review/prompt',{kind,prompt,working_dir:workingDir},ctrl.signal); }
     catch(e){ if(mine===seq) hide(); return; }
     if(mine!==seq) return;
     ctrl=null;
-    if(res && res.enabled && !res.ok && res.message) show(res); else hide();
+    if(res && res.enabled) reviewRemember(key,res);   // a disabled or superseded answer says nothing about this prompt
+    render(res);
   }
 
   return { run, stop, reset(){ stop(); hide(); }, schedule(){ stop(); hide(); timer=setTimeout(run,REVIEW_DELAY); } };
@@ -1362,6 +1389,7 @@ async function loadSettings(){
   // bound to the fresh nodes here. The system prompt has no working directory:
   // it is appended to every task, wherever that task runs.
   const sysReview=makeReview({kind:'system',area:$('#s-sysprompt'),banner:$('#s-sysprompt-review'),dir:()=>''});
+  settingsReview=sysReview;
   $('#s-sysprompt').addEventListener('input',()=>sysReview.schedule());
   const reviewOn=!s.prompt_review_disabled;
   $('#s-review').checked=reviewOn; $('#s-review-model').disabled=!reviewOn;
