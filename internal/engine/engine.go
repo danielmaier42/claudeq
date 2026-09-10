@@ -135,6 +135,12 @@ func (e *Engine) Tick(_ context.Context) error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	// The global pause switch stops the queue dead: nothing new is started, and
+	// no scheduling state is touched, so a task that came due while paused runs
+	// as soon as the switch goes off again.
+	if cfg.Settings.Paused {
+		return nil
+	}
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -607,9 +613,14 @@ func (e *Engine) planWake(ctx context.Context) error {
 		return err
 	}
 	now := e.clock.Now()
-	cands := e.wakeCandidates(cfg, st, now)
-	if bu := e.gate.BlockedUntil(); !bu.IsZero() {
-		cands = append(cands, bu)
+	// While paused nothing would run on wake, so nothing is worth waking for
+	// (the heartbeat below stays, so the daemon notices the switch going off).
+	var cands []time.Time
+	if !cfg.Settings.Paused {
+		cands = e.wakeCandidates(cfg, st, now)
+		if bu := e.gate.BlockedUntil(); !bu.IsZero() {
+			cands = append(cands, bu)
+		}
 	}
 	at, ok := wake.NextWakeTime(now, cands, cfg.Settings.HeartbeatOrDefault())
 	if !ok {
@@ -645,12 +656,16 @@ func (e *Engine) wakeCandidates(cfg store.Config, st *store.State, now time.Time
 }
 
 // RunTaskNow runs a specific task once, synchronously, ignoring its trigger and
-// completion state — the manual "run now" test trigger (FA-16). It still
-// records history and honours resume-after-limit for that run.
+// completion state — the manual "run now" test trigger (FA-16). It refuses to
+// start while runs are globally paused, and still records history and honours
+// resume-after-limit for that run.
 func (e *Engine) RunTaskNow(_ context.Context, taskID string) error {
 	cfg, err := e.store.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
+	}
+	if cfg.Settings.Paused {
+		return store.ErrPaused
 	}
 	var target *task.Task
 	for i := range cfg.Tasks {

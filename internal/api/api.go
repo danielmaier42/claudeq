@@ -98,6 +98,7 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/artifacts/{id}/content", s.artifactContent)
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("PUT /api/settings", s.putSettings)
+	mux.HandleFunc("POST /api/pause", s.setPaused)
 	mux.HandleFunc("GET /api/models", s.listModels)
 	mux.HandleFunc("GET /api/claude/which", s.whichClaude)
 	mux.HandleFunc("POST /api/fs/choose", s.chooseFolder)
@@ -324,6 +325,17 @@ func (s *server) moveTask(w http.ResponseWriter, r *http.Request) {
 func (s *server) runNow(w http.ResponseWriter, r *http.Request) {
 	if s.d.Runner == nil {
 		writeErr(w, http.StatusServiceUnavailable, errors.New("run-now not available"))
+		return
+	}
+	// A paused queue refuses manual runs too, and the caller should hear about it:
+	// the run itself is fire-and-forget, so its error would go nowhere.
+	cfg, err := s.d.Store.LoadConfig()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if cfg.Settings.Paused {
+		writeErr(w, http.StatusConflict, store.ErrPaused)
 		return
 	}
 	id := r.PathValue("id")
@@ -602,12 +614,35 @@ func (s *server) putSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	// The pause switch belongs to POST /api/pause alone. It can be flipped from
+	// the Queue banner or the CLI at any time, so a settings form filled in
+	// before that must not carry a stale value back and quietly resume the queue.
+	in.Paused = cfg.Settings.Paused
 	cfg.Settings = in
 	if err := s.d.Store.SaveConfig(cfg); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, cfg.Settings)
+}
+
+// setPaused flips the global pause switch on its own, without going through the
+// whole settings payload: the dashboard toggles it like a task's enable switch
+// (no Save press) and from the Queue banner, so it must not carry — and thus
+// overwrite — every other setting on the way.
+func (s *server) setPaused(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Paused bool `json:"paused"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := app.SetPaused(s.d.Store, in.Paused); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"paused": in.Paused})
 }
 
 func (s *server) getStats(w http.ResponseWriter, _ *http.Request) {

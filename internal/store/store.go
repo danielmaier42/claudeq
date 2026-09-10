@@ -489,7 +489,16 @@ type Settings struct {
 	// SystemPrompt is the operator's custom system prompt, appended to claudeq's
 	// built-in one on every run (built-in first, this last). Empty means none.
 	SystemPrompt string `toml:"system_prompt" json:"system_prompt"`
+	// Paused is the global stop switch: while it is true no run starts at all —
+	// neither a due task nor a manual "run now" — and the machine is no longer
+	// woken for scheduled work. Runs already in flight are left alone.
+	Paused bool `toml:"paused" json:"paused"`
 }
+
+// ErrPaused is what a refused run carries while Settings.Paused is on. A pause
+// a manual "run now" could step around would not be a pause, so such a request
+// is refused with this instead of quietly starting a run.
+var ErrPaused = errors.New("all runs are paused (Settings → Pause all runs)")
 
 // DefaultHeartbeatMinutes is the wake safety-net interval when unset.
 const DefaultHeartbeatMinutes = 60

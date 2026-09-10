@@ -61,7 +61,10 @@ Usage:
                    [--claude-path PATH] [--heartbeat-minutes N]
                    [--idle-timeout-minutes N] [--max-run-history N]
                    [--system-prompt S | --system-prompt-file PATH]
-                   [--pushover=BOOL] [--pushover-token T] [--pushover-user U]
+                   [--paused=BOOL] [--pushover=BOOL] [--pushover-token T]
+                   [--pushover-user U]
+                   (--paused=true stops every run globally; nothing starts, not
+                   even run-now, until it is set back to false)
   claudeq --version`
 
 func main() {

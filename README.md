@@ -85,6 +85,11 @@ The nightly cycle looks like this:
 
 **Per-task and global controls**
 
+- **Pause everything** — one global switch in Settings stops the queue: no task
+  starts while it is on, not even a manual *Run now*, and the Mac is no longer
+  woken for scheduled work. A run already in flight keeps going, and a task that
+  came due meanwhile starts as soon as you switch it back off. The Queue view
+  carries a yellow banner while it is on, so an idle queue is never a mystery.
 - **Per-task overrides** — model, permission handling (default vs.
   "skip permission prompts"), whether to notify on the result, and *quiet
   history* for frequent jobs — layered over your global defaults.
@@ -176,7 +181,9 @@ The nightly cycle looks like this:
 The dashboard (and the native window that wraps it) has five views:
 
 - **Queue** — the pending tasks in priority order. Add, edit, delete, enable/pause,
-  reorder, or **run now** (a manual test run, independent of the trigger). A
+  reorder, or **run now** (a manual test run, independent of the trigger). While
+  the global pause switch is on, a yellow banner sits above the list (with a
+  **Resume runs** button) and **Run now** is disabled on every row. A
   running one-shot task moves to Activity; a recurring task stays here with a
   *running* badge; hovering its cron expression shows the next occurrence and
   when it last ran. Underneath each task sits a badge for every option it has
@@ -221,6 +228,7 @@ The dashboard is also reachable in a normal browser at
 
 | Group | Setting | What it does |
 |-------|---------|--------------|
+| **Execution** | Pause all runs | Global stop switch: nothing starts while it is on, not even *Run now*; a run already in flight keeps going. Applies immediately, without pressing Save. |
 | **General** | Default model | Model used for runs unless a task overrides it (empty = Claude's own default). |
 | | Check for due tasks every | How often the daemon wakes to look for work (15 min – 6 h; also the wake safety-net interval). |
 | **Claude Code CLI** | Claude binary | Absolute path to the `claude` executable. The daemon can't see your shell `PATH`, so this is auto-detected and pre-filled; override if needed. |
@@ -367,6 +375,7 @@ claudeq settings [--json] [--default-model M] [--claude-path PATH]
                  [--heartbeat-minutes N]
                  [--idle-timeout-minutes N] [--max-run-history N]
                  [--system-prompt S | --system-prompt-file PATH]
+                 [--paused=BOOL]                # pause/resume every run
                  [--pushover=BOOL] [--pushover-token T] [--pushover-user U]
 claudeq --version
 ```
@@ -431,6 +440,8 @@ claudeq settings --default-model opus                   # global default model
 claudeq settings --claude-path /Users/me/.local/bin/claude
 claudeq settings --system-prompt-file ./house-style.md   # custom system prompt
 claudeq settings --idle-timeout-minutes 45 --max-run-history 1000
+claudeq settings --paused=true                          # stop every run
+claudeq settings --paused=false                         # let the queue run again
 claudeq settings --pushover=true --pushover-token T --pushover-user U
 ```
 
@@ -457,7 +468,8 @@ this document to work with ClaudeQ.
 - **Exit code 0 means success.** Any failure exits non-zero and writes the reason
   to stderr, prefixed `claudeq:`.
 - **Test a change with `claudeq run-now ID`** rather than waiting for the
-  schedule.
+  schedule. It exits non-zero while the global pause switch is on
+  (`claudeq settings --paused=false` lifts it).
 - Every run is framed as a [headless, unattended run](#what-every-run-is-told)
   with no next turn — it finishes or hands work on, it does not wait.
 - A task that is itself a ClaudeQ run has three extra abilities, described below:
@@ -674,6 +686,11 @@ in both paths and nothing is added.
 
 - **Eligibility.** On each tick the daemon starts every task that is due and
   permitted by priority, concurrency, and the limit gate.
+- **The pause switch wins over everything.** While *Pause all runs* is on, a tick
+  starts nothing and records nothing, `claudeq run-now` and the app's **Run now**
+  are refused, and no task wake is registered (only the heartbeat stays, so the
+  daemon notices when you switch it off). Nothing is lost: a task that came due
+  while paused is still due afterwards.
 - **The limit gate is global.** When any run reports a rate limit, all new starts
   pause until the reset. The wait comes from the CLI's `retry_delay_ms` signal
   (falling back to 15 minutes when none is exposed). At reset the gate reopens and

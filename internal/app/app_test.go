@@ -75,6 +75,35 @@ func TestSetEnabled(t *testing.T) {
 	}
 }
 
+func TestSetPausedTouchesOnlyThePauseSwitch(t *testing.T) {
+	s := openStore(t)
+	_ = AddTask(s, mk("a"))
+	if err := s.UpdateConfig(func(cfg *store.Config) error {
+		cfg.Settings.DefaultModel = "opus"
+		return nil
+	}); err != nil {
+		t.Fatalf("seed settings: %v", err)
+	}
+
+	if err := SetPaused(s, true); err != nil {
+		t.Fatalf("SetPaused: %v", err)
+	}
+	cfg, _ := s.LoadConfig()
+	if !cfg.Settings.Paused {
+		t.Fatal("pause switch not set")
+	}
+	if cfg.Settings.DefaultModel != "opus" || len(cfg.Tasks) != 1 {
+		t.Fatalf("SetPaused disturbed the rest of the config: %+v", cfg)
+	}
+
+	if err := SetPaused(s, false); err != nil {
+		t.Fatalf("SetPaused off: %v", err)
+	}
+	if cfg, _ = s.LoadConfig(); cfg.Settings.Paused {
+		t.Fatal("pause switch not cleared")
+	}
+}
+
 func TestMoveReordersPriority(t *testing.T) {
 	s := openStore(t)
 	_ = AddTask(s, mk("a"))

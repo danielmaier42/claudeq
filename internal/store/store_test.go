@@ -49,6 +49,7 @@ func TestSaveLoadConfigRoundTripPreservesOrder(t *testing.T) {
 	in := Config{
 		Settings: Settings{
 			DefaultModel: "claude-opus-4-8",
+			Paused:       true,
 			Pushover:     Pushover{Token: "tok", UserKey: "usr"},
 		},
 		Tasks: []task.Task{sampleTask("a"), sampleTask("b"), sampleTask("c")},

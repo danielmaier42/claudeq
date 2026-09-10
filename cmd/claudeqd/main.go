@@ -99,6 +99,11 @@ func cmdRun(args []string) error {
 	}
 	if cfg, err := st.LoadConfig(); err == nil {
 		_ = st.PruneHistory(cfg.Settings.RunHistoryLimit())
+		// Say it out loud: a daemon that starts nothing all night looks broken
+		// otherwise, and the log is the only place to look.
+		if cfg.Settings.Paused {
+			fmt.Fprintln(os.Stdout, "claudeqd: all runs are paused (Settings → Pause all runs); nothing will start")
+		}
 	}
 	// Installs predating the last-run bookkeeping have it only in history.
 	if _, err := st.BackfillLastRuns(); err != nil {

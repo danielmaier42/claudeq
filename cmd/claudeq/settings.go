@@ -59,6 +59,7 @@ type settingsPatch struct {
 	maxRunHistory    int
 	systemPrompt     string
 	systemPromptFile string
+	paused           bool
 	pushoverOn       bool
 	pushoverToken    string
 	pushoverUser     string
@@ -72,6 +73,7 @@ func (p *settingsPatch) register(fs *flag.FlagSet) {
 	fs.IntVar(&p.maxRunHistory, "max-run-history", 0, "runs to keep before pruning (0 = default, negative = keep all)")
 	fs.StringVar(&p.systemPrompt, "system-prompt", "", "custom system prompt appended to every run")
 	fs.StringVar(&p.systemPromptFile, "system-prompt-file", "", "read the custom system prompt from a file ('-' = stdin)")
+	fs.BoolVar(&p.paused, "paused", false, "pause every run globally (nothing starts while on)")
 	fs.BoolVar(&p.pushoverOn, "pushover", false, "send notifications to Pushover")
 	fs.StringVar(&p.pushoverToken, "pushover-token", "", "Pushover API token")
 	fs.StringVar(&p.pushoverUser, "pushover-user", "", "Pushover user key")
@@ -120,6 +122,9 @@ func (p settingsPatch) apply(s store.Settings) (store.Settings, error) {
 	if p.set["system-prompt"] {
 		s.SystemPrompt = p.systemPrompt
 	}
+	if p.set["paused"] {
+		s.Paused = p.paused
+	}
 	if p.set["pushover"] {
 		s.Pushover.Enabled = p.pushoverOn
 	}
@@ -142,6 +147,7 @@ type settingsView struct {
 	IdleTimeoutMinutes int    `json:"idle_timeout_minutes"`
 	MaxRunHistory      int    `json:"max_run_history"`
 	SystemPrompt       string `json:"system_prompt"`
+	Paused             bool   `json:"paused"`
 	PushoverEnabled    bool   `json:"pushover_enabled"`
 	PushoverConfigured bool   `json:"pushover_configured"`
 }
@@ -154,6 +160,7 @@ func newSettingsView(s store.Settings) settingsView {
 		IdleTimeoutMinutes: s.IdleTimeoutMinutes,
 		MaxRunHistory:      s.MaxRunHistory,
 		SystemPrompt:       s.SystemPrompt,
+		Paused:             s.Paused,
 		PushoverEnabled:    s.Pushover.Enabled,
 		PushoverConfigured: s.Pushover.Token != "" && s.Pushover.UserKey != "",
 	}
@@ -161,6 +168,7 @@ func newSettingsView(s store.Settings) settingsView {
 
 func printSettings(s store.Settings) {
 	v := newSettingsView(s)
+	fmt.Printf("paused:                    %s\n", pausedLabel(v.Paused))
 	fmt.Printf("default_model:             %s\n", orDefault(v.DefaultModel, "(Claude's own default)"))
 	fmt.Printf("claude_path:               %s\n", orDefault(v.ClaudePath, "(auto-detect)"))
 	fmt.Printf("heartbeat_minutes:         %s\n", numericLabel(v.HeartbeatMinutes, store.DefaultHeartbeatMinutes, ""))
@@ -172,6 +180,15 @@ func printSettings(s store.Settings) {
 		return
 	}
 	fmt.Printf("\nsystem_prompt:\n%s\n", v.SystemPrompt)
+}
+
+// pausedLabel spells out what the pause switch means, so the line reads as a
+// state and not as a flag the reader has to interpret.
+func pausedLabel(paused bool) string {
+	if paused {
+		return "yes (no run starts at all)"
+	}
+	return "no"
 }
 
 func orDefault(v, fallback string) string {

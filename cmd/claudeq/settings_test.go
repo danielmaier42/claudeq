@@ -28,7 +28,7 @@ func TestSettingsPatchApply(t *testing.T) {
 	base := store.Settings{
 		DefaultModel: "sonnet", ClaudePath: "/bin/claude",
 		HeartbeatMinutes: 30, IdleTimeoutMinutes: 45, MaxRunHistory: 100,
-		SystemPrompt: "old", Pushover: store.Pushover{Enabled: true, Token: "tok", UserKey: "usr"},
+		SystemPrompt: "old", Paused: true, Pushover: store.Pushover{Enabled: true, Token: "tok", UserKey: "usr"},
 	}
 
 	tests := []struct {
@@ -53,6 +53,11 @@ func TestSettingsPatchApply(t *testing.T) {
 				s.IdleTimeoutMinutes, s.MaxRunHistory, s.HeartbeatMinutes = -1, -1, 0
 				return s
 			},
+		},
+		{
+			name: "pause switch off",
+			args: []string{"--paused=false"},
+			want: func(s store.Settings) store.Settings { s.Paused = false; return s },
 		},
 		{
 			name: "claude path and system prompt",
@@ -155,6 +160,26 @@ func TestSettingsViewMasksCredentials(t *testing.T) {
 	}
 	if strings.Contains(pushoverLabel(v), "secret") {
 		t.Error("the label leaks the credentials")
+	}
+}
+
+func TestSettingsPatchTurnsPauseOn(t *testing.T) {
+	p := parsePatch(t, []string{"--paused=true"}, nil)
+	got, err := p.apply(store.Settings{})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if !got.Paused {
+		t.Fatal("--paused=true did not set the switch")
+	}
+}
+
+func TestPausedLabel(t *testing.T) {
+	if got := pausedLabel(true); !strings.Contains(got, "yes") {
+		t.Errorf("pausedLabel(true) = %q", got)
+	}
+	if got := pausedLabel(false); got != "no" {
+		t.Errorf("pausedLabel(false) = %q", got)
 	}
 }
 

@@ -767,3 +767,92 @@ func TestServesDashboard(t *testing.T) {
 		t.Fatal("dashboard HTML should mention claudeq")
 	}
 }
+
+func TestPauseEndpointTogglesOnlyThatSetting(t *testing.T) {
+	srv, st := newServer(t, nil)
+	if err := st.SaveConfig(store.Config{Settings: store.Settings{
+		DefaultModel: "opus", HeartbeatMinutes: 30,
+		Pushover: store.Pushover{Enabled: true, Token: "tok", UserKey: "usr"},
+	}}); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	r := do(t, srv, "POST", "/api/pause", map[string]bool{"paused": true})
+	if r.Status != http.StatusOK {
+		t.Fatalf("pause status = %d (%s)", r.Status, r.Body)
+	}
+	var got map[string]bool
+	r.into(t, &got)
+	if !got["paused"] {
+		t.Fatalf("response = %v, want paused:true", got)
+	}
+	cfg, _ := st.LoadConfig()
+	if !cfg.Settings.Paused {
+		t.Fatal("pause was not persisted")
+	}
+	// The switch travels alone: everything else must survive it.
+	if cfg.Settings.DefaultModel != "opus" || cfg.Settings.HeartbeatMinutes != 30 || cfg.Settings.Pushover.Token != "tok" {
+		t.Fatalf("pause clobbered other settings: %+v", cfg.Settings)
+	}
+
+	if r := do(t, srv, "POST", "/api/pause", map[string]bool{"paused": false}); r.Status != http.StatusOK {
+		t.Fatalf("resume status = %d (%s)", r.Status, r.Body)
+	}
+	cfg, _ = st.LoadConfig()
+	if cfg.Settings.Paused {
+		t.Fatal("resume was not persisted")
+	}
+}
+
+func TestPutSettingsCannotClobberThePauseSwitch(t *testing.T) {
+	srv, st := newServer(t, nil)
+	if r := do(t, srv, "POST", "/api/pause", map[string]bool{"paused": true}); r.Status != http.StatusOK {
+		t.Fatalf("pause status = %d", r.Status)
+	}
+	// A settings form filled in before the pause was flipped carries paused:false.
+	body := map[string]any{"default_model": "opus", "paused": false}
+	if r := do(t, srv, "PUT", "/api/settings", body); r.Status != http.StatusOK {
+		t.Fatalf("put settings = %d", r.Status)
+	}
+	cfg, _ := st.LoadConfig()
+	if !cfg.Settings.Paused {
+		t.Fatal("a stale settings payload resumed the queue")
+	}
+	if cfg.Settings.DefaultModel != "opus" {
+		t.Fatalf("the rest of the payload was not applied: %+v", cfg.Settings)
+	}
+}
+
+func TestSettingsExposePausedState(t *testing.T) {
+	srv, st := newServer(t, nil)
+	if err := st.SaveConfig(store.Config{Settings: store.Settings{Paused: true}}); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	var s store.Settings
+	do(t, srv, "GET", "/api/settings", nil).into(t, &s)
+	if !s.Paused {
+		t.Fatal("GET /api/settings did not report the pause state")
+	}
+}
+
+func TestRunNowRefusedWhilePaused(t *testing.T) {
+	sr := &stubRunner{done: make(chan string, 1)}
+	srv, _ := newServer(t, sr)
+	do(t, srv, "POST", "/api/tasks", sampleTask("a"))
+	if r := do(t, srv, "POST", "/api/pause", map[string]bool{"paused": true}); r.Status != http.StatusOK {
+		t.Fatalf("pause status = %d", r.Status)
+	}
+
+	r := do(t, srv, "POST", "/api/tasks/a/run-now", nil)
+	if r.Status != http.StatusConflict {
+		t.Fatalf("run-now while paused = %d, want 409 (%s)", r.Status, r.Body)
+	}
+	if !strings.Contains(string(r.Body), "paused") {
+		t.Fatalf("409 body does not say why: %s", r.Body)
+	}
+	select {
+	case id := <-sr.done:
+		t.Fatalf("runner was invoked for %q while paused", id)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
