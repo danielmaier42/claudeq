@@ -195,18 +195,21 @@ The dashboard (and the native window that wraps it) has five views, plus a
 **Feedback** entry at the bottom of the sidebar ([below](#sending-feedback)):
 
 - **Queue** — the pending tasks in priority order. Add, edit, delete, enable/pause,
-  reorder, or **run now** (a manual test run, independent of the trigger). While
-  the global pause switch is on, a yellow banner sits above the list (with a
-  **Resume runs** button) and **Run now** is disabled on every row. A
-  running one-shot task moves to Activity; a recurring task stays here with a
-  *running* badge; hovering its cron expression shows the next occurrence and
-  when it last ran. Underneath each task sits a badge for every option it has
-  switched on: *parallel*, *granted* (orange, the task skips permission
-  prompts), *notifies* (blue), and *silent* (quiet history). A task the rate
-  limit interrupted carries a *rescheduled* badge (orange) whose tooltip names
-  when its interrupted session continues. An **export** button on each row saves
-  the task as a `.claudeq` file via the native save panel, and **Import…** in the
-  toolbar opens such a file in the task sheet for review.
+  reorder, or **run now** (a manual test run, independent of the trigger). The
+  **All / Active** switch in the toolbar hides the paused tasks; the list then
+  says how many are hidden, and moving a task up puts it above the next visible
+  one, skipping the hidden tasks in between. While the global pause switch is
+  on, a yellow banner sits above the list (with a **Resume runs** button) and
+  **Run now** is disabled on every row. A running one-shot task moves to
+  Activity; a recurring task stays here with a *running* badge; hovering its
+  cron expression shows the next occurrence and when it last ran. Underneath
+  each task sits a badge for every option it has switched on: *parallel*,
+  *granted* (orange, the task skips permission prompts), *notifies* (blue), and
+  *silent* (quiet history). A task the rate limit interrupted carries a
+  *rescheduled* badge (orange) whose tooltip names when its interrupted session
+  continues. An **export** button on each row saves the task as a `.claudeq`
+  file via the native save panel, and **Import…** in the toolbar opens such a
+  file in the task sheet for review.
 - **Activity** — every run, newest first, with an unread badge for new results.
   Open a run to see the live/finished log as a chat view or raw output, along
   with the prompt; a running task can be stopped from there with **Cancel task**
