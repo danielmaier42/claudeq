@@ -196,11 +196,11 @@ The dashboard (and the native window that wraps it) has five views, plus a
 
 - **Queue** — the pending tasks in priority order. Add, edit, delete, enable/pause,
   reorder, or **run now** (a manual test run, independent of the trigger). The
-  **All / Active** switch in the toolbar hides the paused tasks; the list then
-  says how many are hidden, and moving a task up puts it above the next visible
-  one, skipping the hidden tasks in between. While the global pause switch is
-  on, a yellow banner sits above the list (with a **Resume runs** button) and
-  **Run now** is disabled on every row. A running one-shot task moves to
+  **All / Active** switch in the toolbar hides the paused tasks; moving a task
+  up then puts it above the next visible one, skipping the hidden tasks in
+  between. While the global pause switch is on, a yellow banner sits above the
+  list (with a **Resume runs** button) and **Run now** is disabled on every
+  row. A running one-shot task moves to
   Activity; a recurring task stays here with a *running* badge; hovering its
   cron expression shows the next occurrence and when it last ran. Underneath
   each task sits a badge for every option it has switched on: *parallel*,

@@ -617,9 +617,6 @@ async function loadTasks(){
   if(paused) c.append(pauseBanner());
   if(!tasks.length){ c.append(emptyState('No tasks yet','Create your first task to queue work for Claude.')); return; }
   if(!shown.length){ c.append(emptyState('No active tasks','All '+tasks.length+' task'+(tasks.length!==1?'s are':' is')+' paused — switch the filter to All to see them.')); return; }
-  const hidden=tasks.length-shown.length;
-  const label=el('div','section-label',shown.length+' task'+(shown.length!==1?'s':'')
-    +(hidden?' · '+hidden+' paused hidden':'')+' · top = highest priority'); c.append(label);
   const g=el('div','group');
   shown.forEach((t,i)=>{
     let when;
