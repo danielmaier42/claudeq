@@ -21,8 +21,12 @@ const DefaultWebhookTemplate = `{"title":"{{title}}","message":"{{message}}","ur
 var webhookFields = []string{"title", "message", "url"}
 
 // webhookPlaceholder matches any {{...}} in a template, so unknown fields can
-// be named in the error rather than silently passed through.
-var webhookPlaceholder = regexp.MustCompile(`{{\s*([A-Za-z_]*)\s*}}`)
+// be named in the error rather than silently passed through. The capture
+// group is deliberately wider than the three known field names (letters,
+// digits, dot and hyphen) so a mistyped {{title2}} or {{run-id}} is still
+// caught as unknown instead of slipping past this pattern uncaught and being
+// posted to the endpoint verbatim.
+var webhookPlaceholder = regexp.MustCompile(`{{\s*([A-Za-z0-9_.-]*)\s*}}`)
 
 // Webhook posts notifications as JSON to any URL. It is the one channel that
 // covers services claudeq does not know about: Slack, Discord and Teams
@@ -37,8 +41,11 @@ type Webhook struct {
 	Client *http.Client
 }
 
-// Configured reports whether the channel has somewhere to post to.
-func (w Webhook) Configured() bool { return IsWebURL(strings.TrimSpace(w.URL)) }
+// Configured reports whether the channel can deliver. Delegates to
+// ValidateWebhook rather than restating the rule, so a template with an
+// unknown placeholder or broken JSON (a hand-edited config.toml) is skipped
+// instead of posting garbage on every send.
+func (w Webhook) Configured() bool { return ValidateWebhook(w.URL, w.Template) == nil }
 
 // Notify posts the rendered template to the endpoint.
 func (w Webhook) Notify(ctx context.Context, n Notification) error {

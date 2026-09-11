@@ -35,9 +35,11 @@ type Ntfy struct {
 	Client *http.Client
 }
 
-// Configured reports whether the channel can publish. Only the topic is
-// required: the server has a default and the token is optional.
-func (t Ntfy) Configured() bool { return strings.TrimSpace(t.Topic) != "" }
+// Configured reports whether the channel can publish. Delegates to
+// ValidateNtfy rather than restating the rule, so a server address that
+// cannot be turned into an endpoint (a hand-edited config.toml, a config
+// copied from another machine) is skipped instead of failing on every send.
+func (t Ntfy) Configured() bool { return ValidateNtfy(t.Server, t.Topic) == nil }
 
 // Notify publishes the notification to the topic. A link is sent as ntfy's
 // click action, so tapping the notification on the phone opens it.
@@ -87,6 +89,14 @@ func NtfyEndpoint(server string) (string, error) {
 	}
 	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return "", fmt.Errorf("%q is not an http(s) URL", server)
+	}
+	// A path here is almost always the topic pasted into the wrong field (ntfy's
+	// own web UI shows a subscriber the full "https://ntfy.sh/<topic>" URL): kept
+	// as-is, messages would publish as JSON POSTs to that path instead of the
+	// server root, which ntfy answers 2xx while showing the raw JSON as the
+	// message body instead of a proper title/click notification.
+	if u.Path != "" && u.Path != "/" {
+		return "", fmt.Errorf("%q has a path (%q) — that belongs in the topic field, not the server", server, u.Path)
 	}
 	return strings.TrimRight(u.String(), "/"), nil
 }

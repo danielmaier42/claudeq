@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 type recordRunner struct {
@@ -136,6 +137,39 @@ func TestMultiFansOutAndJoinsErrors(t *testing.T) {
 	}
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("expected joined error, got %v", err)
+	}
+}
+
+// slowNotifier blocks for a fixed duration, so a test can tell whether Multi
+// ran its notifiers concurrently or one after another.
+type slowNotifier struct{ delay time.Duration }
+
+func (s slowNotifier) Notify(ctx context.Context, _ Notification) error {
+	select {
+	case <-time.After(s.delay):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// The caller (engine.send) wraps the whole call in one shared context. If
+// Multi ran notifiers one after another, three 200ms channels would need a
+// 600ms budget; run concurrently, the whole call takes about as long as the
+// slowest single channel. This is what stops a hung Pushover from starving
+// the ntfy/webhook channels behind it in the fixed order.
+func TestMultiRunsNotifiersConcurrently(t *testing.T) {
+	m := Multi{Notifiers: []Notifier{
+		slowNotifier{delay: 200 * time.Millisecond},
+		slowNotifier{delay: 200 * time.Millisecond},
+		slowNotifier{delay: 200 * time.Millisecond},
+	}}
+	start := time.Now()
+	if err := m.Notify(context.Background(), Notification{}); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 350*time.Millisecond {
+		t.Fatalf("took %s, want ~200ms — notifiers ran sequentially instead of concurrently", elapsed)
 	}
 }
 

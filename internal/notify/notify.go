@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/danielmaier42/claudeq/internal/system"
 )
@@ -158,24 +159,39 @@ func (p Pushover) Notify(ctx context.Context, n Notification) error {
 }
 
 // Multi fans a notification out to several notifiers, best-effort: it attempts
-// all of them and joins any errors.
+// all of them concurrently and joins any errors. Concurrent because the caller
+// bounds the whole call with one shared context (engine.send's 15s budget) —
+// run sequentially, a slow channel would eat into, or exhaust, the time left
+// for every channel behind it.
 type Multi struct {
 	Notifiers []Notifier
 }
 
 // Notify delivers to every configured notifier.
 func (m Multi) Notify(ctx context.Context, n Notification) error {
-	var errs []string
-	for _, notifier := range m.Notifiers {
+	var wg sync.WaitGroup
+	errs := make([]string, len(m.Notifiers))
+	for i, notifier := range m.Notifiers {
 		if notifier == nil {
 			continue
 		}
-		if err := notifier.Notify(ctx, n); err != nil {
-			errs = append(errs, err.Error())
+		wg.Add(1)
+		go func(i int, notifier Notifier) {
+			defer wg.Done()
+			if err := notifier.Notify(ctx, n); err != nil {
+				errs[i] = err.Error()
+			}
+		}(i, notifier)
+	}
+	wg.Wait()
+	var joined []string
+	for _, e := range errs {
+		if e != "" {
+			joined = append(joined, e)
 		}
 	}
-	if len(errs) > 0 {
-		return fmt.Errorf("notify: %s", strings.Join(errs, "; "))
+	if len(joined) > 0 {
+		return fmt.Errorf("notify: %s", strings.Join(joined, "; "))
 	}
 	return nil
 }

@@ -208,13 +208,16 @@ func cmdRun(args []string) error {
 // after the next restart.
 type liveNotifier struct{ st *store.Store }
 
-// Notify delivers to every channel that is switched on and configured.
+// Notify delivers to every channel that is switched on and configured. A
+// config that fails to load is reported rather than swallowed: silently
+// falling back to a zero Settings would drop every remote channel from this
+// send (and every send after, until the file is fixed) with no trace of why.
 func (l liveNotifier) Notify(ctx context.Context, n notify.Notification) error {
-	var settings store.Settings
-	if cfg, err := l.st.LoadConfig(); err == nil {
-		settings = cfg.Settings
+	cfg, err := l.st.LoadConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "claudeqd: notify: load config: %v (falling back to macOS-only)\n", err)
 	}
-	return notify.Multi{Notifiers: notifyChannels(settings)}.Notify(ctx, n)
+	return notify.Multi{Notifiers: notifyChannels(cfg.Settings)}.Notify(ctx, n)
 }
 
 // notifyChannels assembles the notification channels: native macOS always, plus

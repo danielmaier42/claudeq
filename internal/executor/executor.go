@@ -107,7 +107,7 @@ Notes:
 // reports a change without producing an artifact.
 const notifySystemPrompt = `
 
-When something needs the operator's attention right now — a watched condition changed, a check found a problem, a result they asked to be told about — send a notification over the operator's configured channels (macOS Notification Center and, if set up, Pushover):
+When something needs the operator's attention right now — a watched condition changed, a check found a problem, a result they asked to be told about — send a notification over the operator's configured channels (macOS Notification Center, and whichever of Pushover, ntfy or a webhook are set up):
 
   "${CLAUDEQ_BIN:-claudeq}" notify --title "<short title>" --message "<what happened>"
 

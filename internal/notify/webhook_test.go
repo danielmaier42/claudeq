@@ -105,6 +105,9 @@ func TestWebhookNotConfigured(t *testing.T) {
 	if !(Webhook{URL: " https://example.com/hook "}).Configured() {
 		t.Error("a padded URL is still a URL")
 	}
+	if (Webhook{URL: "https://example.com/hook", Template: `{"text":"{{titel}}"}`}).Configured() {
+		t.Error("a URL with an unusable template must not count as configured")
+	}
 	if err := (Webhook{}).Notify(context.Background(), Notification{}); err == nil {
 		t.Fatal("expected an error when not configured")
 	}
@@ -124,13 +127,15 @@ func TestValidateWebhook(t *testing.T) {
 	}
 
 	bad := map[string]struct{ url, tpl string }{
-		"no url":              {"", DefaultWebhookTemplate},
-		"not http":            {"ftp://example.com/hook", DefaultWebhookTemplate},
-		"not a url at all":    {"hooks.example.com", DefaultWebhookTemplate},
-		"unknown placeholder": {"https://example.com/h", `{"text":"{{titel}}"}`},
-		"missing brace":       {"https://example.com/h", `{"text":"{{title}}"`},
-		"not json":            {"https://example.com/h", `title={{title}}`},
-		"unquoted value":      {"https://example.com/h", `{"text":{{title}}}`},
+		"no url":                            {"", DefaultWebhookTemplate},
+		"not http":                          {"ftp://example.com/hook", DefaultWebhookTemplate},
+		"not a url at all":                  {"hooks.example.com", DefaultWebhookTemplate},
+		"unknown placeholder":               {"https://example.com/h", `{"text":"{{titel}}"}`},
+		"unknown placeholder with a digit":  {"https://example.com/h", `{"text":"{{title2}}"}`},
+		"unknown placeholder with a hyphen": {"https://example.com/h", `{"text":"{{run-id}}"}`},
+		"missing brace":                     {"https://example.com/h", `{"text":"{{title}}"`},
+		"not json":                          {"https://example.com/h", `title={{title}}`},
+		"unquoted value":                    {"https://example.com/h", `{"text":{{title}}}`},
 	}
 	for name, c := range bad {
 		if err := ValidateWebhook(c.url, c.tpl); err == nil {

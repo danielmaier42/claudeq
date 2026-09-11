@@ -93,6 +93,9 @@ func TestNtfyNotConfigured(t *testing.T) {
 	if (Ntfy{Topic: "   "}).Configured() {
 		t.Fatal("whitespace is not a topic")
 	}
+	if (Ntfy{Topic: "nightly", Server: "ftp://ntfy.sh"}).Configured() {
+		t.Fatal("a topic with an unusable server must not count as configured")
+	}
 	if err := (Ntfy{}).Notify(context.Background(), Notification{}); err == nil {
 		t.Fatal("expected an error when not configured")
 	}
@@ -117,7 +120,7 @@ func TestNtfyEndpoint(t *testing.T) {
 			t.Errorf("NtfyEndpoint(%q) = %q, want %q", in, got, want)
 		}
 	}
-	for _, in := range []string{"ftp://ntfy.sh", "not a server", "https://"} {
+	for _, in := range []string{"ftp://ntfy.sh", "not a server", "https://", "https://ntfy.sh/mytopic"} {
 		if got, err := NtfyEndpoint(in); err == nil {
 			t.Errorf("NtfyEndpoint(%q) = %q, want an error", in, got)
 		}
@@ -129,12 +132,13 @@ func TestValidateNtfy(t *testing.T) {
 		t.Fatalf("a plain topic on the default server is valid: %v", err)
 	}
 	cases := map[string][2]string{
-		"empty topic":      {"", "  "},
-		"topic as a URL":   {"", "https://ntfy.sh/mytopic"},
-		"topic with slash": {"", "team/nightly"},
-		"topic too long":   {"", strings.Repeat("a", 65)},
-		"bad character":    {"", "nightly!"},
-		"bad server":       {"ftp://ntfy.sh", "nightly"},
+		"empty topic":              {"", "  "},
+		"topic as a URL":           {"", "https://ntfy.sh/mytopic"},
+		"topic with slash":         {"", "team/nightly"},
+		"topic too long":           {"", strings.Repeat("a", 65)},
+		"bad character":            {"", "nightly!"},
+		"bad server":               {"ftp://ntfy.sh", "nightly"},
+		"topic pasted into server": {"https://ntfy.sh/mytopic", "nightly"},
 	}
 	for name, c := range cases {
 		if err := ValidateNtfy(c[0], c[1]); err == nil {
