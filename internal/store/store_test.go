@@ -51,6 +51,8 @@ func TestSaveLoadConfigRoundTripPreservesOrder(t *testing.T) {
 			DefaultModel: "claude-opus-4-8",
 			Paused:       true,
 			Pushover:     Pushover{Token: "tok", UserKey: "usr"},
+			Ntfy:         Ntfy{Enabled: true, Server: "https://ntfy.example.com", Topic: "claudeq", Token: "ntk"},
+			Webhook:      Webhook{Enabled: true, URL: "https://hooks.example.com/x", Template: `{"text":"{{title}}: {{message}}"}`},
 		},
 		Tasks: []task.Task{sampleTask("a"), sampleTask("b"), sampleTask("c")},
 	}

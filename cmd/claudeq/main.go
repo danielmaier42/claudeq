@@ -62,7 +62,9 @@ Usage:
                    [--idle-timeout-minutes N] [--max-run-history N]
                    [--system-prompt S | --system-prompt-file PATH]
                    [--paused=BOOL] [--pushover=BOOL] [--pushover-token T]
-                   [--pushover-user U]
+                   [--pushover-user U] [--ntfy=BOOL] [--ntfy-server S]
+                   [--ntfy-topic T] [--ntfy-token T] [--webhook=BOOL]
+                   [--webhook-url U] [--webhook-template J]
                    (--paused=true stops every run globally; nothing starts, not
                    even run-now, until it is set back to false)
   claudeq --version`

@@ -506,6 +506,12 @@ type Settings struct {
 	HeartbeatMinutes int `toml:"heartbeat_minutes" json:"heartbeat_minutes"`
 	// Pushover holds mobile-notification credentials (FA-41). Used from Phase 4.
 	Pushover Pushover `toml:"pushover" json:"pushover"`
+	// Ntfy holds the ntfy push channel: a topic on ntfy.sh or a self-hosted
+	// instance.
+	Ntfy Ntfy `toml:"ntfy" json:"ntfy"`
+	// Webhook holds the generic JSON webhook channel — the one that covers a
+	// service claudeq does not know about (Slack, Discord, Home Assistant, n8n).
+	Webhook Webhook `toml:"webhook" json:"webhook"`
 	// ClaudePath is an absolute path to the Claude Code binary. Empty means
 	// claudeq auto-detects it (the daemon's launchd PATH excludes ~/.local/bin,
 	// so an explicit path is often needed). The GUI pre-fills this via detection.
@@ -597,4 +603,22 @@ type Pushover struct {
 	Enabled bool   `toml:"enabled" json:"enabled"`
 	Token   string `toml:"token" json:"token"`
 	UserKey string `toml:"user_key" json:"user_key"`
+}
+
+// Ntfy holds the ntfy channel's configuration and whether it is enabled. Server
+// empty means the public ntfy.sh; Token is only needed for a protected topic.
+type Ntfy struct {
+	Enabled bool   `toml:"enabled" json:"enabled"`
+	Server  string `toml:"server" json:"server"`
+	Topic   string `toml:"topic" json:"topic"`
+	Token   string `toml:"token" json:"token"`
+}
+
+// Webhook holds the generic webhook channel's configuration and whether it is
+// enabled. Template empty means claudeq's own JSON body (see
+// notify.DefaultWebhookTemplate).
+type Webhook struct {
+	Enabled  bool   `toml:"enabled" json:"enabled"`
+	URL      string `toml:"url" json:"url"`
+	Template string `toml:"template" json:"template"`
 }

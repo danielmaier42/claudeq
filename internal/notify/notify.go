@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
+	"sync"
 
 	"github.com/danielmaier42/claudeq/internal/system"
 )
@@ -125,6 +125,18 @@ type Pushover struct {
 // Configured reports whether credentials are present.
 func (p Pushover) Configured() bool { return p.Token != "" && p.UserKey != "" }
 
+// ValidatePushover checks credentials before they are saved, so an enabled
+// channel with a missing key is refused instead of quietly delivering nothing.
+func ValidatePushover(token, userKey string) error {
+	if strings.TrimSpace(token) == "" {
+		return fmt.Errorf("pushover: the API token is required")
+	}
+	if strings.TrimSpace(userKey) == "" {
+		return fmt.Errorf("pushover: the user key is required")
+	}
+	return nil
+}
+
 // Notify posts the message to Pushover.
 func (p Pushover) Notify(ctx context.Context, n Notification) error {
 	if !p.Configured() {
@@ -143,46 +155,43 @@ func (p Pushover) Notify(ctx context.Context, n Notification) error {
 	if n.URL != "" {
 		form.Set("url", n.URL)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
-	if err != nil {
-		return fmt.Errorf("build pushover request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	client := p.Client
-	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Second}
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("pushover request: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("pushover returned status %d", resp.StatusCode)
-	}
-	return nil
+	return post(ctx, p.Client, "pushover", endpoint, "application/x-www-form-urlencoded", form.Encode(), nil)
 }
 
 // Multi fans a notification out to several notifiers, best-effort: it attempts
-// all of them and joins any errors.
+// all of them concurrently and joins any errors. Concurrent because the caller
+// bounds the whole call with one shared context (engine.send's 15s budget) —
+// run sequentially, a slow channel would eat into, or exhaust, the time left
+// for every channel behind it.
 type Multi struct {
 	Notifiers []Notifier
 }
 
 // Notify delivers to every configured notifier.
 func (m Multi) Notify(ctx context.Context, n Notification) error {
-	var errs []string
-	for _, notifier := range m.Notifiers {
+	var wg sync.WaitGroup
+	errs := make([]string, len(m.Notifiers))
+	for i, notifier := range m.Notifiers {
 		if notifier == nil {
 			continue
 		}
-		if err := notifier.Notify(ctx, n); err != nil {
-			errs = append(errs, err.Error())
+		wg.Add(1)
+		go func(i int, notifier Notifier) {
+			defer wg.Done()
+			if err := notifier.Notify(ctx, n); err != nil {
+				errs[i] = err.Error()
+			}
+		}(i, notifier)
+	}
+	wg.Wait()
+	var joined []string
+	for _, e := range errs {
+		if e != "" {
+			joined = append(joined, e)
 		}
 	}
-	if len(errs) > 0 {
-		return fmt.Errorf("notify: %s", strings.Join(errs, "; "))
+	if len(joined) > 0 {
+		return fmt.Errorf("notify: %s", strings.Join(joined, "; "))
 	}
 	return nil
 }

@@ -1355,6 +1355,25 @@ async function loadSettings(){
         <div class="row"><div class="grow"><div class="title">API token</div></div><input type="text" id="s-po-token" style="max-width:230px"></div>
         <div class="row"><div class="grow"><div class="title">User key</div></div><input type="text" id="s-po-user" style="max-width:230px"></div>
       </div>
+      <div class="section-label">ntfy</div>
+      <div class="group">
+        <div class="row"><div class="grow"><div class="title">Send to ntfy</div><div class="sub">Push to a topic on ntfy.sh or on your own server</div></div>
+          <label class="switch"><input type="checkbox" id="s-ntfy-enabled"><span class="sl"></span></label></div>
+        <div class="row"><div class="grow"><div class="title">Server</div></div><input type="text" id="s-ntfy-server" placeholder="https://ntfy.sh" style="max-width:230px"></div>
+        <div class="row"><div class="grow"><div class="title">Topic</div><div class="sub">The name your phone is subscribed to</div></div><input type="text" id="s-ntfy-topic" style="max-width:230px"></div>
+        <div class="row"><div class="grow"><div class="title">Access token</div><div class="sub">Only for a protected topic</div></div><input type="text" id="s-ntfy-token" style="max-width:230px"></div>
+      </div>
+      <div class="section-label">Webhook</div>
+      <div class="group">
+        <div class="row"><div class="grow"><div class="title">Post to a webhook</div><div class="sub">Any JSON endpoint: Slack, Discord, Home Assistant, n8n</div></div>
+          <label class="switch"><input type="checkbox" id="s-wh-enabled"><span class="sl"></span></label></div>
+        <div class="row"><div class="grow"><div class="title">Endpoint</div></div><input type="text" id="s-wh-url" placeholder="https://hooks.example.com/…" style="max-width:230px"></div>
+        <div style="padding:11px 15px">
+          <div class="title" style="font-weight:500">Body</div>
+          <div style="color:var(--fg2);font-size:12px;margin:1px 0 8px">The JSON posted to the endpoint. <code>{{title}}</code>, <code>{{message}}</code> and <code>{{url}}</code> are filled in and escaped. Leave empty to send ClaudeQ's own body; set it to what the service expects (Slack wants <code>text</code>, Discord <code>content</code>).</div>
+          <textarea id="s-wh-template" rows="3" spellcheck="false" placeholder='{"text":"{{title}}: {{message}}"}' style="width:100%;box-sizing:border-box"></textarea>
+        </div>
+      </div>
     </div>
 
     <div class="s-pane" data-pane="system">
@@ -1383,6 +1402,10 @@ async function loadSettings(){
   $('#s-paused').checked=!!s.paused;
   $('#s-paused').onchange=e=>setPaused(e.target.checked);
   $('#s-po-enabled').checked=poOn; $('#s-po-token').value=s.pushover?.token||''; $('#s-po-user').value=s.pushover?.user_key||'';
+  $('#s-ntfy-enabled').checked=!!s.ntfy?.enabled; $('#s-ntfy-server').value=s.ntfy?.server||'';
+  $('#s-ntfy-topic').value=s.ntfy?.topic||''; $('#s-ntfy-token').value=s.ntfy?.token||'';
+  $('#s-wh-enabled').checked=!!s.webhook?.enabled; $('#s-wh-url').value=s.webhook?.url||'';
+  $('#s-wh-template').value=s.webhook?.template||'';
   $('#s-claude').value=s.claude_path||'';
   $('#s-sysprompt').value=s.system_prompt||'';
   // The Settings view is rebuilt on every visit, so its review controller is
@@ -1430,7 +1453,9 @@ async function saveSettings(){
     system_prompt:$('#s-sysprompt').value,
     prompt_review_disabled:!$('#s-review').checked,
     prompt_review_model:$('#s-review-model').value,
-    pushover:{enabled:$('#s-po-enabled').checked,token:$('#s-po-token').value,user_key:$('#s-po-user').value}};
+    pushover:{enabled:$('#s-po-enabled').checked,token:$('#s-po-token').value,user_key:$('#s-po-user').value},
+    ntfy:{enabled:$('#s-ntfy-enabled').checked,server:$('#s-ntfy-server').value.trim(),topic:$('#s-ntfy-topic').value.trim(),token:$('#s-ntfy-token').value.trim()},
+    webhook:{enabled:$('#s-wh-enabled').checked,url:$('#s-wh-url').value.trim(),template:$('#s-wh-template').value.trim()}};
   try{ await api('PUT','/api/settings',body); toast('Settings saved','ok'); }catch(e){ toast(e.message,'err'); }
 }
 

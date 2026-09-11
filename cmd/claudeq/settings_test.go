@@ -215,3 +215,75 @@ func TestNumericLabel(t *testing.T) {
 		}
 	}
 }
+
+func TestSettingsPatchAppliesTheNewChannels(t *testing.T) {
+	p := parsePatch(t, []string{
+		"--ntfy=true", "--ntfy-server", "https://ntfy.home.lan", "--ntfy-topic", "claudeq",
+		"--ntfy-token", "tk_1", "--webhook=true", "--webhook-url", "https://hooks.example.com/a",
+		"--webhook-template", `{"text":"{{title}}"}`,
+	}, nil)
+	got, err := p.apply(store.Settings{})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	want := store.Settings{
+		Ntfy:    store.Ntfy{Enabled: true, Server: "https://ntfy.home.lan", Topic: "claudeq", Token: "tk_1"},
+		Webhook: store.Webhook{Enabled: true, URL: "https://hooks.example.com/a", Template: `{"text":"{{title}}"}`},
+	}
+	if got != want {
+		t.Fatalf("apply = %+v, want %+v", got, want)
+	}
+	// An unmentioned channel keeps what it had, like every other setting.
+	kept, err := parsePatch(t, []string{"--default-model", "opus"}, nil).apply(want)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if kept.Ntfy != want.Ntfy || kept.Webhook != want.Webhook {
+		t.Fatalf("unmentioned channels were changed: %+v", kept)
+	}
+}
+
+// Switching a channel on from the CLI has to fail loudly when it cannot
+// deliver: the alternative is a queue that looks fine and notifies nobody.
+func TestCmdSettingsRefusesAChannelThatCannotDeliver(t *testing.T) {
+	st := newTestStore(t)
+	if err := cmdSettings(st, []string{"--ntfy=true"}); err == nil {
+		t.Fatal("expected --ntfy without a topic to be refused")
+	}
+	if cfg, _ := st.LoadConfig(); cfg.Settings.Ntfy.Enabled {
+		t.Fatal("the refused channel was switched on anyway")
+	}
+	if err := cmdSettings(st, []string{"--webhook=true", "--webhook-url", "example.com/hook"}); err == nil {
+		t.Fatal("expected a non-http webhook URL to be refused")
+	}
+	if err := cmdSettings(st, []string{"--ntfy=true", "--ntfy-topic", "claudeq"}); err != nil {
+		t.Fatalf("a topic on the default server is enough: %v", err)
+	}
+	cfg, err := st.LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if !cfg.Settings.Ntfy.Enabled || cfg.Settings.Ntfy.Topic != "claudeq" {
+		t.Fatalf("ntfy not persisted: %+v", cfg.Settings.Ntfy)
+	}
+}
+
+func TestSettingsViewMasksTheNewChannelSecrets(t *testing.T) {
+	v := newSettingsView(store.Settings{
+		Ntfy:    store.Ntfy{Enabled: true, Topic: "claudeq", Token: "tk_secret"},
+		Webhook: store.Webhook{Enabled: true, URL: "https://hooks.example.com/secret-path"},
+	})
+	if !v.NtfyTokenSet || !v.WebhookConfigured {
+		t.Fatalf("view = %+v", v)
+	}
+	// A Slack or Discord webhook URL is itself the credential, and an ntfy token
+	// always is: `claudeq settings` must not put either into scrollback.
+	for _, line := range []string{ntfyLabel(v), webhookLabel(v)} {
+		if strings.Contains(line, "tk_secret") || strings.Contains(line, "secret-path") {
+			t.Errorf("label leaks a secret: %q", line)
+		}
+	}
+	if !strings.Contains(ntfyLabel(v), "token set") {
+		t.Errorf("ntfy label should say a token is configured, got %q", ntfyLabel(v))
+	}
+}

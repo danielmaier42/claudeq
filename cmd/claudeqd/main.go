@@ -146,7 +146,7 @@ func cmdRun(args []string) error {
 	if !*noWake {
 		eng.SetWaker(&wake.Scheduler{Runner: system.Real{}, Sudo: true})
 	}
-	eng.SetNotifier(buildNotifier(st))
+	eng.SetNotifier(liveNotifier{st: st})
 	// Ask for notification permission up front (only does anything when running
 	// from the app bundle) so run-outcome notifications carry the app icon.
 	notify.RequestMacAuthorization()
@@ -202,17 +202,40 @@ func cmdRun(args []string) error {
 	return nil
 }
 
-// buildNotifier assembles the notification channels: native macOS always, plus
-// Pushover when credentials are configured (FA-39/40).
-func buildNotifier(st *store.Store) notify.Notifier {
-	notifiers := []notify.Notifier{notify.Mac{Runner: system.Real{}}}
-	if cfg, err := st.LoadConfig(); err == nil {
-		po := notify.Pushover{Token: cfg.Settings.Pushover.Token, UserKey: cfg.Settings.Pushover.UserKey}
-		if cfg.Settings.Pushover.Enabled && po.Configured() {
-			notifiers = append(notifiers, po)
-		}
+// liveNotifier is the daemon's notification fan-out. It reads the settings on
+// every send instead of once at startup, so a channel switched on (or a token
+// corrected) in Settings takes effect with the next notification rather than
+// after the next restart.
+type liveNotifier struct{ st *store.Store }
+
+// Notify delivers to every channel that is switched on and configured. A
+// config that fails to load is reported rather than swallowed: silently
+// falling back to a zero Settings would drop every remote channel from this
+// send (and every send after, until the file is fixed) with no trace of why.
+func (l liveNotifier) Notify(ctx context.Context, n notify.Notification) error {
+	cfg, err := l.st.LoadConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "claudeqd: notify: load config: %v (falling back to macOS-only)\n", err)
 	}
-	return notify.Multi{Notifiers: notifiers}
+	return notify.Multi{Notifiers: notifyChannels(cfg.Settings)}.Notify(ctx, n)
+}
+
+// notifyChannels assembles the notification channels: native macOS always, plus
+// every remote channel that is both switched on and configured (FA-39/40/41).
+// A channel switched on but left half-filled in is skipped rather than attempted
+// and logged as an error on every single notification.
+func notifyChannels(s store.Settings) []notify.Notifier {
+	notifiers := []notify.Notifier{notify.Mac{Runner: system.Real{}}}
+	if po := (notify.Pushover{Token: s.Pushover.Token, UserKey: s.Pushover.UserKey}); s.Pushover.Enabled && po.Configured() {
+		notifiers = append(notifiers, po)
+	}
+	if nt := (notify.Ntfy{Server: s.Ntfy.Server, Topic: s.Ntfy.Topic, Token: s.Ntfy.Token}); s.Ntfy.Enabled && nt.Configured() {
+		notifiers = append(notifiers, nt)
+	}
+	if wh := (notify.Webhook{URL: s.Webhook.URL, Template: s.Webhook.Template}); s.Webhook.Enabled && wh.Configured() {
+		notifiers = append(notifiers, wh)
+	}
+	return notifiers
 }
 
 // warmFileAccess reads the given directories so macOS raises its file-access

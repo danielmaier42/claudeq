@@ -146,8 +146,12 @@ The nightly cycle looks like this:
 **Visibility**
 
 - **Notifications** — native macOS notifications, plus optional
-  [Pushover](https://pushover.net) push to your phone. Failures and auth problems
-  always notify; successes notify only if the task opts in. Every published
+  [Pushover](https://pushover.net) push to your phone, an [ntfy](https://ntfy.sh)
+  topic (ntfy.sh or self-hosted), and a generic webhook whose JSON body you
+  template — the one channel that covers anything else with an incoming
+  webhook: Slack, Discord, Home Assistant, n8n. Any number of channels can be on
+  at once. Failures and auth problems always notify; successes notify only if
+  the task opts in. Every published
   artifact is announced too, and **clicking that notification opens the artifact**
   right in the window. A task can also **send its own notification** with
   `claudeq notify` — the way a watcher job reports a change without leaving a
@@ -276,6 +280,8 @@ button live.
 | | About | Version / Software updates | Current version and a manual "Check for updates" button. |
 | **Notifications** | macOS | Alerts that wait for you | Opens System Settings → Notifications, where ClaudeQ's alert style lives: *Banners* disappear on their own, *Alerts* stay until you click them. |
 | | Pushover | Send to Pushover | Toggle plus API token and user key for phone push. |
+| | ntfy | Send to ntfy | Toggle, server (empty = ntfy.sh), topic, and an optional access token for a protected topic. |
+| | Webhook | Post to a webhook | Toggle, endpoint URL, and a JSON body template using `{{title}}`, `{{message}}`, `{{url}}` (empty = ClaudeQ's own body). |
 | **System** | Runs | Stop a run with no output for | Idle-timeout watchdog: kills a hung run (default 30 min; a working run keeps streaming and is unaffected; Off disables it). |
 | | | Keep run history | How many runs (and their logs) to retain before pruning (default 500; Unlimited keeps everything). |
 | | Scheduler | Check for due tasks every | How often the daemon wakes to look for work (15 min – 6 h; also the wake safety-net interval). |
@@ -420,6 +426,8 @@ claudeq settings [--json] [--default-model M] [--claude-path PATH]
                  [--system-prompt S | --system-prompt-file PATH]
                  [--paused=BOOL]                # pause/resume every run
                  [--pushover=BOOL] [--pushover-token T] [--pushover-user U]
+                 [--ntfy=BOOL] [--ntfy-server S] [--ntfy-topic T] [--ntfy-token T]
+                 [--webhook=BOOL] [--webhook-url U] [--webhook-template J]
 claudeq --version
 ```
 
@@ -488,12 +496,19 @@ claudeq settings --paused=false                         # let the queue run agai
 claudeq settings --prompt-review=false                  # turn the prompt review off
 claudeq settings --prompt-review-model haiku            # ("" = same as the default model)
 claudeq settings --pushover=true --pushover-token T --pushover-user U
+claudeq settings --ntfy=true --ntfy-topic claudeq-daniel   # server defaults to ntfy.sh
+claudeq settings --webhook=true --webhook-url https://hooks.slack.com/services/... \
+                  --webhook-template '{"text":"{{title}}: {{message}}"}'
 ```
 
 For the numeric settings `0` means "use the default". `--idle-timeout-minutes`
 also takes a negative value for "never kill a run", and `--max-run-history` for
-"keep every run". You can set the Pushover credentials here, but the CLI never
-prints them back; the output only says whether they are configured.
+"keep every run". You can set channel credentials here, but the CLI never
+prints them back; the output only says whether they are configured. A channel
+that is switched on but cannot deliver (no topic, no URL, an unknown
+`{{placeholder}}`) is refused at save time, from the CLI same as from the app.
+Use `claudeq notify --title X --message Y` to check a channel actually
+delivers — there is no separate Test button in the app.
 
 ## From another tool or agent
 
@@ -601,8 +616,8 @@ claudeq publish --file report.html --title "Nightly summary" --description "…"
 The file is **copied into ClaudeQ** (a permanent snapshot — later changes to the
 original don't affect it) and appears in the **Artifacts** view, attributed to
 the task and run that produced it, with an unread flag that clears as soon as you
-open it. Each publish also raises a notification (macOS, plus Pushover when it is
-configured); clicking the macOS one brings up ClaudeQ with that artifact open — in
+open it. Each publish also raises a notification (macOS, plus every remote channel that
+is configured); clicking the macOS one brings up ClaudeQ with that artifact open — in
 the in-app viewer for HTML, PDF, images and text, in your browser for anything
 else. Artifacts that were already there when this version first ran are not
 announced retroactively. HTML and PDF open in an in-app viewer; any type can be opened in your
@@ -624,16 +639,18 @@ claudeq notify --title "Prod drifted" --message "3 commits behind main" --url "h
 ```
 
 The notification goes out over the **channels you already configured** — macOS
-Notification Center and Pushover when it is set up — with the same look as
-ClaudeQ's own alerts, and attributed to the task that sent it (its name is
-appended to the message). Nothing is stored: no artifact, no history entry. The
-run's own outcome is still announced according to the task's settings, so a
-watcher that finds nothing sends nothing and stays silent.
+Notification Center, Pushover, ntfy and the webhook, each independently — with
+the same look as ClaudeQ's own alerts, and attributed to the task that sent it
+(its name is appended to the message). Nothing is stored: no artifact, no
+history entry. The run's own outcome is still announced according to the
+task's settings, so a watcher that finds nothing sends nothing and stays
+silent.
 
 - `--title` and `--message` are required. A title longer than 250 characters
   or a message longer than 1024 (Pushover's limits) is cut, not rejected.
 - `--url` is optional and must be an absolute `http` or `https` URL. Clicking
-  the macOS notification opens it; Pushover shows it as the message's link.
+  the macOS notification opens it; Pushover and ntfy show it as the message's
+  link, and the webhook fills it into `{{url}}` if the template uses it.
 - The CLI hands the notification to the daemon, which sends it on its next tick
   (a few seconds). Exit code 0 means it was queued, not that a channel accepted
   it — a channel that fails is logged by the daemon (`claudeqd.err.log`).
