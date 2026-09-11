@@ -488,6 +488,19 @@ func TestSettingsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestPutSettingsRefusesAnEnabledChannelThatCannotDeliver(t *testing.T) {
+	srv, st := newServer(t, nil)
+	body := map[string]any{"webhook": map[string]any{"enabled": true, "url": ""}}
+	r := do(t, srv, "PUT", "/api/settings", body)
+	if r.Status != http.StatusBadRequest {
+		t.Fatalf("put status = %d, want 400 (%s)", r.Status, r.Body)
+	}
+	cfg, _ := st.LoadConfig()
+	if cfg.Settings.Webhook.Enabled {
+		t.Fatal("a rejected settings payload must not be persisted")
+	}
+}
+
 type stubRunner struct{ done chan string }
 
 func (s *stubRunner) RunTaskNow(_ context.Context, id string) error {

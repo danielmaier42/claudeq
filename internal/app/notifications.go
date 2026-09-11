@@ -1,6 +1,3 @@
-// Validation of the notification channels, shared by the HTTP API and the CLI:
-// both write settings, and a channel that is switched on but cannot deliver has
-// to be refused where the operator can still see the message.
 package app
 
 import (
