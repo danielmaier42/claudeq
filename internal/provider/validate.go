@@ -3,6 +3,7 @@ package provider
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -31,6 +32,26 @@ func CheckID(id string) error {
 		}
 	}
 	return nil
+}
+
+// ExpandHome resolves a leading "~" to the current user's home directory, so a
+// path field accepts what people actually type. Only the plain forms are
+// expanded ("~" and "~/…"); "~someone/…" names another user's home, which
+// claudeq does not resolve and which the absolute-path check then rejects by
+// name. An unresolvable home leaves the path untouched, for the same check to
+// refuse.
+func ExpandHome(p string) string {
+	if p != "~" && !strings.HasPrefix(p, "~/") {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return p
+	}
+	if p == "~" {
+		return home
+	}
+	return filepath.Join(home, p[2:])
 }
 
 // Validate checks one instance's configuration against the registry: the id is

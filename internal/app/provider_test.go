@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -289,5 +291,42 @@ func TestRemovedProviderForgetsItsNotificationMemo(t *testing.T) {
 	}
 	if got := st.NotifiedProviderState("second"); got != "" {
 		t.Fatalf("memo = %q, want it forgotten with the provider", got)
+	}
+}
+
+// TestProviderPathsAcceptATilde: a path field that rejects "~/…" is a papercut,
+// and the stored value is the resolved one, so the file says what is used.
+func TestProviderPathsAcceptATilde(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("no home directory here: %v", err)
+	}
+	s := openStore(t)
+	if err := EditProvider(s, registry(), provider.DefaultInstanceID, func(i *provider.Instance) error {
+		i.BinaryPath = "~/.local/bin/claude"
+		i.ConfigDir = "~/.claude_team"
+		return nil
+	}); err != nil {
+		t.Fatalf("EditProvider: %v", err)
+	}
+	set, err := Providers(s)
+	if err != nil {
+		t.Fatalf("Providers: %v", err)
+	}
+	got, _ := set.Lookup(provider.DefaultInstanceID)
+	if got.BinaryPath != filepath.Join(home, ".local/bin/claude") {
+		t.Fatalf("binary path = %q, want it expanded", got.BinaryPath)
+	}
+	if got.ConfigDir != filepath.Join(home, ".claude_team") {
+		t.Fatalf("config dir = %q, want it expanded", got.ConfigDir)
+	}
+
+	// A relative path is still refused — expansion is not a licence for one.
+	err = EditProvider(s, registry(), provider.DefaultInstanceID, func(i *provider.Instance) error {
+		i.ConfigDir = "relative/dir"
+		return nil
+	})
+	if !errors.Is(err, provider.ErrInvalidProvider) {
+		t.Fatalf("err = %v, want a relative path still refused", err)
 	}
 }

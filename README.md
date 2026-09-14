@@ -312,6 +312,9 @@ A provider has:
 | Name | The label shown in the app and in run messages. |
 | Binary | Absolute path to the CLI. The background daemon can't see your shell `PATH`, so a full path is safest; empty auto-detects and the card offers what it found. |
 | Configuration directory | Where that CLI keeps its account and sessions. Empty uses the CLI's own. Two providers with separate directories are two separate accounts. |
+
+Both paths must be absolute; a leading `~` is expanded and stored resolved, so
+the file says what is actually used.
 | Default model | Used for tasks on this provider that name no model of their own. |
 | Enabled | Off keeps the provider and its tasks, but runs nothing on it. |
 

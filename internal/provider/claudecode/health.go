@@ -63,22 +63,23 @@ func (a *Adapter) CheckHealth(ctx context.Context, inst provider.Instance, p pro
 		}
 	}
 
-	out, err := p.Probe(ctx, a.probeCommand(inst, bin, "auth", "status", "--json"))
-	if err != nil {
-		return provider.Health{
-			State:  provider.HealthCheckFailed,
-			Binary: bin,
-			Detail: firstLine(string(version)),
-			Reason: fmt.Sprintf("Claude Code at %s could not report its login status (%s).", bin, redact(err.Error())),
-		}
-	}
+	// The answer is in the output, not in the exit status: `claude auth status`
+	// prints a perfectly good document and *still* exits non-zero when nobody is
+	// logged in. Reading the exit code first would report a logged-out account as
+	// "could not be checked" — vaguer than the truth, and weak enough that new
+	// tasks would be filed for a provider that cannot run them.
+	out, probeErr := p.Probe(ctx, a.probeCommand(inst, bin, "auth", "status", "--json"))
 	var st authStatus
 	if err := decodeStatus(out, &st); err != nil {
+		reason := "Claude Code reported its login status in a format claudeq does not understand."
+		if probeErr != nil {
+			reason = fmt.Sprintf("Claude Code at %s could not report its login status (%s).", bin, redact(probeErr.Error()))
+		}
 		return provider.Health{
 			State:  provider.HealthCheckFailed,
 			Binary: bin,
 			Detail: firstLine(string(version)),
-			Reason: "Claude Code reported its login status in a format claudeq does not understand.",
+			Reason: reason,
 		}
 	}
 	if !st.LoggedIn {

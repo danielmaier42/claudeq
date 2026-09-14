@@ -1467,7 +1467,7 @@ function providerCard(p){
         <div class="sub">Absolute path to the CLI. The background daemon can't see your shell's PATH, so a full path is safest. Empty auto-detects. ${esc(detected)}</div></div>
       <input type="text" class="p-path" placeholder="/path/to/${esc(p.id)}" style="max-width:260px"></div>
     <div class="row"><div class="grow"><div class="title">Configuration directory</div>
-        <div class="sub">Where the CLI keeps its account and sessions. Empty uses its own default.</div></div>
+        <div class="sub">Where the CLI keeps its account and sessions — another directory is another account. Absolute path; empty uses its own default.</div></div>
       <input type="text" class="p-dir" placeholder="the CLI's own" style="max-width:260px"></div>
     <div class="row"><div class="grow"><div class="title">Default model</div>
         <div class="sub">Used for tasks on this provider that name no model</div></div>

@@ -50,6 +50,7 @@ func EnsureRunnable(ctx context.Context, set provider.Set, ch *provider.Checker,
 // AddProvider stores a new provider instance. The id must be free and the whole
 // configuration must still be valid afterwards.
 func AddProvider(s *store.Store, reg *provider.Registry, inst provider.Instance) error {
+	expandPaths(&inst)
 	if err := provider.Validate(reg, inst); err != nil {
 		return err
 	}
@@ -78,6 +79,7 @@ func EditProvider(s *store.Store, reg *provider.Registry, id string, apply func(
 		if edited.ID != id {
 			return fmt.Errorf("provider id cannot be changed (%q -> %q)", id, edited.ID)
 		}
+		expandPaths(&edited)
 		if err := provider.Validate(reg, edited); err != nil {
 			return err
 		}
@@ -149,6 +151,14 @@ func SetDefaultProvider(s *store.Store, id string) error {
 		cfg.Settings.DefaultProvider = id
 		return nil
 	})
+}
+
+// expandPaths resolves a leading "~" in the instance's two paths before anything
+// is checked or stored, so the file holds the path that is actually used rather
+// than one the daemon would have to expand again on every run.
+func expandPaths(inst *provider.Instance) {
+	inst.BinaryPath = provider.ExpandHome(inst.BinaryPath)
+	inst.ConfigDir = provider.ExpandHome(inst.ConfigDir)
 }
 
 // checkDefaultStaysUsable refuses to switch off the instance that tasks naming

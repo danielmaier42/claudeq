@@ -2,6 +2,8 @@ package provider
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -68,5 +70,31 @@ func TestValidateAcceptsAPathThatIsNotThereYet(t *testing.T) {
 	inst := Instance{ID: "fake", Kind: "fake", BinaryPath: "/nowhere/at/all/fake"}
 	if err := Validate(reg, inst); err != nil {
 		t.Fatalf("Validate: %v", err)
+	}
+}
+
+func TestExpandHome(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("no home directory here: %v", err)
+	}
+	tests := []struct {
+		in, want string
+	}{
+		{in: "", want: ""},
+		{in: "~", want: home},
+		{in: "~/.claude_team", want: filepath.Join(home, ".claude_team")},
+		{in: "/opt/claude", want: "/opt/claude"},
+		// Another user's home is not ours to resolve; the absolute-path check
+		// then refuses it by name.
+		{in: "~someone/x", want: "~someone/x"},
+		{in: "relative/path", want: "relative/path"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.in, func(t *testing.T) {
+			if got := ExpandHome(tc.in); got != tc.want {
+				t.Fatalf("ExpandHome(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
 	}
 }

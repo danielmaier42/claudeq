@@ -155,6 +155,22 @@ func TestCheckHealthUnreadyStates(t *testing.T) {
 			reason: "login status",
 		},
 		{
+			name: "nobody is logged in, reported with a non-zero exit",
+			inst: func(*testing.T) provider.Instance {
+				return provider.Instance{ID: "claude", BinaryPath: bin, Enabled: true}
+			},
+			// What the real CLI does: a complete answer, and exit 1 to say no.
+			prober: &fakeProber{
+				out: map[string][]byte{
+					"--version": []byte("2.1.7"),
+					"auth":      []byte(`{"loggedIn":false,"authMethod":"none"}`),
+				},
+				err: map[string]error{"auth": errors.New("exit status 1")},
+			},
+			want:   provider.HealthNotAuthenticated,
+			reason: "claude auth login",
+		},
+		{
 			name: "the login status is not the shape claudeq knows",
 			inst: func(*testing.T) provider.Instance {
 				return provider.Instance{ID: "claude", BinaryPath: bin, Enabled: true}
