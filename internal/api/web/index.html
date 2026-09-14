@@ -631,6 +631,21 @@ async function loadUsage(){
     </div></div>`;
   c.append(head);
 
+  // Several providers mean several allowances, so the split says which account
+  // the work went to. With one provider there is nothing to split.
+  if((stats.by_provider||[]).length){
+    const split=el('div');
+    split.innerHTML=`<div class="section-label">By provider</div><div class="group">`
+      +stats.by_provider.map(p=>`<div class="row">
+          <div class="grow"><div class="title">${esc(p.name||p.id||'Not recorded')}</div>
+            <div class="sub">${p.runs} runs · ${p.success} succeeded · ${p.failed} failed · ${fmtDur(p.duration_ms)}</div></div>
+          <div style="text-align:right"><div class="usage-num" style="font-size:15px">${fmtTok(p.input_tokens+p.output_tokens)}</div>
+            <div class="sub">${fmtCost(p.cost_usd)} API-equiv.</div></div>
+        </div>`).join('')
+      +`</div>`;
+    c.append(split);
+  }
+
   const tokChart=el('div');
   tokChart.innerHTML=`<div class="section-label">Tokens per day (14d)</div>`+barChart(stats.per_day, d=>d.tokens, fmtTok);
   c.append(tokChart);
@@ -1053,7 +1068,13 @@ let runsSig='', actFrom='', actTo='', actPage=0; const ACT_PAGE=25;
 function actLocalDate(iso){ const d=new Date(iso); return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
 function actInRange(iso){ const d=actLocalDate(iso); if(actFrom && d<actFrom) return false; if(actTo && d>actTo) return false; return true; }
 async function loadRuns(){
-  let runs; try{ runs=await api('GET','/api/runs'); setConn(true);}catch(e){ setConn(false); return; }
+  let runs;
+  try{
+    // The provider list rides along: which harness a run used is only worth
+    // saying once there is more than one it could have been.
+    const [rs,ps]=await Promise.all([api('GET','/api/runs'),api('GET','/api/providers')]);
+    runs=rs; PROVIDERS=ps||PROVIDERS; setConn(true);
+  }catch(e){ setConn(false); return; }
   const unread=runs.filter(r=>r.unread).length; const badge=$('#unreadCount'); badge.hidden=unread===0; badge.textContent=unread;
   const filtered=runs.filter(r=>actInRange(r.started_at));
   const pages=Math.max(1,Math.ceil(filtered.length/ACT_PAGE));
@@ -1061,7 +1082,7 @@ async function loadRuns(){
   const pageRuns=filtered.slice(actPage*ACT_PAGE, actPage*ACT_PAGE+ACT_PAGE);
   // Re-render only when the data or view actually changed, so the 5s poll doesn't
   // rebuild the DOM (and make the buttons flicker) on every tick.
-  const sig=JSON.stringify([actFrom,actTo,actPage,LIMITED_UNTIL&&LIMITED_UNTIL.toISOString(),
+  const sig=JSON.stringify([actFrom,actTo,actPage,LIMITED_UNTIL&&LIMITED_UNTIL.toISOString(),PROVIDERS.length,
     pageRuns.map(r=>[r.run_id,r.status,r.unread,r.resume_pending,r.resume_at])]);
   if(sig===runsSig && $('#news').childElementCount) return;
   runsSig=sig;
@@ -1074,7 +1095,7 @@ async function loadRuns(){
     const gl=el('div','act-gl'); if(r.unread) gl.append(el('div','unread-dot'));
     const card=el('div','act-card');
     const dir=r.task&&r.task.working_dir?baseName(r.task.working_dir):'';
-    const grow=el('div','grow'); grow.innerHTML=`<div class="title">${esc(r.task_name)}</div><div class="sub"><span class="hint-time" data-tip="${esc(runTimeTitle(r))}">${relTime(r.started_at)}</span>${dir?' · <span class="mono">'+esc(dir)+'</span>':''}${r.resume_pending?' · <span class="resume">'+esc(resumeText(r))+'</span>':''}</div>`;
+    const grow=el('div','grow'); grow.innerHTML=`<div class="title">${esc(r.task_name)}</div><div class="sub"><span class="hint-time" data-tip="${esc(runTimeTitle(r))}">${relTime(r.started_at)}</span>${dir?' · <span class="mono">'+esc(dir)+'</span>':''}${runProviderText(r)}${r.resume_pending?' · <span class="resume">'+esc(resumeText(r))+'</span>':''}</div>`;
     const pill=el('span','pill '+r.status); pill.innerHTML=`<span class="d"></span>${esc(statusLabel(r))}`;
     const actions=el('div','row-actions');
     if(r.task){ const rp=el('button','btn small iconly',REPLAY); rp.title='Re-run this task'; rp.onclick=()=>openReplay(r.task); actions.append(rp); }
@@ -1098,6 +1119,17 @@ async function loadRuns(){
   pager.append(prev,next); foot.append(pager);
   c.append(foot);
 }
+// runProviderText names the harness a run used, with the model it used there —
+// what the run recorded, not what the task says today.
+//
+// It is left out while only one provider is configured: on every row it would
+// be noise, and the answer to "which one?" is already "the only one".
+function runProviderText(r){
+  const p=r.provider;
+  if(!p||!p.name||PROVIDERS.length<2) return '';
+  return ' · '+esc(p.name)+(p.model?' <span class="mono">'+esc(p.model)+'</span>':'');
+}
+
 // A rate-limited run reads as "rescheduled" while its session is still queued
 // to continue; once that plan is gone (resumed, canceled, task deleted) the
 // pause is just what happened to this run.
