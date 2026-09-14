@@ -17,13 +17,23 @@ type stubAdapter struct{ health provider.Health }
 
 func (stubAdapter) Kind() provider.Kind                 { return provider.KindClaudeCode }
 func (stubAdapter) Capabilities() provider.Capabilities { return provider.Capabilities{} }
-func (stubAdapter) DetectBinary() string                { return "" }
+
+func (stubAdapter) Describe() provider.Description { return provider.Description{Name: "Stub"} }
+func (stubAdapter) DetectBinary() string           { return "" }
 func (stubAdapter) ResolveBinary(provider.Instance) string {
 	return ""
 }
 
 func (s stubAdapter) CheckHealth(context.Context, provider.Instance, provider.Prober) provider.Health {
 	return s.health
+}
+
+func (stubAdapter) ListModels(context.Context, provider.Instance, provider.Prober) []provider.Model {
+	return nil
+}
+
+func (stubAdapter) InteractiveResumeCommand(provider.Instance, provider.Request) (provider.Command, error) {
+	return provider.Command{}, nil
 }
 
 func (stubAdapter) Command(provider.Instance, provider.Request) (provider.Command, error) {

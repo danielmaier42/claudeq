@@ -31,6 +31,10 @@ type Adapter struct {
 	mu       sync.Mutex
 	probed   bool   // DetectBinary has run (see DetectBinary)
 	detected string // what it found; "" means the CLI was not located
+
+	// catalog holds each instance's model list: a binary's own help text does
+	// not change while the daemon runs, but two instances can be two binaries.
+	catalog provider.Catalog
 }
 
 // New returns the Claude Code adapter.
@@ -38,6 +42,11 @@ func New() *Adapter { return &Adapter{detect: DetectBinary} }
 
 // Kind implements provider.Adapter.
 func (a *Adapter) Kind() provider.Kind { return provider.KindClaudeCode }
+
+// Describe implements provider.Adapter.
+func (a *Adapter) Describe() provider.Description {
+	return provider.Description{Name: "Claude", DefaultConfigDir: "~/.claude"}
+}
 
 // Capabilities implements provider.Adapter. Claude Code has no flag that
 // enforces a read-only or workspace-only sandbox, so those modes are not

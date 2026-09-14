@@ -131,13 +131,13 @@ func cmdRun(args []string) error {
 	registry := adapters.Default()
 	checker := provider.NewChecker(registry)
 
-	// Report the Claude Code provider's state at startup: an unattended queue
+	// Report every configured provider's state at startup: an unattended queue
 	// that starts nothing all night looks broken otherwise, and the daemon log
 	// is the only place to look.
-	claudeBin := reportProviderHealth(st, registry, checker)
+	reportProviderHealth(st, checker)
 
 	c := clock.Real{}
-	eng := engine.New(st, limit.New(c), &executor.Executor{
+	eng := engine.New(st, limit.NewGates(c), &executor.Executor{
 		Registry: registry,
 		Home:     home,
 		QueueBin: resolveQueueBin(),
@@ -169,7 +169,7 @@ func cmdRun(args []string) error {
 	httpSrv := &http.Server{
 		Addr: *addr,
 		Handler: api.Handler(api.Deps{
-			Store: st, Runner: eng, Canceler: eng, Models: api.BinaryModelLister(claudeBinOr(claudeBin)),
+			Store: st, Runner: eng, Canceler: eng,
 			ChooseFolder: api.OSAScriptFolderChooser(system.Real{}), ActiveTasks: eng.ActiveTaskIDs,
 			SaveFile:     api.OSAScriptSaveFileDialog(system.Real{}),
 			OpenTerminal: api.OSAScriptTerminalOpener(system.Real{}),
@@ -207,35 +207,27 @@ func cmdRun(args []string) error {
 // binary for the parts of the app that still ask for one directly. A daemon
 // that starts nothing all night because a CLI is missing or logged out has to
 // say so somewhere, and the log is where the operator looks.
-func reportProviderHealth(st *store.Store, reg *provider.Registry, checker *provider.Checker) string {
+func reportProviderHealth(st *store.Store, checker *provider.Checker) {
 	cfg, err := st.LoadConfig()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "claudeqd: read provider configuration:", err)
-		return ""
+		return
 	}
 	set, err := provider.FromConfig(cfg)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "claudeqd: read provider configuration:", err)
-		return ""
+		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	claudeBin := ""
 	for _, s := range checker.Statuses(ctx, set) {
 		if s.Health.Ready() {
 			fmt.Fprintf(os.Stdout, "claudeqd: provider %q ready (%s)\n", s.Instance.ID, s.Health.Binary)
 		} else {
 			fmt.Fprintf(os.Stderr, "claudeqd: provider %q is %s: %s\n", s.Instance.ID, s.Health.State, s.Health.Reason)
 		}
-		if s.Instance.Kind != provider.KindClaudeCode || claudeBin != "" {
-			continue
-		}
-		if ad, err := reg.Lookup(s.Instance.Kind); err == nil {
-			claudeBin = ad.ResolveBinary(s.Instance)
-		}
 	}
-	return claudeBin
 }
 
 // liveNotifier is the daemon's notification fan-out. It reads the settings on
@@ -441,15 +433,6 @@ func resolveQueueBin() string {
 		return cand
 	}
 	return ""
-}
-
-// claudeBinOr falls back to the bare name so the model lister still has
-// something to invoke when detection came up empty.
-func claudeBinOr(bin string) string {
-	if bin != "" {
-		return bin
-	}
-	return "claude"
 }
 
 func launchAgentsDir() (string, error) {

@@ -86,9 +86,19 @@
   .btn.primary { background:var(--accent); color:#fff; border-color:transparent; }
   .btn.primary:hover { filter:brightness(1.06); }
   .btn.danger { color:var(--danger); }
+  /* A control for something claudeq does not consider finished. It gets the
+     suggestion colour and a sparkle, so it never reads as ordinary furniture. */
+  .btn.beta { color:var(--ai); font-weight:600; border-color:color-mix(in srgb, var(--ai) 42%, transparent);
+              background:color-mix(in srgb, var(--ai) 8%, var(--card)); }
+  .btn.beta:hover { background:color-mix(in srgb, var(--ai) 14%, var(--card)); }
+  .btn.beta svg { fill:currentColor; stroke:none; width:15px; height:15px; }
   .btn.small { padding:3px 9px; font-size:12px; }
   .btn:disabled { opacity:.4; cursor:default; }
   .btn[hidden] { display:none; } /* .btn's display would otherwise beat the hidden attribute */
+  /* A row that centres one action. Same trap as .btn above: its own display
+     would beat the hidden attribute, so hiding it has to be spelled out. */
+  .center-action { display:flex; justify-content:center; margin:16px 0 28px; }
+  .center-action[hidden] { display:none; }
   .btn svg { width:14px; height:14px; stroke:currentColor; stroke-width:1.7; fill:none; flex:none; display:block; }
   .btn.iconly { padding:5px 7px; justify-content:center; }
   a.btn { text-decoration:none; }
@@ -140,6 +150,7 @@
   .chip.accent { background:color-mix(in srgb, var(--accent) 18%, transparent); color:var(--accent); }
   .chip.warn { background:color-mix(in srgb, var(--warn) 18%, transparent); color:var(--warn); }
   .chip.danger { background:color-mix(in srgb, var(--danger) 18%, transparent); color:var(--danger); }
+  .chip.beta { background:color-mix(in srgb, var(--ai) 18%, transparent); color:var(--ai); }
   .chip.running { background:color-mix(in srgb, var(--accent) 18%, transparent); color:var(--accent); }
   .chip.running::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--accent); margin-right:5px; vertical-align:middle; animation:cqpulse 1.2s ease-in-out infinite; }
   @keyframes cqpulse { 0%,100%{opacity:1} 50%{opacity:.35} }
@@ -190,6 +201,11 @@
   .dir-row input { flex:1; }
   .icon-btn { padding:4px 8px; }
   .icon-btn svg { width:15px; height:15px; stroke:currentColor; stroke-width:1.8; fill:none; display:block; }
+  /* Selects keep the platform's own control by default, which sits oddly next to
+     the text fields they share a row with. Same box, one chevron drawn in. */
+  select { appearance:none; -webkit-appearance:none; padding-right:28px;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%238e8e93' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+    background-repeat:no-repeat; background-position:right 9px center; background-size:12px; }
   input:focus, textarea:focus, select:focus { outline:2px solid color-mix(in srgb,var(--accent) 50%,transparent); outline-offset:-1px; }
   textarea { resize:vertical; }
   .form-row { display:flex; gap:12px; } .form-row > div { flex:1; }
@@ -302,14 +318,14 @@
     <button data-tab="usage">
       <svg viewBox="0 0 20 20"><path d="M3 14a7 7 0 1 1 14 0"/><path d="M10 14l4-4"/></svg>
       Usage</button>
-    <button data-tab="settings">
-      <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="2.5"/><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5.5 5.5l1.4 1.4M13.1 13.1l1.4 1.4M14.5 5.5l-1.4 1.4M6.9 13.1l-1.4 1.4"/></svg>
-      Settings <span id="updateBadge" class="count" hidden>1</span></button>
   </nav>
   <nav class="nav nav-foot">
     <button id="feedbackNav" data-tip="Report a bug or suggest a feature — Claude drafts the GitHub issue, you file it">
       <svg viewBox="0 0 20 20"><path d="M16.5 12.5a1.5 1.5 0 0 1-1.5 1.5H7l-3.5 3V5A1.5 1.5 0 0 1 5 3.5h10A1.5 1.5 0 0 1 16.5 5z"/></svg>
       Feedback</button>
+    <button data-tab="settings">
+      <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="2.5"/><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5.5 5.5l1.4 1.4M13.1 13.1l1.4 1.4M14.5 5.5l-1.4 1.4M6.9 13.1l-1.4 1.4"/></svg>
+      Settings <span id="updateBadge" class="count" hidden>1</span></button>
   </nav>
   <div class="side-foot"><span class="dot" id="connDot"></span><span id="connText">connected</span>
     <a href="https://github.com/danielmaier42/claudeq" target="_blank" rel="noopener" title="claudeq on GitHub"
@@ -363,7 +379,9 @@
         — <span class="mono">0 20 * * *</span> = daily at 20:00. Hover a field for details.</div>
     </div>
     <div class="form-row">
+      <div><label class="fld">Provider</label><select id="f-provider"></select></div>
       <div><label class="fld">Model</label><select id="f-model"></select></div>
+      <div id="f-reasoning-wrap" hidden><label class="fld">Reasoning effort</label><select id="f-reasoning"></select></div>
     </div>
     <div class="group" style="margin-top:14px">
       <div class="row"><div class="grow"><div class="title">Run in parallel</div><div class="sub">May run alongside other parallel tasks</div></div>
@@ -420,6 +438,22 @@
 </dialog>
 
 <!-- Confirm sheet -->
+<dialog id="providerSheet">
+  <div class="sheet-hd"><b>Add provider</b></div>
+  <div class="sheet-bd">
+    <div class="form-row">
+      <div><label class="fld">Id</label><input type="text" id="np-id" placeholder="claude-work"></div>
+      <div><label class="fld">Type</label><select id="np-kind"></select></div>
+    </div>
+    <label class="fld">Name</label><input type="text" id="np-name" placeholder="Shown in the app and in run messages">
+    <label class="fld">Configuration directory</label><input type="text" id="np-dir" placeholder="the CLI's own">
+    <div class="hint" style="margin-top:6px">The id is how tasks name this provider and cannot be changed later, nor can the type. Give it its own configuration directory to make it a second account, with its own sessions and its own rate limit. Everything else is set on its card afterwards.</div>
+    <p id="np-err" class="hint" style="color:var(--danger)"></p>
+  </div>
+  <div class="sheet-ft"><button class="btn" onclick="providerSheet.close()">Cancel</button>
+    <button class="btn primary" id="np-add">Add provider</button></div>
+</dialog>
+
 <dialog id="confirmSheet">
   <div class="sheet-bd" style="padding-top:20px"><b id="confirmText">Are you sure?</b></div>
   <div class="sheet-ft"><button class="btn" id="confirmNo">Cancel</button><button class="btn danger" id="confirmYes">Delete</button></div>
@@ -485,10 +519,14 @@ document.querySelectorAll('dialog').forEach(d=>d.addEventListener('click',e=>{ i
 
 let MODELS=[];
 async function loadModels(){ try{ MODELS=await api('GET','/api/models'); }catch{ MODELS=[]; } }
-function modelOptions(selected,globalLabel){
-  let h=`<option value="">${esc(globalLabel)}</option>`;
-  MODELS.forEach(m=>{ h+=`<option value="${esc(m.id)}"${m.id===selected?' selected':''}>${esc(m.label)}</option>`; });
-  if(selected && !MODELS.some(m=>m.id===selected)) h+=`<option value="${esc(selected)}" selected>${esc(selected)} (custom)</option>`;
+function modelOptions(selected,globalLabel){ return modelOptionsFrom(MODELS,selected,globalLabel); }
+// modelOptionsFrom renders a model picker. A stored model the list does not
+// contain is kept and marked custom: a catalog is a suggestion, and a task must
+// never lose the model it was given because discovery came back short.
+function modelOptionsFrom(models,selected,emptyLabel){
+  let h=`<option value="">${esc(emptyLabel)}</option>`;
+  (models||[]).forEach(m=>{ h+=`<option value="${esc(m.id)}"${m.id===selected?' selected':''}>${esc(m.label)}</option>`; });
+  if(selected && !(models||[]).some(m=>m.id===selected)) h+=`<option value="${esc(selected)}" selected>${esc(selected)} (custom)</option>`;
   return h;
 }
 function optionsFor(list,val,customLabel){
@@ -624,6 +662,10 @@ function cronTip(t){ const l=[];
   return l.join('\n'); }
 
 let tasksSig='', tasksOnlyActive=false;
+// BETA_PROVIDERS are the configured instances claudeq does not consider
+// finished, so every row that names one can say so. It is filled from
+// /api/providers, which is also what the Queue poll refreshes.
+let BETA_PROVIDERS=new Set();
 function taskFilterSeg(){
   const seg=el('div','seg');
   const mk=(v,label,tip)=>{ const b=el('button',null,label); b.dataset.v=v; b.title=tip;
@@ -639,12 +681,13 @@ async function loadTasks(){
   // The pause state rides along with the queue: it decides the banner and
   // whether Run now is offered at all, and both must be right on every poll.
   let tasks, paused=false;
-  try{ const [t,s]=await Promise.all([api('GET','/api/tasks'),api('GET','/api/settings')]);
-    tasks=t; paused=!!s.paused; setConn(true);
+  try{ const [t,s,ps]=await Promise.all([api('GET','/api/tasks'),api('GET','/api/settings'),api('GET','/api/providers')]);
+    tasks=t; paused=!!s.paused; PROVIDERS=ps||[]; SHOW_BETA=!!s.beta_features; setConn(true);
+    BETA_PROVIDERS=new Set(PROVIDERS.filter(p=>p.beta).flatMap(p=>p.default?[p.id,'']:[p.id]));
   }catch(e){ setConn(false); return; }
   tasks=tasks||[];
   const shown=tasksOnlyActive?tasks.filter(t=>t.enabled):tasks;
-  const sig=JSON.stringify([paused,tasksOnlyActive,tasks.length,LIMITED_UNTIL&&LIMITED_UNTIL.toISOString(),shown.map(t=>[t.id,t.name,t.trigger,t.enabled,t.parallel,t.permissions,t.notify_on_result,t.quiet_history,t.fixed_at,t.cron,t.next_run,t.last_run,t.running,t.waiting_for_limit,t.blocked_reason])]);
+  const sig=JSON.stringify([paused,tasksOnlyActive,tasks.length,LIMITED_UNTIL&&LIMITED_UNTIL.toISOString(),shown.map(t=>[t.id,t.name,t.trigger,t.enabled,t.parallel,t.permissions,t.notify_on_result,t.quiet_history,t.fixed_at,t.cron,t.next_run,t.last_run,t.running,t.waiting_for_limit,t.blocked_reason,t.provider])]);
   if(sig===tasksSig && $('#tasks').childElementCount) return;   // avoid flicker on poll
   tasksSig=sig;
   const c=$('#tasks'); c.innerHTML='';
@@ -659,6 +702,7 @@ async function loadTasks(){
     else when='as soon as possible';
     const row=el('div','row');
     const tags=[];
+    if(BETA_PROVIDERS.has(t.provider||'')) tags.push('<span class="chip beta" title="This task runs on a provider that is still in beta">beta</span>');
     if(t.blocked_reason) tags.push(`<span class="chip danger" title="${esc(t.blocked_reason+' The task keeps its place and starts by itself once the provider works again.')}">blocked</span>`);
     if(t.waiting_for_limit) tags.push(`<span class="chip warn" title="${esc('The rate limit interrupted this task. Its Claude session '+resumeTimeText(LIMITED_UNTIL)+' — drop the resume in Activity with “Cancel resume”.')}">rescheduled</span>`);
     if(t.parallel) tags.push('<span class="chip" title="Runs alongside other parallel tasks">parallel</span>');
@@ -710,30 +754,76 @@ async function setPaused(on){
 function emptyState(big,sub){ const d=el('div','empty'); d.innerHTML=`<div class="big">${esc(big)}</div><div>${esc(sub)}</div>`; return d; }
 
 let taskMode='add', taskEditId='';
-// The sheet has no provider control yet, so the task's provider rides along
-// invisibly: prefilling remembers it and submitting sends it back. Without this
-// an edit or a replay would silently move the task onto the default provider.
-let taskProvider='';
 function pad2(n){ return String(n).padStart(2,'0'); }
 function toLocalDT(iso){ const d=new Date(iso); return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate())+'T'+pad2(d.getHours())+':'+pad2(d.getMinutes()); }
 function prefillTask(t){
   $('#f-name').value=t.name||''; $('#f-prompt').value=t.prompt||''; $('#f-dir').value=t.working_dir||'';
-  $('#f-model').innerHTML=modelOptions(t.model||'','Provider default');
   $('#f-parallel').checked=!!t.parallel; $('#f-skip').checked=(t.permissions==='skip'); $('#f-notify').checked=!!t.notify_on_result;
   $('#f-quiet').checked=!!t.quiet_history;
-  taskProvider=t.provider||'';
+  fillProviderChoices(t.provider||'', t.model||'', t.reasoning_effort||'');
   setSeg(t.trigger||'asap');
   $('#f-at').value=(t.trigger==='fixed'&&t.fixed_at)?toLocalDT(t.fixed_at):'';
   $('#f-cron').value=t.trigger==='cron'?(t.cron||''):'';
 }
+// REASONING_LEVELS are what a harness that takes a reasoning effort accepts.
+// The list is claudeq's, not a provider's: it is a suggestion in a picker, and a
+// value a provider does not know is refused by the provider, not here.
+const REASONING_LEVELS=['low','medium','high','xhigh'];
+
+// fillProviderChoices renders the provider, model and reasoning-effort fields
+// together, because they belong together: the model list comes from the provider
+// the task will run on, and changing the provider must not carry a model from
+// the old one into the new one.
+//
+// Only providers that can actually run are offered. A task already pointed at
+// one that cannot keeps it in the list, marked — an existing task stays visible
+// with the reason it is blocked rather than being quietly moved.
+async function fillProviderChoices(providerID, model, effort){
+  const sel=$('#f-provider');
+  if(!PROVIDERS.length){
+    try{
+      const [ps,st]=await Promise.all([api('GET','/api/providers'),api('GET','/api/settings')]);
+      PROVIDERS=ps||[]; SHOW_BETA=!!st.beta_features;
+    }catch{}
+  }
+  const offered=PROVIDERS.filter(p=>p.enabled&&p.health&&p.health.state==='ready'&&(!p.beta||betaAllowed()));
+  const current=PROVIDERS.find(p=>p.id===providerID);
+  if(providerID && current && !offered.some(p=>p.id===providerID)) offered.push(current);
+  const dflt=PROVIDERS.find(p=>p.default);
+  sel.innerHTML=`<option value="">${esc(dflt?`Default (${dflt.name||dflt.id})`:'Default provider')}</option>`
+    +offered.map(p=>{
+      const ready=p.health&&p.health.state==='ready';
+      const label=(p.name||p.id)+(p.beta?' (beta)':'')+(ready?'':' — '+(p.health?p.health.state.replace(/_/g,' '):'unavailable'));
+      return `<option value="${esc(p.id)}"${p.id===providerID?' selected':''}>${esc(label)}</option>`;
+    }).join('')
+    +(providerID && !current?`<option value="${esc(providerID)}" selected>${esc(providerID)} — not configured</option>`:'');
+  sel.onchange=()=>fillTaskModels(sel.value,'');
+  await fillTaskModels(providerID, model, effort);
+}
+// fillTaskModels asks the chosen provider for its models and shows the
+// reasoning-effort field only where the harness takes one.
+async function fillTaskModels(providerID, model, effort){
+  let models=[];
+  try{ models=await api('GET','/api/models'+(providerID?'?provider='+encodeURIComponent(providerID):''))||[]; }catch{}
+  $('#f-model').innerHTML=modelOptionsFrom(models,model||'','Provider default');
+  const chosen=PROVIDERS.find(p=>p.id===(providerID||(PROVIDERS.find(x=>x.default)||{}).id));
+  const takesEffort=!!chosen && !!chosen.reasoning_effort;
+  $('#f-reasoning-wrap').hidden=!takesEffort;
+  if(takesEffort){
+    $('#f-reasoning').innerHTML=`<option value="">Provider default</option>`
+      +REASONING_LEVELS.map(l=>`<option value="${l}"${l===effort?' selected':''}>${l}</option>`).join('')
+      +(effort&&!REASONING_LEVELS.includes(effort)?`<option value="${esc(effort)}" selected>${esc(effort)} (custom)</option>`:'');
+  }
+}
+
 function openSheet(title,submitLabel){ $('#addErr').textContent=''; $('#f-dir-hint').hidden=true; $('#f-dir-hint').textContent='';
   clearTimeout(cronTimer); cronVerdict.expr=null; showCronStatus(null); cronRecheck();
   $('#addSheetTitle').textContent=title; $('#addSubmitBtn').textContent=submitLabel; $('#addSheet').showModal();
   taskReview.run(); }   // an imported, edited or replayed prompt is reviewed as it opens; an empty new one costs nothing
-function openAdd(){ taskMode='add'; taskEditId=''; taskProvider='';
+function openAdd(){ taskMode='add'; taskEditId='';
   ['f-name','f-prompt','f-dir','f-at','f-cron'].forEach(x=>$('#'+x).value='');
-  $('#f-model').innerHTML=modelOptions('','Provider default');
   $('#f-parallel').checked=false; $('#f-skip').checked=false; $('#f-notify').checked=false; $('#f-quiet').checked=false; setSeg('asap');
+  fillProviderChoices('','','');
   openSheet('New task','Add task'); }
 async function openEdit(t){ taskMode='edit'; taskEditId=t.id;
   // Re-fetch the latest saved task: loadTasks skips re-rendering when only
@@ -794,7 +884,8 @@ async function submitTask(){
     cron: trig==='cron'?$('#f-cron').value.trim():undefined, model:$('#f-model').value||undefined,
     parallel:$('#f-parallel').checked, enabled:true, permissions:$('#f-skip').checked?'skip':'default',
     notify_on_result:$('#f-notify').checked, quiet_history:$('#f-quiet').checked,
-    provider:taskProvider||undefined};
+    provider:$('#f-provider').value||undefined,
+    reasoning_effort:$('#f-reasoning-wrap').hidden?undefined:($('#f-reasoning').value||undefined)};
   if(!t.working_dir){ $('#addErr').textContent='Please choose a working directory.'; return; }
   if(trig==='cron'){
     // The reason stays on the field itself — repeating it at the footer would say
@@ -1348,9 +1439,10 @@ async function loadSettings(){
     </div>
 
     <div class="s-pane" data-pane="providers">
-      <div class="section-label">Providers</div>
-      <div class="group" id="s-providers"><div class="row"><div class="grow"><div class="sub">Loading…</div></div></div></div>
-      <div class="sub" style="margin-top:10px">A provider is one configured agent harness. Tasks run on it, and a task that names none runs on the default. ClaudeQ never stores a provider's login — the CLI owns that.</div>
+      <div id="s-providers"><div class="group"><div class="row"><div class="grow"><div class="sub">Loading…</div></div></div></div></div>
+      <div id="s-provider-add" class="center-action" hidden>
+        <button class="btn beta" id="s-add-provider">${SPARK}<span>Add provider</span></button>
+      </div>
     </div>
 
     <div class="s-pane" data-pane="notifications">
@@ -1401,6 +1493,12 @@ async function loadSettings(){
         <div class="row"><div class="grow"><div class="title">Check for due tasks every</div><div class="sub">How often the daemon wakes to look for work</div></div>
           <select id="s-hb" style="max-width:170px">${hbHtml}</select></div>
       </div>
+      <div class="section-label">Beta features</div>
+      <div class="group">
+        <div class="row"><div class="grow"><div class="title">Beta features</div>
+          <div class="sub multi">Parts of ClaudeQ that are not finished yet. It decides what the app offers and nothing else: anything already set up keeps working, and the <code>claudeq</code> CLI accepts it either way.</div></div>
+          <label class="switch"><input type="checkbox" id="s-beta"><span class="sl"></span></label></div>
+      </div>
     </div>
 
     <div class="sub" style="text-align:center;margin-top:10px">Made with <span style="color:var(--accent)">♥</span> by
@@ -1413,6 +1511,16 @@ async function loadSettings(){
   $('#s-wh-enabled').checked=!!s.webhook?.enabled; $('#s-wh-url').value=s.webhook?.url||'';
   $('#s-wh-template').value=s.webhook?.template||'';
   $('#s-sysprompt').value=s.system_prompt||'';
+  SHOW_BETA=!!s.beta_features;
+  $('#s-beta').checked=SHOW_BETA;
+  // Revealing beta providers changes what may be added and what a task may be
+  // pointed at, so the lists are rebuilt rather than left saying something else.
+  $('#s-beta').onchange=async e=>{
+    try{ await api('PUT','/api/settings',{...(await api('GET','/api/settings')),beta_features:e.target.checked}); }
+    catch(err){ toast(err.message,'err'); e.target.checked=!e.target.checked; return; }
+    SHOW_BETA=e.target.checked;
+    loadProviders();
+  };
   // The Settings view is rebuilt on every visit, so its review controller is
   // bound to the fresh nodes here. The system prompt has no working directory:
   // it is appended to every task, wherever that task runs.
@@ -1425,6 +1533,8 @@ async function loadSettings(){
   if(reviewOn) sysReview.run();
   $('#s-check-updates').onclick=checkForUpdates;
   $('#s-notif-settings').onclick=openNotificationSettings;
+  $('#s-add-provider').onclick=openAddProvider;
+  $('#np-add').onclick=submitProvider;
   c.querySelectorAll('#s-tabs button').forEach(b=>b.onclick=()=>selectSettingsPane(b.dataset.pane));
   selectSettingsPane(settingsPane);
   renderUpdateBox(); renderVersionRow(); renderUpdateBadge();
@@ -1448,47 +1558,71 @@ function providerStateChip(h){
   const chip=cls==='ok'?'chip accent':(cls==='err'?'chip danger':'chip warn');
   return `<span class="${chip}">${esc(label)}</span>`;
 }
+// PROVIDERS is the last list the daemon reported, kept so the task form can
+// offer the providers a task may run on without asking again on every keystroke.
+let PROVIDERS=[], PROVIDER_KINDS=[];
+// SHOW_BETA is the operator's "beta features" preference, read from the
+// settings rather than from the Settings form — the task sheet needs it on a
+// fresh page load, long before that form exists.
+//
+// It gates offering only: a beta provider that is already configured keeps its
+// block and runs its tasks either way.
+let SHOW_BETA=false;
+function betaAllowed(){ return SHOW_BETA; }
 async function loadProviders(){
-  const box=$('#s-providers'); if(!box) return;
-  let list; try{ list=await api('GET','/api/providers'); }catch(e){
-    box.innerHTML=`<div class="row"><div class="grow"><div class="sub">${esc(e.message)}</div></div></div>`; return; }
+  const box=$('#s-providers');
+  try{ PROVIDERS=await api('GET','/api/providers')||[]; }catch(e){
+    if(box) box.innerHTML=`<div class="group"><div class="row"><div class="grow"><div class="sub">${esc(e.message)}</div></div></div></div>`;
+    return; }
+  if(!PROVIDER_KINDS.length){ try{ PROVIDER_KINDS=await api('GET','/api/providers/kinds')||[]; }catch{} }
+  if(!box) return;
   box.innerHTML='';
-  (list||[]).forEach(p=>box.append(providerCard(p)));
+  PROVIDERS.forEach(p=>box.append(providerBlock(p)));
+  // Adding a provider is one of the parts claudeq does not consider finished,
+  // so the button appears only once the operator has asked for those.
+  const add=$('#s-provider-add');
+  if(add) add.hidden=!betaAllowed();
 }
-function providerCard(p){
+// providerBlock is one provider's settings block: its name and kind above it,
+// the way every other group in Settings is introduced.
+function providerBlock(p){
   const wrap=el('div');
   const detected=p.detected?`Detected: ${p.detected}`:'';
+  const chips=providerStateChip(p.health)
+    +(p.default?'<span class="chip">default</span>':'')
+    +(p.beta?'<span class="chip beta">beta</span>':'');
   wrap.innerHTML=`
-    <div class="row"><div class="grow">
-        <div class="title">${esc(p.name||p.id)} ${providerStateChip(p.health)}${p.default?'<span class="chip">default</span>':''}</div>
-        <div class="sub multi">${esc(p.health.reason||p.health.detail||'')}</div></div>
-      <label class="switch"><input type="checkbox" ${p.enabled?'checked':''}><span class="sl"></span></label></div>
-    <div class="row"><div class="grow"><div class="title">Binary</div>
-        <div class="sub">Absolute path to the CLI. The background daemon can't see your shell's PATH, so a full path is safest. Empty auto-detects. ${esc(detected)}</div></div>
-      <input type="text" class="p-path" placeholder="/path/to/${esc(p.id)}" style="max-width:260px"></div>
-    <div class="row"><div class="grow"><div class="title">Configuration directory</div>
-        <div class="sub">Where the CLI keeps its account and sessions — another directory is another account. Absolute path; empty uses its own default.</div></div>
-      <input type="text" class="p-dir" placeholder="the CLI's own" style="max-width:260px"></div>
-    <div class="row"><div class="grow"><div class="title">Default model</div>
-        <div class="sub">Used for tasks on this provider that name no model</div></div>
-      <select class="p-model" style="max-width:230px">${modelOptions(p.default_model||'','Provider default')}</select></div>
-    <div class="row"><div class="grow"><div class="sub">${esc(p.health.binary||'')}</div></div>
-      <button class="btn p-default"${p.default||!p.enabled?' disabled':''}>Make default</button>
-      <button class="btn p-check">Check again</button>
-      <button class="btn primary p-save">Save</button></div>`;
+    <div class="section-label" style="margin-top:18px">${esc(p.name||p.id)} · ${esc(p.type_name||p.kind)}</div>
+    <div class="group">
+      <div class="row"><div class="grow">
+          <div class="title">${chips}</div>
+          <div class="sub multi"><span class="mono">${esc(p.id)}</span>${p.health.reason||p.health.detail?' — '+esc(p.health.reason||p.health.detail):''}</div></div>
+        <label class="switch"><input type="checkbox" ${p.enabled?'checked':''}><span class="sl"></span></label></div>
+      <div class="row"><div class="grow"><div class="title">Name</div>
+          <div class="sub">What this provider is called in the app and in run messages</div></div>
+        <input type="text" class="p-name" style="max-width:260px"></div>
+      <div class="row"><div class="grow"><div class="title">Binary</div>
+          <div class="sub">Absolute path to the CLI. The background daemon can't see your shell's PATH, so a full path is safest. Empty auto-detects. ${esc(detected)}</div></div>
+        <input type="text" class="p-path" placeholder="${esc(p.detected||'/path/to/the CLI')}" style="max-width:260px"></div>
+      <div class="row"><div class="grow"><div class="title">Configuration directory</div>
+          <div class="sub">Where the CLI keeps its account and sessions — another directory is another account. Absolute path (<code>~</code> is fine); empty uses its own default.</div></div>
+        <input type="text" class="p-dir" placeholder="${esc(p.default_config_dir||"the CLI's own")}" style="max-width:260px"></div>
+      <div class="row"><div class="grow"><div class="title">Default model</div>
+          <div class="sub">Used for tasks on this provider that name no model</div></div>
+        <select class="p-model" style="max-width:230px"></select></div>
+      <div class="row"><div class="grow"><div class="sub">${esc(p.health.binary||'')}</div></div>
+        <button class="btn p-default"${p.default||!p.enabled?' disabled':''}>Make default</button>
+        <button class="btn p-check">Check again</button>
+        <button class="btn danger p-remove"${p.default?' disabled':''}>Remove</button></div>
+    </div>`;
+  wrap.querySelector('.p-name').value=p.name||'';
   wrap.querySelector('.p-path').value=p.binary_path||'';
   wrap.querySelector('.p-dir').value=p.config_dir||'';
-  const save=async patch=>{
-    const body={name:p.name,binary_path:wrap.querySelector('.p-path').value.trim(),
-      config_dir:wrap.querySelector('.p-dir').value.trim(),
-      default_model:wrap.querySelector('.p-model').value,
-      enabled:wrap.querySelector('.switch input').checked, ...patch};
-    try{ await api('PUT','/api/providers/'+encodeURIComponent(p.id),body); toast('Provider saved','ok'); }
-    catch(e){ toast(e.message,'err'); }
-    loadProviders();
-  };
-  wrap.querySelector('.p-save').onclick=()=>save({});
-  wrap.querySelector('.switch input').onchange=()=>save({});
+  fillProviderModels(wrap.querySelector('.p-model'),p);
+  // The block is a form like every other group in Settings: Save at the top of
+  // the page writes it (see saveSettings). What sits here are actions, not
+  // edits — they take effect at once and reload the list.
+  wrap.dataset.providerId=p.id;
   wrap.querySelector('.p-check').onclick=async ()=>{
     try{ await api('POST','/api/providers/'+encodeURIComponent(p.id)+'/check'); }catch(e){ toast(e.message,'err'); }
     loadProviders();
@@ -1498,9 +1632,57 @@ function providerCard(p){
     catch(e){ toast(e.message,'err'); }
     loadProviders();
   };
+  wrap.querySelector('.p-remove').onclick=async ()=>{
+    if(!await confirmSheetAsk(`Remove the provider “${p.name||p.id}”?`,'Remove','Keep it')) return;
+    try{ await api('DELETE','/api/providers/'+encodeURIComponent(p.id)); toast('Provider removed','ok'); }
+    catch(e){ toast(e.message,'err'); }
+    loadProviders();
+  };
   return wrap;
 }
+// openAddProvider asks for the things that cannot be changed afterwards — the
+// id and the kind — plus the two that decide what the new provider *is*. The
+// rest is on its card once it exists.
+function openAddProvider(){
+  const kinds=PROVIDER_KINDS.filter(k=>!k.beta||betaAllowed());
+  $('#np-kind').innerHTML=kinds.map(k=>`<option value="${esc(k.kind)}">${esc(k.name||k.kind)}${k.beta?' (beta)':''}</option>`).join('');
+  $('#np-id').value=''; $('#np-name').value=''; $('#np-dir').value=''; $('#np-err').textContent='';
+  // The placeholder is the chosen harness's own location, so an empty field
+  // says what it falls back to rather than leaving it to be guessed.
+  const showDefaultDir=()=>{
+    const k=PROVIDER_KINDS.find(x=>x.kind===$('#np-kind').value);
+    $('#np-dir').placeholder=(k&&k.default_config_dir)||"the CLI's own";
+  };
+  $('#np-kind').onchange=showDefaultDir;
+  showDefaultDir();
+  $('#providerSheet').showModal();
+  $('#np-id').focus();
+}
+async function submitProvider(){
+  const id=$('#np-id').value.trim();
+  if(!id){ $('#np-err').textContent='Give the provider an id — tasks name it by that.'; return; }
+  const body={id, kind:$('#np-kind').value, name:$('#np-name').value.trim()||id,
+    config_dir:$('#np-dir').value.trim()};
+  try{ await api('POST','/api/providers',body); }
+  catch(e){ $('#np-err').textContent=e.message; return; }
+  $('#providerSheet').close();
+  toast('Provider added','ok');
+  loadProviders();
+}
 
+// fillProviderModels asks the provider itself what it suggests, so a Codex card
+// offers Codex models and a Claude card offers Claude's. The stored value is
+// kept even when the list does not contain it: a model catalog is a suggestion,
+// never validation.
+async function fillProviderModels(select,p){
+  // The stored value is rendered first and replaced only once the real list has
+  // arrived: blanking the field while the request is out would let a Save in
+  // that window write an empty default model.
+  select.innerHTML=modelOptionsFrom([],p.default_model||'','Provider default');
+  let models=[];
+  try{ models=await api('GET','/api/models?provider='+encodeURIComponent(p.id))||[]; }catch{ return; }
+  select.innerHTML=modelOptionsFrom(models,p.default_model||'','Provider default');
+}
 // Show one settings pane. The choice is remembered for the session, so leaving
 // Settings and coming back lands on the pane you were last on.
 function selectSettingsPane(pane){
@@ -1517,6 +1699,21 @@ function openNotificationSettings(){
   if(window.cqOpenExternal) window.cqOpenExternal(url);
   else toast('Open System Settings → Notifications → ClaudeQ','ok');
 }
+// providerEdits reads every provider block back as the payload its instance
+// takes. The blocks are part of the Settings form, so one Save writes them all.
+function providerEdits(){
+  return [...document.querySelectorAll('#s-providers [data-provider-id]')].map(w=>({
+    id:w.dataset.providerId,
+    body:{
+      name:w.querySelector('.p-name').value.trim(),
+      binary_path:w.querySelector('.p-path').value.trim(),
+      config_dir:w.querySelector('.p-dir').value.trim(),
+      default_model:w.querySelector('.p-model').value,
+      enabled:w.querySelector('.switch input').checked,
+    },
+  }));
+}
+
 async function saveSettings(){
   // No paused: the switch writes itself through /api/pause and the server keeps
   // whatever is stored, so Save neither carries nor resets it.
@@ -1526,10 +1723,22 @@ async function saveSettings(){
     system_prompt:$('#s-sysprompt').value,
     prompt_review_disabled:!$('#s-review').checked,
     prompt_review_model:$('#s-review-model').value,
+    beta_features:$('#s-beta').checked,
     pushover:{enabled:$('#s-po-enabled').checked,token:$('#s-po-token').value,user_key:$('#s-po-user').value},
     ntfy:{enabled:$('#s-ntfy-enabled').checked,server:$('#s-ntfy-server').value.trim(),topic:$('#s-ntfy-topic').value.trim(),token:$('#s-ntfy-token').value.trim()},
     webhook:{enabled:$('#s-wh-enabled').checked,url:$('#s-wh-url').value.trim(),template:$('#s-wh-template').value.trim()}};
-  try{ await api('PUT','/api/settings',body); toast('Settings saved','ok'); }catch(e){ toast(e.message,'err'); }
+  try{ await api('PUT','/api/settings',body); }catch(e){ toast(e.message,'err'); return; }
+  // The provider blocks are part of this form too. Each is refused on its own
+  // terms, so a rejected one is named rather than failing the whole save
+  // silently.
+  const failed=[];
+  for(const p of providerEdits()){
+    try{ await api('PUT','/api/providers/'+encodeURIComponent(p.id),p.body); }
+    catch(e){ failed.push(`${p.id}: ${e.message}`); }
+  }
+  if(failed.length){ toast(failed.join('\n'),'err'); }
+  else toast('Settings saved','ok');
+  if(document.querySelector('#s-providers')) loadProviders();
 }
 
 /* ---- Software updates ---- */

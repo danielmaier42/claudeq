@@ -22,6 +22,55 @@ type providerView struct {
 	// Detected is the binary claudeq would use when no path is configured, so
 	// the Settings card can offer it instead of asking the operator to find it.
 	Detected string `json:"detected,omitempty"`
+	// Beta marks an instance of an adapter claudeq does not consider finished,
+	// so the app can say so wherever it names the provider.
+	Beta bool `json:"beta,omitempty"`
+	// ReasoningEffort reports whether this harness takes a reasoning-effort
+	// setting, so the task form can offer the field where it means something
+	// instead of the app having to know which kinds those are.
+	ReasoningEffort bool `json:"reasoning_effort"`
+	// TypeName is what the harness is called ("Claude"), as opposed to the
+	// adapter kind it is keyed by ("claude-code").
+	TypeName string `json:"type_name"`
+	// DefaultConfigDir is where this CLI keeps its configuration when nothing
+	// points it elsewhere, for the placeholder of the field that overrides it.
+	DefaultConfigDir string `json:"default_config_dir,omitempty"`
+}
+
+// providerKind is one adapter this build can run, for the "add a provider" form.
+type providerKind struct {
+	Kind string `json:"kind"`
+	// Name is what the harness is called, which is what the app offers; the
+	// kind is what it stores.
+	Name string `json:"name"`
+	// DefaultConfigDir is where this CLI keeps its configuration when nothing
+	// points it elsewhere, for the placeholder of the field that overrides it.
+	DefaultConfigDir string `json:"default_config_dir,omitempty"`
+	// Beta marks a kind claudeq does not consider finished. The app offers it
+	// only after the operator asks for beta features; everything else about it —
+	// the API, the CLI, the scheduler — works either way.
+	Beta bool `json:"beta"`
+}
+
+// listProviderKinds reports the adapters this build supports. The app needs it
+// to offer anything but the kind it already has, and it is the registry that
+// answers — so a later adapter appears here by being registered, with no change
+// on this side.
+func (s *server) listProviderKinds(w http.ResponseWriter, _ *http.Request) {
+	kinds := s.d.Registry.Kinds()
+	out := make([]providerKind, 0, len(kinds))
+	for _, k := range kinds {
+		ad, err := s.d.Registry.Lookup(k)
+		if err != nil {
+			continue
+		}
+		desc := ad.Describe()
+		out = append(out, providerKind{
+			Kind: string(k), Name: desc.Name, DefaultConfigDir: desc.DefaultConfigDir,
+			Beta: ad.Capabilities().Beta,
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // providerSet reads the configured instances, answering the caller with a plain
@@ -46,8 +95,11 @@ func (s *server) views(ctx context.Context, set provider.Set, only string, fresh
 		}
 		h := s.d.Providers.CheckMaybeFresh(ctx, inst, fresh)
 		v := providerView{Instance: inst, Health: h, Default: inst.ID == set.DefaultID()}
-		if inst.BinaryPath == "" {
-			if ad, err := s.d.Registry.Lookup(inst.Kind); err == nil {
+		if ad, err := s.d.Registry.Lookup(inst.Kind); err == nil {
+			caps, desc := ad.Capabilities(), ad.Describe()
+			v.Beta, v.ReasoningEffort = caps.Beta, caps.ReasoningEffort
+			v.TypeName, v.DefaultConfigDir = desc.Name, desc.DefaultConfigDir
+			if inst.BinaryPath == "" {
 				v.Detected = ad.DetectBinary()
 			}
 		}

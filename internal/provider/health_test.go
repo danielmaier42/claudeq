@@ -188,3 +188,48 @@ func TestCheckMaybeFreshProbesExactlyOnce(t *testing.T) {
 		t.Fatalf("adapter probed %d times, want the cached verdict", ad.checks)
 	}
 }
+
+// TestACutShortProbeIsNotAVerdict: a probe killed because the caller went away
+// — a cancelled request, a daemon shutting down — says nothing about the
+// provider. Remembering it would show a passing blip as a provider problem for
+// as long as the verdict lives.
+func TestACutShortProbeIsNotAVerdict(t *testing.T) {
+	ch, ad, _ := newCountingChecker(t, "fake")
+	inst := enabled("fake", "fake")
+
+	if h := ch.Check(context.Background(), inst); !h.Ready() {
+		t.Fatalf("health = %+v, want the provider ready first", h)
+	}
+
+	// Now the request goes away mid-probe.
+	ad.health = Health{State: HealthCheckFailed, Reason: "signal: killed"}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if h := ch.CheckFresh(cancelled, inst); !h.Ready() {
+		t.Fatalf("health = %+v, want the last real verdict, not the interruption", h)
+	}
+	// And it must not have been remembered either.
+	ad.health = Health{State: HealthReady}
+	if h := ch.Check(context.Background(), inst); !h.Ready() {
+		t.Fatalf("health = %+v, want the provider still ready", h)
+	}
+}
+
+// TestACutShortFirstProbeReportsWhatItHas: with nothing to fall back to, the
+// interrupted answer is returned — but still not remembered, so the next check
+// asks again instead of repeating it.
+func TestACutShortFirstProbeReportsWhatItHas(t *testing.T) {
+	ch, ad, _ := newCountingChecker(t, "fake")
+	inst := enabled("fake", "fake")
+	ad.health = Health{State: HealthCheckFailed, Reason: "signal: killed"}
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if h := ch.CheckFresh(cancelled, inst); h.State != HealthCheckFailed {
+		t.Fatalf("health = %+v, want what the interrupted probe produced", h)
+	}
+	ad.health = Health{State: HealthReady}
+	if h := ch.Check(context.Background(), inst); !h.Ready() {
+		t.Fatalf("health = %+v, want a fresh answer rather than the remembered interruption", h)
+	}
+}

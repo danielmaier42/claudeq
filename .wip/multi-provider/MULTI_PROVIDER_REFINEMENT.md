@@ -175,16 +175,29 @@ Claude (work account)  Not logged in
   [Make default]  [Check again]  [Save]  [Remove]    (•) on
 ```
 
-- **Add** asks for an id, an adapter kind and a name, then shows the new card.
-  The id is fixed once created, as is the kind: an instance keeps the harness it
-  was made for, because its tasks, sessions and pending resumes all name it.
+- Each provider is its own settings block, headed by its name and type. Its
+  fields are part of the Settings form: one Save writes every block. Checking,
+  making default and removing are actions and apply at once.
+- **Add provider** sits below them and opens a sheet asking for an id, a type, a
+  name and an optional configuration directory. The forms say *type* and name
+  the harness ("Claude"); the adapter *kind* it maps to (`claude-code`) is
+  storage, not vocabulary. The id is fixed once created, as is the type: an
+  instance keeps the harness it was made for, because its tasks, sessions and
+  pending resumes all name it.
+- A configuration-directory field shows the harness's own default as its
+  placeholder, so an empty field says what it falls back to.
+- Adding a provider is itself a beta feature, so the button appears only with
+  beta features on, and is marked as beta where it appears.
 - **Remove** refuses while a task or the default-provider setting still names
   the instance, and says which ones must be changed first.
 - The **default** cannot be switched off or removed while it holds that role.
 - A path field accepts a leading `~` and stores the resolved path, so the
   configuration file says what is actually used.
 - The rules are the store's, not the form's: the API rejects the same changes
-  the CLI rejects, and the card reports the reason it was given.
+  the CLI rejects, and the block reports the reason it was given.
+- A readiness verdict is about the provider. A probe cut short — the request was
+  abandoned, the daemon is restarting — is not one, is not remembered, and does
+  not replace the last real answer.
 
 Adding a second instance of an adapter kind is how a second subscription is
 set up: same kind, its own configuration directory, its own sessions and
@@ -192,17 +205,20 @@ rate-limit state. The UI does not treat that case specially.
 
 ### Codex beta opt-in
 
-Codex setup is initially hidden behind a UI-only beta option:
+The unfinished parts of the app are hidden behind one UI-only option, in
+Settings → System:
 
 ```text
 Beta features
 
-[ ] Set up Codex provider
-    Run tasks through the locally installed Codex CLI.
+[ ] Beta features
+    Parts of SwarmQ that are not finished yet.
 ```
 
-After opt-in, Settings shows the Codex provider card and task forms offer
-`Codex (Beta)`. Codex runs and activity rows carry a beta badge.
+The switch says what it is, not what is in it: the list would go stale with
+every stage, and what it reveals is visible where it appears. After opt-in,
+Codex becomes an addable type and task forms offer it. Codex runs and activity
+rows carry a beta badge.
 
 The option must not:
 
@@ -355,11 +371,11 @@ prompt_review_provider = "codex"
 prompt_review_model = "gpt-5.6-sol"
 feedback_provider = "claude"
 feedback_model = "haiku"
-show_codex_beta = true
+beta_features = true
 ```
 
-`show_codex_beta` is presentation state. The engine and API must never inspect
-it when deciding whether a run may start.
+`beta_features` is presentation state. The engine and API must never inspect it
+when deciding whether a run may start.
 
 ### Task fields
 

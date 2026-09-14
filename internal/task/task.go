@@ -70,6 +70,10 @@ type Task struct {
 	Provider string `toml:"provider,omitempty" json:"provider,omitempty"`
 	// Model overrides the effective provider's default model when non-empty.
 	Model string `toml:"model,omitempty" json:"model,omitempty"`
+	// ReasoningEffort asks the model to think harder or less hard. It is passed
+	// only to a provider whose adapter takes such a setting, and ignored by the
+	// rest, so it is safe to carry on a task that later moves to another one.
+	ReasoningEffort string `toml:"reasoning_effort,omitempty" json:"reasoning_effort,omitempty"`
 	// Permissions decides how Claude Code's permission prompts are handled.
 	Permissions Permissions `toml:"permissions" json:"permissions"`
 	// NotifyOnResult sends a notification with the outcome and last result

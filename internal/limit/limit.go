@@ -62,3 +62,53 @@ func (g *Gate) BlockedUntil() time.Time {
 }
 
 func (g *Gate) now() time.Time { return g.clock.Now() }
+
+// Gates are the rate-limit gates of several provider instances, one each.
+//
+// An allowance belongs to an account, not to claudeq: a Codex limit says
+// nothing about a Claude subscription, and two Claude subscriptions do not
+// share one either. So a blocked provider holds up only its own tasks, and the
+// rest of the queue keeps going.
+type Gates struct {
+	clock clock.Clock
+
+	mu sync.Mutex
+	by map[string]*Gate
+}
+
+// NewGates returns an empty set of gates using the given clock.
+func NewGates(c clock.Clock) *Gates {
+	return &Gates{clock: c, by: map[string]*Gate{}}
+}
+
+// For returns the gate of one provider instance, creating it on first use.
+func (g *Gates) For(providerID string) *Gate {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	gate, ok := g.by[providerID]
+	if !ok {
+		gate = New(g.clock)
+		g.by[providerID] = gate
+	}
+	return gate
+}
+
+// BlockedUntil returns the earliest time any gate reopens, or the zero time
+// when none is blocked. It answers "when does the queue continue?" for a
+// dashboard that shows one banner: the first provider to come back is when
+// something can run again.
+func (g *Gates) BlockedUntil() time.Time {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	var earliest time.Time
+	for _, gate := range g.by {
+		until := gate.BlockedUntil()
+		if until.IsZero() {
+			continue
+		}
+		if earliest.IsZero() || until.Before(earliest) {
+			earliest = until
+		}
+	}
+	return earliest
+}

@@ -141,6 +141,12 @@ func (c *Config) migrate() bool {
 		c.Settings.DefaultProvider = c.Providers[0].ID
 		changed = true
 	}
+	// The preference grew from "show Codex" to "show the unfinished parts", and
+	// an operator who had already asked for the one wants the other.
+	if c.Settings.LegacyShowCodexBeta {
+		c.Settings.BetaFeatures, c.Settings.LegacyShowCodexBeta = true, false
+		changed = true
+	}
 	// The instances own these two values now; leaving copies behind would give
 	// the file two answers to the same question.
 	if c.Settings.LegacyClaudePath != "" || c.Settings.LegacyDefaultModel != "" {
@@ -653,6 +659,18 @@ type Settings struct {
 	// PromptReviewModel is the model used for that review. Empty means "the same
 	// model as everything else", i.e. the reviewing provider's default model.
 	PromptReviewModel string `toml:"prompt_review_model,omitempty" json:"prompt_review_model"`
+	// BetaFeatures reveals the parts of the app claudeq does not consider
+	// finished: adding provider instances, and the Codex provider itself.
+	//
+	// It is presentation state and nothing else. Every adapter is always
+	// registered, the API and the CLI always accept every provider, and the
+	// scheduler never looks at this flag — so a Codex task made from the command
+	// line runs, and stays visible in Queue and Activity, whatever the app is
+	// showing. Hiding setup controls must never hide actual work.
+	BetaFeatures bool `toml:"beta_features,omitempty" json:"beta_features"`
+	// LegacyShowCodexBeta is what that preference was called when it governed
+	// only Codex. Read to migrate old configs (see migrate); never written back.
+	LegacyShowCodexBeta bool `toml:"show_codex_beta,omitempty" json:"-"`
 }
 
 // ErrPaused is what a refused run carries while Settings.Paused is on. A pause

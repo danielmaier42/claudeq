@@ -161,13 +161,23 @@ type stubAdapter struct {
 
 func (s stubAdapter) Kind() provider.Kind                 { return s.kind }
 func (s stubAdapter) Capabilities() provider.Capabilities { return provider.Capabilities{} }
-func (s stubAdapter) DetectBinary() string                { return "" }
+
+func (s stubAdapter) Describe() provider.Description { return provider.Description{Name: "Stub"} }
+func (s stubAdapter) DetectBinary() string           { return "" }
 func (s stubAdapter) ResolveBinary(provider.Instance) string {
 	return ""
 }
 
 func (s stubAdapter) CheckHealth(context.Context, provider.Instance, provider.Prober) provider.Health {
 	return s.health
+}
+
+func (s stubAdapter) ListModels(context.Context, provider.Instance, provider.Prober) []provider.Model {
+	return nil
+}
+
+func (s stubAdapter) InteractiveResumeCommand(provider.Instance, provider.Request) (provider.Command, error) {
+	return provider.Command{}, nil
 }
 
 func (s stubAdapter) Command(provider.Instance, provider.Request) (provider.Command, error) {

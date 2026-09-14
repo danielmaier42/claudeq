@@ -9,6 +9,7 @@ import (
 
 	"github.com/danielmaier42/claudeq/internal/app"
 	"github.com/danielmaier42/claudeq/internal/clock"
+	"github.com/danielmaier42/claudeq/internal/executor"
 	"github.com/danielmaier42/claudeq/internal/limit"
 	"github.com/danielmaier42/claudeq/internal/notify"
 	"github.com/danielmaier42/claudeq/internal/provider"
@@ -349,7 +350,7 @@ func TestProviderHealthMemoSurvivesARestart(t *testing.T) {
 	e.WaitIdle()
 
 	// A second engine over the same store is what a restart looks like.
-	restarted := New(st, e.gate, r, fc, e.providers)
+	restarted := New(st, e.gates, r, fc, e.providers)
 	restarted.SetNotifier(n)
 	if err := restarted.Tick(context.Background()); err != nil {
 		t.Fatalf("Tick after restart: %v", err)
@@ -413,7 +414,7 @@ func TestTickDoesNotHoldTheSchedulerLockWhileProbing(t *testing.T) {
 		entered:       make(chan struct{}),
 		release:       make(chan struct{}),
 	}
-	e := New(st, limit.New(fc), r, fc, &provider.Checker{Registry: provider.NewRegistry(ad)})
+	e := New(st, limit.NewGates(fc), r, fc, &provider.Checker{Registry: provider.NewRegistry(ad)})
 	saveTasks(t, st, asapTask("a", false))
 
 	ticked := make(chan error, 1)
@@ -437,28 +438,6 @@ func TestTickDoesNotHoldTheSchedulerLockWhileProbing(t *testing.T) {
 	e.WaitIdle()
 	if got := r.requests(); len(got) != 1 {
 		t.Fatalf("expected the task to run once the probe answered, got %d", len(got))
-	}
-}
-
-// TestOneProbePerProviderPerTick: several tasks waiting on the same harness cost
-// one check, not one each.
-func TestOneProbePerProviderPerTick(t *testing.T) {
-	fc := clock.NewFake(time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC))
-	r := &stub{}
-	st, err := store.Open(t.TempDir())
-	if err != nil {
-		t.Fatalf("store.Open: %v", err)
-	}
-	ad := &countingHealthAdapter{healthAdapter: &healthAdapter{health: notInstalled}}
-	e := New(st, limit.New(fc), r, fc, &provider.Checker{Registry: provider.NewRegistry(ad)})
-	saveTasks(t, st, asapTask("a", false), asapTask("b", false), asapTask("c", false))
-
-	if err := e.Tick(context.Background()); err != nil {
-		t.Fatalf("Tick: %v", err)
-	}
-	e.WaitIdle()
-	if ad.checks() != 1 {
-		t.Fatalf("probed %d times for three tasks on one provider, want once", ad.checks())
 	}
 }
 
@@ -533,5 +512,117 @@ func TestARemovedProviderIsAnnouncedAgain(t *testing.T) {
 
 	if got := n.titles(); len(got) != 2 {
 		t.Fatalf("notifications = %v, want the re-added provider announced again", got)
+	}
+}
+
+// TestIdleTicksProbeNothing is what keeps the daemon from spawning two CLI
+// processes per provider every five seconds: a tick with nothing due has no
+// reason to ask any harness anything.
+func TestIdleTicksProbeNothing(t *testing.T) {
+	fc := clock.NewFake(time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC))
+	r := &stub{}
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	ad := &countingHealthAdapter{healthAdapter: &healthAdapter{health: provider.Health{State: provider.HealthReady}}}
+	e := New(st, limit.NewGates(fc), r, fc, &provider.Checker{Registry: provider.NewRegistry(ad)})
+
+	// A task that is not due: it runs at 03:00 and it is 22:00.
+	watcher := asapTask("watcher", false)
+	watcher.Trigger, watcher.Cron = task.TriggerCron, "0 3 * * *"
+	saveTasks(t, st, watcher)
+
+	for range 5 {
+		if err := e.Tick(context.Background()); err != nil {
+			t.Fatalf("Tick: %v", err)
+		}
+	}
+	e.WaitIdle()
+	if ad.checks() != 0 {
+		t.Fatalf("probed %d times with nothing due, want none", ad.checks())
+	}
+}
+
+// TestADueTaskIsProbedOncePerTick: the check happens when it matters — right
+// before a start — and once, however many tasks are waiting on that provider.
+func TestADueTaskIsProbedOncePerTick(t *testing.T) {
+	fc := clock.NewFake(time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC))
+	r := &stub{}
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	ad := &countingHealthAdapter{healthAdapter: &healthAdapter{health: notInstalled}}
+	e := New(st, limit.NewGates(fc), r, fc, &provider.Checker{Registry: provider.NewRegistry(ad)})
+	saveTasks(t, st, asapTask("a", false), asapTask("b", false))
+
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	e.WaitIdle()
+	if ad.checks() != 1 {
+		t.Fatalf("probed %d times for two due tasks on one provider, want once", ad.checks())
+	}
+}
+
+// TestARateLimitBlocksOnlyItsOwnProvider: an allowance belongs to an account.
+// One provider waiting out a limit must not stop the other from working — which
+// is the whole point of running two harnesses.
+func TestARateLimitBlocksOnlyItsOwnProvider(t *testing.T) {
+	fc := clock.NewFake(time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC))
+	r := &stub{result: func(req executor.Request, _ int) provider.Result {
+		if req.Provider.ID == "second" {
+			return provider.Result{Status: store.StatusRateLimited, SessionID: req.SessionID}
+		}
+		return provider.Result{Status: store.StatusSuccess, SessionID: req.SessionID}
+	}}
+	e, st, ad := newTestEngineWithProvider(t, r, fc)
+	ad.set(provider.Health{State: provider.HealthReady})
+
+	second := claudeProvider("", "")
+	second.ID, second.Name = "second", "second"
+	limited, healthy := asapTask("limited", true), asapTask("healthy", true)
+	limited.Provider = "second"
+	if err := st.SaveConfig(store.Config{
+		Settings:  store.Settings{DefaultProvider: store.DefaultProviderID},
+		Providers: []store.Provider{claudeProvider("", ""), second},
+		Tasks:     []task.Task{limited, healthy},
+	}); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	e.WaitIdle()
+
+	// The limited provider is now blocked; the other one is not, so a task on it
+	// still starts.
+	if e.gates.For("second").Open() {
+		t.Fatal("the provider that hit the limit should be waiting")
+	}
+	if !e.gates.For(store.DefaultProviderID).Open() {
+		t.Fatal("the other provider must not be held up by someone else's allowance")
+	}
+
+	again := asapTask("another", true)
+	if err := st.UpdateConfig(func(cfg *store.Config) error {
+		cfg.Tasks = append(cfg.Tasks, again)
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	e.WaitIdle()
+
+	ran := map[string]bool{}
+	for _, req := range r.requests() {
+		ran[req.Task.ID] = true
+	}
+	if !ran["another"] {
+		t.Fatal("a task on the working provider must still start")
 	}
 }

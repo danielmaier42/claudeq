@@ -59,10 +59,17 @@ func (s *server) reviewPrompt(w http.ResponseWriter, r *http.Request) {
 		in.WorkingDir = "" // the system prompt belongs to no single directory
 	}
 
-	// The review runs on the same provider instance the tasks do, so it uses the
-	// account claudeq is actually configured for. Its own model setting wins;
-	// empty means that provider's default model.
+	// The review runs on the Claude Code instance, with the account claudeq is
+	// actually configured for. Its own model setting wins; empty means that
+	// provider's default model.
 	bin, model := s.reviewTarget(cfg)
+	if bin == "" {
+		// No harness the reviewer can speak to. Same situation as the review
+		// being switched off: nothing to show, and why is already on the
+		// provider's card in Settings.
+		writeJSON(w, http.StatusOK, reviewResponse{Enabled: false, OK: true})
+		return
+	}
 
 	ctx, done := s.beginReview(r.Context())
 	defer done()
@@ -91,24 +98,35 @@ func (s *server) reviewPrompt(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// reviewTarget resolves the binary and model the prompt review runs with. An
-// unresolvable or uninstalled provider yields an empty binary, which the
-// reviewer reports as ErrNoBinary — the same "nothing to show here" the
-// dashboard already handles.
+// reviewTarget resolves the binary and model the prompt review runs with.
+//
+// It asks the Claude Code instance by name, not the default provider: the
+// reviewer builds Claude Code's own flags (see internal/review), so pointing it
+// at another harness would exec a command that harness does not have. Making
+// the review provider-neutral is its own piece of work; until then this is the
+// honest dependency rather than a silent one.
+//
+// No instance, no binary, or a provider that is switched off yields an empty
+// binary, which the reviewer reports as ErrNoBinary — the same "nothing to show
+// here" the dashboard already handles.
 func (s *server) reviewTarget(cfg store.Config) (bin, model string) {
 	set, err := provider.FromConfig(cfg)
 	if err != nil {
 		return "", ""
 	}
-	resolved, err := set.Resolve(provider.Selection{ProviderID: "", Model: cfg.Settings.PromptReviewModel})
+	inst, ok := set.Lookup(provider.DefaultInstanceID)
+	if !ok || inst.Kind != provider.KindClaudeCode {
+		return "", ""
+	}
+	ad, err := s.d.Registry.Lookup(inst.Kind)
 	if err != nil {
 		return "", ""
 	}
-	ad, err := s.d.Registry.Lookup(resolved.Instance.Kind)
-	if err != nil {
-		return "", ""
+	model = cfg.Settings.PromptReviewModel
+	if model == "" {
+		model = inst.DefaultModel
 	}
-	return ad.ResolveBinary(resolved.Instance), resolved.Model
+	return ad.ResolveBinary(inst), model
 }
 
 // beginReview makes this the only live review: it cancels whichever one was

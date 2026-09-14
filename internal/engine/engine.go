@@ -67,15 +67,18 @@ func (e *Engine) WakeError() string {
 	return ""
 }
 
-// LimitedUntil returns the time the global rate-limit gate reopens, or the zero
-// time when nothing is blocked. Surfaced in the UI so a queue that is waiting
-// (rather than stuck) says so, and names the time it continues.
-func (e *Engine) LimitedUntil() time.Time { return e.gate.BlockedUntil() }
+// LimitedUntil returns the earliest time a blocked provider's rate limit
+// reopens, or the zero time when none is blocked. Surfaced in the UI so a queue
+// that is waiting (rather than stuck) says so, and names the time it continues.
+func (e *Engine) LimitedUntil() time.Time { return e.gates.BlockedUntil() }
 
 // Engine orchestrates task execution. Construct it with [New].
 type Engine struct {
 	store *store.Store
-	gate  *limit.Gate
+	// gates hold the rate limits, one per provider instance: an allowance
+	// belongs to an account, so a blocked Codex says nothing about Claude and a
+	// second subscription is not held up by the first.
+	gates *limit.Gates
 	run   Runner
 	clock clock.Clock
 
@@ -123,10 +126,10 @@ const ShutdownGrace = 30 * time.Second
 // New builds an Engine with production defaults (real UUIDs and run ids).
 // providers is how the engine finds out whether a task's harness can run at
 // all; it must not be nil.
-func New(st *store.Store, gate *limit.Gate, r Runner, c clock.Clock, providers *provider.Checker) *Engine {
+func New(st *store.Store, gates *limit.Gates, r Runner, c clock.Clock, providers *provider.Checker) *Engine {
 	e := &Engine{
 		store:          st,
-		gate:           gate,
+		gates:          gates,
 		run:            r,
 		clock:          c,
 		providers:      providers,
@@ -149,10 +152,6 @@ func New(st *store.Store, gate *limit.Gate, r Runner, c clock.Clock, providers *
 // Tick starts every task that is due and permitted right now. Started tasks run
 // asynchronously; use [Engine.WaitIdle] to await their completion.
 func (e *Engine) Tick(ctx context.Context) error {
-	if !e.gate.Open() {
-		return nil
-	}
-
 	cfg, err := e.store.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -168,48 +167,54 @@ func (e *Engine) Tick(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("read provider configuration: %w", err)
 	}
+
+	// Which tasks are due is decided without touching a CLI, so the lock is held
+	// only for the scheduling arithmetic. A task whose provider is waiting out
+	// its own rate limit is dropped here too — there is no point probing a
+	// harness that may not be asked to run anyway, and the allowance belongs to
+	// that account alone, so the other providers carry on.
+	due, err := e.dueTasks(cfg)
+	if err != nil {
+		return err
+	}
+	due = e.notRateLimited(providers, due)
+
+	// Their harnesses are then probed *outside* the lock. A readiness check
+	// spawns a CLI and a CLI can hang; holding e.mu across that would stall the
+	// dashboard, a cancel and every finishing run for as long as the timeout.
+	// Only the providers of tasks that are actually due are asked, and they are
+	// asked without the cache — this is the moment right before a start, which is
+	// exactly when a stale verdict would cost a recorded run.
+	health := e.refreshProviderHealth(ctx, providers, due)
+
+	// Back under the lock, with the scheduling state read *here*: a run that
+	// finished while the probes were out has already written its completion, and
+	// deciding against a snapshot from before that would start a one-shot task a
+	// second time.
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	st, err := e.store.LoadState()
 	if err != nil {
 		return fmt.Errorf("load state: %w", err)
 	}
-	// Probe the harnesses *before* taking the scheduler lock. A readiness check
-	// spawns a CLI, and a CLI can hang: holding e.mu across that would stall the
-	// dashboard, a cancel and every finishing run for as long as the probe's
-	// timeout. The verdicts are from this tick, so nothing under the lock has to
-	// ask again.
-	health := e.refreshProviderHealth(ctx, providers, cfg, st)
-
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
 	now := e.clock.Now()
 	// Seed the in-memory snapshot so freshly-added cron tasks have an anchor for
 	// the due check below (their first run is the next occurrence, not now).
 	seeded := e.seedCronAnchors(cfg, st, now)
-
-	due := make([]task.Task, 0, len(cfg.Tasks))
-	for _, t := range cfg.Tasks {
-		anchor, _ := st.LastStart(t.ID)
-		in := schedule.Inputs{
-			Now:           now,
-			Running:       e.active[t.ID],
-			CompletedOnce: st.IsCompletedOnce(t.ID),
-			CronAnchor:    anchor,
-		}
-		ok, err := schedule.Due(t, in)
-		if err != nil {
-			return fmt.Errorf("evaluate task %q: %w", t.ID, err)
-		}
-		if ok {
-			due = append(due, t)
-		}
-	}
 
 	// A task whose harness cannot run it is not started and not retired: it keeps
 	// its place in the queue, takes no concurrency slot, and advances no
 	// one-shot or cron state, so it simply runs once the provider is ready again.
 	runnable := make([]task.Task, 0, len(due))
 	for _, t := range due {
+		stillDue, err := e.isDue(t, st, now)
+		if err != nil {
+			return err
+		}
+		if !stillDue {
+			continue
+		}
 		if _, err := health.resolve(providers, t); err == nil {
 			runnable = append(runnable, t)
 		}
@@ -245,6 +250,68 @@ func (e *Engine) Tick(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// dueTasks reports the tasks whose trigger has come round, without asking any
+// provider anything. The verdict is re-taken under the lock before a start is
+// recorded (see Tick); this first pass exists only to find out which harnesses
+// are worth probing at all.
+func (e *Engine) dueTasks(cfg store.Config) ([]task.Task, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	st, err := e.store.LoadState()
+	if err != nil {
+		return nil, fmt.Errorf("load state: %w", err)
+	}
+	now := e.clock.Now()
+	// Give a freshly added cron task an anchor of now, so its first run is the
+	// next occurrence rather than a backfill. The anchor is only persisted later,
+	// under the lock that records the starts.
+	e.seedCronAnchors(cfg, st, now)
+	due := make([]task.Task, 0, len(cfg.Tasks))
+	for _, t := range cfg.Tasks {
+		ok, err := e.isDue(t, st, now)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			due = append(due, t)
+		}
+	}
+	return due, nil
+}
+
+// notRateLimited drops the tasks whose provider instance is waiting out a rate
+// limit. An allowance belongs to an account, so one provider's pause holds up
+// only its own work.
+func (e *Engine) notRateLimited(set provider.Set, due []task.Task) []task.Task {
+	out := due[:0]
+	for _, t := range due {
+		res, err := set.Resolve(provider.Selection{ProviderID: t.Provider})
+		// An unresolvable provider is not a rate-limit question; it is reported
+		// as a blocked task further down.
+		if err != nil || e.gates.For(res.Instance.ID).Open() {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// isDue evaluates one task's trigger. The caller holds e.mu, because whether the
+// task is already running is part of the answer.
+func (e *Engine) isDue(t task.Task, st *store.State, now time.Time) (bool, error) {
+	anchor, _ := st.LastStart(t.ID)
+	ok, err := schedule.Due(t, schedule.Inputs{
+		Now:           now,
+		Running:       e.active[t.ID],
+		CompletedOnce: st.IsCompletedOnce(t.ID),
+		CronAnchor:    anchor,
+	})
+	if err != nil {
+		return false, fmt.Errorf("evaluate task %q: %w", t.ID, err)
+	}
+	return ok, nil
 }
 
 // start is one task the scheduler picked, together with the execution identity
@@ -297,20 +364,22 @@ func (e *Engine) resolveRunnable(ctx context.Context, set provider.Set, st *stor
 	return res, nil
 }
 
-// refreshProviderHealth probes every provider an enabled task could need and
-// announces whatever changed. It runs outside the scheduler lock and once per
-// distinct provider, so a tick costs at most one probe per configured harness
-// however many tasks are waiting on it.
-func (e *Engine) refreshProviderHealth(ctx context.Context, set provider.Set, cfg store.Config, st *store.State) providerHealth {
+// refreshProviderHealth probes the provider of every task that is due, once per
+// distinct provider, and announces whatever changed. It runs outside the
+// scheduler lock, and it probes without the cache — a task is due only when it
+// is actually time to run it, so this is the check immediately before a start
+// rather than something the tick does every five seconds.
+func (e *Engine) refreshProviderHealth(ctx context.Context, set provider.Set, due []task.Task) providerHealth {
 	out := providerHealth{}
 	known := map[string]bool{}
 	for _, inst := range set.All() {
 		known[inst.ID] = true
 	}
-	for _, t := range cfg.Tasks {
-		if !t.Enabled {
-			continue
-		}
+	st, err := e.store.LoadState()
+	if err != nil {
+		st = nil // the memo falls back to memory; a health check is not worth failing a tick over
+	}
+	for _, t := range due {
 		known[t.Provider] = true // an id no instance answers to is remembered too
 		res, err := set.Resolve(provider.Selection{ProviderID: t.Provider})
 		if err != nil {
@@ -464,6 +533,7 @@ func (e *Engine) launchTask(t task.Task, settings store.Settings, resolved provi
 		Resume:             resume,
 		Model:              resolved.Model,
 		AccessMode:         accessMode(t.Permissions),
+		ReasoningEffort:    t.ReasoningEffort,
 		CustomSystemPrompt: settings.SystemPrompt,
 		IdleTimeout:        settings.IdleTimeout(),
 		Log:                logFile,
@@ -479,7 +549,7 @@ func (e *Engine) launchTask(t task.Task, settings store.Settings, resolved provi
 		defer cancelRun()
 		defer func() { _ = logFile.Close() }()
 		res, runErr := e.runGuarded(runCtx, req)
-		e.finish(t, rec, res, runErr)
+		e.finish(t, resolved.Instance.ID, rec, res, runErr)
 	}()
 	return nil
 }
@@ -644,8 +714,10 @@ func (e *Engine) sessionFor(t task.Task, st *store.State) (string, bool) {
 	return e.newSessionID(), false
 }
 
-// finish records a completed run and updates scheduling state.
-func (e *Engine) finish(t task.Task, rec store.Run, res provider.Result, runErr error) {
+// finish records a completed run and updates scheduling state. providerID is
+// the instance the run executed on, because a rate limit closes that
+// provider's gate and no other.
+func (e *Engine) finish(t task.Task, providerID string, rec store.Run, res provider.Result, runErr error) {
 	e.mu.Lock()
 	delete(e.active, t.ID)
 	wasCanceled := e.canceled[rec.RunID]
@@ -695,19 +767,21 @@ func (e *Engine) finish(t task.Task, rec store.Run, res provider.Result, runErr 
 		// block exactly until then plus a small buffer. Fall back to the retry
 		// delay, then to the blind backoff, when no reset time is known or it
 		// already lies in the past (stale event).
+		// The limit belongs to the provider that hit it, so only its gate closes.
+		gate := e.gates.For(providerID)
 		if until := res.ResetAt; !until.IsZero() && until.After(e.clock.Now()) {
-			e.gate.Block(until.Add(RateLimitResetBuffer))
+			gate.Block(until.Add(RateLimitResetBuffer))
 		} else {
 			delay := res.RetryAfter
 			if delay <= 0 {
 				delay = e.backoff
 			}
-			e.gate.BlockFor(delay) // wait for reset, then resume this session
+			gate.BlockFor(delay) // wait for reset, then resume this session
 		}
 		// Record when the session is planned to continue (the gate keeps the
 		// longest known block, so this is the real time, not just this run's),
 		// so the pause reads as a scheduled resume instead of a dead end.
-		if resume := e.gate.BlockedUntil(); !resume.IsZero() {
+		if resume := gate.BlockedUntil(); !resume.IsZero() {
 			rec.ResumeAt = &resume
 		}
 		_ = e.store.UpdateState(func(st *store.State) error {
@@ -910,7 +984,7 @@ func (e *Engine) planWake(ctx context.Context) error {
 	var cands []time.Time
 	if !cfg.Settings.Paused {
 		cands = e.wakeCandidates(cfg, st, now)
-		if bu := e.gate.BlockedUntil(); !bu.IsZero() {
+		if bu := e.gates.BlockedUntil(); !bu.IsZero() {
 			cands = append(cands, bu)
 		}
 	}

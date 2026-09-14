@@ -195,6 +195,7 @@ type settingsView struct {
 	SystemPrompt       string `json:"system_prompt"`
 	PromptReview       bool   `json:"prompt_review"`
 	PromptReviewModel  string `json:"prompt_review_model"`
+	BetaFeatures       bool   `json:"beta_features"`
 	Paused             bool   `json:"paused"`
 	PushoverEnabled    bool   `json:"pushover_enabled"`
 	PushoverConfigured bool   `json:"pushover_configured"`
@@ -215,6 +216,7 @@ func newSettingsView(s store.Settings) settingsView {
 		SystemPrompt:       s.SystemPrompt,
 		PromptReview:       !s.PromptReviewDisabled,
 		PromptReviewModel:  s.PromptReviewModel,
+		BetaFeatures:       s.BetaFeatures,
 		Paused:             s.Paused,
 		PushoverEnabled:    s.Pushover.Enabled,
 		PushoverConfigured: s.Pushover.Token != "" && s.Pushover.UserKey != "",
@@ -236,6 +238,9 @@ func printSettings(s store.Settings) {
 	fmt.Printf("max_run_history:           %s\n", numericLabel(v.MaxRunHistory, store.DefaultMaxRunHistory, "keep every run"))
 	fmt.Printf("prompt_review:             %s\n", boolLabel(v.PromptReview))
 	fmt.Printf("prompt_review_model:       %s\n", orDefault(v.PromptReviewModel, "(the provider's default model)"))
+	// Shown but not settable here: it decides what the *app* offers, and the CLI
+	// accepts every provider either way. Settings → System owns it.
+	fmt.Printf("beta_features:             %s (app only)\n", boolLabel(v.BetaFeatures))
 	fmt.Printf("pushover:                  %s\n", pushoverLabel(v))
 	fmt.Printf("ntfy:                      %s\n", ntfyLabel(v))
 	fmt.Printf("webhook:                   %s\n", webhookLabel(v))

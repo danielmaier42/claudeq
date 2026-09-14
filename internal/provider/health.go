@@ -77,9 +77,13 @@ type Prober interface {
 	Probe(ctx context.Context, c Command) ([]byte, error)
 }
 
-// ProbeTimeout bounds a single readiness probe. A CLI that has to be asked
-// twice (version, then login status) must not keep the scheduler waiting.
-const ProbeTimeout = 10 * time.Second
+// ProbeTimeout bounds a single readiness probe, and CheckTimeout the whole
+// check. A CLI that has to be asked twice must not keep the scheduler waiting,
+// and the dashboard must not sit on a spinner while it does.
+const (
+	ProbeTimeout = 10 * time.Second
+	CheckTimeout = 20 * time.Second
+)
 
 // ExecProber runs the probe as a real process: the binary directly, never
 // through a shell, with the adapter's environment additions appended to the
@@ -179,8 +183,16 @@ func (c *Checker) Check(ctx context.Context, inst Instance) Health {
 // CheckFresh probes the instance now, ignoring (and replacing) any cached
 // verdict. The scheduler uses it for the instance it is about to launch on, so
 // a start is never recorded against a stale answer.
+//
+// A probe that was cut short — the caller went away, the daemon is shutting
+// down — is not a verdict and is not remembered. It says nothing about the
+// provider, and caching it would show a passing blip as a provider problem for
+// as long as the verdict lives.
 func (c *Checker) CheckFresh(ctx context.Context, inst Instance) Health {
 	h := c.probe(ctx, inst)
+	if ctx.Err() != nil {
+		return c.lastKnown(inst, h)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.cached == nil {
@@ -188,6 +200,18 @@ func (c *Checker) CheckFresh(ctx context.Context, inst Instance) Health {
 	}
 	c.cached[inst.ID] = cachedHealth{fingerprint: fingerprint(inst), health: h, at: h.CheckedAt}
 	return h
+}
+
+// lastKnown returns the verdict this instance last got under its current
+// configuration, falling back to what the interrupted probe produced when there
+// is none to fall back to.
+func (c *Checker) lastKnown(inst Instance, fallback Health) Health {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if entry, ok := c.cached[inst.ID]; ok && entry.fingerprint == fingerprint(inst) {
+		return entry.health
+	}
+	return fallback
 }
 
 // Forget drops the cached verdict for an instance id.
@@ -214,6 +238,10 @@ func (c *Checker) probe(ctx context.Context, inst Instance) Health {
 			CheckedAt: now,
 		}
 	}
+	// One deadline for the whole check, so two slow probes cannot add up to
+	// twice the wait a caller was promised.
+	ctx, cancel := context.WithTimeout(ctx, CheckTimeout)
+	defer cancel()
 	h := ad.CheckHealth(ctx, inst, c.prober())
 	if h.CheckedAt.IsZero() {
 		h.CheckedAt = now

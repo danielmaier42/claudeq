@@ -34,16 +34,18 @@ Usage:
   claudeq list [--json]
   claudeq show   ID [--json]       (one task in full, prompt included)
   claudeq add    --id ID --prompt P --dir DIR [--name N] [--trigger asap|fixed|cron]
-                 [--at RFC3339] [--cron EXPR] [--provider ID] [--model M] [--parallel]
-                 [--skip-permissions] [--notify] [--quiet-history]
+                 [--at RFC3339] [--cron EXPR] [--provider ID] [--model M]
+                 [--reasoning-effort E] [--parallel] [--skip-permissions]
+                 [--notify] [--quiet-history]
   claudeq edit   ID                (open the whole task in $EDITOR)
   claudeq edit   ID [--name N] [--prompt P | --prompt-file PATH] [--dir DIR]
                  [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR]
-                 [--provider ID] [--model M]
+                 [--provider ID] [--model M] [--reasoning-effort E]
                  [--parallel=BOOL] [--enabled=BOOL] [--skip-permissions=BOOL]
                  [--notify=BOOL] [--quiet-history=BOOL]  (only the flags you pass are changed)
   claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [--name N]
-                 [--provider ID] [--model M] [--parallel=BOOL] [--skip-permissions=BOOL]
+                 [--provider ID] [--model M] [--reasoning-effort E]
+                 [--parallel=BOOL] [--skip-permissions=BOOL]
                  [--notify=BOOL] [--quiet-history=BOOL]
                  (queue a follow-up task; settings you do not pass are inherited from
                  the calling task)
@@ -215,7 +217,8 @@ func cmdAdd(st *store.Store, args []string) error {
 	t := task.Task{
 		ID: *id, Name: *name, Prompt: *prompt, WorkingDir: *dir,
 		Trigger: task.Trigger(*trig), Cron: *cronArg, Enabled: true,
-		Provider: s.provider, Model: s.model, Parallel: s.parallel, NotifyOnResult: s.notify,
+		Provider: s.provider, Model: s.model, ReasoningEffort: s.reasoning,
+		Parallel: s.parallel, NotifyOnResult: s.notify,
 		QuietHistory: s.quietHistory, Permissions: task.PermissionsFor(s.skipPerms),
 	}
 	if t.Name == "" {
@@ -578,7 +581,7 @@ func cmdRunNow(st *store.Store, id string) error {
 	// claudeq CLI, so its own path is the queue binary.
 	self, _ := os.Executable()
 	registry := adapters.Default()
-	eng := engine.New(st, limit.New(c), &executor.Executor{
+	eng := engine.New(st, limit.NewGates(c), &executor.Executor{
 		Registry: registry, Home: st.Home(), QueueBin: self,
 	}, c, provider.NewChecker(registry))
 	fmt.Printf("running task %q now...\n", id)

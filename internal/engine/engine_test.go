@@ -80,6 +80,8 @@ func (a *healthAdapter) Capabilities() provider.Capabilities {
 	}}
 }
 
+func (a *healthAdapter) Describe() provider.Description { return provider.Description{Name: "Claude"} }
+
 func (a *healthAdapter) DetectBinary() string { return "" }
 
 func (a *healthAdapter) ResolveBinary(inst provider.Instance) string { return inst.BinaryPath }
@@ -88,6 +90,14 @@ func (a *healthAdapter) CheckHealth(context.Context, provider.Instance, provider
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.health
+}
+
+func (a *healthAdapter) ListModels(context.Context, provider.Instance, provider.Prober) []provider.Model {
+	return nil
+}
+
+func (a *healthAdapter) InteractiveResumeCommand(provider.Instance, provider.Request) (provider.Command, error) {
+	return provider.Command{}, nil
 }
 
 func (a *healthAdapter) Command(provider.Instance, provider.Request) (provider.Command, error) {
@@ -112,7 +122,7 @@ func newTestEngineWithProvider(t *testing.T, r Runner, fc clock.Clock) (*Engine,
 	}
 	ad := &healthAdapter{health: provider.Health{State: provider.HealthReady}}
 	checker := &provider.Checker{Registry: provider.NewRegistry(ad), TTL: time.Nanosecond}
-	e := New(st, limit.New(fc), r, fc, checker)
+	e := New(st, limit.NewGates(fc), r, fc, checker)
 
 	var runN, sessN int
 	e.newRunID = func() string { runN++; return fmt.Sprintf("run-%d", runN) }
@@ -219,7 +229,7 @@ func TestRateLimitBlocksUntilReportedReset(t *testing.T) {
 	e.WaitIdle()
 
 	want := reset.Add(RateLimitResetBuffer)
-	if got := e.gate.BlockedUntil(); !got.Equal(want) {
+	if got := e.gates.BlockedUntil(); !got.Equal(want) {
 		t.Fatalf("gate blocked until %v, want reset + buffer = %v", got, want)
 	}
 
@@ -261,7 +271,7 @@ func TestRateLimitStaleResetFallsBackToBackoff(t *testing.T) {
 	}
 	e.WaitIdle()
 
-	if got, want := e.gate.BlockedUntil(), start.Add(DefaultRateLimitBackoff); !got.Equal(want) {
+	if got, want := e.gates.BlockedUntil(), start.Add(DefaultRateLimitBackoff); !got.Equal(want) {
 		t.Fatalf("gate blocked until %v, want default backoff %v", got, want)
 	}
 }
@@ -284,8 +294,8 @@ func TestRateLimitThenResumeAfterReset(t *testing.T) {
 	}
 	e.WaitIdle()
 
-	if e.gate.Open() {
-		t.Fatal("gate should be closed after a rate limit")
+	if e.gates.For(store.DefaultProviderID).Open() {
+		t.Fatal("the provider's gate should be closed after a rate limit")
 	}
 	state, _ := st.LoadState()
 	if state.PendingResume("a") == "" {
@@ -605,7 +615,7 @@ func TestRateLimitedRunRecordsItsResumeTime(t *testing.T) {
 	if rec.ResumeAt == nil {
 		t.Fatal("a rate-limited run must record when it resumes")
 	}
-	if want := e.gate.BlockedUntil(); !rec.ResumeAt.Equal(want) {
+	if want := e.gates.BlockedUntil(); !rec.ResumeAt.Equal(want) {
 		t.Fatalf("resume_at = %v, want the gate's reopen time %v", rec.ResumeAt, want)
 	}
 }

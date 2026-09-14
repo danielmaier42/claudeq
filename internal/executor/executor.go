@@ -46,7 +46,7 @@ const (
 // else depends on it: a run is non-interactive and ends when the harness stops
 // writing, so anything it would normally defer to a later turn — a scheduled
 // wakeup, a background watcher, a question for the operator — never happens.
-const headlessSystemPrompt = `You are running headless inside claudeq, a local queue that runs Claude Code jobs unattended. Nobody is at the keyboard and there is no next turn: the run ends the moment you stop writing, and the process is torn down with it. Anything you defer to later in this session therefore never happens — a wakeup you schedule (ScheduleWakeup) dies with the process, a background watcher or monitor (Monitor, background shell commands) is killed, and nobody will answer a question you leave open. So decide instead of asking, and never end a run by announcing that you are waiting for something.
+const headlessSystemPrompt = `You are running headless inside claudeq, a local queue that runs agent jobs unattended. Nobody is at the keyboard and there is no next turn: the run ends the moment you stop writing, and the process is torn down with it. Anything you defer to later in this session therefore never happens — a wakeup you schedule (ScheduleWakeup) dies with the process, a background watcher or monitor (Monitor, background shell commands) is killed, and nobody will answer a question you leave open. So decide instead of asking, and never end a run by announcing that you are waiting for something.
 
 If work is still in flight when you are otherwise done, pick one:
   - finish it inline and blocking (a watch script, a polling loop in the shell), or
@@ -59,7 +59,7 @@ Either way, name every unfinished item concretely in your final message, with id
 // selfQueueSystemPrompt is appended to every run's system prompt so the harness
 // knows it can schedule follow-up work as a separate claudeq task instead of
 // doing it inline. Settings it does not override are inherited from the calling
-// task.
+// task. It names no particular harness: every provider gets the same contract.
 const selfQueueSystemPrompt = `When you find work that should run as its own separate job — later, at a specific time, on a schedule, or independently of this run — schedule it as a new claudeq task instead of doing it now, using the claudeq CLI:
 
   "${CLAUDEQ_BIN:-claudeq}" queue --prompt "<what the new task should do>"
@@ -74,8 +74,9 @@ Optional:
   --dir <path>      working directory for the new task (defaults to this task's directory)
   --name "<label>"  a short human-readable name
 
-The new task inherits this task's model, permissions, parallelism and notification settings automatically; leave them alone unless the follow-up genuinely needs something different (for example a cheap watcher queueing a thorough review that must run on a stronger model with a visible run). To override, pass any of:
-  --model <name>                   model for the new task, e.g. --model opus
+The new task inherits this task's provider, model, permissions, parallelism and notification settings automatically; leave them alone unless the follow-up genuinely needs something different (for example a cheap watcher queueing a thorough review that must run on a stronger model with a visible run). To override, pass any of:
+  --provider <id>                  provider instance to run the new task on; without --model it uses that provider's own default model
+  --model <name>                   model for the new task
   --parallel=true|false            whether it may run alongside other parallel tasks
   --skip-permissions=true|false    bypass permission prompts; grant this only when the queued work cannot be done without it
   --notify=true|false              send a notification with the outcome when it finishes
@@ -183,6 +184,9 @@ type Request struct {
 	Model string
 	// AccessMode is the authority this run gets.
 	AccessMode provider.AccessMode
+	// ReasoningEffort is the task's reasoning-effort setting, passed only to a
+	// harness whose adapter claims it.
+	ReasoningEffort string
 	// CustomSystemPrompt is the operator's optional system prompt (Settings.
 	// SystemPrompt). It is appended after the built-in prompt; blank means none.
 	CustomSystemPrompt string
@@ -196,13 +200,14 @@ type Request struct {
 // providerRequest is the neutral description of this run handed to the adapter.
 func (r Request) providerRequest() provider.Request {
 	return provider.Request{
-		Prompt:       r.Task.Prompt,
-		WorkingDir:   r.Task.WorkingDir,
-		Model:        r.Model,
-		SessionID:    r.SessionID,
-		Resume:       r.Resume,
-		AccessMode:   r.AccessMode,
-		SystemPrompt: systemPrompt(r.CustomSystemPrompt),
+		Prompt:          r.Task.Prompt,
+		WorkingDir:      r.Task.WorkingDir,
+		Model:           r.Model,
+		SessionID:       r.SessionID,
+		Resume:          r.Resume,
+		AccessMode:      r.AccessMode,
+		SystemPrompt:    systemPrompt(r.CustomSystemPrompt),
+		ReasoningEffort: r.ReasoningEffort,
 	}
 }
 
@@ -276,7 +281,11 @@ func (e *Executor) Run(ctx context.Context, req Request) (provider.Result, error
 	cmd := exec.CommandContext(runCtx, invocation.Path, invocation.Args...) //nolint:gosec // the path comes from the configured provider instance or its adapter's detection
 	cmd.Dir = req.Task.WorkingDir
 	cmd.Env = e.runEnv(req, invocation.Env) // lets the run queue follow-up tasks (self-queue)
-	configureProcessGroup(cmd)              // so a killed run takes its child processes with it
+	configureProcessGroup(cmd)              // so a killed run takes its whole process tree with it
+	// A harness that takes its prompt on stdin gets it here. One that does not
+	// sees stdin closed immediately, which is what it wants: a headless run must
+	// never sit waiting for input nobody will type.
+	cmd.Stdin = strings.NewReader(invocation.Stdin)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

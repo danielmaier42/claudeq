@@ -99,9 +99,10 @@ The nightly cycle looks like this:
   woken for scheduled work. A run already in flight keeps going, and a task that
   came due meanwhile starts as soon as you switch it back off. The Queue view
   carries a yellow banner while it is on, so an idle queue is never a mystery.
-- **Per-task overrides** — provider, model, permission handling (default vs.
-  "skip permission prompts"), whether to notify on the result, and *quiet
-  history* for frequent jobs — layered over your global defaults.
+- **Per-task overrides** — provider, model, reasoning effort (where the harness
+  takes one), permission handling (default vs. "skip permission prompts"),
+  whether to notify on the result, and *quiet history* for frequent jobs —
+  layered over your global defaults.
 - **Built-in run framing** — every run is told up front that it is headless and
   unattended, so it finishes its work or hands it on instead of ending on
   *"waiting for the build"*. See [below](#what-every-run-is-told).
@@ -123,6 +124,10 @@ The nightly cycle looks like this:
 
 **Reliability**
 
+- **Two harnesses, one queue** — a task runs on Claude Code or, in beta, on
+  Codex. Same queue, same history, same rate-limit handling; each provider keeps
+  its own account, sessions and limit, so one being blocked does not hold up the
+  other. See [Providers](#providers).
 - **Providers that are checked before the night** — the agent harness a task runs
   on is a configured *provider* with its own binary, account directory and
   default model. ClaudeQ asks it whether it can actually work — is the CLI
@@ -130,10 +135,12 @@ The nightly cycle looks like this:
   never started: it keeps its place in the queue, says *blocked* with the reason,
   and starts by itself once the provider works again. You hear about it once,
   when it breaks, not on every check. See [Providers](#providers).
-- **Rate-limit aware** — a reactive global gate: a run that hits the limit is
-  paused, the wait is derived from the CLI's retry signal, and the session is
-  resumed automatically once the limit resets (falling back to a fresh restart if
-  resume fails), so a task never gets stuck. A waiting run says so — *rescheduled*
+- **Rate-limit aware, per provider** — a run that hits the limit is paused, the
+  wait is derived from the CLI's retry signal, and the session is resumed
+  automatically once the limit resets (falling back to a fresh restart if resume
+  fails), so a task never gets stuck. The allowance belongs to an account, so
+  only that provider's tasks wait: a blocked Codex does not hold up Claude Code,
+  and two accounts of the same harness do not hold up each other. A waiting run says so — *rescheduled*
   with the time it continues — and its resume can be cancelled if you no longer
   want the work.
 - **Auth-error aware** — a login/authentication failure is detected, surfaced as
@@ -211,8 +218,9 @@ The nightly cycle looks like this:
 
 ## The app
 
-The dashboard (and the native window that wraps it) has five views, plus a
-**Feedback** entry at the bottom of the sidebar ([below](#sending-feedback)):
+The dashboard (and the native window that wraps it) has five views. Four sit at
+the top of the sidebar; **Settings** and **Feedback** ([below](#sending-feedback))
+sit at the bottom, out of the way of the work:
 
 - **Queue** — the pending tasks in priority order. Add, edit, delete, enable/pause,
   reorder, or **run now** (a manual test run, independent of the trigger). The
@@ -244,9 +252,10 @@ The dashboard (and the native window that wraps it) has five views, plus a
   one-shot task leaves the queue instead of starting again (a recurring task
   keeps its schedule and starts fresh at its next occurrence); a finished
   run offers **Continue with Claude**, which opens Terminal in the task's folder
-  and resumes the run's Claude session interactively (`claude --resume`) so you
-  can keep chatting with full context — with the same permission mode the run
-  had (a skip-permissions task resumes with `--dangerously-skip-permissions`);
+  and resumes the run's session interactively — with the harness that owns it
+  (`claude --resume`, or `codex resume` for a Codex run) and the same permission
+  mode the run had (a skip-permissions task resumes with
+  `--dangerously-skip-permissions`);
   the button needs the session to still exist — Claude Code prunes old sessions
   after ~30 days; mark one or
   all read; filter by a from–to date range; page through history; and replay a
@@ -286,7 +295,8 @@ and the update button live.
 | | | Review model | Model used for that review; *The provider's default model* falls back to the reviewing provider's own default. |
 | | Execution | Pause all runs | Global stop switch: nothing starts while it is on, not even *Run now*; a run already in flight keeps going. Applies immediately, without pressing Save. |
 | | About | Version / Software updates | Current version and a manual "Check for updates" button. |
-| **Providers** | Providers | One card per provider | Status, binary path, configuration directory and default model of each configured harness, plus **Check again**, **Make default** and an on/off switch. See [Providers](#providers). |
+| **Providers** | One block per provider | Its settings | Name, status, binary path, configuration directory, default model and an on/off switch — written by the **Save** button at the top of Settings, like every other field here. **Check again**, **Make default** and **Remove** are actions and take effect at once. The block is headed by the provider's name and type. See [Providers](#providers). |
+| | | **Add provider** | Below the blocks, and only with beta features on: opens a sheet asking for an id, a type and optionally a configuration directory. |
 | **Notifications** | macOS | Alerts that wait for you | Opens System Settings → Notifications, where ClaudeQ's alert style lives: *Banners* disappear on their own, *Alerts* stay until you click them. |
 | | Pushover | Send to Pushover | Toggle plus API token and user key for phone push. |
 | | ntfy | Send to ntfy | Toggle, server (empty = ntfy.sh), topic, and an optional access token for a protected topic. |
@@ -294,6 +304,7 @@ and the update button live.
 | **System** | Runs | Stop a run with no output for | Idle-timeout watchdog: kills a hung run (default 30 min; a working run keeps streaming and is unaffected; Off disables it). |
 | | | Keep run history | How many runs (and their logs) to retain before pruning (default 500; Unlimited keeps everything). |
 | | Scheduler | Check for due tasks every | How often the daemon wakes to look for work (15 min – 6 h; also the wake safety-net interval). |
+| | Beta features | Beta features | Reveals the parts of ClaudeQ that are not finished yet — currently **Add provider** and the **Codex** provider. Presentation only: anything already set up keeps working and the CLI accepts it either way. |
 
 ## Providers
 
@@ -303,15 +314,27 @@ by. Every installation has one, `claude`, which is the
 migrated into it automatically, keeping the binary path and default model it
 already used.
 
+Two harnesses are supported:
+
+| Type | CLI | Notes |
+|------|-----|-------|
+| Claude (`claude-code`) | [Claude Code](https://claude.com/claude-code) | Reports token counts and cost. Its only authority settings are "ask" and "skip every prompt". |
+| Codex (`codex`) | [Codex](https://learn.chatgpt.com/docs/developer-commands?surface=cli) | **Beta.** Takes a reasoning effort and a real sandbox mode, so read-only and workspace-write actually mean something. Reports tokens but no cost — ClaudeQ never invents one. |
+
+You can configure as many instances as you like, including two of the same kind:
+give each its own configuration directory and they are two accounts, with their
+own sessions and their own rate limit. A limit on one does not hold up the
+other.
+
 A provider has:
 
 | Field | What it is |
 |-------|------------|
 | Id | The stable name a task selects it by (`claude`). Fixed once created. |
-| Kind | Which harness it runs (`claude-code`). Fixed once created. |
+| Type | Which harness it runs — Claude or Codex. Fixed once created. The app says *type* and names the harness; the adapter kind it maps to (`claude-code`) is what the file stores. |
 | Name | The label shown in the app and in run messages. |
 | Binary | Absolute path to the CLI. The background daemon can't see your shell `PATH`, so a full path is safest; empty auto-detects and the card offers what it found. |
-| Configuration directory | Where that CLI keeps its account and sessions. Empty uses the CLI's own. Two providers with separate directories are two separate accounts. |
+| Configuration directory | Where that CLI keeps its account and sessions. Empty uses the CLI's own (`~/.claude`, `~/.codex`), which the field shows as its placeholder. Two providers with separate directories are two separate accounts. |
 
 Both paths must be absolute; a leading `~` is expanded and stored resolved, so
 the file says what is actually used.
@@ -321,6 +344,38 @@ the file says what is actually used.
 One provider is the **default**: tasks that name none run on it. It cannot be
 switched off or removed while it holds that role — make another one the default
 first — because most tasks name no provider and would all stop at once.
+
+**Settings → Providers manages all of this.** Each provider gets its own block,
+headed by its name and type, where you edit the name, binary, configuration
+directory, default model and the on/off switch; one **Save** at the top of
+Settings writes them all, together with everything else on the page. *Check
+again*, *Make default* and *Remove* are actions and take effect at once. Below them sits **Add provider**, which opens a sheet asking for the two things
+that cannot be changed afterwards — the id and the type — plus an optional
+configuration directory, which is what makes the new one a second account.
+
+`claudeq provider …` does exactly the same things, and both refuse the same
+changes for the same reasons — removing an instance a task still names, for
+instance, which names the tasks that have to change first.
+
+### Beta features
+
+Two things are behind one switch, **Settings → System → Beta features**: adding
+providers at all, and the Codex provider itself. With it off there is no **Add
+provider** button and no Codex to choose; with it on both appear, the button
+marked as beta, and anything on a beta provider is labelled *beta* wherever it
+shows up. The switch itself does not enumerate what it contains — that is what
+this section is for.
+
+That switch decides what the app *offers* and nothing else. The adapter is
+always part of the build, the API and `claudeq` always accept Codex, and the
+scheduler never looks at the switch — so a Codex task created from the command
+line runs, and stays visible in Queue and Activity, whatever the app is showing.
+Hiding setup controls never hides actual work.
+
+Codex is beta for one concrete reason: what a real exhausted ChatGPT allowance
+looks like in its output has not been observed yet. A rate-limited Codex run is
+paused and resumed on a fixed delay rather than at the time the provider names,
+because in the controlled test it named none.
 
 Editing a task changes its provider only when you say so. Every other edit — the
 prompt, the folder, the schedule — goes through whatever state the current
@@ -362,7 +417,8 @@ What follows from an unready provider:
   daemon restart.
 
 A rate limit is not a provider problem: that pauses the run and resumes it, as
-it always did.
+it always did — and it pauses only the provider that hit it. The other providers
+keep working, because the allowance belongs to one account.
 
 ### Credentials
 
@@ -418,8 +474,9 @@ echo "$USER ALL=(root) NOPASSWD: /usr/bin/pmset" | sudo tee /etc/sudoers.d/claud
 
 1. **New task** — give it a prompt, pick the working folder, and choose a trigger
    (as-soon-as-possible, earliest start, or cron; a cron schedule is validated as
-   you type, with a preview of its next three runs). Optionally override the model
-   or permissions, or enable *parallel* / *notify on result*. The folder dialog
+   you type, with a preview of its next three runs). Optionally pick the provider
+   it runs on (only ones that can actually run are offered), override the model
+   or reasoning effort or permissions, or enable *parallel* / *notify on result*. The folder dialog
    starts at the folder currently set for the task; if that folder no longer
    exists it opens at the nearest existing parent, and at your home folder when
    nothing is set — so a task whose folder was deleted or renamed can always be
@@ -484,15 +541,17 @@ claudeq list [--json]                          # show the queue
 claudeq show   ID [--json]                     # one task in full, prompt included
 claudeq add    --id ID --prompt P --dir DIR [--name N]
                [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR]
-               [--provider ID] [--model M] [--parallel] [--skip-permissions]
-               [--notify] [--quiet-history]
+               [--provider ID] [--model M] [--reasoning-effort E] [--parallel]
+               [--skip-permissions] [--notify] [--quiet-history]
 claudeq edit   ID                              # open the whole task in $EDITOR
 claudeq edit   ID [--name N] [--prompt P | --prompt-file PATH] [--dir DIR]
                [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR]
-               [--provider ID] [--model M] [--parallel=BOOL] [--enabled=BOOL]
+               [--provider ID] [--model M] [--reasoning-effort E]
+               [--parallel=BOOL] [--enabled=BOOL]
                [--skip-permissions=BOOL] [--notify=BOOL] [--quiet-history=BOOL]
 claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [--name N]
-               [--provider ID] [--model M] [--parallel=BOOL] [--skip-permissions=BOOL]
+               [--provider ID] [--model M] [--reasoning-effort E]
+               [--parallel=BOOL] [--skip-permissions=BOOL]
                [--notify=BOOL] [--quiet-history=BOOL]
 claudeq publish --file PATH [--title T] [--description D]   # publish a file as an artifact
 claudeq notify --title T --message M [--url U]  # send a notification, no artifact
@@ -507,7 +566,7 @@ claudeq read RUNID | claudeq read-all
 claudeq provider list [--json]                 # the harnesses tasks run on
 claudeq provider show ID [--json]
 claudeq provider check ID [--json]             # probe it now
-claudeq provider add  ID --kind KIND [--name N] [--path PATH]
+claudeq provider add  ID --kind claude-code|codex [--name N] [--path PATH]
                       [--config-dir PATH] [--default-model MODEL]
 claudeq provider edit ID [--name N] [--path PATH]
                       [--config-dir PATH] [--default-model MODEL]
@@ -553,6 +612,7 @@ claudeq edit nightly-sweep --prompt-file ./new-brief.md   # replace just the pro
 claudeq edit nightly-sweep --cron "30 2 * * 1-5"          # reschedule
 claudeq edit nightly-sweep --model opus --notify=true     # per-task overrides
 claudeq edit nightly-sweep --provider claude             # run it on another provider
+claudeq edit review-branch --provider codex --reasoning-effort xhigh
 claudeq edit prod-watch --quiet-history=true              # drop its successful runs
 claudeq edit nightly-sweep --enabled=false                # pause it
 ```
@@ -564,6 +624,9 @@ claudeq edit nightly-sweep --enabled=false                # pause it
   longer apply.
 - `--model ""` drops a per-task model override back to the provider's default
   model, and `--provider ""` back to the default provider.
+- `--reasoning-effort` asks the model to think harder or less hard, for the
+  harnesses that take such a setting (Codex does, Claude Code does not). It is
+  ignored by the ones that do not, so it survives a move between providers.
 - Changing `--provider` without naming a `--model` clears the model too, so the
   new provider's own default applies — one harness's model is never carried into
   another. Pass both to keep an explicit model across the change.
@@ -619,6 +682,10 @@ claudeq provider check claude                           # probe it and print why
 claudeq provider edit claude --path /Users/me/.local/bin/claude
 claudeq provider edit claude --default-model opus
 claudeq provider disable claude                         # keep it, run nothing on it
+
+# a second Claude account, and a Codex provider
+claudeq provider add claude-work --kind claude-code --config-dir ~/.claude-work
+claudeq provider add codex --kind codex --default-model gpt-5.6-sol
 ```
 
 `provider list --json` gives each instance's enabled state, readiness, the
@@ -708,9 +775,12 @@ claudeq queue --prompt "Review the change thoroughly …" --model claude-opus-5 
 - `--model M` runs the new task on another model (an empty value means the
   effective provider's default model). This is what lets a cheap watcher — Haiku
   every five minutes, quiet history — hand expensive work to a visible Opus run.
-- `--provider ID` runs the new task on another configured harness. Without a
+- `--provider ID` runs the new task on another configured harness — which is how
+  a Claude run hands a review to Codex, or the other way round. Without a
   `--model` alongside it, that provider's own default model applies — a model
-  from the calling task is never carried across. `claudeq provider list --json`
+  from the calling task is never carried across.
+- `--reasoning-effort E` sets how hard the new task's model should think, where
+  the harness takes it. `claudeq provider list --json`
   says which providers exist and which of them can run right now; queueing for
   one that cannot fails with the reason instead of filing work that would not
   start (see [Providers](#providers)).
@@ -1063,6 +1133,8 @@ verification notes are in [PLAN.md](PLAN.md).
 - macOS 12 or newer
 - The [Claude Code](https://claude.com/claude-code) CLI, installed and
   authenticated
+- Optionally the [Codex](https://learn.chatgpt.com/docs/developer-commands?surface=cli)
+  CLI, installed and logged in, for tasks you want to run on it (beta)
 
 ## License
 

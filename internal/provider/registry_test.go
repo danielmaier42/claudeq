@@ -21,7 +21,11 @@ type fakeAdapter struct {
 
 func (f *fakeAdapter) Kind() Kind                 { return f.kind }
 func (f *fakeAdapter) Capabilities() Capabilities { return f.caps }
-func (f *fakeAdapter) DetectBinary() string       { return f.binary }
+
+func (f *fakeAdapter) Describe() Description {
+	return Description{Name: string(f.kind), DefaultConfigDir: "~/.fake"}
+}
+func (f *fakeAdapter) DetectBinary() string { return f.binary }
 
 func (f *fakeAdapter) ResolveBinary(inst Instance) string {
 	if inst.BinaryPath != "" {
@@ -32,6 +36,14 @@ func (f *fakeAdapter) ResolveBinary(inst Instance) string {
 
 func (f *fakeAdapter) CheckHealth(_ context.Context, _ Instance, _ Prober) Health {
 	return f.health
+}
+
+func (f *fakeAdapter) ListModels(context.Context, Instance, Prober) []Model {
+	return []Model{{ID: "fake-model", Label: "Fake model"}}
+}
+
+func (f *fakeAdapter) InteractiveResumeCommand(_ Instance, req Request) (Command, error) {
+	return Command{Path: f.binary, Args: []string{"resume", req.SessionID}}, nil
 }
 
 func (f *fakeAdapter) Command(_ Instance, req Request) (Command, error) {
