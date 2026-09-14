@@ -48,8 +48,10 @@ Usage:
                  [--provider ID] [--model M] [--reasoning-effort E]
                  [--parallel=BOOL] [--skip-permissions=BOOL]
                  [--notify=BOOL] [--quiet-history=BOOL]
+                 [--depends-on JOBID]... [--include-results] [--json]
                  (queue a follow-up task; settings you do not pass are inherited from
-                 the calling task)
+                 the calling task. --depends-on waits for jobs that already exist,
+                 --include-results puts their answers in front of the prompt)
   claudeq publish --file PATH [--title T] [--description D]
                  (publish a file as an artifact; shows up in the Artifacts view)
   claudeq notify --title T --message M [--url U]

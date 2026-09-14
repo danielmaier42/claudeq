@@ -2,12 +2,14 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/danielmaier42/claudeq/internal/clock"
 	"github.com/danielmaier42/claudeq/internal/executor"
+	"github.com/danielmaier42/claudeq/internal/limit"
 	"github.com/danielmaier42/claudeq/internal/provider"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
@@ -273,5 +275,106 @@ func TestRunNowDoesNotWaitForDependencies(t *testing.T) {
 	}
 	if !strings.Contains(reqs[0].Task.Prompt, "not started yet") {
 		t.Errorf("the join was not told what had not finished:\n%s", reqs[0].Task.Prompt)
+	}
+}
+
+// kindAdapter is a second harness, so a workflow can be tested across the thing
+// it exists for: two providers that are not the same provider.
+type kindAdapter struct {
+	*healthAdapter
+	kind provider.Kind
+	name string
+}
+
+func (a *kindAdapter) Kind() provider.Kind { return a.kind }
+
+func (a *kindAdapter) Describe() provider.Description { return provider.Description{Name: a.name} }
+
+// TestMorningDigestAcrossProviders is the workflow the whole design exists for:
+// a root run fans one question out to two different harnesses and queues a join
+// that consolidates both, and none of it depends on anything staying alive.
+func TestMorningDigestAcrossProviders(t *testing.T) {
+	fc := clock.NewFake(time.Date(2026, 9, 14, 3, 0, 0, 0, time.UTC))
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	claude := &healthAdapter{health: provider.Health{State: provider.HealthReady}}
+	codex := &kindAdapter{
+		healthAdapter: &healthAdapter{health: provider.Health{State: provider.HealthReady}},
+		kind:          provider.KindCodex, name: "Codex",
+	}
+	checker := &provider.Checker{Registry: provider.NewRegistry(claude, codex), TTL: time.Nanosecond}
+
+	// Each child answers as its own provider, so the join's input is traceable
+	// back to who produced it.
+	r := &stub{result: func(req executor.Request, _ int) provider.Result {
+		return provider.Result{Status: store.StatusSuccess, SessionID: req.SessionID,
+			FinalOutput: req.Provider.ID + " reports: all quiet"}
+	}}
+	e := New(st, limit.NewGates(fc), r, fc, checker)
+	var runN, sessN int
+	e.newRunID = func() string { runN++; return fmt.Sprintf("run-%d", runN) }
+	e.newSessionID = func() string { sessN++; return fmt.Sprintf("sess-%d", sessN) }
+
+	onClaude := childTask("digest-claude")
+	onClaude.Provider = store.DefaultProviderID
+	onCodex := childTask("digest-codex")
+	onCodex.Provider = "codex"
+	join := joinTask("digest-claude", "digest-codex")
+	join.WorkflowID = "wf-digest"
+	onClaude.WorkflowID, onCodex.WorkflowID = "wf-digest", "wf-digest"
+
+	if err := st.SaveConfig(store.Config{
+		Providers: []store.Provider{
+			{ID: store.DefaultProviderID, Kind: store.DefaultProviderKind, Name: "Claude", Enabled: true},
+			{ID: "codex", Kind: string(provider.KindCodex), Name: "Codex", Enabled: true},
+		},
+		Tasks: []task.Task{onClaude, onCodex, join},
+	}); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	// Tick one runs both children; the join is not eligible yet.
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick 1: %v", err)
+	}
+	e.WaitIdle()
+	if got := len(r.requests()); got != 2 {
+		t.Fatalf("%d runs on the first tick, want one per provider", got)
+	}
+
+	// Tick two runs the join, with both answers.
+	fc.Advance(time.Minute)
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick 2: %v", err)
+	}
+	e.WaitIdle()
+
+	reqs := r.requests()
+	if len(reqs) != 3 || reqs[2].Task.ID != "join" {
+		t.Fatalf("expected the join to run third, got %d runs", len(reqs))
+	}
+	prompt := reqs[2].Task.Prompt
+	for _, want := range []string{"claude reports: all quiet", "codex reports: all quiet"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("the join is missing %q:\n%s", want, prompt)
+		}
+	}
+
+	// All three runs read as one piece of work, and each says what it ran on.
+	runs, _ := st.Runs()
+	if len(runs) != 3 {
+		t.Fatalf("got %d runs in history", len(runs))
+	}
+	providers := map[string]bool{}
+	for _, run := range runs {
+		if run.WorkflowID != "wf-digest" {
+			t.Errorf("run %s is in workflow %q, want wf-digest", run.RunID, run.WorkflowID)
+		}
+		providers[run.Provider.ID] = true
+	}
+	if !providers["claude"] || !providers["codex"] {
+		t.Fatalf("the workflow did not span both providers: %v", providers)
 	}
 }
