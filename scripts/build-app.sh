@@ -16,14 +16,16 @@ MACOS="$CONTENTS/MacOS"
 RES="$CONTENTS/Resources"
 LOGO="$ROOT/internal/api/web/logo.svg"
 
-# Prefer an explicit CLAUDEQ_VERSION (for demo/pre-release builds), then a
-# release tag (v1.2.3); fall back to 0.1.0 so the plist always has a valid
-# dotted version even on an untagged working tree.
-VERSION="${CLAUDEQ_VERSION:-$(git -C "$ROOT" describe --tags --abbrev=0 2>/dev/null || true)}"
-VERSION="${VERSION#v}"
-case "$VERSION" in
-  ''|*[!0-9.]*) VERSION="0.1.0" ;;
-esac
+# An explicit CLAUDEQ_VERSION wins — the release workflow sets it from the
+# pushed tag, so only that CI build carries a real version number. Every other
+# build (local, or CI on a branch) is a dev build, versioned "dev-<branch>" so
+# it's never mistaken for a release (e.g. "dev-main").
+if [ -n "${CLAUDEQ_VERSION:-}" ]; then
+  VERSION="${CLAUDEQ_VERSION#v}"
+else
+  BRANCH="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
+  VERSION="dev-${BRANCH//\//-}"
+fi
 
 echo "==> Building binaries"
 mkdir -p "$MACOS" "$RES"
