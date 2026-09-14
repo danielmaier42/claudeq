@@ -250,7 +250,15 @@ func (e *Executor) runEnv(req Request, adapterEnv []string) []string {
 	if e.QueueBin != "" {
 		env = append(env, EnvQueueBin+"="+e.QueueBin)
 	}
-	if data, err := json.Marshal(req.Task); err == nil {
+	// The parent handed to a self-queued task names the provider this run is
+	// actually on, even when the task itself names none. A follow-up inherits
+	// the account its parent ran on, rather than following a default that may
+	// have moved by the time it starts.
+	parent := req.Task
+	if parent.Provider == "" {
+		parent.Provider = req.Provider.ID
+	}
+	if data, err := json.Marshal(parent); err == nil {
 		env = append(env, EnvParentTask+"="+string(data))
 	}
 	if req.RunID != "" {
