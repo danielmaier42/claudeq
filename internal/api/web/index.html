@@ -1898,7 +1898,7 @@ async function saveSettings(){
 let UPDATE=null;
 async function loadUpdate(){
   try{ UPDATE=await api('GET','/api/update'); }catch{ return; }
-  renderUpdateBadge();
+  renderUpdateBadge(); renderConnText();
   if(current==='settings'){ renderUpdateBox(); renderVersionRow(); }
 }
 // Red "1" badge next to Settings whenever a non-dismissed update is available,
@@ -2043,7 +2043,14 @@ function renderLimitBar(iso){
   if(prev!==(LIMITED_UNTIL&&LIMITED_UNTIL.getTime())){ if(current==='tasks') loadTasks(); if(current==='news') loadRuns(); }
 }
 
-function setConn(ok){ $('#connDot').style.background=ok?'var(--ok)':'var(--danger)'; $('#connText').textContent=ok?'connected':'disconnected'; }
+let CONN_OK=true;
+function setConn(ok){ CONN_OK=ok; $('#connDot').style.background=ok?'var(--ok)':'var(--danger)'; renderConnText(); }
+// The dot alone carries connected/disconnected; the label shows the running
+// version once known (falling back to "disconnected" when the dot is red).
+function renderConnText(){
+  const t=$('#connText'); if(!t) return;
+  t.textContent = CONN_OK ? (UPDATE&&UPDATE.current?('v'+UPDATE.current):'connected') : 'disconnected';
+}
 
 // Surface a broken scheduled-wake setup so timed runs don't silently miss, and
 // notifications macOS is set to swallow.

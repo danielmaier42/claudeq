@@ -35,6 +35,10 @@ jobs:
         # Unsigned by default. To sign + notarize, add the Developer ID identities
         # to the keychain and set CLAUDEQ_SIGN_APP_ID / CLAUDEQ_SIGN_PKG_ID /
         # CLAUDEQ_NOTARY_PROFILE from repository secrets here.
+        # CLAUDEQ_VERSION pins the build to the pushed tag, so this release
+        # package is the only build that carries a real version number.
+        env:
+          CLAUDEQ_VERSION: ${{ github.ref_name }}
         run: ./scripts/build-pkg.sh dist
 
       - name: Publish release

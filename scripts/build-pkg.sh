@@ -16,14 +16,17 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${1:-$ROOT/dist}"
 IDENTIFIER="de.maierdaniel.claudeq"
 
-# An explicit CLAUDEQ_VERSION wins (demo/pre-release builds); otherwise derive
-# from the latest release tag. build-app.sh honours the same variable, so the
-# app bundle and the .pkg file name stay in lockstep.
-VERSION="${CLAUDEQ_VERSION:-$(git -C "$ROOT" describe --tags --abbrev=0 2>/dev/null || true)}"
-VERSION="${VERSION#v}"
-case "$VERSION" in
-  ''|*[!0-9.]*) VERSION="0.1.0" ;;
-esac
+# An explicit CLAUDEQ_VERSION wins — the release workflow sets it from the
+# pushed tag, so only that CI build carries a real version number. Every other
+# build (local, or CI on a branch) is a dev build, versioned "dev-<branch>".
+# build-app.sh honours the same variable, so the app bundle and the .pkg file
+# name stay in lockstep.
+if [ -n "${CLAUDEQ_VERSION:-}" ]; then
+  VERSION="${CLAUDEQ_VERSION#v}"
+else
+  BRANCH="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
+  VERSION="dev-${BRANCH//\//-}"
+fi
 
 echo "==> Building app bundle"
 "$ROOT/scripts/build-app.sh" "$ROOT/build"
