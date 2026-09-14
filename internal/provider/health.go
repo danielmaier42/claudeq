@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 )
@@ -47,8 +48,27 @@ type Health struct {
 	CheckedAt time.Time `json:"checked_at"`
 }
 
-// Ready reports whether a job may start on the checked instance.
+// Ready reports whether a job may start on the checked instance. Anything but
+// a clean verdict says no: claudeq does not launch a job on a harness it could
+// not confirm.
 func (h Health) Ready() bool { return h.State == HealthReady }
+
+// KnownUnready reports whether the instance is known not to work, as opposed to
+// merely not confirmed. It is the weaker test, used when deciding whether to
+// *file* work rather than start it: a check that could not reach a verdict is
+// no reason to throw away a follow-up task a run just asked for, and the
+// scheduler still refuses to start it until the provider answers cleanly.
+func (h Health) KnownUnready() bool {
+	return h.State != HealthReady && h.State != HealthCheckFailed
+}
+
+// ReasonOr is the verdict's reason, or fallback when it carries none.
+func (h Health) ReasonOr(fallback string) string {
+	if strings.TrimSpace(h.Reason) != "" {
+		return h.Reason
+	}
+	return fallback
+}
 
 // Prober runs a provider's own command for a readiness check and returns its
 // combined output. It is an interface so tests drive adapters with recorded
@@ -208,6 +228,16 @@ type Status struct {
 	Health   Health   `json:"health"`
 	// Default marks the instance a task runs on when it names none.
 	Default bool `json:"default"`
+}
+
+// CheckMaybeFresh is Check, or CheckFresh when fresh — the form every caller
+// that has a "probe it now" switch wants, so none of them computes a verdict
+// only to throw it away.
+func (c *Checker) CheckMaybeFresh(ctx context.Context, inst Instance, fresh bool) Health {
+	if fresh {
+		return c.CheckFresh(ctx, inst)
+	}
+	return c.Check(ctx, inst)
 }
 
 // Statuses checks every instance in set, in configuration order.

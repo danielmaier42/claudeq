@@ -315,7 +315,13 @@ A provider has:
 | Default model | Used for tasks on this provider that name no model of their own. |
 | Enabled | Off keeps the provider and its tasks, but runs nothing on it. |
 
-One provider is the **default**: tasks that name none run on it.
+One provider is the **default**: tasks that name none run on it. It cannot be
+switched off or removed while it holds that role — make another one the default
+first — because most tasks name no provider and would all stop at once.
+
+Editing a task changes its provider only when you say so. Every other edit — the
+prompt, the folder, the schedule — goes through whatever state the current
+provider is in, since that edit may well be how you are fixing it.
 
 ### Is it ready?
 
@@ -338,7 +344,10 @@ assuming it is there because it is the default provider.
 What follows from an unready provider:
 
 - **New tasks are refused** — in the app and from the CLI — with the reason. A
-  job that is known in advance to fail is not worth filing.
+  job that is known in advance to fail is not worth filing. *Could not be
+  checked* is the exception: "I could not ask" is not "it does not work", so the
+  task is filed and simply waits, rather than a running job losing the follow-up
+  it just queued because one probe timed out.
 - **Tasks that already exist stay queued.** They are not started, they take no
   concurrency slot, and nothing about their schedule advances: a one-shot task
   is not marked done, a cron task keeps its next occurrence. The Queue row shows

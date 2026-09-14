@@ -1,6 +1,7 @@
 package claudecode
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -72,7 +73,7 @@ func (a *Adapter) CheckHealth(ctx context.Context, inst provider.Instance, p pro
 		}
 	}
 	var st authStatus
-	if err := json.Unmarshal(jsonBody(out), &st); err != nil {
+	if err := decodeStatus(out, &st); err != nil {
 		return provider.Health{
 			State:  provider.HealthCheckFailed,
 			Binary: bin,
@@ -144,13 +145,15 @@ func executableFile(p string) error {
 	return nil
 }
 
-// jsonBody takes the JSON document out of a CLI's output, which may be preceded
-// by a line of noise (an update notice, a warning).
-func jsonBody(out []byte) []byte {
-	if i := strings.IndexAny(string(out), "{"); i > 0 {
-		return out[i:]
+// decodeStatus reads the first JSON object out of a CLI's combined output. The
+// document can be surrounded by noise on either side — an update notice before
+// it, a warning written to stderr after it — and neither is a reason to declare
+// the whole queue's provider broken, so only the document itself is parsed.
+func decodeStatus(out []byte, into any) error {
+	if i := bytes.IndexByte(out, '{'); i > 0 {
+		out = out[i:]
 	}
-	return out
+	return json.NewDecoder(bytes.NewReader(out)).Decode(into)
 }
 
 // firstLine is the first non-empty line of s, for the short version detail

@@ -235,3 +235,30 @@ func TestResolveBinaryReportsNothingWhenItFindsNothing(t *testing.T) {
 		t.Fatalf("command path = %q, want the bare %q for an exec lookup", cmd.Path, BinaryName)
 	}
 }
+
+// TestCheckHealthToleratesNoiseAroundTheStatus: the CLI's combined output can
+// carry an update notice before the document and a warning after it. Neither is
+// a reason to declare the provider broken and stop the whole queue.
+func TestCheckHealthToleratesNoiseAroundTheStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		out  string
+	}{
+		{name: "a notice before", out: "Update available!\n" + `{"loggedIn":true,"authMethod":"claude.ai"}`},
+		{name: "a warning after", out: `{"loggedIn":true,"authMethod":"claude.ai"}` + "\nwarning: something\n"},
+		{name: "both", out: "Notice\n" + `{"loggedIn":true,"authMethod":"claude.ai"}` + "\nwarning\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &fakeProber{out: map[string][]byte{
+				"--version": []byte("2.1.7"),
+				"auth":      []byte(tc.out),
+			}}
+			h := newAdapter("").CheckHealth(context.Background(), provider.Instance{
+				ID: "claude", BinaryPath: fakeBinary(t), Enabled: true,
+			}, p)
+			if h.State != provider.HealthReady {
+				t.Fatalf("state = %q (%s), want ready", h.State, h.Reason)
+			}
+		})
+	}
+}

@@ -100,10 +100,7 @@ func checkProviders(set provider.Set, only string, fresh bool) ([]providerView, 
 		if only != "" && inst.ID != only {
 			continue
 		}
-		h := checker.Check(ctx, inst)
-		if fresh {
-			h = checker.CheckFresh(ctx, inst)
-		}
+		h := checker.CheckMaybeFresh(ctx, inst, fresh)
 		out = append(out, providerView{Instance: inst, Default: inst.ID == set.DefaultID(), Health: h})
 	}
 	if only != "" && len(out) == 0 {

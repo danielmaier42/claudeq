@@ -105,13 +105,15 @@ type Engine struct {
 	canceled          map[string]bool               // runID -> user requested cancellation
 	nonParallelActive int
 	parallelActive    int
+	wg                sync.WaitGroup
+	awake             sleepGuard // keeps the Mac awake while runs are in flight
+
 	// providerHealth is the health state last announced per provider, so an
 	// unresolved problem is reported once instead of on every tick. It is seeded
-	// from state.json, which is what makes the memo survive a restart. Only the
-	// scheduler touches it, under mu.
+	// from state.json, which is what makes the memo survive a restart. It has its
+	// own lock because the readiness pass deliberately runs outside mu.
+	healthMu       sync.Mutex
 	providerHealth map[string]string
-	wg             sync.WaitGroup
-	awake          sleepGuard // keeps the Mac awake while runs are in flight
 }
 
 // ShutdownGrace is how long Loop lets in-flight runs finish on shutdown before
@@ -162,13 +164,23 @@ func (e *Engine) Tick(ctx context.Context) error {
 		return nil
 	}
 
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
+	providers, err := provider.FromConfig(cfg)
+	if err != nil {
+		return fmt.Errorf("read provider configuration: %w", err)
+	}
 	st, err := e.store.LoadState()
 	if err != nil {
 		return fmt.Errorf("load state: %w", err)
 	}
+	// Probe the harnesses *before* taking the scheduler lock. A readiness check
+	// spawns a CLI, and a CLI can hang: holding e.mu across that would stall the
+	// dashboard, a cancel and every finishing run for as long as the probe's
+	// timeout. The verdicts are from this tick, so nothing under the lock has to
+	// ask again.
+	health := e.refreshProviderHealth(ctx, providers, cfg, st)
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
 
 	now := e.clock.Now()
 	// Seed the in-memory snapshot so freshly-added cron tasks have an anchor for
@@ -193,27 +205,20 @@ func (e *Engine) Tick(ctx context.Context) error {
 		}
 	}
 
-	providers, err := provider.FromConfig(cfg)
-	if err != nil {
-		return fmt.Errorf("read provider configuration: %w", err)
-	}
 	// A task whose harness cannot run it is not started and not retired: it keeps
 	// its place in the queue, takes no concurrency slot, and advances no
 	// one-shot or cron state, so it simply runs once the provider is ready again.
 	runnable := make([]task.Task, 0, len(due))
 	for _, t := range due {
-		if _, err := e.readyFor(ctx, providers, st, t, false); err == nil {
+		if _, err := health.resolve(providers, t); err == nil {
 			runnable = append(runnable, t)
 		}
 	}
 
-	// Whatever survived priority and concurrency is about to start, so its
-	// provider is asked once more without the cache: a login that expired since
-	// the last probe must not cost a recorded start.
 	selected := schedule.Select(runnable, e.runningState())
 	starts := make([]start, 0, len(selected))
 	for _, t := range selected {
-		if res, err := e.readyFor(ctx, providers, st, t, true); err == nil {
+		if res, err := health.resolve(providers, t); err == nil {
 			starts = append(starts, start{task: t, resolved: res})
 		}
 	}
@@ -249,32 +254,95 @@ type start struct {
 	resolved provider.Resolved
 }
 
-// readyFor resolves a task's provider and model and reports whether a job may
-// be started on it now, or why not. fresh bypasses the health cache, which the
-// scheduler does for the handful of tasks it is actually about to launch.
-//
-// There is no fallback: a task that names a provider claudeq cannot honour is
-// not moved to another one. The scheduler leaves it queued; a manual run
-// reports the reason to whoever asked for it.
-func (e *Engine) readyFor(ctx context.Context, set provider.Set, st *store.State, t task.Task, fresh bool) (provider.Resolved, error) {
+// providerHealth is one tick's readiness verdict per provider id, taken before
+// the scheduler lock so the decisions under it cost nothing.
+type providerHealth map[string]provider.Health
+
+// resolve turns a task into the execution identity it may run under, or reports
+// why it may not. There is no fallback: a task that names a provider claudeq
+// cannot honour is not moved to another one. The scheduler leaves it queued; a
+// manual run reports the reason to whoever asked for it.
+func (h providerHealth) resolve(set provider.Set, t task.Task) (provider.Resolved, error) {
 	res, err := set.Resolve(provider.Selection{ProviderID: t.Provider, Model: t.Model})
 	if err != nil {
-		// The instance is gone from the configuration, or switched off. There is
-		// nothing to probe, so it is reported under the id the task asked for.
-		e.noteProviderHealth(st, provider.Instance{ID: t.Provider, Name: t.Provider},
-			provider.Health{State: provider.HealthInvalidConfiguration, Reason: err.Error()})
 		return provider.Resolved{}, err
 	}
-	h := e.providers.Check(ctx, res.Instance)
-	if fresh {
-		h = e.providers.CheckFresh(ctx, res.Instance)
+	got, ok := h[res.Instance.ID]
+	if !ok {
+		// Not probed this tick (the task was enabled moments ago). Not knowing is
+		// not a reason to start: it waits for the next tick, which will know.
+		return provider.Resolved{}, fmt.Errorf("provider %q has not been checked yet", res.Instance.ID)
 	}
+	if !got.Ready() {
+		return provider.Resolved{}, fmt.Errorf("provider %q is not ready: %s",
+			res.Instance.ID, got.ReasonOr("it cannot run tasks right now"))
+	}
+	return res, nil
+}
+
+// resolveRunnable probes one task's provider and reports the execution identity
+// it may run under, or why it may not. It is the single-task form of
+// refreshProviderHealth, for the manual "run now".
+func (e *Engine) resolveRunnable(ctx context.Context, set provider.Set, st *store.State, t task.Task) (provider.Resolved, error) {
+	res, err := set.Resolve(provider.Selection{ProviderID: t.Provider, Model: t.Model})
+	if err != nil {
+		return provider.Resolved{}, err
+	}
+	h := e.providers.CheckFresh(ctx, res.Instance)
 	e.noteProviderHealth(st, res.Instance, h)
 	if !h.Ready() {
 		return provider.Resolved{}, fmt.Errorf("provider %q is not ready: %s",
-			res.Instance.ID, reasonOr(h, "it cannot run tasks right now"))
+			res.Instance.ID, h.ReasonOr("it cannot run tasks right now"))
 	}
 	return res, nil
+}
+
+// refreshProviderHealth probes every provider an enabled task could need and
+// announces whatever changed. It runs outside the scheduler lock and once per
+// distinct provider, so a tick costs at most one probe per configured harness
+// however many tasks are waiting on it.
+func (e *Engine) refreshProviderHealth(ctx context.Context, set provider.Set, cfg store.Config, st *store.State) providerHealth {
+	out := providerHealth{}
+	known := map[string]bool{}
+	for _, inst := range set.All() {
+		known[inst.ID] = true
+	}
+	for _, t := range cfg.Tasks {
+		if !t.Enabled {
+			continue
+		}
+		known[t.Provider] = true // an id no instance answers to is remembered too
+		res, err := set.Resolve(provider.Selection{ProviderID: t.Provider})
+		if err != nil {
+			// The instance is gone from the configuration, or switched off. There
+			// is nothing to probe, so it is reported under the id the task asked
+			// for.
+			e.noteProviderHealth(st, provider.Instance{ID: t.Provider, Name: t.Provider},
+				provider.Health{State: provider.HealthInvalidConfiguration, Reason: err.Error()})
+			continue
+		}
+		if _, done := out[res.Instance.ID]; done {
+			continue
+		}
+		h := e.providers.CheckFresh(ctx, res.Instance)
+		out[res.Instance.ID] = h
+		e.noteProviderHealth(st, res.Instance, h)
+	}
+	e.forgetUnknownProviders(known)
+	return out
+}
+
+// forgetUnknownProviders drops the announcement memo of provider ids nothing
+// refers to any more, so an instance removed and later re-added under the same
+// id is announced again instead of inheriting the old one's state.
+func (e *Engine) forgetUnknownProviders(known map[string]bool) {
+	e.healthMu.Lock()
+	defer e.healthMu.Unlock()
+	for id := range e.providerHealth {
+		if !known[id] {
+			delete(e.providerHealth, id)
+		}
+	}
 }
 
 // noteProviderHealth announces a provider's readiness when it changes, and only
@@ -284,11 +352,13 @@ func (e *Engine) readyFor(ctx context.Context, set provider.Set, st *store.State
 // already knows about.
 func (e *Engine) noteProviderHealth(st *store.State, inst provider.Instance, h provider.Health) {
 	current := string(h.State)
+	e.healthMu.Lock()
 	previous, seen := e.providerHealth[inst.ID]
 	if !seen && st != nil {
 		previous = st.NotifiedProviderState(inst.ID)
 	}
 	e.providerHealth[inst.ID] = current
+	e.healthMu.Unlock()
 	if previous == current {
 		return
 	}
@@ -301,28 +371,29 @@ func (e *Engine) noteProviderHealth(st *store.State, inst provider.Instance, h p
 	if e.notifier == nil {
 		return
 	}
+	var n notify.Notification
 	switch {
 	case h.Ready() && previous == "":
 		// First look at a working provider: nothing happened worth announcing.
+		return
 	case h.Ready():
-		e.send(notify.Notification{
+		n = notify.Notification{
 			Title:   "ClaudeQ: " + inst.Label() + " is ready again",
 			Message: "Tasks waiting for this provider will start on the next check.",
-		})
+		}
 	default:
-		e.send(notify.Notification{
+		n = notify.Notification{
 			Title:   "ClaudeQ: " + inst.Label() + " cannot run tasks",
-			Message: reasonOr(h, "The provider is not ready.") + "\nTasks for it stay queued until it works again.",
-		})
+			Message: h.ReasonOr("The provider is not ready.") + "\nTasks for it stay queued until it works again.",
+		}
 	}
-}
-
-// reasonOr is a health verdict's reason, or fallback when it carries none.
-func reasonOr(h provider.Health, fallback string) string {
-	if strings.TrimSpace(h.Reason) != "" {
-		return h.Reason
-	}
-	return fallback
+	// Off the scheduler goroutine: a channel that takes its time must not delay
+	// the tick that noticed the problem.
+	e.wg.Add(1)
+	go func() {
+		defer e.wg.Done()
+		e.send(n)
+	}()
 }
 
 // seedCronAnchors gives every not-yet-seen cron task an anchor of now, so its
@@ -903,22 +974,22 @@ func (e *Engine) RunTaskNow(ctx context.Context, taskID string) error {
 		return fmt.Errorf("task %q not found", taskID)
 	}
 
+	st, err := e.store.LoadState()
+	if err != nil {
+		return fmt.Errorf("load state: %w", err)
+	}
+	// Probed before the lock, like the scheduler's pass: a manual run reports the
+	// problem to whoever pressed the button instead of filing a failed run, and a
+	// hung CLI must not stall everything else in the meantime.
+	resolved, err := e.resolveRunnable(ctx, providers, st, *target)
+	if err != nil {
+		return err
+	}
+
 	e.mu.Lock()
 	if e.active[taskID] {
 		e.mu.Unlock()
 		return fmt.Errorf("task %q is already running", taskID)
-	}
-	st, err := e.store.LoadState()
-	if err != nil {
-		e.mu.Unlock()
-		return fmt.Errorf("load state: %w", err)
-	}
-	// A manual run reports the problem to whoever pressed the button, instead of
-	// filing a failed run the way an unattended start would.
-	resolved, err := e.readyFor(ctx, providers, st, *target, true)
-	if err != nil {
-		e.mu.Unlock()
-		return err
 	}
 	sessionID, resume := e.sessionFor(*target, st)
 	now := e.clock.Now()

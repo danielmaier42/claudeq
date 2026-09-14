@@ -150,12 +150,25 @@ func TestAddAndDefaultProvider(t *testing.T) {
 		t.Fatalf("default provider = %q, want it untouched by a settings save", cfg.Settings.DefaultProvider)
 	}
 
+	// It is the default now, so it cannot be switched off from under every task
+	// that names no provider.
+	if r := do(t, srv, http.MethodPost, "/api/providers/second/disable", nil); r.Status != http.StatusBadRequest {
+		t.Fatalf("disable = %d (%s), want it refused while it is the default", r.Status, r.Body)
+	}
+	if r := do(t, srv, http.MethodPost, "/api/providers/claude/default", nil); r.Status != http.StatusNoContent {
+		t.Fatalf("default = %d (%s)", r.Status, r.Body)
+	}
 	if r := do(t, srv, http.MethodPost, "/api/providers/second/disable", nil); r.Status != http.StatusNoContent {
 		t.Fatalf("disable = %d (%s)", r.Status, r.Body)
 	}
 	cfg, _ = st.LoadConfig()
 	if cfg.Providers[1].Enabled {
 		t.Fatalf("provider = %+v, want it switched off", cfg.Providers[1])
+	}
+	// The card's switch goes through the edit endpoint, which holds the same line.
+	if r := do(t, srv, http.MethodPut, "/api/providers/claude",
+		map[string]any{"name": "Claude Code", "enabled": false}); r.Status != http.StatusBadRequest {
+		t.Fatalf("edit = %d (%s), want the default provider's switch refused too", r.Status, r.Body)
 	}
 }
 

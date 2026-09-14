@@ -1473,7 +1473,7 @@ function providerCard(p){
         <div class="sub">Used for tasks on this provider that name no model</div></div>
       <select class="p-model" style="max-width:230px">${modelOptions(p.default_model||'','Provider default')}</select></div>
     <div class="row"><div class="grow"><div class="sub">${esc(p.health.binary||'')}</div></div>
-      <button class="btn p-default"${p.default?' disabled':''}>Make default</button>
+      <button class="btn p-default"${p.default||!p.enabled?' disabled':''}>Make default</button>
       <button class="btn p-check">Check again</button>
       <button class="btn primary p-save">Save</button></div>`;
   wrap.querySelector('.p-path').value=p.binary_path||'';

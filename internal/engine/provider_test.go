@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/danielmaier42/claudeq/internal/app"
 	"github.com/danielmaier42/claudeq/internal/clock"
+	"github.com/danielmaier42/claudeq/internal/limit"
 	"github.com/danielmaier42/claudeq/internal/notify"
 	"github.com/danielmaier42/claudeq/internal/provider"
 	"github.com/danielmaier42/claudeq/internal/store"
@@ -378,5 +380,158 @@ func TestFirstHealthyObservationIsSilent(t *testing.T) {
 		if strings.Contains(title, "ready again") {
 			t.Fatalf("notifications = %v, want nothing about a provider that was fine all along", n.titles())
 		}
+	}
+}
+
+// blockingAdapter holds every readiness probe until the test lets it go, which
+// is what a hung CLI looks like from the scheduler's side.
+type blockingAdapter struct {
+	*healthAdapter
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (a *blockingAdapter) CheckHealth(ctx context.Context, inst provider.Instance, p provider.Prober) provider.Health {
+	a.once.Do(func() { close(a.entered) })
+	<-a.release
+	return a.healthAdapter.CheckHealth(ctx, inst, p)
+}
+
+// TestTickDoesNotHoldTheSchedulerLockWhileProbing: a readiness check spawns a
+// CLI, and a CLI can hang. While one does, the dashboard must still be able to
+// ask what is running, and a run must still be cancellable.
+func TestTickDoesNotHoldTheSchedulerLockWhileProbing(t *testing.T) {
+	fc := clock.NewFake(time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC))
+	r := &stub{}
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	ad := &blockingAdapter{
+		healthAdapter: &healthAdapter{health: provider.Health{State: provider.HealthReady}},
+		entered:       make(chan struct{}),
+		release:       make(chan struct{}),
+	}
+	e := New(st, limit.New(fc), r, fc, &provider.Checker{Registry: provider.NewRegistry(ad)})
+	saveTasks(t, st, asapTask("a", false))
+
+	ticked := make(chan error, 1)
+	go func() { ticked <- e.Tick(context.Background()) }()
+	<-ad.entered
+
+	// The probe is in flight. Anything that needs the scheduler lock must answer
+	// rather than queue up behind it.
+	answered := make(chan struct{})
+	go func() { e.ActiveTaskIDs(); close(answered) }()
+	select {
+	case <-answered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ActiveTaskIDs blocked behind a provider probe")
+	}
+
+	close(ad.release)
+	if err := <-ticked; err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	e.WaitIdle()
+	if got := r.requests(); len(got) != 1 {
+		t.Fatalf("expected the task to run once the probe answered, got %d", len(got))
+	}
+}
+
+// TestOneProbePerProviderPerTick: several tasks waiting on the same harness cost
+// one check, not one each.
+func TestOneProbePerProviderPerTick(t *testing.T) {
+	fc := clock.NewFake(time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC))
+	r := &stub{}
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	ad := &countingHealthAdapter{healthAdapter: &healthAdapter{health: notInstalled}}
+	e := New(st, limit.New(fc), r, fc, &provider.Checker{Registry: provider.NewRegistry(ad)})
+	saveTasks(t, st, asapTask("a", false), asapTask("b", false), asapTask("c", false))
+
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	e.WaitIdle()
+	if ad.checks() != 1 {
+		t.Fatalf("probed %d times for three tasks on one provider, want once", ad.checks())
+	}
+}
+
+type countingHealthAdapter struct {
+	*healthAdapter
+	mu sync.Mutex
+	n  int
+}
+
+func (a *countingHealthAdapter) CheckHealth(ctx context.Context, inst provider.Instance, p provider.Prober) provider.Health {
+	a.mu.Lock()
+	a.n++
+	a.mu.Unlock()
+	return a.healthAdapter.CheckHealth(ctx, inst, p)
+}
+
+func (a *countingHealthAdapter) checks() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.n
+}
+
+// TestARemovedProviderIsAnnouncedAgain: a provider removed and re-added under
+// the same id is a different thing, so its state has to be reported afresh
+// rather than inherited from the one that is gone.
+func TestARemovedProviderIsAnnouncedAgain(t *testing.T) {
+	fc := clock.NewFake(time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC))
+	r := &stub{}
+	e, st, ad := newTestEngineWithProvider(t, r, fc)
+	n := &recordingNotifier{}
+	e.SetNotifier(n)
+	ad.set(notInstalled)
+
+	second := claudeProvider("", "")
+	second.ID, second.Name = "second", "second"
+	tk := asapTask("a", false)
+	tk.Provider = "second"
+	base := store.Config{
+		Settings:  store.Settings{DefaultProvider: store.DefaultProviderID},
+		Providers: []store.Provider{claudeProvider("", ""), second},
+		Tasks:     []task.Task{tk},
+	}
+	if err := st.SaveConfig(base); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	e.WaitIdle()
+	if len(n.titles()) != 1 {
+		t.Fatalf("notifications = %v, want the broken provider announced once", n.titles())
+	}
+
+	// Remove it — which also forgets the memo — and put it back.
+	if err := app.RemoveTask(st, "a"); err != nil {
+		t.Fatalf("RemoveTask: %v", err)
+	}
+	if err := app.RemoveProvider(st, "second"); err != nil {
+		t.Fatalf("RemoveProvider: %v", err)
+	}
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	e.WaitIdle()
+	if err := st.SaveConfig(base); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	e.WaitIdle()
+
+	if got := n.titles(); len(got) != 2 {
+		t.Fatalf("notifications = %v, want the re-added provider announced again", got)
 	}
 }

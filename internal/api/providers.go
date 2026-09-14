@@ -44,10 +44,7 @@ func (s *server) views(ctx context.Context, set provider.Set, only string, fresh
 		if only != "" && inst.ID != only {
 			continue
 		}
-		h := s.d.Providers.Check(ctx, inst)
-		if fresh {
-			h = s.d.Providers.CheckFresh(ctx, inst)
-		}
+		h := s.d.Providers.CheckMaybeFresh(ctx, inst, fresh)
 		v := providerView{Instance: inst, Health: h, Default: inst.ID == set.DefaultID()}
 		if inst.BinaryPath == "" {
 			if ad, err := s.d.Registry.Lookup(inst.Kind); err == nil {

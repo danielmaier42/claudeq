@@ -312,6 +312,20 @@ func (s *server) addTask(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, t)
 }
 
+// storedTask reads a task as it is currently stored.
+func (s *server) storedTask(id string) (task.Task, error) {
+	cfg, err := s.d.Store.LoadConfig()
+	if err != nil {
+		return task.Task{}, err
+	}
+	for _, t := range cfg.Tasks {
+		if t.ID == id {
+			return t, nil
+		}
+	}
+	return task.Task{}, fmt.Errorf("task %q not found", id)
+}
+
 // ensureRunnable refuses to file work for a provider that cannot run it, so a
 // task is never queued that is known in advance to fail unattended.
 func (s *server) ensureRunnable(ctx context.Context, providerID string) error {
@@ -374,9 +388,15 @@ func (s *server) updateTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := s.ensureRunnable(r.Context(), t.Provider); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
+	// Only a *move* to another provider is checked. An existing task keeps the
+	// one it has, and an unready provider must not stand in the way of editing
+	// the prompt, the folder or the schedule — that edit may well be how the
+	// operator is fixing it.
+	if prev, err := s.storedTask(t.ID); err == nil && prev.Provider != t.Provider {
+		if err := s.ensureRunnable(r.Context(), t.Provider); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
 	}
 	var prevDir string
 	err := s.d.Store.UpdateConfig(func(cfg *store.Config) error {

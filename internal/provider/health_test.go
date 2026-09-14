@@ -135,3 +135,56 @@ func TestStatusesMarkTheDefaultInstance(t *testing.T) {
 		t.Fatalf("health = %+v, want a ready verdict with a timestamp", got[0].Health)
 	}
 }
+
+// TestKnownUnreadyIsWeakerThanReady separates the two questions the app asks of
+// a verdict: may a job *start* on this provider (Ready), and is it *known* not
+// to work (KnownUnready). A check that could not reach a verdict answers no to
+// both: nothing is started on it, but a follow-up task is still filed.
+func TestKnownUnreadyIsWeakerThanReady(t *testing.T) {
+	tests := []struct {
+		state           HealthState
+		ready, knownBad bool
+	}{
+		{state: HealthReady, ready: true},
+		{state: HealthNotInstalled, knownBad: true},
+		{state: HealthNotAuthenticated, knownBad: true},
+		{state: HealthInvalidConfiguration, knownBad: true},
+		{state: HealthDisabled, knownBad: true},
+		{state: HealthCheckFailed},
+	}
+	for _, tc := range tests {
+		t.Run(string(tc.state), func(t *testing.T) {
+			h := Health{State: tc.state}
+			if h.Ready() != tc.ready {
+				t.Errorf("Ready() = %t, want %t", h.Ready(), tc.ready)
+			}
+			if h.KnownUnready() != tc.knownBad {
+				t.Errorf("KnownUnready() = %t, want %t", h.KnownUnready(), tc.knownBad)
+			}
+		})
+	}
+}
+
+func TestReasonOr(t *testing.T) {
+	if got := (Health{Reason: "no login"}).ReasonOr("fallback"); got != "no login" {
+		t.Errorf("ReasonOr = %q, want the verdict's own reason", got)
+	}
+	if got := (Health{Reason: "  "}).ReasonOr("fallback"); got != "fallback" {
+		t.Errorf("ReasonOr = %q, want the fallback", got)
+	}
+}
+
+// TestCheckMaybeFreshProbesExactlyOnce guards against computing a verdict only
+// to throw it away.
+func TestCheckMaybeFreshProbesExactlyOnce(t *testing.T) {
+	ch, ad, _ := newCountingChecker(t, "fake")
+	inst := enabled("fake", "fake")
+	ch.CheckMaybeFresh(context.Background(), inst, true)
+	if ad.checks != 1 {
+		t.Fatalf("adapter probed %d times, want one", ad.checks)
+	}
+	ch.CheckMaybeFresh(context.Background(), inst, false)
+	if ad.checks != 1 {
+		t.Fatalf("adapter probed %d times, want the cached verdict", ad.checks)
+	}
+}

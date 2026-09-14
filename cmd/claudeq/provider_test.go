@@ -170,21 +170,35 @@ func TestCmdProviderLifecycle(t *testing.T) {
 	if err := cmdProvider(st, []string{"disable", "second"}); err != nil {
 		t.Fatalf("provider disable: %v", err)
 	}
-	if err := cmdProvider(st, []string{"default", "second"}); err != nil {
-		t.Fatalf("provider default: %v", err)
-	}
 	set, _ = app.Providers(st)
 	inst, _ = set.Lookup("second")
 	if inst.DefaultModel != "sonnet" || inst.Enabled {
 		t.Fatalf("instance = %+v, want the edit and the switch-off applied", inst)
 	}
+
+	// A switched-off instance cannot become the one every task without a
+	// provider runs on.
+	if err := cmdProvider(st, []string{"default", "second"}); err == nil {
+		t.Fatal("making a switched-off provider the default must be refused")
+	}
+	if err := cmdProvider(st, []string{"enable", "second"}); err != nil {
+		t.Fatalf("provider enable: %v", err)
+	}
+	if err := cmdProvider(st, []string{"default", "second"}); err != nil {
+		t.Fatalf("provider default: %v", err)
+	}
+	set, _ = app.Providers(st)
 	if set.DefaultID() != "second" {
 		t.Fatalf("default = %q, want the one just chosen", set.DefaultID())
 	}
 
-	// It is the default now, so removing it has to be refused until that changes.
+	// It is the default now, so neither removing nor switching it off may work
+	// until that changes.
 	if err := cmdProvider(st, []string{"rm", "second"}); err == nil {
 		t.Fatal("removing a referenced provider must be refused")
+	}
+	if err := cmdProvider(st, []string{"disable", "second"}); err == nil {
+		t.Fatal("switching off the default provider must be refused")
 	}
 	if err := cmdProvider(st, []string{"default", store.DefaultProviderID}); err != nil {
 		t.Fatalf("provider default: %v", err)

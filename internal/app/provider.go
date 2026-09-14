@@ -25,17 +25,24 @@ func Providers(s *store.Store) (provider.Set, error) {
 }
 
 // EnsureRunnable refuses to file work for a provider that cannot run it: an id
-// nothing is configured under, or a configured instance that is switched off or
-// not ready. Filing it anyway would put a job in the queue that is known in
-// advance to fail at three in the morning, which is the one thing an unattended
-// queue must not do. An empty id means the default provider.
+// nothing is configured under, or a configured instance that is switched off,
+// not installed or not logged in. Filing it anyway would put a job in the queue
+// that is known in advance to fail at three in the morning, which is the one
+// thing an unattended queue must not do. An empty id means the default provider.
+//
+// A check that could not reach a verdict at all does not refuse. "I could not
+// ask" is not "it does not work", and throwing away a follow-up task a running
+// job just asked for — on a provider that is demonstrably running it — would be
+// the worse mistake. The scheduler still refuses to *start* such a task, and
+// the queue says it is blocked.
 func EnsureRunnable(ctx context.Context, set provider.Set, ch *provider.Checker, providerID string) error {
 	resolved, err := set.Resolve(provider.Selection{ProviderID: providerID})
 	if err != nil {
 		return err
 	}
-	if h := ch.Check(ctx, resolved.Instance); !h.Ready() {
-		return fmt.Errorf("provider %q is not ready: %s", resolved.Instance.ID, h.Reason)
+	if h := ch.Check(ctx, resolved.Instance); h.KnownUnready() {
+		return fmt.Errorf("provider %q is not ready: %s",
+			resolved.Instance.ID, h.ReasonOr("it cannot run tasks right now"))
 	}
 	return nil
 }
@@ -74,6 +81,9 @@ func EditProvider(s *store.Store, reg *provider.Registry, id string, apply func(
 		if err := provider.Validate(reg, edited); err != nil {
 			return err
 		}
+		if err := checkDefaultStaysUsable(*cfg, id, edited.Enabled); err != nil {
+			return err
+		}
 		cfg.Providers[idx] = edited.Stored()
 		return nil
 	})
@@ -87,6 +97,9 @@ func SetProviderEnabled(s *store.Store, id string, enabled bool) error {
 		idx := providerIndex(cfg.Providers, id)
 		if idx < 0 {
 			return unknownProvider(cfg, id)
+		}
+		if err := checkDefaultStaysUsable(*cfg, id, enabled); err != nil {
+			return err
 		}
 		cfg.Providers[idx].Enabled = enabled
 		return nil
@@ -121,15 +134,31 @@ func RemoveProvider(s *store.Store, id string) error {
 	})
 }
 
-// SetDefaultProvider chooses the instance a task runs on when it names none.
+// SetDefaultProvider chooses the instance a task runs on when it names none. A
+// switched-off instance is refused: it would block every task that names no
+// provider, which is most of them.
 func SetDefaultProvider(s *store.Store, id string) error {
 	return s.UpdateConfig(func(cfg *store.Config) error {
-		if providerIndex(cfg.Providers, id) < 0 {
+		idx := providerIndex(cfg.Providers, id)
+		if idx < 0 {
 			return unknownProvider(cfg, id)
+		}
+		if !cfg.Providers[idx].Enabled {
+			return fmt.Errorf("provider %q is switched off; switch it on before making it the default", id)
 		}
 		cfg.Settings.DefaultProvider = id
 		return nil
 	})
+}
+
+// checkDefaultStaysUsable refuses to switch off the instance that tasks naming
+// no provider run on. Allowing it would block most of the queue behind a switch
+// whose effect is not obvious from where it sits.
+func checkDefaultStaysUsable(cfg store.Config, id string, enabled bool) error {
+	if enabled || cfg.Settings.DefaultProvider != id {
+		return nil
+	}
+	return fmt.Errorf("provider %q is the default; make another one the default before switching it off", id)
 }
 
 // providerRefs lists, in words the operator can act on, everything that names a

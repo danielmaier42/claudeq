@@ -208,6 +208,14 @@ func TestEnsureRunnable(t *testing.T) {
 
 func TestEnsureRunnableRefusesADisabledProvider(t *testing.T) {
 	s := openStore(t)
+	if err := AddProvider(s, registry(), provider.Instance{
+		ID: "second", Kind: provider.KindClaudeCode, Name: "second", Enabled: true,
+	}); err != nil {
+		t.Fatalf("AddProvider: %v", err)
+	}
+	if err := SetDefaultProvider(s, "second"); err != nil {
+		t.Fatalf("SetDefaultProvider: %v", err)
+	}
 	if err := SetProviderEnabled(s, provider.DefaultInstanceID, false); err != nil {
 		t.Fatalf("SetProviderEnabled: %v", err)
 	}
@@ -216,8 +224,43 @@ func TestEnsureRunnableRefusesADisabledProvider(t *testing.T) {
 		t.Fatalf("Providers: %v", err)
 	}
 	ready := readinessChecker(provider.Health{State: provider.HealthReady})
-	if err := EnsureRunnable(context.Background(), set, ready, ""); !errors.Is(err, provider.ErrProviderDisabled) {
+	err = EnsureRunnable(context.Background(), set, ready, provider.DefaultInstanceID)
+	if !errors.Is(err, provider.ErrProviderDisabled) {
 		t.Fatalf("err = %v, want ErrProviderDisabled", err)
+	}
+}
+
+// TestDefaultProviderStaysUsable: the instance every task without a provider
+// runs on cannot be switched off or removed from under them.
+func TestDefaultProviderStaysUsable(t *testing.T) {
+	s := openStore(t)
+	if err := SetProviderEnabled(s, provider.DefaultInstanceID, false); err == nil {
+		t.Fatal("switching off the default provider must be refused")
+	}
+	if err := AddProvider(s, registry(), provider.Instance{
+		ID: "off", Kind: provider.KindClaudeCode, Name: "off",
+	}); err != nil {
+		t.Fatalf("AddProvider: %v", err)
+	}
+	if err := SetDefaultProvider(s, "off"); err == nil {
+		t.Fatal("making a switched-off provider the default must be refused")
+	}
+}
+
+// TestEnsureRunnableAcceptsAnUnconfirmedProvider: "I could not ask" is not "it
+// does not work". A run that is demonstrably going must not lose the follow-up
+// it just queued because one probe timed out.
+func TestEnsureRunnableAcceptsAnUnconfirmedProvider(t *testing.T) {
+	s := openStore(t)
+	set, err := Providers(s)
+	if err != nil {
+		t.Fatalf("Providers: %v", err)
+	}
+	unknown := readinessChecker(provider.Health{
+		State: provider.HealthCheckFailed, Reason: "the CLI did not answer in time",
+	})
+	if err := EnsureRunnable(context.Background(), set, unknown, ""); err != nil {
+		t.Fatalf("an unconfirmed provider must not refuse the task: %v", err)
 	}
 }
 

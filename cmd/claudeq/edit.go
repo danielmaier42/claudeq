@@ -115,6 +115,14 @@ func cmdEdit(st *store.Store, args []string) error {
 	if err != nil {
 		return err
 	}
+	// Only a move to another provider is checked; every other edit goes through
+	// whatever state the current provider is in, because that edit may be how the
+	// operator is fixing it.
+	if patch.has("provider") {
+		if err := ensureRunnable(st, patch.provider); err != nil {
+			return err
+		}
+	}
 	if err := app.EditTask(st, id, func(t *task.Task) error {
 		edited, err := patch.apply(*t)
 		if err != nil {
