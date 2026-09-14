@@ -219,3 +219,71 @@ func TestAddTaskRefusesAnUnreadyProvider(t *testing.T) {
 		t.Fatalf("a refused task must not be stored, got %+v", cfg.Tasks)
 	}
 }
+
+// TestListProviderKinds: the registry answers what can be added, so a later
+// adapter appears in the app by being registered and nothing here changes.
+func TestListProviderKinds(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	reg := provider.NewRegistry(
+		stubAdapter{health: provider.Health{State: provider.HealthReady}},
+		betaAdapter{},
+	)
+	srv := httptest.NewServer(Handler(Deps{Store: st, Registry: reg, Providers: provider.NewChecker(reg)}))
+	t.Cleanup(srv.Close)
+
+	var got []providerKind
+	do(t, srv, http.MethodGet, "/api/providers/kinds", nil).into(t, &got)
+	want := map[string]bool{string(provider.KindClaudeCode): false, string(provider.KindCodex): true}
+	if len(got) != len(want) {
+		t.Fatalf("kinds = %+v, want one per registered adapter", got)
+	}
+	for _, k := range got {
+		beta, known := want[k.Kind]
+		if !known {
+			t.Fatalf("unexpected kind %q", k.Kind)
+		}
+		if k.Beta != beta {
+			t.Fatalf("kind %q beta = %t, want %t", k.Kind, k.Beta, beta)
+		}
+	}
+}
+
+// TestProviderViewReportsWhatTheAdapterCan: the app decides what to offer and
+// what to label from capabilities, never from a provider's name — which is what
+// keeps a third adapter from needing changes on this side.
+func TestProviderViewReportsWhatTheAdapterCan(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	reg := provider.NewRegistry(betaAdapter{})
+	srv := httptest.NewServer(Handler(Deps{Store: st, Registry: reg, Providers: provider.NewChecker(reg)}))
+	t.Cleanup(srv.Close)
+	if err := st.UpdateConfig(func(cfg *store.Config) error {
+		cfg.Providers[0].Kind = string(provider.KindCodex)
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+
+	var got []providerView
+	do(t, srv, http.MethodGet, "/api/providers", nil).into(t, &got)
+	if len(got) != 1 {
+		t.Fatalf("got %d providers, want one", len(got))
+	}
+	if !got[0].Beta || !got[0].ReasoningEffort {
+		t.Fatalf("view = %+v, want the adapter's beta and reasoning-effort capabilities reported", got[0])
+	}
+}
+
+// betaAdapter stands in for a harness claudeq does not consider finished.
+type betaAdapter struct{ stubAdapter }
+
+func (betaAdapter) Kind() provider.Kind { return provider.KindCodex }
+
+func (betaAdapter) Capabilities() provider.Capabilities {
+	return provider.Capabilities{Beta: true, ReasoningEffort: true}
+}

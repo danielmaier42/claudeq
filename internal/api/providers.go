@@ -25,6 +25,10 @@ type providerView struct {
 	// Beta marks an instance of an adapter claudeq does not consider finished,
 	// so the app can say so wherever it names the provider.
 	Beta bool `json:"beta,omitempty"`
+	// ReasoningEffort reports whether this harness takes a reasoning-effort
+	// setting, so the task form can offer the field where it means something
+	// instead of the app having to know which kinds those are.
+	ReasoningEffort bool `json:"reasoning_effort"`
 }
 
 // providerKind is one adapter this build can run, for the "add a provider" form.
@@ -76,7 +80,8 @@ func (s *server) views(ctx context.Context, set provider.Set, only string, fresh
 		h := s.d.Providers.CheckMaybeFresh(ctx, inst, fresh)
 		v := providerView{Instance: inst, Health: h, Default: inst.ID == set.DefaultID()}
 		if ad, err := s.d.Registry.Lookup(inst.Kind); err == nil {
-			v.Beta = ad.Capabilities().Beta
+			caps := ad.Capabilities()
+			v.Beta, v.ReasoningEffort = caps.Beta, caps.ReasoningEffort
 			if inst.BinaryPath == "" {
 				v.Detected = ad.DetectBinary()
 			}

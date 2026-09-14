@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1045,5 +1046,47 @@ func TestUpdateTaskTakesTheProviderFromThePayload(t *testing.T) {
 	}
 	if cfg.Tasks[0].Provider != "" {
 		t.Fatalf("provider = %q, want it cleared back to the default", cfg.Tasks[0].Provider)
+	}
+}
+
+// TestContinueRunUsesTheOwningProvider: the session belongs to the instance the
+// task runs on, and its adapter says how that harness reopens one — so a task
+// that skipped permission prompts resumes with the same authority.
+func TestContinueRunUsesTheOwningProvider(t *testing.T) {
+	srv, got := continueFixture(t, func(r *store.Run) { r.Task.Permissions = task.PermissionsSkip }, nil)
+	if r := do(t, srv, "POST", "/api/runs/r1/continue", nil); r.Status != http.StatusNoContent {
+		t.Fatalf("continue status = %d (%s)", r.Status, r.Body)
+	}
+	want := []string{"/opt/claude", "--resume", "sess-1", "--dangerously-skip-permissions"}
+	if !reflect.DeepEqual(got.argv, want) {
+		t.Fatalf("argv = %q, want %q", got.argv, want)
+	}
+}
+
+// TestContinueRunRefusesAHarnessThatCannot: claudeq never guesses at another
+// binary when the one that owns the session cannot be reopened.
+func TestContinueRunRefusesAHarnessThatCannot(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	tk := sampleTask("a")
+	tk.WorkingDir = t.TempDir()
+	if err := st.AppendRun(store.Run{
+		RunID: "r1", TaskID: "a", TaskName: "a", StartedAt: time.Now(),
+		Status: store.StatusSuccess, SessionID: "sess-1", Task: &tk,
+	}); err != nil {
+		t.Fatalf("AppendRun: %v", err)
+	}
+	// An adapter that claims no interactive resume, and no binary either.
+	reg := provider.NewRegistry(stubAdapter{health: provider.Health{State: provider.HealthReady}})
+	srv := httptest.NewServer(Handler(Deps{
+		Store: st, Registry: reg, Providers: provider.NewChecker(reg),
+		OpenTerminal: func(context.Context, string, []string) error { return nil },
+	}))
+	t.Cleanup(srv.Close)
+
+	if r := do(t, srv, "POST", "/api/runs/r1/continue", nil); r.Status != http.StatusConflict {
+		t.Fatalf("continue = %d (%s), want it refused", r.Status, r.Body)
 	}
 }

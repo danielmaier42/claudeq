@@ -363,7 +363,9 @@
         — <span class="mono">0 20 * * *</span> = daily at 20:00. Hover a field for details.</div>
     </div>
     <div class="form-row">
+      <div><label class="fld">Provider</label><select id="f-provider"></select></div>
       <div><label class="fld">Model</label><select id="f-model"></select></div>
+      <div id="f-reasoning-wrap" hidden><label class="fld">Reasoning effort</label><select id="f-reasoning"></select></div>
     </div>
     <div class="group" style="margin-top:14px">
       <div class="row"><div class="grow"><div class="title">Run in parallel</div><div class="sub">May run alongside other parallel tasks</div></div>
@@ -485,10 +487,14 @@ document.querySelectorAll('dialog').forEach(d=>d.addEventListener('click',e=>{ i
 
 let MODELS=[];
 async function loadModels(){ try{ MODELS=await api('GET','/api/models'); }catch{ MODELS=[]; } }
-function modelOptions(selected,globalLabel){
-  let h=`<option value="">${esc(globalLabel)}</option>`;
-  MODELS.forEach(m=>{ h+=`<option value="${esc(m.id)}"${m.id===selected?' selected':''}>${esc(m.label)}</option>`; });
-  if(selected && !MODELS.some(m=>m.id===selected)) h+=`<option value="${esc(selected)}" selected>${esc(selected)} (custom)</option>`;
+function modelOptions(selected,globalLabel){ return modelOptionsFrom(MODELS,selected,globalLabel); }
+// modelOptionsFrom renders a model picker. A stored model the list does not
+// contain is kept and marked custom: a catalog is a suggestion, and a task must
+// never lose the model it was given because discovery came back short.
+function modelOptionsFrom(models,selected,emptyLabel){
+  let h=`<option value="">${esc(emptyLabel)}</option>`;
+  (models||[]).forEach(m=>{ h+=`<option value="${esc(m.id)}"${m.id===selected?' selected':''}>${esc(m.label)}</option>`; });
+  if(selected && !(models||[]).some(m=>m.id===selected)) h+=`<option value="${esc(selected)}" selected>${esc(selected)} (custom)</option>`;
   return h;
 }
 function optionsFor(list,val,customLabel){
@@ -624,6 +630,10 @@ function cronTip(t){ const l=[];
   return l.join('\n'); }
 
 let tasksSig='', tasksOnlyActive=false;
+// BETA_PROVIDERS are the configured instances claudeq does not consider
+// finished, so every row that names one can say so. It is filled from
+// /api/providers, which is also what the Queue poll refreshes.
+let BETA_PROVIDERS=new Set();
 function taskFilterSeg(){
   const seg=el('div','seg');
   const mk=(v,label,tip)=>{ const b=el('button',null,label); b.dataset.v=v; b.title=tip;
@@ -639,12 +649,13 @@ async function loadTasks(){
   // The pause state rides along with the queue: it decides the banner and
   // whether Run now is offered at all, and both must be right on every poll.
   let tasks, paused=false;
-  try{ const [t,s]=await Promise.all([api('GET','/api/tasks'),api('GET','/api/settings')]);
-    tasks=t; paused=!!s.paused; setConn(true);
+  try{ const [t,s,ps]=await Promise.all([api('GET','/api/tasks'),api('GET','/api/settings'),api('GET','/api/providers')]);
+    tasks=t; paused=!!s.paused; PROVIDERS=ps||[]; setConn(true);
+    BETA_PROVIDERS=new Set(PROVIDERS.filter(p=>p.beta).flatMap(p=>p.default?[p.id,'']:[p.id]));
   }catch(e){ setConn(false); return; }
   tasks=tasks||[];
   const shown=tasksOnlyActive?tasks.filter(t=>t.enabled):tasks;
-  const sig=JSON.stringify([paused,tasksOnlyActive,tasks.length,LIMITED_UNTIL&&LIMITED_UNTIL.toISOString(),shown.map(t=>[t.id,t.name,t.trigger,t.enabled,t.parallel,t.permissions,t.notify_on_result,t.quiet_history,t.fixed_at,t.cron,t.next_run,t.last_run,t.running,t.waiting_for_limit,t.blocked_reason])]);
+  const sig=JSON.stringify([paused,tasksOnlyActive,tasks.length,LIMITED_UNTIL&&LIMITED_UNTIL.toISOString(),shown.map(t=>[t.id,t.name,t.trigger,t.enabled,t.parallel,t.permissions,t.notify_on_result,t.quiet_history,t.fixed_at,t.cron,t.next_run,t.last_run,t.running,t.waiting_for_limit,t.blocked_reason,t.provider])]);
   if(sig===tasksSig && $('#tasks').childElementCount) return;   // avoid flicker on poll
   tasksSig=sig;
   const c=$('#tasks'); c.innerHTML='';
@@ -659,6 +670,7 @@ async function loadTasks(){
     else when='as soon as possible';
     const row=el('div','row');
     const tags=[];
+    if(BETA_PROVIDERS.has(t.provider||'')) tags.push('<span class="chip warn" title="This task runs on a provider that is still in beta">beta</span>');
     if(t.blocked_reason) tags.push(`<span class="chip danger" title="${esc(t.blocked_reason+' The task keeps its place and starts by itself once the provider works again.')}">blocked</span>`);
     if(t.waiting_for_limit) tags.push(`<span class="chip warn" title="${esc('The rate limit interrupted this task. Its Claude session '+resumeTimeText(LIMITED_UNTIL)+' — drop the resume in Activity with “Cancel resume”.')}">rescheduled</span>`);
     if(t.parallel) tags.push('<span class="chip" title="Runs alongside other parallel tasks">parallel</span>');
@@ -710,30 +722,71 @@ async function setPaused(on){
 function emptyState(big,sub){ const d=el('div','empty'); d.innerHTML=`<div class="big">${esc(big)}</div><div>${esc(sub)}</div>`; return d; }
 
 let taskMode='add', taskEditId='';
-// The sheet has no provider control yet, so the task's provider rides along
-// invisibly: prefilling remembers it and submitting sends it back. Without this
-// an edit or a replay would silently move the task onto the default provider.
-let taskProvider='';
 function pad2(n){ return String(n).padStart(2,'0'); }
 function toLocalDT(iso){ const d=new Date(iso); return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate())+'T'+pad2(d.getHours())+':'+pad2(d.getMinutes()); }
 function prefillTask(t){
   $('#f-name').value=t.name||''; $('#f-prompt').value=t.prompt||''; $('#f-dir').value=t.working_dir||'';
-  $('#f-model').innerHTML=modelOptions(t.model||'','Provider default');
   $('#f-parallel').checked=!!t.parallel; $('#f-skip').checked=(t.permissions==='skip'); $('#f-notify').checked=!!t.notify_on_result;
   $('#f-quiet').checked=!!t.quiet_history;
-  taskProvider=t.provider||'';
+  fillProviderChoices(t.provider||'', t.model||'', t.reasoning_effort||'');
   setSeg(t.trigger||'asap');
   $('#f-at').value=(t.trigger==='fixed'&&t.fixed_at)?toLocalDT(t.fixed_at):'';
   $('#f-cron').value=t.trigger==='cron'?(t.cron||''):'';
 }
+// REASONING_LEVELS are what a harness that takes a reasoning effort accepts.
+// The list is claudeq's, not a provider's: it is a suggestion in a picker, and a
+// value a provider does not know is refused by the provider, not here.
+const REASONING_LEVELS=['low','medium','high','xhigh'];
+
+// fillProviderChoices renders the provider, model and reasoning-effort fields
+// together, because they belong together: the model list comes from the provider
+// the task will run on, and changing the provider must not carry a model from
+// the old one into the new one.
+//
+// Only providers that can actually run are offered. A task already pointed at
+// one that cannot keeps it in the list, marked — an existing task stays visible
+// with the reason it is blocked rather than being quietly moved.
+async function fillProviderChoices(providerID, model, effort){
+  const sel=$('#f-provider');
+  if(!PROVIDERS.length){ try{ PROVIDERS=await api('GET','/api/providers')||[]; }catch{} }
+  const offered=PROVIDERS.filter(p=>p.enabled&&p.health&&p.health.state==='ready'&&(!p.beta||betaAllowed()));
+  const current=PROVIDERS.find(p=>p.id===providerID);
+  if(providerID && current && !offered.some(p=>p.id===providerID)) offered.push(current);
+  const dflt=PROVIDERS.find(p=>p.default);
+  sel.innerHTML=`<option value="">${esc(dflt?`Default (${dflt.name||dflt.id})`:'Default provider')}</option>`
+    +offered.map(p=>{
+      const ready=p.health&&p.health.state==='ready';
+      const label=(p.name||p.id)+(p.beta?' (beta)':'')+(ready?'':' — '+(p.health?p.health.state.replace(/_/g,' '):'unavailable'));
+      return `<option value="${esc(p.id)}"${p.id===providerID?' selected':''}>${esc(label)}</option>`;
+    }).join('')
+    +(providerID && !current?`<option value="${esc(providerID)}" selected>${esc(providerID)} — not configured</option>`:'');
+  sel.onchange=()=>fillTaskModels(sel.value,'');
+  await fillTaskModels(providerID, model, effort);
+}
+// fillTaskModels asks the chosen provider for its models and shows the
+// reasoning-effort field only where the harness takes one.
+async function fillTaskModels(providerID, model, effort){
+  let models=[];
+  try{ models=await api('GET','/api/models'+(providerID?'?provider='+encodeURIComponent(providerID):''))||[]; }catch{}
+  $('#f-model').innerHTML=modelOptionsFrom(models,model||'','Provider default');
+  const chosen=PROVIDERS.find(p=>p.id===(providerID||(PROVIDERS.find(x=>x.default)||{}).id));
+  const takesEffort=!!chosen && !!chosen.reasoning_effort;
+  $('#f-reasoning-wrap').hidden=!takesEffort;
+  if(takesEffort){
+    $('#f-reasoning').innerHTML=`<option value="">Provider default</option>`
+      +REASONING_LEVELS.map(l=>`<option value="${l}"${l===effort?' selected':''}>${l}</option>`).join('')
+      +(effort&&!REASONING_LEVELS.includes(effort)?`<option value="${esc(effort)}" selected>${esc(effort)} (custom)</option>`:'');
+  }
+}
+
 function openSheet(title,submitLabel){ $('#addErr').textContent=''; $('#f-dir-hint').hidden=true; $('#f-dir-hint').textContent='';
   clearTimeout(cronTimer); cronVerdict.expr=null; showCronStatus(null); cronRecheck();
   $('#addSheetTitle').textContent=title; $('#addSubmitBtn').textContent=submitLabel; $('#addSheet').showModal();
   taskReview.run(); }   // an imported, edited or replayed prompt is reviewed as it opens; an empty new one costs nothing
-function openAdd(){ taskMode='add'; taskEditId=''; taskProvider='';
+function openAdd(){ taskMode='add'; taskEditId='';
   ['f-name','f-prompt','f-dir','f-at','f-cron'].forEach(x=>$('#'+x).value='');
-  $('#f-model').innerHTML=modelOptions('','Provider default');
   $('#f-parallel').checked=false; $('#f-skip').checked=false; $('#f-notify').checked=false; $('#f-quiet').checked=false; setSeg('asap');
+  fillProviderChoices('','','');
   openSheet('New task','Add task'); }
 async function openEdit(t){ taskMode='edit'; taskEditId=t.id;
   // Re-fetch the latest saved task: loadTasks skips re-rendering when only
@@ -794,7 +847,8 @@ async function submitTask(){
     cron: trig==='cron'?$('#f-cron').value.trim():undefined, model:$('#f-model').value||undefined,
     parallel:$('#f-parallel').checked, enabled:true, permissions:$('#f-skip').checked?'skip':'default',
     notify_on_result:$('#f-notify').checked, quiet_history:$('#f-quiet').checked,
-    provider:taskProvider||undefined};
+    provider:$('#f-provider').value||undefined,
+    reasoning_effort:$('#f-reasoning-wrap').hidden?undefined:($('#f-reasoning').value||undefined)};
   if(!t.working_dir){ $('#addErr').textContent='Please choose a working directory.'; return; }
   if(trig==='cron'){
     // The reason stays on the field itself — repeating it at the footer would say
@@ -1351,6 +1405,13 @@ async function loadSettings(){
       <div class="section-label">Providers</div>
       <div class="group" id="s-providers"><div class="row"><div class="grow"><div class="sub">Loading…</div></div></div></div>
       <div class="sub" style="margin-top:10px">A provider is one configured agent harness. Tasks run on it, and a task that names none runs on the default. ClaudeQ never stores a provider's login — the CLI owns that.</div>
+
+      <div class="section-label">Beta features</div>
+      <div class="group">
+        <div class="row"><div class="grow"><div class="title">Offer providers that are still in beta</div>
+          <div class="sub multi">Currently the Codex CLI. This decides what the app offers, nothing else: a beta provider you have already set up keeps working, its tasks keep running, and the <code>claudeq</code> CLI accepts it either way.</div></div>
+          <label class="switch"><input type="checkbox" id="s-beta-codex"><span class="sl"></span></label></div>
+      </div>
     </div>
 
     <div class="s-pane" data-pane="notifications">
@@ -1413,6 +1474,14 @@ async function loadSettings(){
   $('#s-wh-enabled').checked=!!s.webhook?.enabled; $('#s-wh-url').value=s.webhook?.url||'';
   $('#s-wh-template').value=s.webhook?.template||'';
   $('#s-sysprompt').value=s.system_prompt||'';
+  $('#s-beta-codex').checked=!!s.show_codex_beta;
+  // Revealing beta providers changes what may be added and what a task may be
+  // pointed at, so the lists are rebuilt rather than left saying something else.
+  $('#s-beta-codex').onchange=async e=>{
+    try{ await api('PUT','/api/settings',{...(await api('GET','/api/settings')),show_codex_beta:e.target.checked}); }
+    catch(err){ toast(err.message,'err'); e.target.checked=!e.target.checked; return; }
+    loadProviders();
+  };
   // The Settings view is rebuilt on every visit, so its review controller is
   // bound to the fresh nodes here. The system prompt has no working directory:
   // it is appended to every task, wherever that task runs.
@@ -1448,38 +1517,59 @@ function providerStateChip(h){
   const chip=cls==='ok'?'chip accent':(cls==='err'?'chip danger':'chip warn');
   return `<span class="${chip}">${esc(label)}</span>`;
 }
+// PROVIDERS is the last list the daemon reported, kept so the task form can
+// offer the providers a task may run on without asking again on every keystroke.
+let PROVIDERS=[], PROVIDER_KINDS=[];
 async function loadProviders(){
-  const box=$('#s-providers'); if(!box) return;
-  let list; try{ list=await api('GET','/api/providers'); }catch(e){
-    box.innerHTML=`<div class="row"><div class="grow"><div class="sub">${esc(e.message)}</div></div></div>`; return; }
+  const box=$('#s-providers');
+  try{ PROVIDERS=await api('GET','/api/providers')||[]; }catch(e){
+    if(box) box.innerHTML=`<div class="row"><div class="grow"><div class="sub">${esc(e.message)}</div></div></div>`;
+    return; }
+  if(!PROVIDER_KINDS.length){ try{ PROVIDER_KINDS=await api('GET','/api/providers/kinds')||[]; }catch{} }
+  if(!box) return;
   box.innerHTML='';
-  (list||[]).forEach(p=>box.append(providerCard(p)));
+  PROVIDERS.forEach(p=>box.append(providerCard(p)));
+  renderAddProvider();
 }
+// betaAllowed reports whether the app may offer a provider claudeq does not
+// consider finished. It gates offering only: a beta provider that is already
+// configured keeps its card and runs its tasks either way.
+function betaAllowed(){ return !!$('#s-beta-codex')?.checked; }
 function providerCard(p){
   const wrap=el('div');
   const detected=p.detected?`Detected: ${p.detected}`:'';
+  const chips=providerStateChip(p.health)
+    +(p.default?'<span class="chip">default</span>':'')
+    +(p.beta?'<span class="chip warn" title="This provider is still in beta">beta</span>':'');
   wrap.innerHTML=`
     <div class="row"><div class="grow">
-        <div class="title">${esc(p.name||p.id)} ${providerStateChip(p.health)}${p.default?'<span class="chip">default</span>':''}</div>
-        <div class="sub multi">${esc(p.health.reason||p.health.detail||'')}</div></div>
+        <div class="title">${esc(p.name||p.id)} ${chips}</div>
+        <div class="sub multi"><span class="mono">${esc(p.id)}</span> · ${esc(p.kind)}${p.health.reason||p.health.detail?' — '+esc(p.health.reason||p.health.detail):''}</div></div>
       <label class="switch"><input type="checkbox" ${p.enabled?'checked':''}><span class="sl"></span></label></div>
+    <div class="row"><div class="grow"><div class="title">Name</div>
+        <div class="sub">What this provider is called in the app and in run messages</div></div>
+      <input type="text" class="p-name" style="max-width:260px"></div>
     <div class="row"><div class="grow"><div class="title">Binary</div>
         <div class="sub">Absolute path to the CLI. The background daemon can't see your shell's PATH, so a full path is safest. Empty auto-detects. ${esc(detected)}</div></div>
-      <input type="text" class="p-path" placeholder="/path/to/${esc(p.id)}" style="max-width:260px"></div>
+      <input type="text" class="p-path" placeholder="${esc(p.detected||'/path/to/the CLI')}" style="max-width:260px"></div>
     <div class="row"><div class="grow"><div class="title">Configuration directory</div>
-        <div class="sub">Where the CLI keeps its account and sessions — another directory is another account. Absolute path; empty uses its own default.</div></div>
+        <div class="sub">Where the CLI keeps its account and sessions — another directory is another account. Absolute path (<code>~</code> is fine); empty uses its own default.</div></div>
       <input type="text" class="p-dir" placeholder="the CLI's own" style="max-width:260px"></div>
     <div class="row"><div class="grow"><div class="title">Default model</div>
         <div class="sub">Used for tasks on this provider that name no model</div></div>
-      <select class="p-model" style="max-width:230px">${modelOptions(p.default_model||'','Provider default')}</select></div>
+      <select class="p-model" style="max-width:230px"></select></div>
     <div class="row"><div class="grow"><div class="sub">${esc(p.health.binary||'')}</div></div>
       <button class="btn p-default"${p.default||!p.enabled?' disabled':''}>Make default</button>
       <button class="btn p-check">Check again</button>
+      <button class="btn danger p-remove"${p.default?' disabled':''}>Remove</button>
       <button class="btn primary p-save">Save</button></div>`;
+  wrap.querySelector('.p-name').value=p.name||'';
   wrap.querySelector('.p-path').value=p.binary_path||'';
   wrap.querySelector('.p-dir').value=p.config_dir||'';
+  fillProviderModels(wrap.querySelector('.p-model'),p);
   const save=async patch=>{
-    const body={name:p.name,binary_path:wrap.querySelector('.p-path').value.trim(),
+    const body={name:wrap.querySelector('.p-name').value.trim(),
+      binary_path:wrap.querySelector('.p-path').value.trim(),
       config_dir:wrap.querySelector('.p-dir').value.trim(),
       default_model:wrap.querySelector('.p-model').value,
       enabled:wrap.querySelector('.switch input').checked, ...patch};
@@ -1498,7 +1588,43 @@ function providerCard(p){
     catch(e){ toast(e.message,'err'); }
     loadProviders();
   };
+  wrap.querySelector('.p-remove').onclick=async ()=>{
+    if(!await confirmSheetAsk(`Remove the provider “${p.name||p.id}”?`,'Remove','Keep it')) return;
+    try{ await api('DELETE','/api/providers/'+encodeURIComponent(p.id)); toast('Provider removed','ok'); }
+    catch(e){ toast(e.message,'err'); }
+    loadProviders();
+  };
   return wrap;
+}
+// fillProviderModels asks the provider itself what it suggests, so a Codex card
+// offers Codex models and a Claude card offers Claude's. The stored value is
+// kept even when the list does not contain it: a model catalog is a suggestion,
+// never validation.
+async function fillProviderModels(select,p){
+  select.innerHTML=`<option value="">Provider default</option>`;
+  let models=[];
+  try{ models=await api('GET','/api/models?provider='+encodeURIComponent(p.id))||[]; }catch{}
+  select.innerHTML=modelOptionsFrom(models,p.default_model||'','Provider default');
+}
+// renderAddProvider offers a second instance: another account of a harness you
+// already have, or a different harness altogether.
+function renderAddProvider(){
+  const box=$('#s-providers'); if(!box) return;
+  const kinds=PROVIDER_KINDS.filter(k=>!k.beta||betaAllowed());
+  const row=el('div','row');
+  row.innerHTML=`<div class="grow"><div class="title">Add a provider</div>
+      <div class="sub multi">Another harness, or a second account of one you already have — give it its own configuration directory and it keeps its own sessions and rate limit.</div></div>
+    <input type="text" id="np-id" placeholder="id, e.g. claude-work" style="max-width:150px">
+    <select id="np-kind" style="max-width:140px">${kinds.map(k=>`<option value="${esc(k.kind)}">${esc(k.kind)}${k.beta?' (beta)':''}</option>`).join('')}</select>
+    <button class="btn primary" id="np-add">Add</button>`;
+  box.append(row);
+  $('#np-add').onclick=async ()=>{
+    const id=$('#np-id').value.trim(), kind=$('#np-kind').value;
+    if(!id){ toast('Give the provider an id','err'); return; }
+    try{ await api('POST','/api/providers',{id,kind,name:id}); toast('Provider added','ok'); }
+    catch(e){ toast(e.message,'err'); }
+    loadProviders();
+  };
 }
 
 // Show one settings pane. The choice is remembered for the session, so leaving
@@ -1526,6 +1652,7 @@ async function saveSettings(){
     system_prompt:$('#s-sysprompt').value,
     prompt_review_disabled:!$('#s-review').checked,
     prompt_review_model:$('#s-review-model').value,
+    show_codex_beta:$('#s-beta-codex').checked,
     pushover:{enabled:$('#s-po-enabled').checked,token:$('#s-po-token').value,user_key:$('#s-po-user').value},
     ntfy:{enabled:$('#s-ntfy-enabled').checked,server:$('#s-ntfy-server').value.trim(),topic:$('#s-ntfy-topic').value.trim(),token:$('#s-ntfy-token').value.trim()},
     webhook:{enabled:$('#s-wh-enabled').checked,url:$('#s-wh-url').value.trim(),template:$('#s-wh-template').value.trim()}};
