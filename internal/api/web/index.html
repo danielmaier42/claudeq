@@ -324,7 +324,7 @@
       Usage</button>
   </nav>
   <nav class="nav nav-foot">
-    <button id="feedbackNav" data-tip="Report a bug or suggest a feature — Claude drafts the GitHub issue, you file it">
+    <button data-tab="feedback" data-tip="Report a bug or suggest a feature — Claude drafts the GitHub issue, you file it">
       <svg viewBox="0 0 20 20"><path d="M16.5 12.5a1.5 1.5 0 0 1-1.5 1.5H7l-3.5 3V5A1.5 1.5 0 0 1 5 3.5h10A1.5 1.5 0 0 1 16.5 5z"/></svg>
       Feedback</button>
     <button data-tab="settings">
@@ -350,6 +350,21 @@
     <section id="news" class="tab" hidden></section>
     <section id="artifacts" class="tab" hidden></section>
     <section id="usage" class="tab" hidden></section>
+    <section id="feedback" class="tab" hidden>
+      <div id="fb-chat" class="chat" hidden></div>
+      <div id="fb-ask">
+        <label class="fld" id="fb-ask-label">What would you like to report?</label>
+        <textarea id="fb-text" rows="5" placeholder="Something that does not work, or something ClaudeQ should be able to do…"></textarea>
+        <div class="hint">Claude turns this into a GitHub issue and may ask one short question first.</div>
+      </div>
+      <div id="fb-review" hidden>
+        <label class="fld">Title</label><input type="text" id="fb-title" placeholder="Short, concrete title">
+        <label class="fld">Description</label><textarea id="fb-body" rows="12" placeholder="What happens, and what you expected"></textarea>
+        <div class="hint" style="margin-top:12px" id="fb-meta"></div>
+        <div class="hint" style="margin-top:8px">Nothing has been sent yet. The button opens a prefilled new issue on <span id="fb-repo" class="mono"></span> in your browser; it is created only when you press <b>Create</b> there — and you can still change or delete anything on that page.</div>
+      </div>
+      <p id="fb-err" class="hint" style="color:var(--danger)"></p>
+    </section>
     <section id="settings" class="tab" hidden></section>
   </div></div>
 </div>
@@ -416,29 +431,6 @@
     <div id="viewerActions" class="row-actions"></div></div>
   <div class="sheet-bd" id="viewerBody"></div>
   <div class="sheet-ft"><button class="btn" id="viewerContinueBtn" hidden data-tip="Opens Terminal in the task's folder and resumes the chat that published this artifact (claude --resume) — with the full conversation context" onclick="continueArtifactRun()">Continue with Claude</button><button class="btn" onclick="viewerSheet.close()">Done</button></div>
-</dialog>
-
-<!-- Feedback sheet -->
-<dialog id="fbSheet">
-  <div class="sheet-hd"><b>Feedback</b></div>
-  <div class="sheet-bd">
-    <div id="fb-chat" class="chat" hidden></div>
-    <div id="fb-ask">
-      <label class="fld" id="fb-ask-label">What would you like to report?</label>
-      <textarea id="fb-text" rows="5" placeholder="Something that does not work, or something ClaudeQ should be able to do…"></textarea>
-      <div class="hint">Claude turns this into a GitHub issue and may ask one short question first.</div>
-    </div>
-    <div id="fb-review" hidden>
-      <label class="fld">Title</label><input type="text" id="fb-title" placeholder="Short, concrete title">
-      <label class="fld">Description</label><textarea id="fb-body" rows="10" placeholder="What happens, and what you expected"></textarea>
-      <div class="hint" style="margin-top:12px" id="fb-meta"></div>
-      <div class="hint" style="margin-top:8px">Nothing has been sent yet. The button opens a prefilled new issue on <span id="fb-repo" class="mono"></span> in your browser; it is created only when you press <b>Create</b> there — and you can still change or delete anything on that page.</div>
-    </div>
-    <p id="fb-err" class="hint" style="color:var(--danger)"></p>
-  </div>
-  <div class="sheet-ft"><button class="btn" id="fb-manual" hidden>Write it myself</button>
-    <button class="btn" onclick="fbSheet.close()">Close</button>
-    <button class="btn primary" id="fb-send">Continue</button></div>
 </dialog>
 
 <!-- Confirm sheet -->
@@ -568,7 +560,7 @@ function runTimeTitle(r){ let t=exactTime(r.started_at);
   if(r.finished_at) t+=' - '+fmtRunDur(new Date(r.finished_at)-new Date(r.started_at));
   return t; }
 
-const TITLES={tasks:'Queue',news:'Activity',artifacts:'Artifacts',usage:'Usage',settings:'Settings'};
+const TITLES={tasks:'Queue',news:'Activity',artifacts:'Artifacts',usage:'Usage',feedback:'Feedback',settings:'Settings'};
 let current='tasks';
 // When the global rate-limit gate reopens (a Date), or null while it is open.
 let LIMITED_UNTIL=null;
@@ -597,6 +589,18 @@ function select(tab){ if(settingsReview){ settingsReview.reset(); settingsReview
   }
   if(tab==='artifacts'){ const b=el('button','btn',EYE+'<span>Mark all read</span>'); b.onclick=markAllArtifactsRead; ta.append(b); loadArtifacts(); }
   if(tab==='usage') loadUsage();
+  if(tab==='feedback'){
+    // Built here, so the page's actions sit where every other page's do. The
+    // ids are the ones the feedback code already talks to.
+    // "Write it myself" is the fallback when the assistant fails mid-conversation:
+    // it keeps what was typed and lets the user finish the issue by hand.
+    const manual=el('button','btn','Write it myself'); manual.id='fb-manual'; manual.hidden=true;
+    manual.onclick=()=>{ $('#fb-err').textContent=''; $('#fb-body').value=fbSaid.join('\n\n'); fbSetMode('review'); $('#fb-title').focus(); };
+    const send=el('button','btn primary','Continue'); send.id='fb-send';
+    send.onclick=()=>{ if(fbBusy) return; if(fbMode==='chat') fbSendTurn(); else fbOpenIssue(); };
+    ta.append(manual, send);
+    openFeedback();
+  }
   if(tab==='settings'){ const b=el('button','btn primary',SAVE+'<span>Save</span>'); b.onclick=saveSettings; ta.append(b); loadSettings(); loadUpdate(); }
 }
 
@@ -1919,7 +1923,6 @@ async function checkHealth(){
    locally through the Claude Code CLI, the user edits it here, and the last
    step just opens GitHub's prefilled "new issue" page in the browser. */
 let fbInfo=null, fbSession='', fbMode='chat', fbSaid=[], fbLabels=[], fbBusy=false;
-$('#feedbackNav').onclick=openFeedback;
 async function openFeedback(){
   fbSession=''; fbSaid=[]; fbLabels=[];
   $('#fb-err').textContent=''; $('#fb-chat').innerHTML=''; $('#fb-chat').hidden=true;
@@ -1929,13 +1932,13 @@ async function openFeedback(){
   $('#fb-text').placeholder='Something that does not work, or something ClaudeQ should be able to do…';
   try{ fbInfo=await api('GET','/api/feedback'); }
   catch(e){ fbInfo={available:false,reason:e.message,repo:'',app_version:'',os_version:''}; }
+  // The status request can land after the user has already moved on, and the
+  // page's buttons leave with the toolbar.
+  if(current!=='feedback') return;
   $('#fb-repo').textContent=fbInfo.repo||'GitHub';
   fbRenderMeta();
   if(fbInfo.available){ fbSetMode('chat'); }
   else { fbSetMode('review'); $('#fb-err').textContent='The assistant is unavailable ('+(fbInfo.reason||'unknown reason')+'). Write the issue yourself:'; }
-  // Two quick clicks both get here before the status request resolves, and a
-  // second showModal() on an open dialog throws.
-  if(!$('#fbSheet').open) $('#fbSheet').showModal();
   (fbInfo.available?$('#fb-text'):$('#fb-title')).focus();
 }
 // The environment line and the labels are stated here rather than edited here:
@@ -1956,12 +1959,8 @@ function fbBubble(kind,who,text){ $('#fb-chat').hidden=false;
   const m=el('div','msg '+kind,'<div class="who">'+esc(who)+'</div>'+esc(text));
   $('#fb-chat').append(m); $('#fb-chat').scrollTop=$('#fb-chat').scrollHeight; return m; }
 function fbSetBusy(on){ fbBusy=on; $('#fb-send').disabled=on; $('#fb-text').disabled=on; }
-$('#fb-send').onclick=()=>{ if(fbBusy) return; if(fbMode==='chat') fbSendTurn(); else fbOpenIssue(); };
 // Cmd/Ctrl+Enter sends, like the other multi-line inputs in the app.
 $('#fb-text').addEventListener('keydown',e=>{ if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){ e.preventDefault(); $('#fb-send').click(); } });
-// Fallback when the assistant fails mid-conversation: keep what was typed and
-// let the user finish the issue by hand.
-$('#fb-manual').onclick=()=>{ $('#fb-err').textContent=''; $('#fb-body').value=fbSaid.join('\n\n'); fbSetMode('review'); $('#fb-title').focus(); };
 async function fbSendTurn(){
   const text=$('#fb-text').value.trim();
   if(!text){ $('#fb-err').textContent='Write what you would like to report first.'; return; }
@@ -1991,7 +1990,6 @@ async function fbOpenIssue(){
     const u=httpsOnly(r.url);
     if(!u) throw new Error('the issue link could not be built');
     if(window.cqOpenExternal) window.cqOpenExternal(u); else window.open(u,'_blank','noopener');
-    $('#fbSheet').close();
     toast('Opened GitHub — press “Create” there to file it','ok');
   }catch(e){ $('#fb-err').textContent=e.message; }
   finally{ fbSetBusy(false); }
