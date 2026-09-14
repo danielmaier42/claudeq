@@ -56,9 +56,16 @@ PKG="$OUT/claudeq-$VERSION.pkg"
 # so if a copy of de.maierdaniel.claudeq is already indexed by Spotlight the installer
 # overwrites THAT copy instead of installing to /Applications. Force a fixed
 # /Applications install by setting BundleIsRelocatable=false in a component plist.
+#
+# Also disable the version check. By default the installer only overwrites an
+# existing bundle when the new CFBundleShortVersionString compares as newer,
+# and "dev-main"/"dev-<branch>" never does against a real release like
+# "0.9.0" (or against each other) — so a dev build would silently install its
+# receipt while leaving the old binaries in place. Force the overwrite always.
 COMPONENT_PLIST="$(mktemp -d)/component.plist"
 pkgbuild --analyze --root "$STAGE" "$COMPONENT_PLIST" >/dev/null
 /usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false" "$COMPONENT_PLIST"
+/usr/libexec/PlistBuddy -c "Set :0:BundleIsVersionChecked false" "$COMPONENT_PLIST"
 
 PKGARGS=(
   --root "$STAGE"
