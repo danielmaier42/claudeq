@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -10,28 +11,34 @@ import (
 	"testing"
 
 	"github.com/danielmaier42/claudeq/internal/feedback"
+	"github.com/danielmaier42/claudeq/internal/provider"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/update"
 	"github.com/danielmaier42/claudeq/internal/version"
 )
 
-// fakeCLI replays one canned Claude Code answer.
-type fakeCLI struct {
-	out []byte
-	err error
+// fakeAsker replays one canned answer from a harness.
+type fakeAsker struct {
+	answer provider.Aside
+	err    error
 }
 
-func (f fakeCLI) Run(context.Context, string, []string) ([]byte, error) {
+func (f fakeAsker) Ask(context.Context, provider.Instance, provider.AsideRequest) (provider.Aside, error) {
 	if f.err != nil {
-		return nil, f.err
+		return provider.Aside{}, f.err
 	}
-	return f.out, nil
+	return f.answer, nil
 }
 
-// newFeedbackServer wires a server whose feedback chat answers with out. The
+// validated is an answer the harness checked against the schema itself.
+func validated(structured string) provider.Aside {
+	return provider.Aside{Structured: json.RawMessage(structured)}
+}
+
+// newFeedbackServer wires a server whose feedback chat answers through ask. The
 // claude provider gets an explicit binary path so availability does not depend
 // on what is installed on the machine running the tests.
-func newFeedbackServer(t *testing.T, cli feedback.CLIRunner) (*httptest.Server, *store.Store) {
+func newFeedbackServer(t *testing.T, ask feedback.Asker) (*httptest.Server, *store.Store) {
 	t.Helper()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
@@ -46,8 +53,8 @@ func newFeedbackServer(t *testing.T, cli feedback.CLIRunner) (*httptest.Server, 
 		t.Fatalf("save config: %v", err)
 	}
 	var svc *feedback.Service
-	if cli != nil {
-		svc = feedback.New(cli)
+	if ask != nil {
+		svc = feedback.New(ask)
 	}
 	srv := httptest.NewServer(handler(Deps{Store: st, Feedback: svc, OSVersion: func() string { return "15.6" }}))
 	t.Cleanup(srv.Close)
@@ -55,7 +62,7 @@ func newFeedbackServer(t *testing.T, cli feedback.CLIRunner) (*httptest.Server, 
 }
 
 func TestFeedbackStatusReportsAvailability(t *testing.T) {
-	srv, _ := newFeedbackServer(t, fakeCLI{})
+	srv, _ := newFeedbackServer(t, fakeAsker{answer: validated(`{"status":"ready","title":"T","body":"B"}`)})
 	var st feedbackStatus
 	do(t, srv, http.MethodGet, "/api/feedback", nil).into(t, &st)
 	if !st.Available || st.Reason != "" {
@@ -83,8 +90,8 @@ func TestFeedbackStatusExplainsAnUnavailableAssistant(t *testing.T) {
 }
 
 func TestFeedbackTurnReturnsTheDraft(t *testing.T) {
-	out := []byte(`{"is_error":false,"structured_output":{"status":"ready","title":"T","body":"B","labels":["bug"]}}`)
-	srv, _ := newFeedbackServer(t, fakeCLI{out: out})
+	out := validated(`{"status":"ready","title":"T","body":"B","labels":["bug"]}`)
+	srv, _ := newFeedbackServer(t, fakeAsker{answer: out})
 	var d feedback.Draft
 	r := do(t, srv, http.MethodPost, "/api/feedback/turn", map[string]string{"text": "something broke"})
 	if r.Status != http.StatusOK {
@@ -97,7 +104,7 @@ func TestFeedbackTurnReturnsTheDraft(t *testing.T) {
 }
 
 func TestFeedbackTurnReportsAFailingAssistant(t *testing.T) {
-	srv, _ := newFeedbackServer(t, fakeCLI{err: errors.New("exit status 1")})
+	srv, _ := newFeedbackServer(t, fakeAsker{err: errors.New("exit status 1")})
 	r := do(t, srv, http.MethodPost, "/api/feedback/turn", map[string]string{"text": "hi"})
 	if r.Status != http.StatusBadGateway {
 		t.Fatalf("status = %d (%s), want 502", r.Status, r.Body)
@@ -113,7 +120,7 @@ func TestFeedbackTurnIsUnavailableWithoutTheService(t *testing.T) {
 }
 
 func TestFeedbackURLAppendsTheEnvironment(t *testing.T) {
-	srv, _ := newFeedbackServer(t, fakeCLI{})
+	srv, _ := newFeedbackServer(t, fakeAsker{answer: validated(`{"status":"ready","title":"T","body":"B"}`)})
 	var got map[string]string
 	do(t, srv, http.MethodPost, "/api/feedback/url", map[string]any{
 		"title": "  A  title ", "body": "The report.", "labels": []string{"bug"},
@@ -156,7 +163,7 @@ func TestFeedbackURLLeavesOutAnUnknownOSVersion(t *testing.T) {
 }
 
 func TestFeedbackURLNeedsATitle(t *testing.T) {
-	srv, _ := newFeedbackServer(t, fakeCLI{})
+	srv, _ := newFeedbackServer(t, fakeAsker{answer: validated(`{"status":"ready","title":"T","body":"B"}`)})
 	r := do(t, srv, http.MethodPost, "/api/feedback/url", map[string]any{"title": "   ", "body": "B"})
 	if r.Status != http.StatusBadRequest {
 		t.Fatalf("status = %d (%s), want 400", r.Status, r.Body)
@@ -166,7 +173,7 @@ func TestFeedbackURLNeedsATitle(t *testing.T) {
 func TestFeedbackURLCapsAnOversizedTitle(t *testing.T) {
 	// A title long enough to blow the URL budget on its own would make GitHub
 	// answer with 414, and trimming the body cannot save it.
-	srv, _ := newFeedbackServer(t, fakeCLI{})
+	srv, _ := newFeedbackServer(t, fakeAsker{answer: validated(`{"status":"ready","title":"T","body":"B"}`)})
 	var got map[string]string
 	do(t, srv, http.MethodPost, "/api/feedback/url", map[string]any{
 		"title": strings.Repeat("very long title ", 600), "body": "B",

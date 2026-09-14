@@ -31,6 +31,11 @@ type AsideRequest struct {
 	SessionID string
 	// Resume continues the named session instead of starting it.
 	Resume bool
+	// Continues says another turn will follow, so the session has to outlive
+	// this call. A single-question aside leaves it false and the harness is told
+	// not to keep the conversation at all, which is what stops prompt review
+	// from filling the operator's session history with throwaway turns.
+	Continues bool
 }
 
 // Aside is what a harness answered.

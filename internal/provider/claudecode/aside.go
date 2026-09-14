@@ -14,7 +14,9 @@ import (
 // drops CLAUDE.md, skills, plugins, hooks and MCP servers so the answer costs
 // the same everywhere and cannot be steered by a project's own configuration,
 // --strict-mcp-config and --disable-slash-commands close the remaining two
-// doors, and --output-format json returns one object instead of a stream.
+// doors, and --output-format json returns one object instead of a stream. A
+// one-question aside adds --no-session-persistence, so it leaves nothing in the
+// operator's session history.
 //
 // The system prompt goes with the first turn only. The CLI records it when a
 // session starts and replays it on every resume, so sending it again would
@@ -32,8 +34,12 @@ func (a *Adapter) AsideCommand(inst provider.Instance, req provider.AsideRequest
 		"--strict-mcp-config",
 		"--disable-slash-commands",
 		"--safe-mode",
-		"--no-session-persistence",
 		"--output-format", "json",
+	}
+	// A conversation that ends here is not worth keeping. One that continues
+	// has to be: the next turn resumes it by id.
+	if !req.Continues && !req.Resume {
+		args = append(args, "--no-session-persistence")
 	}
 	if req.Model != "" {
 		args = append(args, "--model", req.Model)

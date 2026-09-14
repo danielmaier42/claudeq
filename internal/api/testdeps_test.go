@@ -59,7 +59,7 @@ func (stubAdapter) ParseAside([]byte) (provider.Aside, error) {
 func stubProviders() (*provider.Registry, *provider.Checker) {
 	reg := provider.NewRegistry(stubAdapter{
 		health: provider.Health{State: provider.HealthReady},
-		caps:   provider.Capabilities{InteractiveResume: true},
+		caps:   provider.Capabilities{InteractiveResume: true, Asides: true},
 	})
 	return reg, provider.NewChecker(reg)
 }

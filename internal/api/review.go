@@ -59,11 +59,11 @@ func (s *server) reviewPrompt(w http.ResponseWriter, r *http.Request) {
 		in.WorkingDir = "" // the system prompt belongs to no single directory
 	}
 
-	// The review runs on the Claude Code instance, with the account claudeq is
+	// The review runs on the provider chosen for it, with the account claudeq is
 	// actually configured for. Its own model setting wins; empty means that
 	// provider's default model.
-	bin, model := s.reviewTarget(cfg)
-	if bin == "" {
+	inst, model, ok := s.reviewTarget(cfg)
+	if !ok {
 		// No harness the reviewer can speak to. Same situation as the review
 		// being switched off: nothing to show, and why is already on the
 		// provider's card in Settings.
@@ -78,14 +78,14 @@ func (s *server) reviewPrompt(w http.ResponseWriter, r *http.Request) {
 		Prompt:     in.Prompt,
 		WorkingDir: in.WorkingDir,
 		Model:      model,
-		Bin:        bin,
+		Provider:   inst,
 	})
 	switch {
 	case ctx.Err() != nil:
 		// Superseded by a newer keystroke, or the dashboard went away. There is
 		// no answer to give and nothing went wrong.
 		w.WriteHeader(http.StatusNoContent)
-	case errors.Is(err, review.ErrNoBinary):
+	case errors.Is(err, review.ErrUnavailable):
 		// Same situation as the review being switched off: nothing to show, and
 		// the missing binary is already reported in Settings.
 		writeJSON(w, http.StatusOK, reviewResponse{Enabled: false, OK: true})
@@ -98,35 +98,31 @@ func (s *server) reviewPrompt(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// reviewTarget resolves the binary and model the prompt review runs with.
+// reviewTarget resolves the provider instance and model the prompt review runs
+// with: the one Settings names for it, otherwise the default provider.
 //
-// It asks the Claude Code instance by name, not the default provider: the
-// reviewer builds Claude Code's own flags (see internal/review), so pointing it
-// at another harness would exec a command that harness does not have. Making
-// the review provider-neutral is its own piece of work; until then this is the
-// honest dependency rather than a silent one.
-//
-// No instance, no binary, or a provider that is switched off yields an empty
-// binary, which the reviewer reports as ErrNoBinary — the same "nothing to show
-// here" the dashboard already handles.
-func (s *server) reviewTarget(cfg store.Config) (bin, model string) {
+// Not every harness can answer claudeq's own questions (see internal/aside), so
+// a provider that cannot is reported as no target at all rather than as a
+// review that fails on every keystroke. The same goes for one that is switched
+// off or whose CLI is missing: the reason is already on its card in Settings.
+func (s *server) reviewTarget(cfg store.Config) (provider.Instance, string, bool) {
 	set, err := provider.FromConfig(cfg)
 	if err != nil {
-		return "", ""
+		return provider.Instance{}, "", false
 	}
-	inst, ok := set.Lookup(provider.DefaultInstanceID)
-	if !ok || inst.Kind != provider.KindClaudeCode {
-		return "", ""
-	}
-	ad, err := s.d.Registry.Lookup(inst.Kind)
+	inst, err := set.Resolve(provider.Selection{ProviderID: cfg.Settings.PromptReviewProvider})
 	if err != nil {
-		return "", ""
+		return provider.Instance{}, "", false
 	}
-	model = cfg.Settings.PromptReviewModel
+	ad, err := s.d.Registry.Lookup(inst.Instance.Kind)
+	if err != nil || !ad.Capabilities().Asides || ad.ResolveBinary(inst.Instance) == "" {
+		return provider.Instance{}, "", false
+	}
+	model := cfg.Settings.PromptReviewModel
 	if model == "" {
-		model = inst.DefaultModel
+		model = inst.Model
 	}
-	return ad.ResolveBinary(inst), model
+	return inst.Instance, model, true
 }
 
 // beginReview makes this the only live review: it cancels whichever one was

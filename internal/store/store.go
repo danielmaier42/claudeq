@@ -656,9 +656,21 @@ type Settings struct {
 	// prompt against this machine before it is queued. The zero value keeps the
 	// review on, so an existing config gains the feature without being edited.
 	PromptReviewDisabled bool `toml:"prompt_review_disabled" json:"prompt_review_disabled"`
+	// PromptReviewProvider is the provider instance that answers the review.
+	// Empty means the default provider. It is chosen separately from the one
+	// tasks run on: reviewing a prompt is cheap, frequent work that has no
+	// reason to consume the allowance the real jobs need.
+	PromptReviewProvider string `toml:"prompt_review_provider,omitempty" json:"prompt_review_provider"`
 	// PromptReviewModel is the model used for that review. Empty means "the same
 	// model as everything else", i.e. the reviewing provider's default model.
 	PromptReviewModel string `toml:"prompt_review_model,omitempty" json:"prompt_review_model"`
+	// FeedbackProvider is the provider instance the feedback assistant drafts
+	// its GitHub issue on. Empty means the default provider.
+	FeedbackProvider string `toml:"feedback_provider,omitempty" json:"feedback_provider"`
+	// FeedbackModel is the model it drafts with. Empty means claudeq's own
+	// choice: drafting an issue out of two short messages is cheap work, and it
+	// must not silently land on an expensive model picked for real tasks.
+	FeedbackModel string `toml:"feedback_model,omitempty" json:"feedback_model"`
 	// BetaFeatures reveals the parts of the app claudeq does not consider
 	// finished: adding provider instances, and the Codex provider itself.
 	//

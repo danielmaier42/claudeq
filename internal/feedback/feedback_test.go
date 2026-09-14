@@ -2,47 +2,53 @@ package feedback
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/danielmaier42/claudeq/internal/provider"
 )
 
-// stubRunner records the invocations and replays canned CLI output.
-type stubRunner struct {
-	out  [][]byte
-	err  error
-	argv [][]string
-	dirs []string
+// claude is the instance the feedback assistant is pointed at.
+var claude = provider.Instance{ID: "claude", Kind: provider.KindClaudeCode, Name: "Claude", Enabled: true}
+
+// stubAsker records the asides made and replays canned answers.
+type stubAsker struct {
+	answers []provider.Aside
+	err     error
+	reqs    []provider.AsideRequest
+	insts   []provider.Instance
 }
 
-func (s *stubRunner) Run(_ context.Context, dir string, argv []string) ([]byte, error) {
-	s.argv = append(s.argv, argv)
-	s.dirs = append(s.dirs, dir)
+func (s *stubAsker) Ask(_ context.Context, inst provider.Instance, req provider.AsideRequest) (provider.Aside, error) {
+	s.reqs = append(s.reqs, req)
+	s.insts = append(s.insts, inst)
 	if s.err != nil {
-		return nil, s.err
+		return provider.Aside{}, s.err
 	}
-	if len(s.out) == 0 {
-		return nil, errors.New("stub: no output left")
+	if len(s.answers) == 0 {
+		return provider.Aside{}, errors.New("stub: no answer left")
 	}
-	out := s.out[0]
-	s.out = s.out[1:]
+	out := s.answers[0]
+	s.answers = s.answers[1:]
 	return out, nil
 }
 
-// cliJSON wraps a draft the way `claude -p --output-format json` reports it.
-func cliJSON(structured string) []byte {
-	return []byte(`{"is_error":false,"subtype":"success","result":"ignored","structured_output":` + structured + `}`)
+// validated is an answer the harness checked against the schema itself.
+func validated(structured string) provider.Aside {
+	return provider.Aside{Text: "ignored", Structured: json.RawMessage(structured)}
 }
 
 func TestTurnReturnsQuestionThenDraft(t *testing.T) {
-	r := &stubRunner{out: [][]byte{
-		cliJSON(`{"status":"ask","question":"Was genau passiert?"}`),
-		cliJSON(`{"status":"ready","title":"Notification click does nothing","body":"### What happens\nNothing.","labels":["bug"]}`),
+	r := &stubAsker{answers: []provider.Aside{
+		validated(`{"status":"ask","question":"Was genau passiert?"}`),
+		validated(`{"status":"ready","title":"Notification click does nothing","body":"### What happens\nNothing.","labels":["bug"]}`),
 	}}
 	s := New(r)
 
-	d, err := s.Turn(context.Background(), "/bin/claude", "", "notifications sind kaputt")
+	d, err := s.Turn(context.Background(), claude, "", "", "notifications sind kaputt")
 	if err != nil {
 		t.Fatalf("first turn: %v", err)
 	}
@@ -56,7 +62,7 @@ func TestTurnReturnsQuestionThenDraft(t *testing.T) {
 		t.Fatal("first turn must not be final")
 	}
 
-	d2, err := s.Turn(context.Background(), "/bin/claude", d.SessionID, "klicken öffnet die App nicht")
+	d2, err := s.Turn(context.Background(), claude, "", d.SessionID, "klicken öffnet die App nicht")
 	if err != nil {
 		t.Fatalf("second turn: %v", err)
 	}
@@ -67,60 +73,87 @@ func TestTurnReturnsQuestionThenDraft(t *testing.T) {
 		t.Fatalf("session id changed: %q -> %q", d.SessionID, d2.SessionID)
 	}
 
-	// First call opens the session and carries the system prompt; the second
-	// resumes it and must not repeat the prompt (the CLI replays the recorded
-	// one anyway).
-	if !hasFlag(r.argv[0], "--session-id", d.SessionID) || !hasFlagName(r.argv[0], "--system-prompt") {
-		t.Fatalf("first argv = %v, want --session-id and --system-prompt", r.argv[0])
+	// The first turn opens the session and carries the instructions; the second
+	// resumes it and must not repeat them (a harness replays the recorded ones
+	// anyway, so a second set could only contradict the first).
+	if r.reqs[0].Resume || r.reqs[0].System == "" || r.reqs[0].SessionID != d.SessionID {
+		t.Fatalf("first turn = %+v, want a new session carrying the instructions", r.reqs[0])
 	}
-	if !hasFlag(r.argv[1], "--resume", d.SessionID) || hasFlagName(r.argv[1], "--session-id") {
-		t.Fatalf("second argv = %v, want --resume only", r.argv[1])
+	if !r.reqs[1].Resume || r.reqs[1].System != "" || r.reqs[1].SessionID != d.SessionID {
+		t.Fatalf("second turn = %+v, want a resume of the same session", r.reqs[1])
 	}
-	// Both turns run in the same throwaway directory, or the CLI would not find
-	// the session to resume.
-	if r.dirs[0] != r.dirs[1] || r.dirs[0] == "" {
-		t.Fatalf("session dirs = %q, %q, want one stable directory", r.dirs[0], r.dirs[1])
+	// A conversation that may continue has to keep its session.
+	if !r.reqs[0].Continues {
+		t.Fatal("the first turn discarded the session it might have to resume")
 	}
 }
 
-func TestTurnLocksDownTheSession(t *testing.T) {
-	r := &stubRunner{out: [][]byte{cliJSON(`{"status":"ready","title":"T","body":"B"}`)}}
-	if _, err := New(r).Turn(context.Background(), "/bin/claude", "", "hi"); err != nil {
+// TestTurnAdoptsAHarnessesOwnSessionID: a harness that names its own session
+// reports it back, and the next turn has to continue that one.
+func TestTurnAdoptsAHarnessesOwnSessionID(t *testing.T) {
+	first := validated(`{"status":"ask","question":"more?"}`)
+	first.SessionID = "thread-42"
+	r := &stubAsker{answers: []provider.Aside{first, validated(`{"status":"ready","title":"T","body":"B"}`)}}
+	s := New(r)
+
+	d, err := s.Turn(context.Background(), claude, "", "", "hi")
+	if err != nil {
+		t.Fatalf("first turn: %v", err)
+	}
+	if d.SessionID != "thread-42" {
+		t.Fatalf("session = %q, want the harness's own id", d.SessionID)
+	}
+	if _, err := s.Turn(context.Background(), claude, "", d.SessionID, "more"); err != nil {
+		t.Fatalf("second turn: %v", err)
+	}
+	if !r.reqs[1].Resume || r.reqs[1].SessionID != "thread-42" {
+		t.Fatalf("second turn = %+v, want a resume of thread-42", r.reqs[1])
+	}
+}
+
+// TestTurnAsksTheChosenProviderCheaply: a draft goes to the instance the caller
+// named, and — unless Settings says otherwise — on the cheap model, not on
+// whatever expensive one was picked for real work.
+func TestTurnAsksTheChosenProviderCheaply(t *testing.T) {
+	r := &stubAsker{answers: []provider.Aside{validated(`{"status":"ready","title":"T","body":"B"}`)}}
+	if _, err := New(r).Turn(context.Background(), claude, "", "", "hi"); err != nil {
 		t.Fatalf("turn: %v", err)
 	}
-	argv := r.argv[0]
-	for _, want := range []string{"-p", "--strict-mcp-config", "--disable-slash-commands", "--safe-mode"} {
-		if !hasFlagName(argv, want) {
-			t.Errorf("argv %v is missing %s", argv, want)
-		}
+	if r.insts[0].ID != "claude" {
+		t.Errorf("asked %q, want the named instance", r.insts[0].ID)
 	}
-	if !hasFlag(argv, "--model", Model) {
-		t.Errorf("argv %v does not pin the model to %s", argv, Model)
+	if r.reqs[0].Model != DefaultModel {
+		t.Errorf("model = %q, want %q", r.reqs[0].Model, DefaultModel)
 	}
-	if !hasFlag(argv, "--tools", "") {
-		t.Errorf("argv %v does not disable tools", argv)
+	if r.reqs[0].Schema == "" {
+		t.Error("the draft's shape must be asked for, not hoped for")
 	}
-	if !hasFlag(argv, "--output-format", "json") {
-		t.Errorf("argv %v does not ask for json output", argv)
+	if r.reqs[0].Text != "hi" {
+		t.Errorf("text = %q, want the user's message", r.reqs[0].Text)
 	}
-	if argv[len(argv)-1] != "hi" {
-		t.Errorf("argv %v does not end with the user's message", argv)
+
+	r2 := &stubAsker{answers: []provider.Aside{validated(`{"status":"ready","title":"T","body":"B"}`)}}
+	if _, err := New(r2).Turn(context.Background(), claude, "opus", "", "hi"); err != nil {
+		t.Fatalf("turn: %v", err)
+	}
+	if r2.reqs[0].Model != "opus" {
+		t.Errorf("model = %q, want the configured one", r2.reqs[0].Model)
 	}
 }
 
 func TestTurnForcesADraftOnTheLastTurn(t *testing.T) {
-	var out [][]byte
+	var out []provider.Aside
 	for i := 0; i < MaxUserTurns; i++ {
-		out = append(out, cliJSON(`{"status":"ask","question":"noch was?","title":"Partial title"}`))
+		out = append(out, validated(`{"status":"ask","question":"noch was?","title":"Partial title"}`))
 	}
-	r := &stubRunner{out: out}
+	r := &stubAsker{answers: out}
 	s := New(r)
 
 	id := ""
 	var d Draft
 	for i := 0; i < MaxUserTurns; i++ {
 		var err error
-		d, err = s.Turn(context.Background(), "/bin/claude", id, "more")
+		d, err = s.Turn(context.Background(), claude, "", id, "more")
 		if err != nil {
 			t.Fatalf("turn %d: %v", i+1, err)
 		}
@@ -132,45 +165,48 @@ func TestTurnForcesADraftOnTheLastTurn(t *testing.T) {
 	if d.Question != "" {
 		t.Fatalf("last turn still carries a question: %q", d.Question)
 	}
-	if !strings.Contains(r.argv[MaxUserTurns-1][len(r.argv[MaxUserTurns-1])-1], "last exchange") {
+	last := r.reqs[MaxUserTurns-1]
+	if !strings.Contains(last.Text, "last exchange") {
 		t.Fatal("the last turn's message does not tell the model it is the last one")
 	}
+	if last.Continues {
+		t.Fatal("the last turn has to deliver, so nothing will resume its session")
+	}
 }
 
-func TestTurnRejectsEmptyInputAndMissingBinary(t *testing.T) {
-	s := New(&stubRunner{})
-	if _, err := s.Turn(context.Background(), "/bin/claude", "", "   "); err == nil {
+func TestTurnRejectsEmptyInputAndAMissingHarness(t *testing.T) {
+	if _, err := New(&stubAsker{}).Turn(context.Background(), claude, "", "", "   "); err == nil {
 		t.Fatal("empty message was accepted")
 	}
-	if _, err := s.Turn(context.Background(), "", "", "something"); err == nil {
-		t.Fatal("missing binary was accepted")
+	if _, err := New(nil).Turn(context.Background(), claude, "", "", "something"); err == nil {
+		t.Fatal("a service with nothing to ask accepted a turn")
 	}
 }
 
-func TestTurnReportsCLIFailures(t *testing.T) {
+func TestTurnReportsFailures(t *testing.T) {
 	tests := []struct {
-		name string
-		out  []byte
-		err  error
+		name   string
+		answer provider.Aside
+		err    error
 	}{
-		{name: "process failed", err: errors.New("exit status 1")},
-		{name: "not json", out: []byte("boom")},
-		{name: "error result", out: []byte(`{"is_error":true,"subtype":"error_during_execution","result":"rate limit"}`)},
-		{name: "empty draft", out: cliJSON(`{"status":"ask"}`)},
+		{name: "the harness could not be reached", err: errors.New("exit status 1")},
+		{name: "no object in the answer", answer: provider.Aside{Text: "boom"}},
+		{name: "empty draft", answer: validated(`{"status":"ask"}`)},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			s := New(&stubRunner{out: [][]byte{tc.out}, err: tc.err})
-			if _, err := s.Turn(context.Background(), "/bin/claude", "", "hi"); err == nil {
+			s := New(&stubAsker{answers: []provider.Aside{tc.answer}, err: tc.err})
+			if _, err := s.Turn(context.Background(), claude, "", "", "hi"); err == nil {
 				t.Fatal("expected an error")
 			}
 		})
 	}
 }
 
-func TestParseFallsBackToTheResultField(t *testing.T) {
-	// Some CLI versions report the structured answer only as the result string.
-	out := []byte(`{"is_error":false,"result":"{\"status\":\"ready\",\"title\":\"T\",\"body\":\"B\"}"}`)
+func TestParseFindsTheDraftInPlainText(t *testing.T) {
+	// A harness that did not validate the shape itself still answered; the
+	// object is pulled out of what it wrote rather than the answer discarded.
+	out := provider.Aside{Text: "Here you go:\n```json\n{\"status\":\"ready\",\"title\":\"T\",\"body\":\"B\"}\n```"}
 	d, err := parse(out)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -253,22 +289,4 @@ func TestIssueURLKeepsAShortBodyIntact(t *testing.T) {
 	if strings.Contains(u, url.QueryEscape(truncMark)) {
 		t.Fatalf("short body was shortened: %q", u)
 	}
-}
-
-func hasFlagName(argv []string, name string) bool {
-	for _, a := range argv {
-		if a == name {
-			return true
-		}
-	}
-	return false
-}
-
-func hasFlag(argv []string, name, value string) bool {
-	for i, a := range argv {
-		if a == name && i+1 < len(argv) && argv[i+1] == value {
-			return true
-		}
-	}
-	return false
 }

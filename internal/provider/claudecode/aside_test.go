@@ -65,6 +65,19 @@ func TestAsideIsSealedOff(t *testing.T) {
 // TestAsideResumeDoesNotRepeatTheSystemPrompt: the CLI records the system prompt
 // when a session starts and replays it on every resume, so sending it again is
 // at best ignored and at worst a second, contradicting set of instructions.
+func TestAsideThatContinuesKeepsItsSession(t *testing.T) {
+	a := &Adapter{detect: func() string { return "claude" }}
+	cmd, err := a.AsideCommand(provider.Instance{}, provider.AsideRequest{
+		SessionID: "s-1", Text: "first", Continues: true,
+	})
+	if err != nil {
+		t.Fatalf("AsideCommand: %v", err)
+	}
+	if hasArg(cmd.Args, "--no-session-persistence") {
+		t.Fatal("a conversation that continues cannot discard its session")
+	}
+}
+
 func TestAsideResumeDoesNotRepeatTheSystemPrompt(t *testing.T) {
 	a := &Adapter{detect: func() string { return "claude" }}
 	cmd, err := a.AsideCommand(provider.Instance{}, provider.AsideRequest{
