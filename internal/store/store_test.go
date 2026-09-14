@@ -642,3 +642,41 @@ func TestNotifiedProviderStateSurvivesAReload(t *testing.T) {
 		t.Fatalf("state after ForgetProvider = %q, want none", got)
 	}
 }
+
+// TestMigrateRenamesTheBetaPreference: the preference grew from "show Codex" to
+// "show the unfinished parts", and an operator who had already asked for the one
+// wants the other.
+func TestMigrateRenamesTheBetaPreference(t *testing.T) {
+	s := openTemp(t)
+	raw := "[settings]\nshow_codex_beta = true\n"
+	if err := os.WriteFile(filepath.Join(s.Home(), configFile), []byte(raw), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := s.LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if !cfg.Settings.BetaFeatures {
+		t.Fatal("the old preference should carry over")
+	}
+	if cfg.Settings.LegacyShowCodexBeta {
+		t.Fatal("the retired key should be cleared")
+	}
+
+	if _, err := s.MigrateConfig(); err != nil {
+		t.Fatalf("MigrateConfig: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(s.Home(), configFile))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if strings.Contains(string(data), "show_codex_beta") {
+		t.Fatalf("retired key written back:\n%s", data)
+	}
+	if !strings.Contains(string(data), "beta_features = true") {
+		t.Fatalf("the preference was not carried over:\n%s", data)
+	}
+	if migrated, err := s.MigrateConfig(); err != nil || migrated {
+		t.Fatalf("second MigrateConfig = (%t, %v), want (false, nil)", migrated, err)
+	}
+}

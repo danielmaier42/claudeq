@@ -86,6 +86,12 @@
   .btn.primary { background:var(--accent); color:#fff; border-color:transparent; }
   .btn.primary:hover { filter:brightness(1.06); }
   .btn.danger { color:var(--danger); }
+  /* A control for something claudeq does not consider finished. It gets the
+     suggestion colour and a sparkle, so it never reads as ordinary furniture. */
+  .btn.beta { color:var(--ai); font-weight:600; border-color:color-mix(in srgb, var(--ai) 42%, transparent);
+              background:color-mix(in srgb, var(--ai) 8%, var(--card)); }
+  .btn.beta:hover { background:color-mix(in srgb, var(--ai) 14%, var(--card)); }
+  .btn.beta svg { fill:currentColor; stroke:none; width:15px; height:15px; }
   .btn.small { padding:3px 9px; font-size:12px; }
   .btn:disabled { opacity:.4; cursor:default; }
   .btn[hidden] { display:none; } /* .btn's display would otherwise beat the hidden attribute */
@@ -140,6 +146,7 @@
   .chip.accent { background:color-mix(in srgb, var(--accent) 18%, transparent); color:var(--accent); }
   .chip.warn { background:color-mix(in srgb, var(--warn) 18%, transparent); color:var(--warn); }
   .chip.danger { background:color-mix(in srgb, var(--danger) 18%, transparent); color:var(--danger); }
+  .chip.beta { background:color-mix(in srgb, var(--ai) 18%, transparent); color:var(--ai); }
   .chip.running { background:color-mix(in srgb, var(--accent) 18%, transparent); color:var(--accent); }
   .chip.running::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--accent); margin-right:5px; vertical-align:middle; animation:cqpulse 1.2s ease-in-out infinite; }
   @keyframes cqpulse { 0%,100%{opacity:1} 50%{opacity:.35} }
@@ -422,6 +429,22 @@
 </dialog>
 
 <!-- Confirm sheet -->
+<dialog id="providerSheet">
+  <div class="sheet-hd"><b>Add provider</b></div>
+  <div class="sheet-bd">
+    <div class="form-row">
+      <div><label class="fld">Id</label><input type="text" id="np-id" placeholder="claude-work"></div>
+      <div><label class="fld">Kind</label><select id="np-kind"></select></div>
+    </div>
+    <label class="fld">Name</label><input type="text" id="np-name" placeholder="Shown in the app and in run messages">
+    <label class="fld">Configuration directory</label><input type="text" id="np-dir" placeholder="the CLI's own">
+    <div class="hint" style="margin-top:6px">The id is how tasks name this provider and cannot be changed later, nor can the kind. Give it its own configuration directory to make it a second account, with its own sessions and its own rate limit. Everything else is set on its card afterwards.</div>
+    <p id="np-err" class="hint" style="color:var(--danger)"></p>
+  </div>
+  <div class="sheet-ft"><button class="btn" onclick="providerSheet.close()">Cancel</button>
+    <button class="btn primary" id="np-add">Add provider</button></div>
+</dialog>
+
 <dialog id="confirmSheet">
   <div class="sheet-bd" style="padding-top:20px"><b id="confirmText">Are you sure?</b></div>
   <div class="sheet-ft"><button class="btn" id="confirmNo">Cancel</button><button class="btn danger" id="confirmYes">Delete</button></div>
@@ -650,7 +673,7 @@ async function loadTasks(){
   // whether Run now is offered at all, and both must be right on every poll.
   let tasks, paused=false;
   try{ const [t,s,ps]=await Promise.all([api('GET','/api/tasks'),api('GET','/api/settings'),api('GET','/api/providers')]);
-    tasks=t; paused=!!s.paused; PROVIDERS=ps||[]; SHOW_BETA=!!s.show_codex_beta; setConn(true);
+    tasks=t; paused=!!s.paused; PROVIDERS=ps||[]; SHOW_BETA=!!s.beta_features; setConn(true);
     BETA_PROVIDERS=new Set(PROVIDERS.filter(p=>p.beta).flatMap(p=>p.default?[p.id,'']:[p.id]));
   }catch(e){ setConn(false); return; }
   tasks=tasks||[];
@@ -670,7 +693,7 @@ async function loadTasks(){
     else when='as soon as possible';
     const row=el('div','row');
     const tags=[];
-    if(BETA_PROVIDERS.has(t.provider||'')) tags.push('<span class="chip warn" title="This task runs on a provider that is still in beta">beta</span>');
+    if(BETA_PROVIDERS.has(t.provider||'')) tags.push('<span class="chip beta" title="This task runs on a provider that is still in beta">beta</span>');
     if(t.blocked_reason) tags.push(`<span class="chip danger" title="${esc(t.blocked_reason+' The task keeps its place and starts by itself once the provider works again.')}">blocked</span>`);
     if(t.waiting_for_limit) tags.push(`<span class="chip warn" title="${esc('The rate limit interrupted this task. Its Claude session '+resumeTimeText(LIMITED_UNTIL)+' — drop the resume in Activity with “Cancel resume”.')}">rescheduled</span>`);
     if(t.parallel) tags.push('<span class="chip" title="Runs alongside other parallel tasks">parallel</span>');
@@ -751,7 +774,7 @@ async function fillProviderChoices(providerID, model, effort){
   if(!PROVIDERS.length){
     try{
       const [ps,st]=await Promise.all([api('GET','/api/providers'),api('GET','/api/settings')]);
-      PROVIDERS=ps||[]; SHOW_BETA=!!st.show_codex_beta;
+      PROVIDERS=ps||[]; SHOW_BETA=!!st.beta_features;
     }catch{}
   }
   const offered=PROVIDERS.filter(p=>p.enabled&&p.health&&p.health.state==='ready'&&(!p.beta||betaAllowed()));
@@ -1407,16 +1430,11 @@ async function loadSettings(){
     </div>
 
     <div class="s-pane" data-pane="providers">
-      <div class="section-label">Providers</div>
-      <div class="group" id="s-providers"><div class="row"><div class="grow"><div class="sub">Loading…</div></div></div></div>
-      <div class="sub" style="margin-top:10px">A provider is one configured agent harness. Tasks run on it, and a task that names none runs on the default. ClaudeQ never stores a provider's login — the CLI owns that.</div>
-
-      <div class="section-label">Beta features</div>
-      <div class="group">
-        <div class="row"><div class="grow"><div class="title">Offer providers that are still in beta</div>
-          <div class="sub multi">Currently the Codex CLI. This decides what the app offers, nothing else: a beta provider you have already set up keeps working, its tasks keep running, and the <code>claudeq</code> CLI accepts it either way.</div></div>
-          <label class="switch"><input type="checkbox" id="s-beta-codex"><span class="sl"></span></label></div>
+      <div id="s-providers"><div class="group"><div class="row"><div class="grow"><div class="sub">Loading…</div></div></div></div></div>
+      <div id="s-provider-add" style="display:flex;justify-content:center;margin-top:16px" hidden>
+        <button class="btn beta" id="s-add-provider">${SPARK}<span>Add provider</span></button>
       </div>
+      <div class="sub multi" style="margin-top:14px">A provider is one configured agent harness. Tasks run on it, and a task that names none runs on the default. ClaudeQ never stores a provider's login — the CLI owns that.</div>
     </div>
 
     <div class="s-pane" data-pane="notifications">
@@ -1467,6 +1485,17 @@ async function loadSettings(){
         <div class="row"><div class="grow"><div class="title">Check for due tasks every</div><div class="sub">How often the daemon wakes to look for work</div></div>
           <select id="s-hb" style="max-width:170px">${hbHtml}</select></div>
       </div>
+      <div class="section-label">Beta features</div>
+      <div class="group">
+        <div class="row"><div class="grow"><div class="title">Beta features</div>
+          <div class="sub multi">Parts of ClaudeQ that are not finished yet. Switching this on adds:
+            <ul style="margin:6px 0 0 16px;padding:0">
+              <li><b>Add provider</b> in Settings → Providers — a second harness, or a second account of one you already have.</li>
+              <li>The <b>Codex</b> provider, in that form and in the task sheet.</li>
+            </ul>
+            It decides what the app offers and nothing else: anything you have already set up keeps working, its tasks keep running, and the <code>claudeq</code> CLI accepts it either way.</div></div>
+          <label class="switch"><input type="checkbox" id="s-beta"><span class="sl"></span></label></div>
+      </div>
     </div>
 
     <div class="sub" style="text-align:center;margin-top:10px">Made with <span style="color:var(--accent)">♥</span> by
@@ -1479,12 +1508,12 @@ async function loadSettings(){
   $('#s-wh-enabled').checked=!!s.webhook?.enabled; $('#s-wh-url').value=s.webhook?.url||'';
   $('#s-wh-template').value=s.webhook?.template||'';
   $('#s-sysprompt').value=s.system_prompt||'';
-  SHOW_BETA=!!s.show_codex_beta;
-  $('#s-beta-codex').checked=SHOW_BETA;
+  SHOW_BETA=!!s.beta_features;
+  $('#s-beta').checked=SHOW_BETA;
   // Revealing beta providers changes what may be added and what a task may be
   // pointed at, so the lists are rebuilt rather than left saying something else.
-  $('#s-beta-codex').onchange=async e=>{
-    try{ await api('PUT','/api/settings',{...(await api('GET','/api/settings')),show_codex_beta:e.target.checked}); }
+  $('#s-beta').onchange=async e=>{
+    try{ await api('PUT','/api/settings',{...(await api('GET','/api/settings')),beta_features:e.target.checked}); }
     catch(err){ toast(err.message,'err'); e.target.checked=!e.target.checked; return; }
     SHOW_BETA=e.target.checked;
     loadProviders();
@@ -1501,6 +1530,8 @@ async function loadSettings(){
   if(reviewOn) sysReview.run();
   $('#s-check-updates').onclick=checkForUpdates;
   $('#s-notif-settings').onclick=openNotificationSettings;
+  $('#s-add-provider').onclick=openAddProvider;
+  $('#np-add').onclick=submitProvider;
   c.querySelectorAll('#s-tabs button').forEach(b=>b.onclick=()=>selectSettingsPane(b.dataset.pane));
   selectSettingsPane(settingsPane);
   renderUpdateBox(); renderVersionRow(); renderUpdateBadge();
@@ -1527,53 +1558,61 @@ function providerStateChip(h){
 // PROVIDERS is the last list the daemon reported, kept so the task form can
 // offer the providers a task may run on without asking again on every keystroke.
 let PROVIDERS=[], PROVIDER_KINDS=[];
+// SHOW_BETA is the operator's "beta features" preference, read from the
+// settings rather than from the Settings form — the task sheet needs it on a
+// fresh page load, long before that form exists.
+//
+// It gates offering only: a beta provider that is already configured keeps its
+// block and runs its tasks either way.
+let SHOW_BETA=false;
+function betaAllowed(){ return SHOW_BETA; }
 async function loadProviders(){
   const box=$('#s-providers');
   try{ PROVIDERS=await api('GET','/api/providers')||[]; }catch(e){
-    if(box) box.innerHTML=`<div class="row"><div class="grow"><div class="sub">${esc(e.message)}</div></div></div>`;
+    if(box) box.innerHTML=`<div class="group"><div class="row"><div class="grow"><div class="sub">${esc(e.message)}</div></div></div></div>`;
     return; }
   if(!PROVIDER_KINDS.length){ try{ PROVIDER_KINDS=await api('GET','/api/providers/kinds')||[]; }catch{} }
   if(!box) return;
   box.innerHTML='';
-  PROVIDERS.forEach(p=>box.append(providerCard(p)));
-  renderAddProvider();
+  PROVIDERS.forEach(p=>box.append(providerBlock(p)));
+  // Adding a provider is one of the parts claudeq does not consider finished,
+  // so the button appears only once the operator has asked for those.
+  const add=$('#s-provider-add');
+  if(add) add.hidden=!betaAllowed();
 }
-// SHOW_BETA is the operator's "offer providers that are still in beta"
-// preference, read from the settings rather than from the Settings form — the
-// task sheet needs it on a fresh page load, long before that form exists.
-//
-// It gates offering only: a beta provider that is already configured keeps its
-// card and runs its tasks either way.
-let SHOW_BETA=false;
-function betaAllowed(){ return SHOW_BETA; }
-function providerCard(p){
+// providerBlock is one provider's settings block: its name and kind above it,
+// the way every other group in Settings is introduced.
+function providerBlock(p){
   const wrap=el('div');
   const detected=p.detected?`Detected: ${p.detected}`:'';
   const chips=providerStateChip(p.health)
     +(p.default?'<span class="chip">default</span>':'')
-    +(p.beta?'<span class="chip warn" title="This provider is still in beta">beta</span>':'');
+    +(p.beta?'<span class="chip beta">beta</span>':'');
   wrap.innerHTML=`
-    <div class="row"><div class="grow">
-        <div class="title">${esc(p.name||p.id)} ${chips}</div>
-        <div class="sub multi"><span class="mono">${esc(p.id)}</span> · ${esc(p.kind)}${p.health.reason||p.health.detail?' — '+esc(p.health.reason||p.health.detail):''}</div></div>
-      <label class="switch"><input type="checkbox" ${p.enabled?'checked':''}><span class="sl"></span></label></div>
-    <div class="row"><div class="grow"><div class="title">Name</div>
-        <div class="sub">What this provider is called in the app and in run messages</div></div>
-      <input type="text" class="p-name" style="max-width:260px"></div>
-    <div class="row"><div class="grow"><div class="title">Binary</div>
-        <div class="sub">Absolute path to the CLI. The background daemon can't see your shell's PATH, so a full path is safest. Empty auto-detects. ${esc(detected)}</div></div>
-      <input type="text" class="p-path" placeholder="${esc(p.detected||'/path/to/the CLI')}" style="max-width:260px"></div>
-    <div class="row"><div class="grow"><div class="title">Configuration directory</div>
-        <div class="sub">Where the CLI keeps its account and sessions — another directory is another account. Absolute path (<code>~</code> is fine); empty uses its own default.</div></div>
-      <input type="text" class="p-dir" placeholder="the CLI's own" style="max-width:260px"></div>
-    <div class="row"><div class="grow"><div class="title">Default model</div>
-        <div class="sub">Used for tasks on this provider that name no model</div></div>
-      <select class="p-model" style="max-width:230px"></select></div>
-    <div class="row"><div class="grow"><div class="sub">${esc(p.health.binary||'')}</div></div>
-      <button class="btn p-default"${p.default||!p.enabled?' disabled':''}>Make default</button>
-      <button class="btn p-check">Check again</button>
-      <button class="btn danger p-remove"${p.default?' disabled':''}>Remove</button>
-      <button class="btn primary p-save">Save</button></div>`;
+    <div class="section-label" style="margin-top:18px">${esc(p.name||p.id)} · ${esc(p.kind)}</div>
+    <div class="group">
+      <div class="row"><div class="grow">
+          <div class="title">${chips}</div>
+          <div class="sub multi"><span class="mono">${esc(p.id)}</span>${p.health.reason||p.health.detail?' — '+esc(p.health.reason||p.health.detail):''}</div></div>
+        <label class="switch"><input type="checkbox" ${p.enabled?'checked':''}><span class="sl"></span></label></div>
+      <div class="row"><div class="grow"><div class="title">Name</div>
+          <div class="sub">What this provider is called in the app and in run messages</div></div>
+        <input type="text" class="p-name" style="max-width:260px"></div>
+      <div class="row"><div class="grow"><div class="title">Binary</div>
+          <div class="sub">Absolute path to the CLI. The background daemon can't see your shell's PATH, so a full path is safest. Empty auto-detects. ${esc(detected)}</div></div>
+        <input type="text" class="p-path" placeholder="${esc(p.detected||'/path/to/the CLI')}" style="max-width:260px"></div>
+      <div class="row"><div class="grow"><div class="title">Configuration directory</div>
+          <div class="sub">Where the CLI keeps its account and sessions — another directory is another account. Absolute path (<code>~</code> is fine); empty uses its own default.</div></div>
+        <input type="text" class="p-dir" placeholder="the CLI's own" style="max-width:260px"></div>
+      <div class="row"><div class="grow"><div class="title">Default model</div>
+          <div class="sub">Used for tasks on this provider that name no model</div></div>
+        <select class="p-model" style="max-width:230px"></select></div>
+      <div class="row"><div class="grow"><div class="sub">${esc(p.health.binary||'')}</div></div>
+        <button class="btn p-default"${p.default||!p.enabled?' disabled':''}>Make default</button>
+        <button class="btn p-check">Check again</button>
+        <button class="btn danger p-remove"${p.default?' disabled':''}>Remove</button>
+        <button class="btn primary p-save">Save</button></div>
+    </div>`;
   wrap.querySelector('.p-name').value=p.name||'';
   wrap.querySelector('.p-path').value=p.binary_path||'';
   wrap.querySelector('.p-dir').value=p.config_dir||'';
@@ -1607,6 +1646,28 @@ function providerCard(p){
   };
   return wrap;
 }
+// openAddProvider asks for the things that cannot be changed afterwards — the
+// id and the kind — plus the two that decide what the new provider *is*. The
+// rest is on its card once it exists.
+function openAddProvider(){
+  const kinds=PROVIDER_KINDS.filter(k=>!k.beta||betaAllowed());
+  $('#np-kind').innerHTML=kinds.map(k=>`<option value="${esc(k.kind)}">${esc(k.kind)}${k.beta?' (beta)':''}</option>`).join('');
+  $('#np-id').value=''; $('#np-name').value=''; $('#np-dir').value=''; $('#np-err').textContent='';
+  $('#providerSheet').showModal();
+  $('#np-id').focus();
+}
+async function submitProvider(){
+  const id=$('#np-id').value.trim();
+  if(!id){ $('#np-err').textContent='Give the provider an id — tasks name it by that.'; return; }
+  const body={id, kind:$('#np-kind').value, name:$('#np-name').value.trim()||id,
+    config_dir:$('#np-dir').value.trim()};
+  try{ await api('POST','/api/providers',body); }
+  catch(e){ $('#np-err').textContent=e.message; return; }
+  $('#providerSheet').close();
+  toast('Provider added','ok');
+  loadProviders();
+}
+
 // fillProviderModels asks the provider itself what it suggests, so a Codex card
 // offers Codex models and a Claude card offers Claude's. The stored value is
 // kept even when the list does not contain it: a model catalog is a suggestion,
@@ -1620,27 +1681,6 @@ async function fillProviderModels(select,p){
   try{ models=await api('GET','/api/models?provider='+encodeURIComponent(p.id))||[]; }catch{ return; }
   select.innerHTML=modelOptionsFrom(models,p.default_model||'','Provider default');
 }
-// renderAddProvider offers a second instance: another account of a harness you
-// already have, or a different harness altogether.
-function renderAddProvider(){
-  const box=$('#s-providers'); if(!box) return;
-  const kinds=PROVIDER_KINDS.filter(k=>!k.beta||betaAllowed());
-  const row=el('div','row');
-  row.innerHTML=`<div class="grow"><div class="title">Add a provider</div>
-      <div class="sub multi">Another harness, or a second account of one you already have — give it its own configuration directory and it keeps its own sessions and rate limit.</div></div>
-    <input type="text" id="np-id" placeholder="id, e.g. claude-work" style="max-width:150px">
-    <select id="np-kind" style="max-width:140px">${kinds.map(k=>`<option value="${esc(k.kind)}">${esc(k.kind)}${k.beta?' (beta)':''}</option>`).join('')}</select>
-    <button class="btn primary" id="np-add">Add</button>`;
-  box.append(row);
-  $('#np-add').onclick=async ()=>{
-    const id=$('#np-id').value.trim(), kind=$('#np-kind').value;
-    if(!id){ toast('Give the provider an id','err'); return; }
-    try{ await api('POST','/api/providers',{id,kind,name:id}); toast('Provider added','ok'); }
-    catch(e){ toast(e.message,'err'); }
-    loadProviders();
-  };
-}
-
 // Show one settings pane. The choice is remembered for the session, so leaving
 // Settings and coming back lands on the pane you were last on.
 function selectSettingsPane(pane){
@@ -1666,7 +1706,7 @@ async function saveSettings(){
     system_prompt:$('#s-sysprompt').value,
     prompt_review_disabled:!$('#s-review').checked,
     prompt_review_model:$('#s-review-model').value,
-    show_codex_beta:$('#s-beta-codex').checked,
+    beta_features:$('#s-beta').checked,
     pushover:{enabled:$('#s-po-enabled').checked,token:$('#s-po-token').value,user_key:$('#s-po-user').value},
     ntfy:{enabled:$('#s-ntfy-enabled').checked,server:$('#s-ntfy-server').value.trim(),topic:$('#s-ntfy-topic').value.trim(),token:$('#s-ntfy-token').value.trim()},
     webhook:{enabled:$('#s-wh-enabled').checked,url:$('#s-wh-url').value.trim(),template:$('#s-wh-template').value.trim()}};

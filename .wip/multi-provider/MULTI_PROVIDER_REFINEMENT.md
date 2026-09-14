@@ -175,9 +175,13 @@ Claude (work account)  Not logged in
   [Make default]  [Check again]  [Save]  [Remove]    (•) on
 ```
 
-- **Add** asks for an id, an adapter kind and a name, then shows the new card.
-  The id is fixed once created, as is the kind: an instance keeps the harness it
-  was made for, because its tasks, sessions and pending resumes all name it.
+- Each provider is its own settings block, headed by its name and kind.
+- **Add provider** sits below them and opens a sheet asking for an id, an
+  adapter kind, a name and an optional configuration directory. The id is fixed
+  once created, as is the kind: an instance keeps the harness it was made for,
+  because its tasks, sessions and pending resumes all name it.
+- Adding a provider is itself a beta feature, so the button appears only with
+  beta features on, and is marked as beta where it appears.
 - **Remove** refuses while a task or the default-provider setting still names
   the instance, and says which ones must be changed first.
 - The **default** cannot be switched off or removed while it holds that role.
@@ -192,17 +196,21 @@ rate-limit state. The UI does not treat that case specially.
 
 ### Codex beta opt-in
 
-Codex setup is initially hidden behind a UI-only beta option:
+The unfinished parts of the app are hidden behind one UI-only option, in
+Settings → System:
 
 ```text
 Beta features
 
-[ ] Set up Codex provider
-    Run tasks through the locally installed Codex CLI.
+[ ] Beta features
+    Parts of SwarmQ that are not finished yet. Switching this on adds:
+      · Add provider — a second harness, or a second account of one you have
+      · The Codex provider, in that form and in the task sheet
 ```
 
-After opt-in, Settings shows the Codex provider card and task forms offer
-`Codex (Beta)`. Codex runs and activity rows carry a beta badge.
+The option names what it contains, so it is not a switch whose effect the
+operator has to discover. After opt-in, `codex` becomes an addable kind and task
+forms offer Codex. Codex runs and activity rows carry a beta badge.
 
 The option must not:
 
@@ -355,11 +363,11 @@ prompt_review_provider = "codex"
 prompt_review_model = "gpt-5.6-sol"
 feedback_provider = "claude"
 feedback_model = "haiku"
-show_codex_beta = true
+beta_features = true
 ```
 
-`show_codex_beta` is presentation state. The engine and API must never inspect
-it when deciding whether a run may start.
+`beta_features` is presentation state. The engine and API must never inspect it
+when deciding whether a run may start.
 
 ### Task fields
 

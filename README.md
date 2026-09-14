@@ -294,9 +294,8 @@ and the update button live.
 | | | Review model | Model used for that review; *The provider's default model* falls back to the reviewing provider's own default. |
 | | Execution | Pause all runs | Global stop switch: nothing starts while it is on, not even *Run now*; a run already in flight keeps going. Applies immediately, without pressing Save. |
 | | About | Version / Software updates | Current version and a manual "Check for updates" button. |
-| **Providers** | Providers | One card per provider | Name, status, binary path, configuration directory and default model of each configured harness, plus **Check again**, **Make default**, **Remove** and an on/off switch. See [Providers](#providers). |
-| | | Add a provider | Another harness, or a second account of one you already have: give it an id and a kind. |
-| | Beta features | Offer providers that are still in beta | Reveals Codex in the provider and task forms. Presentation only: a configured Codex provider runs either way. |
+| **Providers** | One block per provider | Its settings | Name, status, binary path, configuration directory and default model, plus **Check again**, **Make default**, **Remove** and an on/off switch. The block is headed by the provider's name and kind. See [Providers](#providers). |
+| | | **Add provider** | Below the blocks, and only with beta features on: opens a sheet asking for an id, a kind and optionally a configuration directory. |
 | **Notifications** | macOS | Alerts that wait for you | Opens System Settings → Notifications, where ClaudeQ's alert style lives: *Banners* disappear on their own, *Alerts* stay until you click them. |
 | | Pushover | Send to Pushover | Toggle plus API token and user key for phone push. |
 | | ntfy | Send to ntfy | Toggle, server (empty = ntfy.sh), topic, and an optional access token for a protected topic. |
@@ -304,6 +303,7 @@ and the update button live.
 | **System** | Runs | Stop a run with no output for | Idle-timeout watchdog: kills a hung run (default 30 min; a working run keeps streaming and is unaffected; Off disables it). |
 | | | Keep run history | How many runs (and their logs) to retain before pruning (default 500; Unlimited keeps everything). |
 | | Scheduler | Check for due tasks every | How often the daemon wakes to look for work (15 min – 6 h; also the wake safety-net interval). |
+| | Beta features | Beta features | The parts of ClaudeQ that are not finished: **Add provider**, and the **Codex** provider. Presentation only — anything already set up keeps working and the CLI accepts it either way. |
 
 ## Providers
 
@@ -344,17 +344,25 @@ One provider is the **default**: tasks that name none run on it. It cannot be
 switched off or removed while it holds that role — make another one the default
 first — because most tasks name no provider and would all stop at once.
 
-**Settings → Providers manages all of this**: add a provider, edit its name,
-binary, configuration directory and default model, switch it on or off, make it
-the default, and remove it. `claudeq provider …` does exactly the same things,
-and both refuse the same changes for the same reasons — removing an instance a
-task still names, for instance, which names the tasks that have to change first.
+**Settings → Providers manages all of this.** Each provider gets its own block,
+headed by its name and kind, where you edit the name, binary, configuration
+directory and default model, switch it on or off, make it the default or remove
+it. Below them sits **Add provider**, which opens a sheet asking for the two
+things that cannot be changed afterwards — the id and the kind — plus an
+optional configuration directory, which is what makes the new one a second
+account.
 
-### Codex, and the beta switch
+`claudeq provider …` does exactly the same things, and both refuse the same
+changes for the same reasons — removing an instance a task still names, for
+instance, which names the tasks that have to change first.
 
-Codex starts out hidden. **Settings → Providers → Offer providers that are still
-in beta** reveals it, after which you can add a `codex` provider and point tasks
-at it; anything on a beta provider is labelled *beta* wherever it appears.
+### Beta features
+
+Two things are behind one switch, **Settings → System → Beta features**: adding
+providers at all, and the Codex provider itself. With it off there is no **Add
+provider** button and no `codex` to choose; with it on both appear, the button
+marked as beta, and anything on a beta provider is labelled *beta* wherever it
+shows up.
 
 That switch decides what the app *offers* and nothing else. The adapter is
 always part of the build, the API and `claudeq` always accept Codex, and the
