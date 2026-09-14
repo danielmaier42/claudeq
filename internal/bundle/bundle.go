@@ -45,11 +45,34 @@ var ErrInvalid = errors.New("invalid .claudeq file")
 // envelope is the task.json layout. Task carries every task field except the
 // prompt, which lives in prompt.md so it stays readable and editable as text.
 type envelope struct {
-	Format     string    `json:"format"`
-	Version    int       `json:"format_version"`
-	ExportedAt time.Time `json:"exported_at"`
-	Task       settings  `json:"task"`
+	Format     string       `json:"format"`
+	Version    int          `json:"format_version"`
+	ExportedAt time.Time    `json:"exported_at"`
+	Task       settings     `json:"task"`
+	Provider   ProviderHint `json:"provider,omitzero"`
 }
+
+// ProviderHint describes the harness a task was written for, in terms that
+// still mean something on another machine.
+//
+// A provider id is a local name for a local account, so it cannot travel. What
+// can is the kind of harness, the model, and what the exporter called it — from
+// which the importer can find its own instance of the same kind, or say that it
+// has none. Nothing here identifies an account, a path, or a credential.
+type ProviderHint struct {
+	// Kind is the adapter the task ran on ("claude-code", "codex").
+	Kind string `json:"kind,omitempty"`
+	// Model is the model the task named, if any. It belongs to the kind: a
+	// model name means nothing to a different harness.
+	Model string `json:"model,omitempty"`
+	// ProviderName is what the exporter called their instance, so the importer
+	// can recognise what the task was written against even when they end up
+	// choosing something else.
+	ProviderName string `json:"provider_name,omitempty"`
+}
+
+// IsZero reports whether the hint says nothing, so it is left out of the file.
+func (h ProviderHint) IsZero() bool { return h == ProviderHint{} }
 
 // settings is a task without its prompt: the outer Prompt field takes the
 // "prompt" JSON key away from the embedded one, and being always empty it is
@@ -60,13 +83,14 @@ type settings struct {
 	Prompt string `json:"prompt,omitempty"`
 }
 
-// Write serialises t as a task bundle to w. now is recorded as the export time.
-func Write(w io.Writer, t task.Task, now time.Time) error {
-	env := envelope{Format: Format, Version: Version, ExportedAt: now.UTC().Truncate(time.Second)}
+// Write serialises t as a task bundle to w, with hint describing the harness it
+// was written for. now is recorded as the export time.
+func Write(w io.Writer, t task.Task, hint ProviderHint, now time.Time) error {
+	env := envelope{Format: Format, Version: Version, ExportedAt: now.UTC().Truncate(time.Second), Provider: hint}
 	env.Task.Task = t
 	// A provider id identifies an instance configured on *this* Mac, so it means
-	// nothing on the machine the bundle is opened on. The imported task inherits
-	// the importer's default provider instead.
+	// nothing on the machine the bundle is opened on. What travels is the hint,
+	// which the importer matches against their own providers.
 	env.Task.Provider = ""
 	meta, err := json.MarshalIndent(env, "", "  ")
 	if err != nil {
@@ -97,41 +121,41 @@ func Write(w io.Writer, t task.Task, now time.Time) error {
 // in the known format and a non-empty prompt.md — and nothing about the task
 // itself: no id, name or enabled-state is invented, and the importer decides
 // how to fit the task into its queue.
-func Read(data []byte) (task.Task, error) {
+func Read(data []byte) (task.Task, ProviderHint, error) {
 	if len(data) > MaxSize {
-		return task.Task{}, fmt.Errorf("%w: %d bytes exceeds the %d byte limit", ErrInvalid, len(data), MaxSize)
+		return task.Task{}, ProviderHint{}, fmt.Errorf("%w: %d bytes exceeds the %d byte limit", ErrInvalid, len(data), MaxSize)
 	}
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
-		return task.Task{}, fmt.Errorf("%w: not a zip archive: %w", ErrInvalid, err)
+		return task.Task{}, ProviderHint{}, fmt.Errorf("%w: not a zip archive: %w", ErrInvalid, err)
 	}
 	meta, err := entry(zr, settingsName)
 	if err != nil {
-		return task.Task{}, err
+		return task.Task{}, ProviderHint{}, err
 	}
 	prompt, err := entry(zr, promptName)
 	if err != nil {
-		return task.Task{}, err
+		return task.Task{}, ProviderHint{}, err
 	}
 
 	var env envelope
 	if err := json.Unmarshal(meta, &env); err != nil {
-		return task.Task{}, fmt.Errorf("%w: %s: %w", ErrInvalid, settingsName, err)
+		return task.Task{}, ProviderHint{}, fmt.Errorf("%w: %s: %w", ErrInvalid, settingsName, err)
 	}
 	if env.Format != Format {
-		return task.Task{}, fmt.Errorf("%w: %s has format %q, want %q", ErrInvalid, settingsName, env.Format, Format)
+		return task.Task{}, ProviderHint{}, fmt.Errorf("%w: %s has format %q, want %q", ErrInvalid, settingsName, env.Format, Format)
 	}
 	if env.Version != Version {
-		return task.Task{}, fmt.Errorf("%w: %s has format_version %d, this claudeq reads version %d",
+		return task.Task{}, ProviderHint{}, fmt.Errorf("%w: %s has format_version %d, this claudeq reads version %d",
 			ErrInvalid, settingsName, env.Version, Version)
 	}
 	if len(prompt) == 0 {
-		return task.Task{}, fmt.Errorf("%w: %s is empty", ErrInvalid, promptName)
+		return task.Task{}, ProviderHint{}, fmt.Errorf("%w: %s is empty", ErrInvalid, promptName)
 	}
 	t := env.Task.Task
 	t.Prompt = string(prompt)
 	t.Provider = "" // see Write: a provider id is local to the machine that exported
-	return t, nil
+	return t, env.Provider, nil
 }
 
 // entry returns the content of the named file. Entries are expected at the
@@ -215,21 +239,21 @@ func Save(p string, data []byte, overwrite bool) error {
 
 // Load reads a bundle file from disk, refusing anything larger than MaxSize
 // before reading it (a mis-picked file is not read into memory first).
-func Load(p string) (task.Task, error) {
+func Load(p string) (task.Task, ProviderHint, error) {
 	fi, err := os.Stat(p)
 	if err != nil {
-		return task.Task{}, fmt.Errorf("read %s: %w", p, err)
+		return task.Task{}, ProviderHint{}, fmt.Errorf("read %s: %w", p, err)
 	}
 	if fi.Size() > MaxSize {
-		return task.Task{}, fmt.Errorf("%s: %w: %d bytes exceeds the %d byte limit", p, ErrInvalid, fi.Size(), MaxSize)
+		return task.Task{}, ProviderHint{}, fmt.Errorf("%s: %w: %d bytes exceeds the %d byte limit", p, ErrInvalid, fi.Size(), MaxSize)
 	}
 	data, err := os.ReadFile(p)
 	if err != nil {
-		return task.Task{}, fmt.Errorf("read %s: %w", p, err)
+		return task.Task{}, ProviderHint{}, fmt.Errorf("read %s: %w", p, err)
 	}
-	t, err := Read(data)
+	t, hint, err := Read(data)
 	if err != nil {
-		return task.Task{}, fmt.Errorf("%s: %w", p, err)
+		return task.Task{}, ProviderHint{}, fmt.Errorf("%s: %w", p, err)
 	}
-	return t, nil
+	return t, hint, nil
 }

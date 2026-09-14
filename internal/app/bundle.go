@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/danielmaier42/claudeq/internal/bundle"
+	"github.com/danielmaier42/claudeq/internal/provider"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
 )
@@ -18,6 +19,10 @@ import (
 var ErrNotFound = errors.New("task not found")
 
 // ExportTask writes the task with the given id to w as a .claudeq bundle.
+//
+// The bundle carries a hint about the harness the task was written for, never
+// the local provider instance: a hint travels, an instance is one account on
+// one Mac.
 func ExportTask(s *store.Store, id string, w io.Writer, now time.Time) (task.Task, error) {
 	cfg, err := s.LoadConfig()
 	if err != nil {
@@ -28,10 +33,28 @@ func ExportTask(s *store.Store, id string, w io.Writer, now time.Time) (task.Tas
 		return task.Task{}, fmt.Errorf("%w: %q", ErrNotFound, id)
 	}
 	t := cfg.Tasks[idx]
-	if err := bundle.Write(w, t, now); err != nil {
+	if err := bundle.Write(w, t, exportHint(cfg, t), now); err != nil {
 		return task.Task{}, fmt.Errorf("export task %q: %w", id, err)
 	}
 	return t, nil
+}
+
+// exportHint describes what the task runs on here, in terms another machine can
+// use. A configuration it cannot resolve yields no hint rather than a guess.
+func exportHint(cfg store.Config, t task.Task) bundle.ProviderHint {
+	set, err := provider.FromConfig(cfg)
+	if err != nil {
+		return bundle.ProviderHint{}
+	}
+	res, err := set.Resolve(provider.Selection{ProviderID: t.Provider, Model: t.Model})
+	if err != nil {
+		return bundle.ProviderHint{}
+	}
+	return bundle.ProviderHint{
+		Kind:         string(res.Instance.Kind),
+		Model:        res.Model,
+		ProviderName: res.Instance.Label(),
+	}
 }
 
 // ImportTask adds a task read from a .claudeq bundle to the queue, settings
@@ -81,12 +104,17 @@ type ImportDraft struct {
 	// is no such directory here. Task.WorkingDir is empty in that case, so the
 	// importer has to point the task at a folder that exists on this machine.
 	MissingWorkingDir string `json:"missing_working_dir,omitempty"`
+	// UnresolvedProvider names the harness the file was written for when this
+	// Mac has no single obvious instance of it. Task.Provider is empty then, so
+	// the importer has to choose before the task can be queued.
+	UnresolvedProvider string `json:"unresolved_provider,omitempty"`
 }
 
 // ReadImport turns a task from a bundle into a draft. The file is validated as
 // strictly as an actual import, so a broken file is refused before it reaches
-// the sheet; only the working directory is allowed to fall away.
-func ReadImport(t task.Task) (ImportDraft, error) {
+// the sheet; only the working directory and the provider are allowed to fall
+// away — both are properties of the machine, not of the task.
+func ReadImport(s *store.Store, t task.Task, hint bundle.ProviderHint) (ImportDraft, error) {
 	t, err := completeImport(t)
 	if err != nil {
 		return ImportDraft{}, err
@@ -96,7 +124,68 @@ func ReadImport(t task.Task) (ImportDraft, error) {
 		d.MissingWorkingDir = t.WorkingDir
 		d.Task.WorkingDir = ""
 	}
+	// A file with no hint was written before providers existed, or by a claudeq
+	// that had nothing to say about them. It keeps the task exactly as it is and
+	// runs on the default provider, which is what such a file always did.
+	if hint.Kind == "" {
+		return d, nil
+	}
+	if match, ok := ResolveHint(s, hint); ok {
+		d.Task.Provider, d.Task.Model = match.Provider, match.Model
+	} else {
+		d.UnresolvedProvider = hintLabel(hint)
+		d.Task.Model = "" // a model belongs to the harness it was named for
+	}
 	return d, nil
+}
+
+// HintMatch is the local provider a bundle's hint resolved to.
+type HintMatch struct {
+	// Provider is the instance id to run on. Empty means the default provider,
+	// which is what a bundle without a hint gets.
+	Provider string
+	// Model is the model to carry over, kept only because the resolved provider
+	// is the kind the model was named for.
+	Model string
+}
+
+// ResolveHint finds the local provider a bundle was written for, and reports
+// whether the answer is unambiguous.
+//
+// One enabled instance of that kind is the answer. Several is not: claudeq does
+// not pick an account on the operator's behalf, because the accounts are not
+// interchangeable — they have separate allowances, separate logins and often
+// separate employers. None is not either. In both cases the importer chooses.
+//
+// A bundle with no hint at all (written before this existed) resolves to the
+// default provider, which is what such a file has always imported as.
+func ResolveHint(s *store.Store, hint bundle.ProviderHint) (HintMatch, bool) {
+	if hint.Kind == "" {
+		return HintMatch{}, true
+	}
+	set, err := Providers(s)
+	if err != nil {
+		return HintMatch{}, false
+	}
+	var found []provider.Instance
+	for _, inst := range set.All() {
+		if inst.Enabled && string(inst.Kind) == hint.Kind {
+			found = append(found, inst)
+		}
+	}
+	if len(found) != 1 {
+		return HintMatch{}, false
+	}
+	return HintMatch{Provider: found[0].ID, Model: hint.Model}, true
+}
+
+// hintLabel is how an unresolved provider is named to the operator: what the
+// exporter called it, with the kind that is actually being looked for.
+func hintLabel(hint bundle.ProviderHint) string {
+	if hint.ProviderName != "" && hint.ProviderName != hint.Kind {
+		return hint.ProviderName + " (" + hint.Kind + ")"
+	}
+	return hint.Kind
 }
 
 // completeImport fills in what a bundle cannot decide and validates the result:

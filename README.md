@@ -556,7 +556,7 @@ claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [-
 claudeq publish --file PATH [--title T] [--description D]   # publish a file as an artifact
 claudeq notify --title T --message M [--url U]  # send a notification, no artifact
 claudeq export ID [--out PATH] [--force]       # write the task to a .claudeq file
-claudeq import PATH [--id ID]                  # add the task from a .claudeq file (as exported)
+claudeq import PATH [--id ID] [--provider ID] [--model NAME]   # add the task from a .claudeq file
 claudeq rm ID
 claudeq enable ID | claudeq disable ID
 claudeq move   ID INDEX                        # 0 = highest priority
@@ -919,10 +919,24 @@ is left empty and the sheet says which path was dropped — you pick a real one
 before the task can be added. A folder that exists but that ClaudeQ may not read
 yet counts as existing and is kept.
 
+**The provider travels as a hint, never as an account.** A file records which
+*kind* of harness the task was written for (`claude-code`, `codex`), the model,
+and what the exporter called their provider — never a provider id, a
+configuration directory or anything to do with a login. On import ClaudeQ looks
+for your own provider of that kind: exactly one match is taken, with the model.
+Anything else — no match, or several accounts of that kind — leaves the choice
+to you, and the sheet says which harness the file wants. Two accounts are not
+interchangeable (separate allowances, separate logins, often separate
+employers), so ClaudeQ does not pick one for you. Importing never creates a
+provider, copies a path, or touches credentials.
+
 **Import from the CLI.** `claudeq import PATH` (optionally `--id ID` to choose
 the id) adds the task straight to the end of the queue with its settings
 **exactly as exported** — working directory, schedule, model, permissions and
-enabled state included. A working directory that does not exist on this machine
+enabled state included. When the file's provider hint matches no single provider
+here, the import is refused and names what it wants; `--provider ID` places it
+(and `--model NAME` picks the model, since the exporter's belongs to their
+harness). A working directory that does not exist on this machine
 is kept, with a warning naming it; fix it with `claudeq edit ID --dir PATH`.
 Because settings arrive as-is, a task exported as *enabled* with an *as soon as
 possible* trigger is eligible to run right after a CLI import; pause or edit it

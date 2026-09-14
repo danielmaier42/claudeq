@@ -31,12 +31,12 @@ func (s *server) readImport(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	t, err := bundle.Read(data)
+	t, hint, err := bundle.Read(data)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	draft, err := app.ReadImport(t)
+	draft, err := app.ReadImport(s.d.Store, t, hint)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return

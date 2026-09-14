@@ -43,7 +43,7 @@ func TestExportImportRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	read, err := bundle.Read(buf.Bytes())
+	read, _, err := bundle.Read(buf.Bytes())
 	if err != nil {
 		t.Fatalf("bundle.Read: %v", err)
 	}
@@ -159,9 +159,10 @@ func TestImportTaskStartsFromCleanState(t *testing.T) {
 }
 
 func TestReadImportKeepsAnExistingWorkingDir(t *testing.T) {
+	st := openStore(t)
 	dir := t.TempDir()
 	in := task.Task{Name: "Shared", Prompt: "p", WorkingDir: dir, Trigger: task.TriggerASAP}
-	d, err := ReadImport(in)
+	d, err := ReadImport(st, in, bundle.ProviderHint{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,6 +178,7 @@ func TestReadImportKeepsAnExistingWorkingDir(t *testing.T) {
 }
 
 func TestReadImportDropsAWorkingDirThatIsNotHere(t *testing.T) {
+	st := openStore(t)
 	file := filepath.Join(t.TempDir(), "a-file")
 	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
@@ -187,7 +189,7 @@ func TestReadImportDropsAWorkingDirThatIsNotHere(t *testing.T) {
 		"below it": filepath.Join(file, "sub"),
 	}
 	for name, dir := range cases {
-		d, err := ReadImport(task.Task{ID: "shared", Prompt: "p", WorkingDir: dir, Trigger: task.TriggerASAP})
+		d, err := ReadImport(st, task.Task{ID: "shared", Prompt: "p", WorkingDir: dir, Trigger: task.TriggerASAP}, bundle.ProviderHint{})
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
@@ -200,6 +202,7 @@ func TestReadImportDropsAWorkingDirThatIsNotHere(t *testing.T) {
 // The file itself is validated as strictly as on a real import — only the
 // working directory may fall away.
 func TestReadImportRejectsInvalid(t *testing.T) {
+	st := openStore(t)
 	cases := map[string]task.Task{
 		"no prompt":      {ID: "a", WorkingDir: "/r", Trigger: task.TriggerASAP},
 		"no working dir": {ID: "a", Prompt: "p", Trigger: task.TriggerASAP},
@@ -207,8 +210,128 @@ func TestReadImportRejectsInvalid(t *testing.T) {
 		"unsafe id":      {ID: "team/nightly", Prompt: "p", WorkingDir: "/r", Trigger: task.TriggerASAP},
 	}
 	for name, in := range cases {
-		if _, err := ReadImport(in); err == nil {
+		if _, err := ReadImport(st, in, bundle.ProviderHint{}); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+}
+
+// TestExportCarriesAProviderHintNotAnInstance: a provider id names one account
+// on one Mac, so it cannot travel. What the file says instead is which harness
+// the task was written for.
+func TestExportCarriesAProviderHintNotAnInstance(t *testing.T) {
+	st := openStore(t)
+	if err := st.UpdateConfig(func(cfg *store.Config) error {
+		cfg.Providers[0].Name = "Claude (personal)"
+		cfg.Providers[0].DefaultModel = "opus"
+		cfg.Tasks = []task.Task{{
+			ID: "nightly", Name: "Nightly", Prompt: "p", WorkingDir: "/repo",
+			Trigger: task.TriggerASAP, Enabled: true, Permissions: task.PermissionsDefault,
+			Provider: store.DefaultProviderID,
+		}}
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if _, err := ExportTask(st, "nightly", &buf, time.Now()); err != nil {
+		t.Fatalf("ExportTask: %v", err)
+	}
+	if strings.Contains(buf.String(), store.DefaultProviderID+`"`) {
+		t.Error("the bundle names a local provider instance")
+	}
+	_, hint, err := bundle.Read(buf.Bytes())
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	want := bundle.ProviderHint{Kind: store.DefaultProviderKind, Model: "opus", ProviderName: "Claude (personal)"}
+	if hint != want {
+		t.Fatalf("hint = %+v, want %+v", hint, want)
+	}
+}
+
+// TestImportResolvesTheHintToTheOneLocalInstance: one instance of that kind is
+// an unambiguous answer, so the import takes it — with the model, which belongs
+// to that kind.
+func TestImportResolvesTheHintToTheOneLocalInstance(t *testing.T) {
+	st := openStore(t)
+	dir := t.TempDir()
+	in := task.Task{ID: "shared", Prompt: "p", WorkingDir: dir, Trigger: task.TriggerASAP}
+	hint := bundle.ProviderHint{Kind: store.DefaultProviderKind, Model: "opus", ProviderName: "Claude (theirs)"}
+
+	d, err := ReadImport(st, in, hint)
+	if err != nil {
+		t.Fatalf("ReadImport: %v", err)
+	}
+	if d.UnresolvedProvider != "" {
+		t.Fatalf("unresolved = %q, want the one local instance to be taken", d.UnresolvedProvider)
+	}
+	if d.Task.Provider != store.DefaultProviderID || d.Task.Model != "opus" {
+		t.Fatalf("draft provider = %q model = %q", d.Task.Provider, d.Task.Model)
+	}
+}
+
+// TestImportLeavesAnAmbiguousProviderToTheOperator: two accounts of the same
+// kind are not interchangeable — separate allowances, separate logins, often
+// separate employers — so claudeq does not choose one on their behalf.
+func TestImportLeavesAnAmbiguousProviderToTheOperator(t *testing.T) {
+	st := openStore(t)
+	if err := st.UpdateConfig(func(cfg *store.Config) error {
+		cfg.Providers = append(cfg.Providers, store.Provider{
+			ID: "claude-work", Kind: store.DefaultProviderKind, Name: "Claude (work)", Enabled: true,
+		})
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+	dir := t.TempDir()
+	in := task.Task{ID: "shared", Prompt: "p", WorkingDir: dir, Trigger: task.TriggerASAP}
+	hint := bundle.ProviderHint{Kind: store.DefaultProviderKind, Model: "opus", ProviderName: "Claude (theirs)"}
+
+	d, err := ReadImport(st, in, hint)
+	if err != nil {
+		t.Fatalf("ReadImport: %v", err)
+	}
+	if d.UnresolvedProvider == "" {
+		t.Fatal("two matching accounts were resolved to one anyway")
+	}
+	if d.Task.Provider != "" {
+		t.Fatalf("provider = %q, want the choice left open", d.Task.Provider)
+	}
+	if d.Task.Model != "" {
+		t.Fatalf("model = %q, want it dropped with the provider it belonged to", d.Task.Model)
+	}
+}
+
+// TestImportOfAnUnknownHarnessSaysSo: a task written for a harness this Mac has
+// no provider for cannot be placed, and says which one it wants.
+func TestImportOfAnUnknownHarnessSaysSo(t *testing.T) {
+	st := openStore(t)
+	dir := t.TempDir()
+	in := task.Task{ID: "shared", Prompt: "p", WorkingDir: dir, Trigger: task.TriggerASAP}
+
+	d, err := ReadImport(st, in, bundle.ProviderHint{Kind: "codex", ProviderName: "Codex"})
+	if err != nil {
+		t.Fatalf("ReadImport: %v", err)
+	}
+	if !strings.Contains(d.UnresolvedProvider, "codex") {
+		t.Fatalf("unresolved = %q, want it to name the harness", d.UnresolvedProvider)
+	}
+}
+
+// TestImportOfAHintlessBundleChangesNothing: a file from before hints existed
+// keeps the task exactly as it is and runs on the default provider.
+func TestImportOfAHintlessBundleChangesNothing(t *testing.T) {
+	st := openStore(t)
+	dir := t.TempDir()
+	in := task.Task{ID: "shared", Prompt: "p", WorkingDir: dir, Trigger: task.TriggerASAP, Model: "opus"}
+
+	d, err := ReadImport(st, in, bundle.ProviderHint{})
+	if err != nil {
+		t.Fatalf("ReadImport: %v", err)
+	}
+	if d.UnresolvedProvider != "" || d.Task.Provider != "" || d.Task.Model != "opus" {
+		t.Fatalf("draft = %+v, want the task untouched", d.Task)
 	}
 }

@@ -398,7 +398,8 @@
         — <span class="mono">0 20 * * *</span> = daily at 20:00. Hover a field for details.</div>
     </div>
     <div class="form-row">
-      <div><label class="fld">Provider</label><select id="f-provider"></select></div>
+      <div><label class="fld">Provider</label><select id="f-provider"></select>
+        <div class="hint" id="f-provider-hint" hidden style="color:var(--danger)"></div></div>
       <div><label class="fld">Model</label><select id="f-model"></select></div>
       <div id="f-reasoning-wrap" hidden><label class="fld">Reasoning effort</label><select id="f-reasoning"></select></div>
     </div>
@@ -840,6 +841,7 @@ async function fillTaskModels(providerID, model, effort){
 }
 
 function openSheet(title,submitLabel){ $('#addErr').textContent=''; $('#f-dir-hint').hidden=true; $('#f-dir-hint').textContent='';
+  $('#f-provider-hint').hidden=true; $('#f-provider-hint').textContent='';
   clearTimeout(cronTimer); cronVerdict.expr=null; showCronStatus(null); cronRecheck();
   $('#addSheetTitle').textContent=title; $('#addSubmitBtn').textContent=submitLabel; $('#addSheet').showModal();
   taskReview.run(); }   // an imported, edited or replayed prompt is reviewed as it opens; an empty new one costs nothing
@@ -1038,6 +1040,14 @@ $('#importFile').onchange=async e=>{
     const h=$('#f-dir-hint');
     h.textContent='The file’s working directory ('+d.missing_working_dir+') does not exist on this Mac. Choose a folder.';
     h.hidden=false;
+  }
+  // The file says which harness the task was written for. When no single
+  // provider here matches it, the choice is the importer's: ClaudeQ will not
+  // put someone else's task on an account they did not pick.
+  const ph=$('#f-provider-hint');
+  ph.hidden=!d.unresolved_provider;
+  if(d.unresolved_provider){
+    ph.textContent='Written for '+d.unresolved_provider+', which does not match exactly one provider here. Choose where it should run.';
   }
 };
 async function runNow(id){

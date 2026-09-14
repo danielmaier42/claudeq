@@ -16,6 +16,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/app"
 	"github.com/danielmaier42/claudeq/internal/bundle"
 	"github.com/danielmaier42/claudeq/internal/store"
+	"github.com/danielmaier42/claudeq/internal/task"
 )
 
 func cmdExport(st *store.Store, args []string) error {
@@ -60,6 +61,44 @@ func exportPath(out, defaultName string) string {
 	return p
 }
 
+// applyImportProvider decides what the imported task runs on: the operator's
+// override, otherwise the local instance the file's hint resolves to.
+//
+// A hint that matches nothing here, or matches several accounts, is not guessed
+// at — importing a task onto the wrong account spends the wrong allowance, and
+// may be the wrong employer's. The command says what the file wants and how to
+// answer it, rather than queueing something that cannot run as intended.
+func applyImportProvider(st *store.Store, t *task.Task, hint bundle.ProviderHint, providerOverride, modelOverride string) error {
+	switch {
+	case providerOverride != "":
+		t.Provider = providerOverride
+		// A model from the file was chosen for another harness; without an
+		// explicit one the new provider's default is the honest answer.
+		t.Model = modelOverride
+		return nil
+	case modelOverride != "":
+		t.Model = modelOverride
+	}
+	match, ok := app.ResolveHint(st, hint)
+	if !ok {
+		return fmt.Errorf("this task was exported for %s, which does not match exactly one provider configured here; "+
+			"name one with --provider ID (claudeq provider list)", hintName(hint))
+	}
+	t.Provider = match.Provider
+	if modelOverride == "" && match.Model != "" {
+		t.Model = match.Model
+	}
+	return nil
+}
+
+// hintName is how an unresolved provider hint is named on the command line.
+func hintName(hint bundle.ProviderHint) string {
+	if hint.ProviderName != "" && hint.ProviderName != hint.Kind {
+		return fmt.Sprintf("%q (%s)", hint.ProviderName, hint.Kind)
+	}
+	return hint.Kind
+}
+
 func cmdImport(st *store.Store, args []string) error {
 	path, rest, err := splitPositional(args, "the path of a .claudeq file")
 	if err != nil {
@@ -67,13 +106,15 @@ func cmdImport(st *store.Store, args []string) error {
 	}
 	flags := flag.NewFlagSet("import", flag.ContinueOnError)
 	idOverride := flags.String("id", "", "use this id instead of the one in the file")
+	providerOverride := flags.String("provider", "", "run the imported task on this provider instance")
+	modelOverride := flags.String("model", "", "run the imported task with this model")
 	if err := flags.Parse(rest); err != nil {
 		return err
 	}
 	if flags.NArg() > 0 {
-		return fmt.Errorf("usage: claudeq import PATH [--id ID]")
+		return fmt.Errorf("usage: claudeq import PATH [--id ID] [--provider ID] [--model NAME]")
 	}
-	t, err := bundle.Load(path)
+	t, hint, err := bundle.Load(path)
 	if err != nil {
 		return err
 	}
@@ -82,8 +123,10 @@ func cmdImport(st *store.Store, args []string) error {
 		wanted = *idOverride
 		t.ID = wanted
 	}
-	// A bundle carries no machine-local provider, so the imported task runs on
-	// the default one — which still has to be able to run it.
+	if err := applyImportProvider(st, &t, hint, *providerOverride, *modelOverride); err != nil {
+		return err
+	}
+	// Whatever the task ended up pointing at still has to be able to run it.
 	if err := ensureRunnable(st, t.Provider); err != nil {
 		return err
 	}
