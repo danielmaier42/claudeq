@@ -691,7 +691,14 @@ separate workflow creation command.
 `queue --wait` may be added as a convenience for short interactive scripts. It
 is not used by the built-in multi-provider instructions and is not the basis of
 unattended workflows. A waiting client process is not durable across restarts
-and can deadlock behind an exclusive parent job.
+and can deadlock behind an exclusive parent job. It is not implemented.
+
+A dependency must name a job that already exists and that can reach a last
+result. A recurring job can do neither: it never finishes for good, so it can
+be neither a dependency nor a dependent. A job that has vanished — deleted
+before it ran, or a quiet task that left no record — counts as finished, since
+nothing about it is ever going to change and a join that waited for it would
+wait for good.
 
 ### Meaning of "all providers"
 
