@@ -58,6 +58,8 @@ sessions and rate-limit state.
 - Make later adapters, such as OpenCode, possible without changing the scheduler.
 - Show provider installation and authentication problems before an unattended
   job is allowed to start.
+- Let the operator do everything to a provider from the app that the CLI can do:
+  add, edit, enable, disable, remove, and choose the default.
 
 ## Non-goals
 
@@ -66,8 +68,6 @@ sessions and rate-limit state.
 - The first version does not show individual provider-owned subagent threads.
 - The first version does not provide a general DAG editor. It supports the
   fan-out and join shape needed by unattended multi-provider work.
-- The first version does not expose UI controls for multiple accounts of the
-  same adapter kind.
 - The first version does not add OpenCode, a standalone xAI harness or arbitrary
   user-defined executable adapters.
 - The provider feature does not rename application binaries, paths, bundle IDs
@@ -155,6 +155,40 @@ Default model   Claude default
 When ready, the same card shows the resolved binary and authentication status.
 A fresh installation must not imply that Claude Code is available merely
 because `claude` is the default provider.
+
+The section manages provider instances in full, not only the seeded one. It
+offers everything the `provider` command group does:
+
+```text
+Providers                                     [+ Add provider]
+
+Claude Code            Ready · default
+  Binary               /Users/me/.local/bin/claude
+  Configuration        CLI default
+  Default model        Sonnet
+  [Check again]  [Save]                       (•) on
+
+Claude (work account)  Not logged in
+  Binary               Auto-detect
+  Configuration        /Users/me/.claude-work
+  Default model        Provider default
+  [Make default]  [Check again]  [Save]  [Remove]    (•) on
+```
+
+- **Add** asks for an id, an adapter kind and a name, then shows the new card.
+  The id is fixed once created, as is the kind: an instance keeps the harness it
+  was made for, because its tasks, sessions and pending resumes all name it.
+- **Remove** refuses while a task or the default-provider setting still names
+  the instance, and says which ones must be changed first.
+- The **default** cannot be switched off or removed while it holds that role.
+- A path field accepts a leading `~` and stores the resolved path, so the
+  configuration file says what is actually used.
+- The rules are the store's, not the form's: the API rejects the same changes
+  the CLI rejects, and the card reports the reason it was given.
+
+Adding a second instance of an adapter kind is how a second subscription is
+set up: same kind, its own configuration directory, its own sessions and
+rate-limit state. The UI does not treat that case specially.
 
 ### Codex beta opt-in
 
@@ -792,10 +826,13 @@ must not produce repeated alerts for the same unresolved condition.
 - Add Settings provider cards and blocked-task presentation.
 - Seed the Claude provider on migration and fresh installation.
 
-### PR 3: Codex adapter and beta UI
+### PR 3: Codex adapter, provider management in the UI, and the beta opt-in
 
 - Implement Codex execution, JSONL parsing, sessions, cancellation and metrics.
 - Add Codex model suggestions and reasoning effort.
+- Add, edit, enable, disable, remove and choose the default provider from
+  Settings, with the same rules and the same refusals the CLI applies.
+- Offer the provider on the task form, with only ready instances selectable.
 - Add the Settings beta opt-in as presentation state only.
 - Verify that CLI-created Codex tasks run while beta controls are hidden.
 
@@ -870,6 +907,18 @@ second Claude or Codex subscription does not require a store or engine redesign.
 - No failure path silently changes provider, account or model.
 - A third fake adapter can be registered without changing engine or scheduler
   code.
+
+### Provider management in the app
+
+- Every change the `provider` command group makes is available in Settings, and
+  is refused there for the same reasons and with the same wording.
+- A second instance of an adapter kind can be created in the app, with its own
+  configuration directory, and a task can be pointed at it.
+- A provider's id and kind cannot be changed after it is created.
+- Removing an instance a task or the default setting still names is refused and
+  names what has to change first.
+- The default provider cannot be switched off or removed while it is the default.
+- A path field accepts a leading `~` and stores the resolved path.
 
 ### Beta behavior
 
