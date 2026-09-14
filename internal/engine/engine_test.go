@@ -106,6 +106,14 @@ func (a *healthAdapter) Command(provider.Instance, provider.Request) (provider.C
 
 func (a *healthAdapter) NewParser() provider.Parser { return nil }
 
+func (a *healthAdapter) AsideCommand(provider.Instance, provider.AsideRequest) (provider.Command, error) {
+	return provider.Command{}, provider.ErrUnsupported
+}
+
+func (a *healthAdapter) ParseAside([]byte) (provider.Aside, error) {
+	return provider.Aside{}, provider.ErrUnsupported
+}
+
 func newTestEngine(t *testing.T, r Runner, fc clock.Clock) (*Engine, *store.Store) {
 	e, st, _ := newTestEngineWithProvider(t, r, fc)
 	return e, st

@@ -1,0 +1,88 @@
+package claudecode
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/danielmaier42/claudeq/internal/provider"
+)
+
+// AsideCommand implements provider.Adapter. It is the narrowest invocation
+// claudeq makes of Claude Code: --tools "" removes every tool, --safe-mode
+// drops CLAUDE.md, skills, plugins, hooks and MCP servers so the answer costs
+// the same everywhere and cannot be steered by a project's own configuration,
+// --strict-mcp-config and --disable-slash-commands close the remaining two
+// doors, and --output-format json returns one object instead of a stream.
+//
+// The system prompt goes with the first turn only. The CLI records it when a
+// session starts and replays it on every resume, so sending it again would
+// either be ignored or contradict what the session already believes.
+func (a *Adapter) AsideCommand(inst provider.Instance, req provider.AsideRequest) (provider.Command, error) {
+	if strings.TrimSpace(req.Text) == "" {
+		return provider.Command{}, errors.New("claude-code: an aside needs something to say")
+	}
+	if req.SessionID == "" {
+		return provider.Command{}, errors.New("claude-code: an aside needs a session id")
+	}
+
+	args := []string{"-p",
+		"--tools", "",
+		"--strict-mcp-config",
+		"--disable-slash-commands",
+		"--safe-mode",
+		"--no-session-persistence",
+		"--output-format", "json",
+	}
+	if req.Model != "" {
+		args = append(args, "--model", req.Model)
+	}
+	if req.Schema != "" {
+		args = append(args, "--json-schema", req.Schema)
+	}
+	if req.Resume {
+		args = append(args, "--resume", req.SessionID)
+	} else {
+		args = append(args, "--session-id", req.SessionID)
+		if req.System != "" {
+			args = append(args, "--system-prompt", req.System)
+		}
+	}
+	args = append(args, req.Text)
+
+	cmd := provider.Command{Path: a.binary(inst), Args: args}
+	if inst.ConfigDir != "" {
+		cmd.Env = append(cmd.Env, ConfigDirEnv+"="+inst.ConfigDir)
+	}
+	return cmd, nil
+}
+
+// asideEnvelope is the part of `claude -p --output-format json` an aside reads.
+type asideEnvelope struct {
+	IsError          bool            `json:"is_error"`
+	Subtype          string          `json:"subtype"`
+	Result           string          `json:"result"`
+	SessionID        string          `json:"session_id"`
+	StructuredOutput json.RawMessage `json:"structured_output"`
+}
+
+// ParseAside implements provider.Adapter.
+func (a *Adapter) ParseAside(out []byte) (provider.Aside, error) {
+	var env asideEnvelope
+	if err := json.Unmarshal(out, &env); err != nil {
+		return provider.Aside{}, fmt.Errorf("parse claude output: %w", err)
+	}
+	if env.IsError {
+		detail := strings.TrimSpace(env.Result)
+		if detail == "" {
+			detail = env.Subtype
+		}
+		return provider.Aside{}, fmt.Errorf("claude reported an error: %s", detail)
+	}
+	return provider.Aside{
+		SessionID:  env.SessionID,
+		Text:       env.Result,
+		Structured: env.StructuredOutput,
+	}, nil
+}

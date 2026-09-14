@@ -146,6 +146,10 @@ type Capabilities struct {
 	RateLimitResume bool
 	// Subagents: the harness runs its own subagents inside one job.
 	Subagents bool
+	// Asides: the harness can answer claudeq's own questions — tool-free, in a
+	// session of its own, returning the structure claudeq asked for. Prompt
+	// review needs one turn of this; the feedback assistant needs several.
+	Asides bool
 	// Beta marks an adapter claudeq does not yet consider finished. It is a
 	// property of the adapter, not a preference: the app uses it to label and to
 	// decide what to offer, so nothing has to branch on a particular kind.
@@ -337,6 +341,12 @@ type Adapter interface {
 	// session in a terminal. Adapters whose Capabilities do not claim
 	// InteractiveResume return ErrUnsupported.
 	InteractiveResumeCommand(inst Instance, req Request) (Command, error)
+	// AsideCommand builds the invocation for one turn of an aside (see
+	// aside.go). Adapters whose Capabilities do not claim Asides return
+	// ErrUnsupported.
+	AsideCommand(inst Instance, req AsideRequest) (Command, error)
+	// ParseAside reads a harness's answer to an aside out of its output.
+	ParseAside(out []byte) (Aside, error)
 	// NewParser returns a parser for one run's output.
 	NewParser() Parser
 }

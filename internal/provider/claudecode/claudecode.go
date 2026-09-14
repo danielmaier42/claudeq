@@ -62,6 +62,7 @@ func (a *Adapter) Capabilities() provider.Capabilities {
 		CostMetrics:       true,
 		RateLimitResume:   true,
 		Subagents:         true,
+		Asides:            true,
 		AccessModes: []provider.AccessMode{
 			provider.AccessProviderDefault,
 			provider.AccessFullAccess,

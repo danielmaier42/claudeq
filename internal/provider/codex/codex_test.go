@@ -499,3 +499,20 @@ func TestLoginStatusThatCouldNotBeAskedIsNotALogout(t *testing.T) {
 		t.Fatal("an unanswered probe must not refuse new tasks")
 	}
 }
+
+// TestCodexDoesNotClaimAsides: the capability and the method have to agree.
+// Codex has not been shown to answer claudeq's own questions tool-free, in a
+// neutral directory, to a schema — so it says so here rather than at the point
+// of use.
+func TestCodexDoesNotClaimAsides(t *testing.T) {
+	a := New()
+	if a.Capabilities().Asides {
+		t.Fatal("Codex claims asides but AsideCommand refuses them")
+	}
+	if _, err := a.AsideCommand(provider.Instance{}, provider.AsideRequest{Text: "hi", SessionID: "s"}); !errors.Is(err, provider.ErrUnsupported) {
+		t.Fatalf("AsideCommand error = %v, want ErrUnsupported", err)
+	}
+	if _, err := a.ParseAside([]byte("{}")); !errors.Is(err, provider.ErrUnsupported) {
+		t.Fatalf("ParseAside error = %v, want ErrUnsupported", err)
+	}
+}
