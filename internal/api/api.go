@@ -20,7 +20,7 @@ import (
 
 	"github.com/danielmaier42/claudeq/internal/app"
 	"github.com/danielmaier42/claudeq/internal/feedback"
-	"github.com/danielmaier42/claudeq/internal/provider/claudecode"
+	"github.com/danielmaier42/claudeq/internal/provider"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
 	"github.com/danielmaier42/claudeq/internal/update"
@@ -83,6 +83,14 @@ type Deps struct {
 	// Review checks a draft prompt against this machine before it is queued.
 	// Optional; when nil the dashboard shows no suggestions.
 	Review PromptReviewer
+	// Registry holds the provider adapters this build supports. Required for the
+	// provider endpoints.
+	Registry *provider.Registry
+	// Providers answers whether a configured instance can run a job. It is
+	// shared with the daemon's scheduler, so the dashboard's polling reuses the
+	// scheduler's verdicts instead of probing the CLIs again. Required for the
+	// provider endpoints and for the queue's blocked marker.
+	Providers *provider.Checker
 }
 
 // Handler builds the HTTP handler (REST API under /api + dashboard at /).
@@ -111,13 +119,20 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/artifacts/{id}/read", s.readArtifact)
 	mux.HandleFunc("DELETE /api/artifacts/{id}", s.deleteArtifact)
 	mux.HandleFunc("GET /api/artifacts/{id}/content", s.artifactContent)
+	mux.HandleFunc("GET /api/providers", s.listProviders)
+	mux.HandleFunc("POST /api/providers", s.addProvider)
+	mux.HandleFunc("PUT /api/providers/{id}", s.updateProvider)
+	mux.HandleFunc("DELETE /api/providers/{id}", s.deleteProvider)
+	mux.HandleFunc("POST /api/providers/{id}/check", s.checkProvider)
+	mux.HandleFunc("POST /api/providers/{id}/enable", s.enableProvider(true))
+	mux.HandleFunc("POST /api/providers/{id}/disable", s.enableProvider(false))
+	mux.HandleFunc("POST /api/providers/{id}/default", s.setDefaultProvider)
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("PUT /api/settings", s.putSettings)
 	mux.HandleFunc("POST /api/pause", s.setPaused)
 	mux.HandleFunc("GET /api/models", s.listModels)
 	mux.HandleFunc("GET /api/cron/check", s.checkCron)
 	mux.HandleFunc("POST /api/review/prompt", s.reviewPrompt)
-	mux.HandleFunc("GET /api/claude/which", s.whichClaude)
 	mux.HandleFunc("POST /api/fs/choose", s.chooseFolder)
 	mux.HandleFunc("POST /api/fs/warm", s.warmNow)
 	mux.HandleFunc("GET /api/stats", s.getStats)
@@ -168,7 +183,7 @@ func (s *server) activeTasks() map[string]bool {
 	return active
 }
 
-func (s *server) listTasks(w http.ResponseWriter, _ *http.Request) {
+func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
 	cfg, err := s.d.Store.LoadConfig()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
@@ -178,6 +193,7 @@ func (s *server) listTasks(w http.ResponseWriter, _ *http.Request) {
 	// shows no last-run time.
 	st, _ := s.d.Store.LoadState()
 	active := s.activeTasks()
+	blocked := s.blockedReasons(r.Context(), cfg)
 	out := make([]taskView, 0, len(cfg.Tasks))
 	for _, t := range cfg.Tasks {
 		// A running one-shot task moves to Activity and is hidden here. Recurring
@@ -186,7 +202,7 @@ func (s *server) listTasks(w http.ResponseWriter, _ *http.Request) {
 		if active[t.ID] && t.Trigger != task.TriggerCron {
 			continue
 		}
-		v := taskView{Task: t, Running: active[t.ID]}
+		v := taskView{Task: t, Running: active[t.ID], BlockedReason: blocked[t.Provider]}
 		// A task whose session is waiting for the rate limit is not idle: say so
 		// in the queue, so it does not look like a job that simply hangs.
 		if !active[t.ID] && st != nil && st.PendingResume(t.ID) != "" {
@@ -222,6 +238,40 @@ type taskView struct {
 	// WaitingForLimit marks a task whose interrupted Claude session is queued to
 	// resume once the rate-limit gate reopens.
 	WaitingForLimit bool `json:"waiting_for_limit,omitempty"`
+	// BlockedReason says why the task's provider cannot run it. The task stays
+	// queued and starts by itself once the provider works again, so the queue
+	// has to say that rather than showing a job that silently never runs.
+	BlockedReason string `json:"blocked_reason,omitempty"`
+}
+
+// blockedReasons maps a task's provider field to why that provider cannot run
+// anything right now, or holds no entry when it can. It is keyed by the field
+// as stored (empty means "the default provider"), so the caller needs no second
+// resolution step. Verdicts come from the shared checker, which the scheduler
+// keeps warm — listing the queue never probes a CLI on its own.
+func (s *server) blockedReasons(ctx context.Context, cfg store.Config) map[string]string {
+	set, err := provider.FromConfig(cfg)
+	if err != nil {
+		return nil
+	}
+	out := map[string]string{}
+	for _, t := range cfg.Tasks {
+		if _, seen := out[t.Provider]; seen {
+			continue
+		}
+		resolved, err := set.Resolve(provider.Selection{ProviderID: t.Provider})
+		if err != nil {
+			out[t.Provider] = err.Error()
+			continue
+		}
+		if h := s.d.Providers.Check(ctx, resolved.Instance); !h.Ready() {
+			out[t.Provider] = h.Reason
+			if h.Reason == "" {
+				out[t.Provider] = resolved.Instance.Label() + " cannot run tasks right now."
+			}
+		}
+	}
+	return out
 }
 
 func (s *server) addTask(w http.ResponseWriter, r *http.Request) {
@@ -250,12 +300,26 @@ func (s *server) addTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	if err := s.ensureRunnable(r.Context(), t.Provider); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
 	if err := app.AddTask(s.d.Store, t); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
 	s.warmAccess(t.WorkingDir)
 	writeJSON(w, http.StatusCreated, t)
+}
+
+// ensureRunnable refuses to file work for a provider that cannot run it, so a
+// task is never queued that is known in advance to fail unattended.
+func (s *server) ensureRunnable(ctx context.Context, providerID string) error {
+	set, err := app.Providers(s.d.Store)
+	if err != nil {
+		return err
+	}
+	return app.EnsureRunnable(ctx, set, s.d.Providers, providerID)
 }
 
 // warmAccess provokes the macOS file-access prompt for a task's folder right
@@ -307,6 +371,10 @@ func (s *server) updateTask(w http.ResponseWriter, r *http.Request) {
 		t.Name = t.ID
 	}
 	if err := t.Validate(); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.ensureRunnable(r.Context(), t.Provider); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
@@ -447,12 +515,15 @@ func (s *server) continueRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, fmt.Errorf("the task's working directory is gone: %w", err))
 		return
 	}
-	cfg, err := s.d.Store.LoadConfig()
+	// The interactive resume goes to the provider instance that owns the
+	// session. claudeq never offers to continue a Claude session on another
+	// account, let alone another harness.
+	bin, err := s.resumeBinary(*run.Task)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		writeErr(w, http.StatusConflict, err)
 		return
 	}
-	argv := []string{claudeBin(cfg.Settings), "--resume", run.SessionID}
+	argv := []string{bin, "--resume", run.SessionID}
 	if run.Task.Permissions == task.PermissionsSkip {
 		argv = append(argv, "--dangerously-skip-permissions")
 	}
@@ -463,17 +534,30 @@ func (s *server) continueRun(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// claudeBin resolves the Claude Code binary for the resume command the same
-// way the daemon does for runs: explicit setting first, then auto-detection,
-// then a bare name for the interactive shell to resolve.
-func claudeBin(s store.Settings) string {
-	if s.ClaudePath != "" {
-		return s.ClaudePath
+// resumeBinary resolves the CLI that can reopen a run's session: the binary of
+// the provider instance the task runs on. A harness that cannot be resumed
+// interactively, or an instance that is no longer configured, is reported
+// instead of guessing at another one.
+func (s *server) resumeBinary(t task.Task) (string, error) {
+	set, err := app.Providers(s.d.Store)
+	if err != nil {
+		return "", err
 	}
-	if p := claudecode.DetectBinary(); p != "" {
-		return p
+	resolved, err := set.Resolve(provider.Selection{ProviderID: t.Provider})
+	if err != nil {
+		return "", err
 	}
-	return "claude"
+	ad, err := s.d.Registry.Lookup(resolved.Instance.Kind)
+	if err != nil {
+		return "", err
+	}
+	if !ad.Capabilities().InteractiveResume {
+		return "", fmt.Errorf("%s cannot continue a session in a terminal", resolved.Instance.Label())
+	}
+	if bin := ad.ResolveBinary(resolved.Instance); bin != "" {
+		return bin, nil
+	}
+	return "", fmt.Errorf("%s is not installed on this Mac", resolved.Instance.Label())
 }
 
 // runView is a run plus its unread flag and whether its interrupted session is
@@ -691,6 +775,9 @@ func (s *server) putSettings(w http.ResponseWriter, r *http.Request) {
 	// the Queue banner or the CLI at any time, so a settings form filled in
 	// before that must not carry a stale value back and quietly resume the queue.
 	in.Paused = cfg.Settings.Paused
+	// Same for the default provider, which the Providers section sets on its own
+	// endpoint: a form that does not show it must not be able to reset it.
+	in.DefaultProvider = cfg.Settings.DefaultProvider
 	cfg.Settings = in
 	if err := s.d.Store.SaveConfig(cfg); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
@@ -758,12 +845,6 @@ func (s *server) getHealth(w http.ResponseWriter, _ *http.Request) {
 		"notify_status": notifyStatus,
 		"limited_until": limitedUntil,
 	})
-}
-
-// whichClaude reports the auto-detected Claude Code binary path so the GUI can
-// pre-fill the setting. Empty path means it could not be located.
-func (s *server) whichClaude(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"path": claudecode.DetectBinary()})
 }
 
 func (s *server) chooseFolder(w http.ResponseWriter, r *http.Request) {

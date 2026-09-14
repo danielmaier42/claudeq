@@ -62,23 +62,32 @@ func (f *fakeReviewer) count() int {
 	return f.calls
 }
 
-func newReviewServer(t *testing.T, rv PromptReviewer, s store.Settings) (*httptest.Server, *store.Store) {
+// newReviewServer wires a server for the prompt-review endpoint. binary is the
+// claude provider's configured path, which is what the review is expected to
+// run with; empty means the provider has none.
+func newReviewServer(t *testing.T, rv PromptReviewer, s store.Settings, binary, providerModel string) (*httptest.Server, *store.Store) {
 	t.Helper()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
-	if err := st.UpdateConfig(func(cfg *store.Config) error { cfg.Settings = s; return nil }); err != nil {
+	if err := st.UpdateConfig(func(cfg *store.Config) error {
+		s.DefaultProvider = cfg.Settings.DefaultProvider
+		cfg.Settings = s
+		cfg.Providers[0].BinaryPath = binary
+		cfg.Providers[0].DefaultModel = providerModel
+		return nil
+	}); err != nil {
 		t.Fatalf("save settings: %v", err)
 	}
-	srv := httptest.NewServer(Handler(Deps{Store: st, Review: rv}))
+	srv := httptest.NewServer(handler(Deps{Store: st, Review: rv}))
 	t.Cleanup(srv.Close)
 	return srv, st
 }
 
 func TestReviewPromptReturnsTheFinding(t *testing.T) {
 	rv := &fakeReviewer{res: review.Result{Message: "docs/ is missing", RevisedPrompt: "better"}}
-	srv, _ := newReviewServer(t, rv, store.Settings{DefaultModel: "opus", ClaudePath: "/opt/claude"})
+	srv, _ := newReviewServer(t, rv, store.Settings{}, "/opt/claude", "opus")
 
 	r := do(t, srv, "POST", "/api/review/prompt", reviewRequest{Kind: "task", Prompt: "p", WorkingDir: "/w"})
 	if r.Status != http.StatusOK {
@@ -101,7 +110,7 @@ func TestReviewPromptReturnsTheFinding(t *testing.T) {
 
 func TestReviewPromptUsesTheReviewModelWhenSet(t *testing.T) {
 	rv := &fakeReviewer{res: review.Result{OK: true}}
-	srv, _ := newReviewServer(t, rv, store.Settings{DefaultModel: "opus", PromptReviewModel: "haiku"})
+	srv, _ := newReviewServer(t, rv, store.Settings{PromptReviewModel: "haiku"}, "/opt/claude", "opus")
 
 	do(t, srv, "POST", "/api/review/prompt", reviewRequest{Kind: "task", Prompt: "p"})
 	if got := rv.request().Model; got != "haiku" {
@@ -111,7 +120,7 @@ func TestReviewPromptUsesTheReviewModelWhenSet(t *testing.T) {
 
 func TestReviewPromptForTheSystemPromptDropsTheWorkingDir(t *testing.T) {
 	rv := &fakeReviewer{res: review.Result{OK: true}}
-	srv, _ := newReviewServer(t, rv, store.Settings{})
+	srv, _ := newReviewServer(t, rv, store.Settings{}, "/opt/claude", "")
 
 	do(t, srv, "POST", "/api/review/prompt", reviewRequest{Kind: "system", Prompt: "p", WorkingDir: "/w"})
 	req := rv.request()
@@ -122,7 +131,7 @@ func TestReviewPromptForTheSystemPromptDropsTheWorkingDir(t *testing.T) {
 
 func TestReviewPromptWhenSwitchedOff(t *testing.T) {
 	rv := &fakeReviewer{res: review.Result{Message: "should never be asked"}}
-	srv, _ := newReviewServer(t, rv, store.Settings{PromptReviewDisabled: true})
+	srv, _ := newReviewServer(t, rv, store.Settings{PromptReviewDisabled: true}, "/opt/claude", "")
 
 	r := do(t, srv, "POST", "/api/review/prompt", reviewRequest{Kind: "task", Prompt: "p"})
 	var got reviewResponse
@@ -136,7 +145,7 @@ func TestReviewPromptWhenSwitchedOff(t *testing.T) {
 }
 
 func TestReviewPromptWithoutAReviewer(t *testing.T) {
-	srv, _ := newReviewServer(t, nil, store.Settings{})
+	srv, _ := newReviewServer(t, nil, store.Settings{}, "/opt/claude", "")
 	r := do(t, srv, "POST", "/api/review/prompt", reviewRequest{Kind: "task", Prompt: "p"})
 	var got reviewResponse
 	r.into(t, &got)
@@ -149,7 +158,7 @@ func TestReviewPromptWithoutAClaudeBinary(t *testing.T) {
 	// Not knowing where claude is is a Settings problem, already reported there.
 	// The prompt sheet stays quiet instead of showing an error the operator
 	// cannot act on from where they are.
-	srv, _ := newReviewServer(t, &fakeReviewer{err: review.ErrNoBinary}, store.Settings{})
+	srv, _ := newReviewServer(t, &fakeReviewer{err: review.ErrNoBinary}, store.Settings{}, "/opt/claude", "")
 	r := do(t, srv, "POST", "/api/review/prompt", reviewRequest{Kind: "task", Prompt: "p"})
 	var got reviewResponse
 	r.into(t, &got)
@@ -159,14 +168,14 @@ func TestReviewPromptWithoutAClaudeBinary(t *testing.T) {
 }
 
 func TestReviewPromptReportsAFailedReview(t *testing.T) {
-	srv, _ := newReviewServer(t, &fakeReviewer{err: errors.New("claude exploded")}, store.Settings{})
+	srv, _ := newReviewServer(t, &fakeReviewer{err: errors.New("claude exploded")}, store.Settings{}, "/opt/claude", "")
 	if r := do(t, srv, "POST", "/api/review/prompt", reviewRequest{Kind: "task", Prompt: "p"}); r.Status != http.StatusBadGateway {
 		t.Errorf("status %d, want 502: %s", r.Status, r.Body)
 	}
 }
 
 func TestReviewPromptRejectsGarbage(t *testing.T) {
-	srv, _ := newReviewServer(t, &fakeReviewer{}, store.Settings{})
+	srv, _ := newReviewServer(t, &fakeReviewer{}, store.Settings{}, "/opt/claude", "")
 	req, err := http.NewRequest("POST", srv.URL+"/api/review/prompt", strings.NewReader("not json"))
 	if err != nil {
 		t.Fatal(err)
@@ -185,7 +194,7 @@ func TestReviewPromptCancelsThePreviousReview(t *testing.T) {
 	// The dashboard reviews on every change, so a keystroke must stop the model
 	// call the previous one started instead of letting both finish.
 	rv := &fakeReviewer{res: review.Result{OK: true}, block: make(chan struct{}), inFlgt: make(chan struct{})}
-	srv, _ := newReviewServer(t, rv, store.Settings{})
+	srv, _ := newReviewServer(t, rv, store.Settings{}, "/opt/claude", "")
 
 	// Sent without the do() helper: it fails the test from inside, which is not
 	// allowed off the test's own goroutine.

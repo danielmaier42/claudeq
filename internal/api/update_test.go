@@ -62,7 +62,7 @@ func newUpdateServer(t *testing.T, current string, rels ...update.Release) (*htt
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
-	srv := httptest.NewServer(Handler(Deps{Store: st, Updates: svc}))
+	srv := httptest.NewServer(handler(Deps{Store: st, Updates: svc}))
 	t.Cleanup(srv.Close)
 	return srv, st, opened
 }
@@ -209,7 +209,7 @@ func TestUpdateEndpointsUnavailableWithoutService(t *testing.T) {
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
-	srv := httptest.NewServer(Handler(Deps{Store: st})) // no Updates
+	srv := httptest.NewServer(handler(Deps{Store: st})) // no Updates
 	t.Cleanup(srv.Close)
 
 	// GET returns a benign status (not an error) so the UI degrades gracefully.

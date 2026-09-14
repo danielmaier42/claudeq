@@ -82,6 +82,11 @@ func cmdImport(st *store.Store, args []string) error {
 		wanted = *idOverride
 		t.ID = wanted
 	}
+	// A bundle carries no machine-local provider, so the imported task runs on
+	// the default one — which still has to be able to run it.
+	if err := ensureRunnable(st, t.Provider); err != nil {
+		return err
+	}
 	t, err = app.ImportTask(st, t)
 	if err != nil {
 		return err

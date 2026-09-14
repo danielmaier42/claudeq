@@ -38,6 +38,11 @@ type State struct {
 	// update prompt. While the latest release equals it, no "update available"
 	// prompt is shown; a newer release supersedes it and prompts again.
 	DismissedUpdateVersion string `json:"dismissed_update_version"`
+	// NotifiedProviderHealth maps a provider id to the health state the operator
+	// was last told about. The scheduler looks at provider health on every tick,
+	// so this is what turns "not installed" into one alert instead of one per
+	// tick — and it outlives a daemon restart, which an in-memory memo would not.
+	NotifiedProviderHealth map[string]string `json:"notified_provider_health,omitempty"`
 }
 
 func newState() *State {
@@ -68,6 +73,27 @@ func (s *State) ensureMaps() {
 	if s.PendingResumes == nil {
 		s.PendingResumes = map[string]string{}
 	}
+	if s.NotifiedProviderHealth == nil {
+		s.NotifiedProviderHealth = map[string]string{}
+	}
+}
+
+// NotifiedProviderState returns the provider health state the operator was last
+// notified about, or "" when none has been reported yet.
+func (s *State) NotifiedProviderState(providerID string) string {
+	return s.NotifiedProviderHealth[providerID]
+}
+
+// SetNotifiedProviderState records the health state just reported for a
+// provider, so the same unresolved condition is not announced again.
+func (s *State) SetNotifiedProviderState(providerID, state string) {
+	s.NotifiedProviderHealth[providerID] = state
+}
+
+// ForgetProvider drops what is remembered about a provider id, so an instance
+// removed and later re-added does not inherit the old one's notification memo.
+func (s *State) ForgetProvider(providerID string) {
+	delete(s.NotifiedProviderHealth, providerID)
 }
 
 // IsRead reports whether a run has been read.

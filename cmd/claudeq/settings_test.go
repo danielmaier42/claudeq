@@ -26,7 +26,7 @@ func parsePatch(t *testing.T, args []string, readFile func(string) ([]byte, erro
 
 func TestSettingsPatchApply(t *testing.T) {
 	base := store.Settings{
-		DefaultModel: "sonnet", ClaudePath: "/bin/claude",
+		DefaultProvider:  "claude",
 		HeartbeatMinutes: 30, IdleTimeoutMinutes: 45, MaxRunHistory: 100,
 		SystemPrompt: "old", Paused: true, PromptReviewModel: "opus",
 		Pushover: store.Pushover{Enabled: true, Token: "tok", UserKey: "usr"},
@@ -43,9 +43,9 @@ func TestSettingsPatchApply(t *testing.T) {
 			want: func(s store.Settings) store.Settings { return s },
 		},
 		{
-			name: "empty model clears the default",
-			args: []string{"--default-model", ""},
-			want: func(s store.Settings) store.Settings { s.DefaultModel = ""; return s },
+			name: "the default provider",
+			args: []string{"--default-provider", "claude-secondary"},
+			want: func(s store.Settings) store.Settings { s.DefaultProvider = "claude-secondary"; return s },
 		},
 		{
 			name: "reliability settings",
@@ -61,12 +61,9 @@ func TestSettingsPatchApply(t *testing.T) {
 			want: func(s store.Settings) store.Settings { s.Paused = false; return s },
 		},
 		{
-			name: "claude path and system prompt",
-			args: []string{"--claude-path", "/usr/local/bin/claude", "--system-prompt", "be brief"},
-			want: func(s store.Settings) store.Settings {
-				s.ClaudePath, s.SystemPrompt = "/usr/local/bin/claude", "be brief"
-				return s
-			},
+			name: "system prompt",
+			args: []string{"--system-prompt", "be brief"},
+			want: func(s store.Settings) store.Settings { s.SystemPrompt = "be brief"; return s },
 		},
 		{
 			name: "prompt review off",
@@ -79,7 +76,7 @@ func TestSettingsPatchApply(t *testing.T) {
 			want: func(s store.Settings) store.Settings { s.PromptReviewModel = "haiku"; return s },
 		},
 		{
-			name: "prompt review model cleared falls back to the default model",
+			name: "prompt review model cleared falls back to the provider default",
 			args: []string{"--prompt-review-model", ""},
 			want: func(s store.Settings) store.Settings { s.PromptReviewModel = ""; return s },
 		},
@@ -148,14 +145,14 @@ func TestSettingsPatchRejects(t *testing.T) {
 
 func TestCmdSettingsPersists(t *testing.T) {
 	st := newTestStore(t)
-	if err := cmdSettings(st, []string{"--default-model", "opus", "--max-run-history=50"}); err != nil {
+	if err := cmdSettings(st, []string{"--system-prompt", "be brief", "--max-run-history=50"}); err != nil {
 		t.Fatalf("cmdSettings: %v", err)
 	}
 	cfg, err := st.LoadConfig()
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
 	}
-	if cfg.Settings.DefaultModel != "opus" || cfg.Settings.MaxRunHistory != 50 {
+	if cfg.Settings.SystemPrompt != "be brief" || cfg.Settings.MaxRunHistory != 50 {
 		t.Fatalf("settings not persisted: %+v", cfg.Settings)
 	}
 	// A read-only call must not disturb what is stored.
@@ -234,7 +231,7 @@ func TestSettingsPatchAppliesTheNewChannels(t *testing.T) {
 		t.Fatalf("apply = %+v, want %+v", got, want)
 	}
 	// An unmentioned channel keeps what it had, like every other setting.
-	kept, err := parsePatch(t, []string{"--default-model", "opus"}, nil).apply(want)
+	kept, err := parsePatch(t, []string{"--default-provider", "claude"}, nil).apply(want)
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}

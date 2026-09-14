@@ -125,36 +125,23 @@ func cmdRun(args []string) error {
 
 	// The adapter registry is what the engine runs jobs through; every harness
 	// claudeq supports contributes one adapter to it and nothing else changes.
+	// The checker built on it answers whether a configured instance can run a
+	// job, and is shared with the API so the dashboard's polling costs no extra
+	// processes.
 	registry := adapters.Default()
+	checker := provider.NewChecker(registry)
 
-	// Resolve the Claude Code binary for the startup report below. An explicit
-	// setting wins; otherwise detect it (the daemon's launchd PATH excludes
-	// ~/.local/bin, so a plain lookup at exec time would fail). Per-run, the
-	// engine passes the live setting to the adapter, which detects for itself
-	// when no path is configured.
-	claudeBin := ""
-	if cfg, err := st.LoadConfig(); err == nil {
-		claudeBin = cfg.Settings.ClaudePath
-	}
-	if claudeBin == "" {
-		if ad, err := registry.Lookup(provider.KindClaudeCode); err == nil {
-			// Through the adapter, so the login-shell probe is cached and does
-			// not run again on the first job.
-			claudeBin = ad.DetectBinary()
-		}
-	}
-	if claudeBin == "" {
-		fmt.Fprintln(os.Stderr, "claudeqd: warning: could not locate the 'claude' binary; set it in Settings")
-	} else {
-		fmt.Fprintln(os.Stdout, "claudeqd: using claude at", claudeBin)
-	}
+	// Report the Claude Code provider's state at startup: an unattended queue
+	// that starts nothing all night looks broken otherwise, and the daemon log
+	// is the only place to look.
+	claudeBin := reportProviderHealth(st, registry, checker)
 
 	c := clock.Real{}
 	eng := engine.New(st, limit.New(c), &executor.Executor{
 		Registry: registry,
 		Home:     home,
 		QueueBin: resolveQueueBin(),
-	}, c)
+	}, c, checker)
 	if !*noWake {
 		eng.SetWaker(&wake.Scheduler{Runner: system.Real{}, Sudo: true})
 	}
@@ -190,7 +177,8 @@ func cmdRun(args []string) error {
 			LimitedUntil: eng.LimitedUntil,
 			NotifyStatus: notify.MacAuthorization,
 			Feedback:     feedback.New(nil), OSVersion: osVersion(system.Real{}),
-			Review: &review.Reviewer{Bin: claudeBinOr(claudeBin)},
+			Review:   &review.Reviewer{},
+			Registry: registry, Providers: checker,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
@@ -212,6 +200,42 @@ func cmdRun(args []string) error {
 	}
 	fmt.Println("claudeqd: stopped")
 	return nil
+}
+
+// reportProviderHealth checks every configured provider once at startup and
+// writes the verdict to the daemon log, and returns the Claude Code instance's
+// binary for the parts of the app that still ask for one directly. A daemon
+// that starts nothing all night because a CLI is missing or logged out has to
+// say so somewhere, and the log is where the operator looks.
+func reportProviderHealth(st *store.Store, reg *provider.Registry, checker *provider.Checker) string {
+	cfg, err := st.LoadConfig()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "claudeqd: read provider configuration:", err)
+		return ""
+	}
+	set, err := provider.FromConfig(cfg)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "claudeqd: read provider configuration:", err)
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	claudeBin := ""
+	for _, s := range checker.Statuses(ctx, set) {
+		if s.Health.Ready() {
+			fmt.Fprintf(os.Stdout, "claudeqd: provider %q ready (%s)\n", s.Instance.ID, s.Health.Binary)
+		} else {
+			fmt.Fprintf(os.Stderr, "claudeqd: provider %q is %s: %s\n", s.Instance.ID, s.Health.State, s.Health.Reason)
+		}
+		if s.Instance.Kind != provider.KindClaudeCode || claudeBin != "" {
+			continue
+		}
+		if ad, err := reg.Lookup(s.Instance.Kind); err == nil {
+			claudeBin = ad.ResolveBinary(s.Instance)
+		}
+	}
+	return claudeBin
 }
 
 // liveNotifier is the daemon's notification fan-out. It reads the settings on

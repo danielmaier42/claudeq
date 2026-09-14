@@ -23,7 +23,7 @@ func newServer(t *testing.T, runner RunNower) (*httptest.Server, *store.Store) {
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
-	srv := httptest.NewServer(Handler(Deps{Store: st, Runner: runner}))
+	srv := httptest.NewServer(handler(Deps{Store: st, Runner: runner}))
 	t.Cleanup(srv.Close)
 	return srv, st
 }
@@ -95,7 +95,7 @@ func TestWarmFileAccessOnAddAndUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	warmed := make(chan []string, 4)
-	srv := httptest.NewServer(Handler(Deps{
+	srv := httptest.NewServer(handler(Deps{
 		Store:          st,
 		WarmFileAccess: func(dirs []string) { warmed <- dirs },
 	}))
@@ -154,7 +154,7 @@ func TestUpdateWarmsOnlyWhenDirChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	warmed := make(chan []string, 4)
-	srv := httptest.NewServer(Handler(Deps{
+	srv := httptest.NewServer(handler(Deps{
 		Store:          st,
 		WarmFileAccess: func(dirs []string) { warmed <- dirs },
 	}))
@@ -208,7 +208,7 @@ func TestWarmNowWarmsEnabledTaskFolders(t *testing.T) {
 	seed("c", "/tmp/c", true)
 
 	warmed := make(chan []string, 4)
-	srv := httptest.NewServer(Handler(Deps{
+	srv := httptest.NewServer(handler(Deps{
 		Store:          st,
 		WarmFileAccess: func(dirs []string) { warmed <- dirs },
 	}))
@@ -235,7 +235,7 @@ func TestListTasksHidesRunning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(Handler(Deps{Store: st, ActiveTasks: func() []string { return []string{"a"} }}))
+	srv := httptest.NewServer(handler(Deps{Store: st, ActiveTasks: func() []string { return []string{"a"} }}))
 	t.Cleanup(srv.Close)
 	do(t, srv, "POST", "/api/tasks", sampleTask("a"))
 	do(t, srv, "POST", "/api/tasks", sampleTask("b"))
@@ -252,7 +252,7 @@ func TestListTasksKeepsRunningCron(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(Handler(Deps{Store: st, ActiveTasks: func() []string { return []string{"c"} }}))
+	srv := httptest.NewServer(handler(Deps{Store: st, ActiveTasks: func() []string { return []string{"c"} }}))
 	t.Cleanup(srv.Close)
 	cron := sampleTask("c")
 	cron.Trigger = task.TriggerCron
@@ -277,7 +277,7 @@ func TestListTasksReportsCronNextRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(Handler(Deps{Store: st}))
+	srv := httptest.NewServer(handler(Deps{Store: st}))
 	t.Cleanup(srv.Close)
 	cron := sampleTask("c")
 	cron.Trigger = task.TriggerCron
@@ -313,7 +313,7 @@ func TestListTasksReportsCronLastRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(Handler(Deps{Store: st}))
+	srv := httptest.NewServer(handler(Deps{Store: st}))
 	t.Cleanup(srv.Close)
 	cron := sampleTask("c")
 	cron.Trigger = task.TriggerCron
@@ -354,7 +354,7 @@ func TestHealthReportsWakeError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(Handler(Deps{Store: st, WakeError: func() string { return "pmset: sudo password required" }}))
+	srv := httptest.NewServer(handler(Deps{Store: st, WakeError: func() string { return "pmset: sudo password required" }}))
 	t.Cleanup(srv.Close)
 
 	var got map[string]string
@@ -369,7 +369,7 @@ func TestHealthReportsNotifyStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(Handler(Deps{Store: st, NotifyStatus: func() string { return "denied" }}))
+	srv := httptest.NewServer(handler(Deps{Store: st, NotifyStatus: func() string { return "denied" }}))
 	t.Cleanup(srv.Close)
 
 	var got map[string]string
@@ -386,7 +386,7 @@ func TestHealthWithoutNotifyStatusDep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(Handler(Deps{Store: st}))
+	srv := httptest.NewServer(handler(Deps{Store: st}))
 	t.Cleanup(srv.Close)
 
 	var got map[string]string
@@ -477,13 +477,13 @@ func TestRunLogNotFound(t *testing.T) {
 
 func TestSettingsRoundTrip(t *testing.T) {
 	srv, _ := newServer(t, nil)
-	in := store.Settings{DefaultModel: "claude-opus-4-8", HeartbeatMinutes: 30}
+	in := store.Settings{SystemPrompt: "be brief", HeartbeatMinutes: 30}
 	if r := do(t, srv, "PUT", "/api/settings", in); r.Status != http.StatusOK {
 		t.Fatalf("put status = %d", r.Status)
 	}
 	var out store.Settings
 	do(t, srv, "GET", "/api/settings", nil).into(t, &out)
-	if out.DefaultModel != "claude-opus-4-8" || out.HeartbeatMinutes != 30 {
+	if out.SystemPrompt != "be brief" || out.HeartbeatMinutes != 30 {
 		t.Fatalf("settings round-trip mismatch: %+v", out)
 	}
 }
@@ -539,7 +539,7 @@ func TestCancelRunEndpoint(t *testing.T) {
 		t.Fatalf("store.Open: %v", err)
 	}
 	sc := &stubCanceler{}
-	srv := httptest.NewServer(Handler(Deps{Store: st, Canceler: sc}))
+	srv := httptest.NewServer(handler(Deps{Store: st, Canceler: sc}))
 	t.Cleanup(srv.Close)
 
 	if r := do(t, srv, "POST", "/api/runs/run-1/cancel", nil); r.Status != http.StatusNoContent {
@@ -570,7 +570,7 @@ func continueFixture(t *testing.T, mutate func(*store.Run), mutateSettings func(
 	}
 	// A fixed binary path keeps the expected argv deterministic (no host detection).
 	cfg, _ := st.LoadConfig()
-	cfg.Settings.ClaudePath = "/opt/claude"
+	cfg.Providers[0].BinaryPath = "/opt/claude"
 	if mutateSettings != nil {
 		mutateSettings(&cfg.Settings)
 	}
@@ -595,7 +595,7 @@ func continueFixture(t *testing.T, mutate func(*store.Run), mutateSettings func(
 		got.dir, got.argv = dir, argv
 		return nil
 	}
-	srv := httptest.NewServer(Handler(Deps{Store: st, OpenTerminal: opener}))
+	srv := httptest.NewServer(handler(Deps{Store: st, OpenTerminal: opener}))
 	t.Cleanup(srv.Close)
 	return srv, got
 }
@@ -727,7 +727,7 @@ func TestChooseFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	chooser := func(_ context.Context, _ string) (string, bool, error) { return "/Users/me/proj", true, nil }
-	srv := httptest.NewServer(Handler(Deps{Store: st, ChooseFolder: chooser}))
+	srv := httptest.NewServer(handler(Deps{Store: st, ChooseFolder: chooser}))
 	t.Cleanup(srv.Close)
 
 	var res struct {
@@ -739,7 +739,7 @@ func TestChooseFolder(t *testing.T) {
 	}
 
 	// Cancellation -> 204.
-	cancelSrv := httptest.NewServer(Handler(Deps{Store: st, ChooseFolder: func(_ context.Context, _ string) (string, bool, error) { return "", false, nil }}))
+	cancelSrv := httptest.NewServer(handler(Deps{Store: st, ChooseFolder: func(_ context.Context, _ string) (string, bool, error) { return "", false, nil }}))
 	t.Cleanup(cancelSrv.Close)
 	if r := do(t, cancelSrv, "POST", "/api/fs/choose", nil); r.Status != http.StatusNoContent {
 		t.Fatalf("cancel should be 204, got %d", r.Status)
@@ -784,7 +784,7 @@ func TestServesDashboard(t *testing.T) {
 func TestPauseEndpointTogglesOnlyThatSetting(t *testing.T) {
 	srv, st := newServer(t, nil)
 	if err := st.SaveConfig(store.Config{Settings: store.Settings{
-		DefaultModel: "opus", HeartbeatMinutes: 30,
+		SystemPrompt: "be brief", HeartbeatMinutes: 30,
 		Pushover: store.Pushover{Enabled: true, Token: "tok", UserKey: "usr"},
 	}}); err != nil {
 		t.Fatalf("SaveConfig: %v", err)
@@ -804,7 +804,7 @@ func TestPauseEndpointTogglesOnlyThatSetting(t *testing.T) {
 		t.Fatal("pause was not persisted")
 	}
 	// The switch travels alone: everything else must survive it.
-	if cfg.Settings.DefaultModel != "opus" || cfg.Settings.HeartbeatMinutes != 30 || cfg.Settings.Pushover.Token != "tok" {
+	if cfg.Settings.SystemPrompt != "be brief" || cfg.Settings.HeartbeatMinutes != 30 || cfg.Settings.Pushover.Token != "tok" {
 		t.Fatalf("pause clobbered other settings: %+v", cfg.Settings)
 	}
 
@@ -823,7 +823,7 @@ func TestPutSettingsCannotClobberThePauseSwitch(t *testing.T) {
 		t.Fatalf("pause status = %d", r.Status)
 	}
 	// A settings form filled in before the pause was flipped carries paused:false.
-	body := map[string]any{"default_model": "opus", "paused": false}
+	body := map[string]any{"system_prompt": "be brief", "paused": false}
 	if r := do(t, srv, "PUT", "/api/settings", body); r.Status != http.StatusOK {
 		t.Fatalf("put settings = %d", r.Status)
 	}
@@ -831,7 +831,7 @@ func TestPutSettingsCannotClobberThePauseSwitch(t *testing.T) {
 	if !cfg.Settings.Paused {
 		t.Fatal("a stale settings payload resumed the queue")
 	}
-	if cfg.Settings.DefaultModel != "opus" {
+	if cfg.Settings.SystemPrompt != "be brief" {
 		t.Fatalf("the rest of the payload was not applied: %+v", cfg.Settings)
 	}
 }
@@ -900,7 +900,7 @@ func TestRunsReportPendingResume(t *testing.T) {
 	}
 
 	active := []string{}
-	srv := httptest.NewServer(Handler(Deps{Store: st, ActiveTasks: func() []string { return active }}))
+	srv := httptest.NewServer(handler(Deps{Store: st, ActiveTasks: func() []string { return active }}))
 	t.Cleanup(srv.Close)
 
 	get := func() map[string]runView {
@@ -954,7 +954,7 @@ func TestTasksReportWaitingForLimit(t *testing.T) {
 		t.Fatalf("UpdateState: %v", err)
 	}
 
-	srv := httptest.NewServer(Handler(Deps{Store: st}))
+	srv := httptest.NewServer(handler(Deps{Store: st}))
 	t.Cleanup(srv.Close)
 
 	var views []taskView
@@ -976,7 +976,7 @@ func TestHealthReportsLimitedUntil(t *testing.T) {
 	}
 	until := time.Now().Add(time.Hour).Truncate(time.Second)
 	blocked := until
-	srv := httptest.NewServer(Handler(Deps{Store: st, LimitedUntil: func() time.Time { return blocked }}))
+	srv := httptest.NewServer(handler(Deps{Store: st, LimitedUntil: func() time.Time { return blocked }}))
 	t.Cleanup(srv.Close)
 
 	var got map[string]string
@@ -999,9 +999,17 @@ func TestUpdateTaskTakesTheProviderFromThePayload(t *testing.T) {
 	// taskProvider in index.html), and an explicitly empty one means the
 	// default provider.
 	srv, st := newServer(t, nil)
+	cfg, err := st.LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	second := cfg.Providers[0]
+	second.ID, second.Name = "claude-secondary", "Second account"
+	cfg.Providers = append(cfg.Providers, second)
 	tk := sampleTask("a")
 	tk.Provider = "claude-secondary"
-	if err := st.SaveConfig(store.Config{Tasks: []task.Task{tk}}); err != nil {
+	cfg.Tasks = []task.Task{tk}
+	if err := st.SaveConfig(cfg); err != nil {
 		t.Fatalf("SaveConfig: %v", err)
 	}
 
@@ -1010,7 +1018,7 @@ func TestUpdateTaskTakesTheProviderFromThePayload(t *testing.T) {
 	if r := do(t, srv, "PUT", "/api/tasks/a", kept); r.Status != http.StatusOK {
 		t.Fatalf("update = %d (%s)", r.Status, r.Body)
 	}
-	cfg, err := st.LoadConfig()
+	cfg, err = st.LoadConfig()
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
 	}

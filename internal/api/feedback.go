@@ -6,8 +6,9 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/danielmaier42/claudeq/internal/app"
 	"github.com/danielmaier42/claudeq/internal/feedback"
-	"github.com/danielmaier42/claudeq/internal/provider/claudecode"
+	"github.com/danielmaier42/claudeq/internal/provider"
 	"github.com/danielmaier42/claudeq/internal/update"
 	"github.com/danielmaier42/claudeq/internal/version"
 )
@@ -144,12 +145,21 @@ func (s *server) osVersion() string {
 	return s.d.OSVersion()
 }
 
-// feedbackBin resolves the Claude Code binary for a feedback turn, reporting ""
-// when there is none — unlike claudeBin, which falls back to a bare name for an
-// interactive shell to resolve.
+// feedbackBin resolves the Claude Code binary for a feedback turn from the
+// configured provider instance, reporting "" when there is none — the feedback
+// flow then offers its manual path instead of a run that cannot start.
 func (s *server) feedbackBin() string {
-	if cfg, err := s.d.Store.LoadConfig(); err == nil && cfg.Settings.ClaudePath != "" {
-		return cfg.Settings.ClaudePath
+	set, err := app.Providers(s.d.Store)
+	if err != nil {
+		return ""
 	}
-	return claudecode.DetectBinary()
+	inst, ok := set.Lookup(provider.DefaultInstanceID)
+	if !ok {
+		return ""
+	}
+	ad, err := s.d.Registry.Lookup(inst.Kind)
+	if err != nil {
+		return ""
+	}
+	return ad.ResolveBinary(inst)
 }

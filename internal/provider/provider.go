@@ -19,6 +19,7 @@
 package provider
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -30,31 +31,68 @@ import (
 // registry key; a configured [Instance] names the kind it uses.
 type Kind string
 
-// KindClaudeCode is the adapter for the Claude Code CLI.
-const KindClaudeCode Kind = "claude-code"
+// KindClaudeCode is the adapter for the Claude Code CLI. It is the kind the
+// store seeds a fresh or migrated configuration with, so both sides name the
+// same string by construction.
+const KindClaudeCode Kind = store.DefaultProviderKind
 
 // Instance is a configured adapter instance — the thing a task selects by ID.
-// The struct tags are the on-disk shape the provider configuration will take;
-// today the instances are derived from the existing settings (see [FromSettings]).
+// It is the domain form of [store.Provider]: the store owns how it is written
+// to config.toml, this package owns what it means.
 type Instance struct {
 	// ID is the stable identifier a task selects ("claude").
-	ID string `toml:"id" json:"id"`
+	ID string `json:"id"`
 	// Kind names the adapter that runs this instance.
-	Kind Kind `toml:"kind" json:"kind"`
+	Kind Kind `json:"kind"`
 	// Name is the human-readable label shown in the UI and in run messages.
-	Name string `toml:"name" json:"name"`
+	Name string `json:"name"`
 	// BinaryPath is an absolute path to the harness CLI. Empty lets the adapter
 	// detect it.
-	BinaryPath string `toml:"binary_path" json:"binary_path"`
+	BinaryPath string `json:"binary_path"`
 	// ConfigDir selects the harness's configuration/account directory, which is
 	// how a second subscription of the same kind stays separate. Empty leaves
 	// the choice to the CLI and the daemon's environment, which is what a
 	// single-account setup wants; an instance that must be isolated names one.
-	ConfigDir string `toml:"config_dir" json:"config_dir"`
+	ConfigDir string `json:"config_dir"`
 	// DefaultModel is used when neither the task nor the caller names a model.
-	DefaultModel string `toml:"default_model" json:"default_model"`
+	DefaultModel string `json:"default_model"`
 	// Enabled turns the instance off without removing it.
-	Enabled bool `toml:"enabled" json:"enabled"`
+	Enabled bool `json:"enabled"`
+}
+
+// InstanceOf reads a stored provider entry as an instance.
+func InstanceOf(p store.Provider) Instance {
+	return Instance{
+		ID:           p.ID,
+		Kind:         Kind(p.Kind),
+		Name:         p.Name,
+		BinaryPath:   p.BinaryPath,
+		ConfigDir:    p.ConfigDir,
+		DefaultModel: p.DefaultModel,
+		Enabled:      p.Enabled,
+	}
+}
+
+// Stored returns the instance in the shape config.toml keeps.
+func (i Instance) Stored() store.Provider {
+	return store.Provider{
+		ID:           i.ID,
+		Kind:         string(i.Kind),
+		Name:         i.Name,
+		BinaryPath:   i.BinaryPath,
+		ConfigDir:    i.ConfigDir,
+		DefaultModel: i.DefaultModel,
+		Enabled:      i.Enabled,
+	}
+}
+
+// Label is how an instance is named in text the operator reads: its display
+// name when it has one, its id otherwise.
+func (i Instance) Label() string {
+	if i.Name != "" {
+		return i.Name
+	}
+	return i.ID
 }
 
 // AccessMode is claudeq's provider-neutral expression of how much authority a
@@ -241,6 +279,13 @@ type Adapter interface {
 	Capabilities() Capabilities
 	// DetectBinary locates the harness CLI, returning "" when it cannot be found.
 	DetectBinary() string
+	// ResolveBinary reports the executable this instance would run, or "" when
+	// the CLI cannot be located at all.
+	ResolveBinary(inst Instance) string
+	// CheckHealth reports whether the instance can run a job right now. It may
+	// look at the filesystem and ask the CLI cheap questions through p — its
+	// version, whether it is logged in — but must never consume model usage.
+	CheckHealth(ctx context.Context, inst Instance, p Prober) Health
 	// Command builds the invocation for a run on the given instance.
 	Command(inst Instance, req Request) (Command, error)
 	// NewParser returns a parser for one run's output.
@@ -253,14 +298,5 @@ var ErrUnsupported = errors.New("not supported by this provider")
 
 // UnsupportedAccessError reports an access mode an adapter cannot enforce.
 func UnsupportedAccessError(inst Instance, mode AccessMode) error {
-	return fmt.Errorf("%w: %s cannot enforce %q access", ErrUnsupported, instanceLabel(inst), mode)
-}
-
-// instanceLabel is how an instance is named in an error the operator reads: its
-// display name when it has one, its ID otherwise.
-func instanceLabel(inst Instance) string {
-	if inst.Name != "" {
-		return inst.Name
-	}
-	return inst.ID
+	return fmt.Errorf("%w: %s cannot enforce %q access", ErrUnsupported, inst.Label(), mode)
 }

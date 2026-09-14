@@ -79,7 +79,7 @@ func TestSetPausedTouchesOnlyThePauseSwitch(t *testing.T) {
 	s := openStore(t)
 	_ = AddTask(s, mk("a"))
 	if err := s.UpdateConfig(func(cfg *store.Config) error {
-		cfg.Settings.DefaultModel = "opus"
+		cfg.Settings.SystemPrompt = "be brief"
 		return nil
 	}); err != nil {
 		t.Fatalf("seed settings: %v", err)
@@ -92,7 +92,7 @@ func TestSetPausedTouchesOnlyThePauseSwitch(t *testing.T) {
 	if !cfg.Settings.Paused {
 		t.Fatal("pause switch not set")
 	}
-	if cfg.Settings.DefaultModel != "opus" || len(cfg.Tasks) != 1 {
+	if cfg.Settings.SystemPrompt != "be brief" || len(cfg.Tasks) != 1 {
 		t.Fatalf("SetPaused disturbed the rest of the config: %+v", cfg)
 	}
 

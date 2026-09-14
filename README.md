@@ -21,6 +21,7 @@ update checks) ever leaves the machine. The one thing you can send out is
 - [Features](#features)
 - [The app](#the-app)
 - [Settings](#settings)
+- [Providers](#providers)
 - [Install](#install)
 - [Using it](#using-it)
 - [Command-line interface](#command-line-interface)
@@ -98,7 +99,7 @@ The nightly cycle looks like this:
   woken for scheduled work. A run already in flight keeps going, and a task that
   came due meanwhile starts as soon as you switch it back off. The Queue view
   carries a yellow banner while it is on, so an idle queue is never a mystery.
-- **Per-task overrides** — model, permission handling (default vs.
+- **Per-task overrides** — provider, model, permission handling (default vs.
   "skip permission prompts"), whether to notify on the result, and *quiet
   history* for frequent jobs — layered over your global defaults.
 - **Built-in run framing** — every run is told up front that it is headless and
@@ -122,6 +123,13 @@ The nightly cycle looks like this:
 
 **Reliability**
 
+- **Providers that are checked before the night** — the agent harness a task runs
+  on is a configured *provider* with its own binary, account directory and
+  default model. ClaudeQ asks it whether it can actually work — is the CLI
+  installed, is anyone logged in — and a task whose provider cannot run it is
+  never started: it keeps its place in the queue, says *blocked* with the reason,
+  and starts by itself once the provider works again. You hear about it once,
+  when it breaks, not on every check. See [Providers](#providers).
 - **Rate-limit aware** — a reactive global gate: a run that hits the limit is
   paused, the wait is derived from the CLI's retry signal, and the session is
   resumed automatically once the limit resets (falling back to a fresh restart if
@@ -219,7 +227,8 @@ The dashboard (and the native window that wraps it) has five views, plus a
   *granted* (orange, the task skips permission prompts), *notifies* (blue), and
   *silent* (quiet history). A task the rate limit interrupted carries a
   *rescheduled* badge (orange) whose tooltip names when its interrupted session
-  continues. An **export** button on each row saves the task as a `.claudeq`
+  continues, and a task whose provider cannot run it carries a red *blocked*
+  badge naming what is wrong. An **export** button on each row saves the task as a `.claudeq`
   file via the native save panel, and **Import…** in the toolbar opens such a
   file in the task sheet for review. Whenever that sheet is open — new task,
   edit, replay or import — Claude checks the prompt against this Mac and shows
@@ -265,19 +274,19 @@ The dashboard is also reachable in a normal browser at
 
 ## Settings
 
-Settings is split into three tabs — **General**, **Notifications** and
-**System**. An available update is announced by a banner above the tabs and by
-a red dot on **General**, which is where the About section and the update
-button live.
+Settings is split into four tabs — **General**, **Providers**,
+**Notifications** and **System**. An available update is announced by a banner
+above the tabs and by a red dot on **General**, which is where the About section
+and the update button live.
 
 | Tab | Group | Setting | What it does |
 |-----|-------|---------|--------------|
-| **General** | Defaults for every run | Default model | Model used for runs unless a task overrides it (empty = Claude's own default). |
-| | | Custom system prompt | Extra instructions appended to every run after the built-in prompt. |
+| **General** | Defaults for every run | Custom system prompt | Extra instructions appended to every run after the built-in prompt. |
 | | Prompt review | Check prompts with Claude | Whether Claude reviews a prompt against this Mac before the task is queued (on by default). |
-| | | Review model | Model used for that review; *Same as default model* falls back to the tab's Default model. |
+| | | Review model | Model used for that review; *The provider's default model* falls back to the reviewing provider's own default. |
 | | Execution | Pause all runs | Global stop switch: nothing starts while it is on, not even *Run now*; a run already in flight keeps going. Applies immediately, without pressing Save. |
 | | About | Version / Software updates | Current version and a manual "Check for updates" button. |
+| **Providers** | Providers | One card per provider | Status, binary path, configuration directory and default model of each configured harness, plus **Check again**, **Make default** and an on/off switch. See [Providers](#providers). |
 | **Notifications** | macOS | Alerts that wait for you | Opens System Settings → Notifications, where ClaudeQ's alert style lives: *Banners* disappear on their own, *Alerts* stay until you click them. |
 | | Pushover | Send to Pushover | Toggle plus API token and user key for phone push. |
 | | ntfy | Send to ntfy | Toggle, server (empty = ntfy.sh), topic, and an optional access token for a protected topic. |
@@ -285,7 +294,70 @@ button live.
 | **System** | Runs | Stop a run with no output for | Idle-timeout watchdog: kills a hung run (default 30 min; a working run keeps streaming and is unaffected; Off disables it). |
 | | | Keep run history | How many runs (and their logs) to retain before pruning (default 500; Unlimited keeps everything). |
 | | Scheduler | Check for due tasks every | How often the daemon wakes to look for work (15 min – 6 h; also the wake safety-net interval). |
-| | Claude Code CLI | Claude binary | Absolute path to the `claude` executable. The daemon can't see your shell `PATH`, so this is auto-detected and pre-filled; override if needed. |
+
+## Providers
+
+A **provider** is one configured agent harness — the CLI a task is actually run
+by. Every installation has one, `claude`, which is the
+[Claude Code](https://claude.com/claude-code) CLI; an existing configuration is
+migrated into it automatically, keeping the binary path and default model it
+already used.
+
+A provider has:
+
+| Field | What it is |
+|-------|------------|
+| Id | The stable name a task selects it by (`claude`). Fixed once created. |
+| Kind | Which harness it runs (`claude-code`). Fixed once created. |
+| Name | The label shown in the app and in run messages. |
+| Binary | Absolute path to the CLI. The background daemon can't see your shell `PATH`, so a full path is safest; empty auto-detects and the card offers what it found. |
+| Configuration directory | Where that CLI keeps its account and sessions. Empty uses the CLI's own. Two providers with separate directories are two separate accounts. |
+| Default model | Used for tasks on this provider that name no model of their own. |
+| Enabled | Off keeps the provider and its tasks, but runs nothing on it. |
+
+One provider is the **default**: tasks that name none run on it.
+
+### Is it ready?
+
+Before a task starts, ClaudeQ checks that its provider can actually run it. The
+check costs no model usage — it looks at the binary, asks for its version, and
+asks the CLI whether anyone is logged in — and it reports one of:
+
+| Status | Meaning |
+|--------|---------|
+| Ready | Jobs can start. |
+| Not installed | The CLI was not found, or the configured path cannot be run. |
+| Not logged in | The CLI is there, but no account is signed in (`claude auth login`). |
+| Invalid configuration | The provider's own settings cannot be used — an unreachable configuration directory, say. |
+| Switched off | You disabled the provider. |
+| Could not be checked | The check itself did not reach a verdict, so ClaudeQ does not assume either way. |
+
+A fresh installation therefore shows the real state of Claude Code rather than
+assuming it is there because it is the default provider.
+
+What follows from an unready provider:
+
+- **New tasks are refused** — in the app and from the CLI — with the reason. A
+  job that is known in advance to fail is not worth filing.
+- **Tasks that already exist stay queued.** They are not started, they take no
+  concurrency slot, and nothing about their schedule advances: a one-shot task
+  is not marked done, a cron task keeps its next occurrence. The Queue row shows
+  a red *blocked* badge with the reason.
+- **When the provider works again, they start by themselves** on the next check.
+  Nothing has to be re-queued.
+- **You are told once.** A provider that breaks raises one notification, and one
+  more when it recovers — not one per scheduler tick, and not again after a
+  daemon restart.
+
+A rate limit is not a provider problem: that pauses the run and resumes it, as
+it always did.
+
+### Credentials
+
+ClaudeQ stores no passwords, tokens or API keys. It stores the *path* of a
+CLI's configuration directory; the CLI owns what is inside it. Readiness checks
+read only whether a login exists, never whose it is, and neither the daemon log
+nor the API ever carries account details.
 
 ## Install
 
@@ -400,15 +472,15 @@ claudeq list [--json]                          # show the queue
 claudeq show   ID [--json]                     # one task in full, prompt included
 claudeq add    --id ID --prompt P --dir DIR [--name N]
                [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR]
-               [--model M] [--parallel] [--skip-permissions] [--notify]
-               [--quiet-history]
+               [--provider ID] [--model M] [--parallel] [--skip-permissions]
+               [--notify] [--quiet-history]
 claudeq edit   ID                              # open the whole task in $EDITOR
 claudeq edit   ID [--name N] [--prompt P | --prompt-file PATH] [--dir DIR]
                [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR]
-               [--model M] [--parallel=BOOL] [--enabled=BOOL]
+               [--provider ID] [--model M] [--parallel=BOOL] [--enabled=BOOL]
                [--skip-permissions=BOOL] [--notify=BOOL] [--quiet-history=BOOL]
 claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [--name N]
-               [--model M] [--parallel=BOOL] [--skip-permissions=BOOL]
+               [--provider ID] [--model M] [--parallel=BOOL] [--skip-permissions=BOOL]
                [--notify=BOOL] [--quiet-history=BOOL]
 claudeq publish --file PATH [--title T] [--description D]   # publish a file as an artifact
 claudeq notify --title T --message M [--url U]  # send a notification, no artifact
@@ -420,7 +492,17 @@ claudeq move   ID INDEX                        # 0 = highest priority
 claudeq run-now ID                             # run once, now, for testing
 claudeq status [--all]                         # recent runs; unread marked *
 claudeq read RUNID | claudeq read-all
-claudeq settings [--json] [--default-model M] [--claude-path PATH]
+claudeq provider list [--json]                 # the harnesses tasks run on
+claudeq provider show ID [--json]
+claudeq provider check ID [--json]             # probe it now
+claudeq provider add  ID --kind KIND [--name N] [--path PATH]
+                      [--config-dir PATH] [--default-model MODEL]
+claudeq provider edit ID [--name N] [--path PATH]
+                      [--config-dir PATH] [--default-model MODEL]
+claudeq provider enable ID | claudeq provider disable ID
+claudeq provider default ID                    # run tasks that name none on it
+claudeq provider rm ID
+claudeq settings [--json] [--default-provider ID]
                  [--heartbeat-minutes N]
                  [--idle-timeout-minutes N] [--max-run-history N]
                  [--system-prompt S | --system-prompt-file PATH]
@@ -458,6 +540,7 @@ value. This is the form to use from a script or an agent.
 claudeq edit nightly-sweep --prompt-file ./new-brief.md   # replace just the prompt
 claudeq edit nightly-sweep --cron "30 2 * * 1-5"          # reschedule
 claudeq edit nightly-sweep --model opus --notify=true     # per-task overrides
+claudeq edit nightly-sweep --provider claude             # run it on another provider
 claudeq edit prod-watch --quiet-history=true              # drop its successful runs
 claudeq edit nightly-sweep --enabled=false                # pause it
 ```
@@ -467,7 +550,13 @@ claudeq edit nightly-sweep --enabled=false                # pause it
 - `--at` implies `--trigger fixed` and `--cron` implies `--trigger cron`, so a
   reschedule is one flag. Changing the trigger clears the timing fields that no
   longer apply.
-- `--model ""` drops a per-task model override back to the global default.
+- `--model ""` drops a per-task model override back to the provider's default
+  model, and `--provider ""` back to the default provider.
+- Changing `--provider` without naming a `--model` clears the model too, so the
+  new provider's own default applies — one harness's model is never carried into
+  another. Pass both to keep an explicit model across the change.
+- A task is refused if the provider it names is unknown or cannot run right now;
+  the error says which and why (see [Providers](#providers)).
 - Every edit is validated before it is written. An invalid cron, an unparseable
   time, or an empty prompt fails with a message and leaves the task as it was.
 
@@ -487,14 +576,13 @@ app's [Settings](#settings) view.
 
 ```sh
 claudeq settings                                        # show everything
-claudeq settings --default-model opus                   # global default model
-claudeq settings --claude-path /Users/me/.local/bin/claude
+claudeq settings --default-provider claude              # provider for tasks that name none
 claudeq settings --system-prompt-file ./house-style.md   # custom system prompt
 claudeq settings --idle-timeout-minutes 45 --max-run-history 1000
 claudeq settings --paused=true                          # stop every run
 claudeq settings --paused=false                         # let the queue run again
 claudeq settings --prompt-review=false                  # turn the prompt review off
-claudeq settings --prompt-review-model haiku            # ("" = same as the default model)
+claudeq settings --prompt-review-model haiku            # ("" = the provider's default model)
 claudeq settings --pushover=true --pushover-token T --pushover-user U
 claudeq settings --ntfy=true --ntfy-topic claudeq-daniel   # server defaults to ntfy.sh
 claudeq settings --webhook=true --webhook-url https://hooks.slack.com/services/... \
@@ -510,6 +598,23 @@ that is switched on but cannot deliver (no topic, no URL, an unknown
 Use `claudeq notify --title X --message Y` to check a channel actually
 delivers — there is no separate Test button in the app.
 
+The binary path and the default model belong to a provider now, not to the
+global settings:
+
+```sh
+claudeq provider list                                   # ids, kinds, default models, status
+claudeq provider check claude                           # probe it and print why it is not ready
+claudeq provider edit claude --path /Users/me/.local/bin/claude
+claudeq provider edit claude --default-model opus
+claudeq provider disable claude                         # keep it, run nothing on it
+```
+
+`provider list --json` gives each instance's enabled state, readiness, the
+reason it is not ready, and its default model — which is how a running job finds
+out where it can send follow-up work. `provider rm` refuses while a task or the
+default-provider setting still names the instance, and lists what has to change
+first.
+
 ## From another tool or agent
 
 This README is the whole interface. An external app or agent needs nothing but
@@ -517,9 +622,13 @@ this document to work with ClaudeQ.
 
 - **Invoke it by full path.** `/Applications/ClaudeQ.app/Contents/MacOS/claudeq`
   is not on `PATH`.
-- **Read with `--json`.** `claudeq list --json`, `claudeq show ID --json` and
-  `claudeq settings --json` emit structured output. The other commands print for
-  humans.
+- **Read with `--json`.** `claudeq list --json`, `claudeq show ID --json`,
+  `claudeq settings --json` and `claudeq provider list --json` emit structured
+  output. The other commands print for humans.
+- **A task is refused when its provider cannot run it.** `--provider ID` selects
+  one; leaving it out uses the default. An unknown or unready provider exits
+  non-zero with the reason, so ask `claudeq provider list --json` first rather
+  than assuming one is there. See [Providers](#providers).
 - **Write with `edit`, `add`, `import`, `rm`, `enable`, `disable` and `move`**
   instead of editing `config.toml` by hand. Those commands validate the change
   and write it atomically alongside the app's own writes.
@@ -572,7 +681,7 @@ claudeq queue --prompt "…"
 
 with an optional time (`--at <RFC3339>`, `--in <duration>` like `90m`, or
 `--cron "<expr>"`; default is as-soon-as-possible), an optional `--dir`, and an
-optional `--name`. The new task **inherits** the calling task's model,
+optional `--name`. The new task **inherits** the calling task's provider, model,
 permissions, parallelism, and notification settings automatically. This works
 because the daemon injects the CLI's path and the parent task into each run's
 environment.
@@ -585,8 +694,14 @@ claudeq queue --prompt "Review the change thoroughly …" --model claude-opus-5 
 ```
 
 - `--model M` runs the new task on another model (an empty value means the
-  global default). This is what lets a cheap watcher — Haiku every five minutes,
-  quiet history — hand expensive work to a visible Opus run.
+  effective provider's default model). This is what lets a cheap watcher — Haiku
+  every five minutes, quiet history — hand expensive work to a visible Opus run.
+- `--provider ID` runs the new task on another configured harness. Without a
+  `--model` alongside it, that provider's own default model applies — a model
+  from the calling task is never carried across. `claudeq provider list --json`
+  says which providers exist and which of them can run right now; queueing for
+  one that cannot fails with the reason instead of filing work that would not
+  start (see [Providers](#providers)).
 - `--parallel=BOOL` and `--notify=BOOL` switch the respective setting on or
   off regardless of what the caller has.
 - `--skip-permissions=BOOL` grants or withdraws the task's own permission
@@ -878,13 +993,13 @@ Everything lives under `~/Library/Application Support/claudeq` (override with th
 
 | Path | Contents |
 |------|----------|
-| `config.toml` | Global settings + the ordered task list (human-readable, versionable). |
+| `config.toml` | Global settings, the configured [providers](#providers), and the ordered task list (human-readable, versionable). No credentials: a provider entry holds its CLI's path and configuration directory, never what is inside them. |
 | `history.jsonl` | Append-only index of every run (except a quiet-history task's successful ones, which are never written). |
 | `runs/<run-id>.log` | Full log for each run. |
 | `artifacts.json` | Index of published artifacts (title, source task/run, file name, size, type). |
 | `artifacts/<id>/<file>` | The published files themselves (snapshots copied at publish time). |
 | `notifications.json` | Outbox of notifications sent with `claudeq notify`, waiting for the daemon to deliver them (normally empty). |
-| `state.json` | Machine bookkeeping: read/unread flags (runs and artifacts), which artifacts have been notified about, cron anchors, pending-resume sessions, dismissed update version. |
+| `state.json` | Machine bookkeeping: read/unread flags (runs and artifacts), which artifacts have been notified about, cron anchors, pending-resume sessions, the provider health you were last told about, dismissed update version. |
 | `claudeqd.out.log` / `claudeqd.err.log` | Daemon stdout/stderr. |
 
 The LaunchAgent itself is at

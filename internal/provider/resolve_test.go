@@ -161,31 +161,31 @@ func TestNewSetRejectsAnUnusableInstanceList(t *testing.T) {
 	}
 }
 
-// TestFromSettingsMigratesThePreProviderConfiguration is the compatibility
-// case: an existing claudeq configuration becomes the `claude` instance, and
-// every task that names no provider keeps running exactly as before.
-func TestFromSettingsMigratesThePreProviderConfiguration(t *testing.T) {
-	set := FromSettings(store.Settings{ClaudePath: "/opt/claude", DefaultModel: "opus"})
-
+// TestFromConfigReadsTheStoredInstances is the compatibility case: the store
+// migrates an existing claudeq configuration into the `claude` instance, and a
+// task that names no provider keeps running exactly as before.
+func TestFromConfigReadsTheStoredInstances(t *testing.T) {
+	cfg := store.Config{
+		Settings: store.Settings{DefaultProvider: DefaultInstanceID},
+		Providers: []store.Provider{{
+			ID: DefaultInstanceID, Kind: store.DefaultProviderKind, Name: DefaultInstanceName,
+			BinaryPath: "/opt/claude", DefaultModel: "opus", Enabled: true,
+		}},
+	}
+	set, err := FromConfig(cfg)
+	if err != nil {
+		t.Fatalf("FromConfig: %v", err)
+	}
 	all := set.All()
 	if len(all) != 1 {
-		t.Fatalf("got %d instances, want exactly the migrated one", len(all))
+		t.Fatalf("got %d instances, want the one that is configured", len(all))
 	}
-	inst := all[0]
-	if inst.ID != DefaultInstanceID || inst.Kind != KindClaudeCode {
-		t.Fatalf("instance = %+v, want id %q of kind %q", inst, DefaultInstanceID, KindClaudeCode)
+	want := Instance{
+		ID: DefaultInstanceID, Kind: KindClaudeCode, Name: DefaultInstanceName,
+		BinaryPath: "/opt/claude", DefaultModel: "opus", Enabled: true,
 	}
-	if inst.BinaryPath != "/opt/claude" {
-		t.Fatalf("binary path = %q, want the configured claude_path", inst.BinaryPath)
-	}
-	if inst.DefaultModel != "opus" {
-		t.Fatalf("default model = %q, want the configured default_model", inst.DefaultModel)
-	}
-	if !inst.Enabled {
-		t.Fatal("the migrated instance must be enabled")
-	}
-	if inst.ConfigDir != "" {
-		t.Fatalf("config dir = %q, want the CLI's own configuration", inst.ConfigDir)
+	if all[0] != want {
+		t.Fatalf("instance = %+v, want %+v", all[0], want)
 	}
 
 	res, err := set.Resolve(Selection{})
@@ -193,34 +193,45 @@ func TestFromSettingsMigratesThePreProviderConfiguration(t *testing.T) {
 		t.Fatalf("Resolve: %v", err)
 	}
 	if res.Instance.ID != DefaultInstanceID || res.Model != "opus" {
-		t.Fatalf("resolved %+v, want the migrated instance on the configured model", res)
+		t.Fatalf("resolved %+v, want the stored instance on its default model", res)
 	}
 }
 
-func TestFromSettingsIsIdempotent(t *testing.T) {
-	// Migration runs on every load, so applying it twice must produce exactly
-	// the same instance.
-	s := store.Settings{ClaudePath: "/opt/claude", DefaultModel: "opus"}
-	first, second := FromSettings(s), FromSettings(s)
-	if first.DefaultID() != second.DefaultID() {
-		t.Fatal("default provider changed between migrations")
-	}
-	a, b := first.All(), second.All()
-	if len(a) != len(b) || a[0] != b[0] {
-		t.Fatalf("migration is not idempotent: %+v vs %+v", a, b)
-	}
-}
-
-func TestFromSettingsOnAFreshInstallation(t *testing.T) {
-	// Nothing configured yet: the claude provider still exists, with no binary
-	// path and no model, so the harness picks its own default.
-	set := FromSettings(store.Settings{})
-	res, err := set.Resolve(Selection{})
+// TestFromConfigWithoutADefaultUsesTheFirstInstance covers a configuration whose
+// default_provider is empty: a task that names none must still run somewhere
+// obvious rather than failing to resolve.
+func TestFromConfigWithoutADefaultUsesTheFirstInstance(t *testing.T) {
+	set, err := FromConfig(store.Config{Providers: []store.Provider{
+		{ID: "claude", Kind: store.DefaultProviderKind, Enabled: true},
+		{ID: "second", Kind: store.DefaultProviderKind, Enabled: true},
+	}})
 	if err != nil {
-		t.Fatalf("Resolve: %v", err)
+		t.Fatalf("FromConfig: %v", err)
 	}
-	if res.Instance.ID != DefaultInstanceID || res.Instance.BinaryPath != "" || res.Model != "" {
-		t.Fatalf("resolved %+v, want the claude instance with nothing configured", res)
+	if set.DefaultID() != "claude" {
+		t.Fatalf("default = %q, want the first configured instance", set.DefaultID())
+	}
+}
+
+// TestFromConfigRejectsAConfigurationWithoutProviders guards the seam with the
+// store: nothing invents a provider behind the operator's back, so a Config
+// that was never migrated is an error rather than a guess.
+func TestFromConfigRejectsAConfigurationWithoutProviders(t *testing.T) {
+	if _, err := FromConfig(store.Config{}); !errors.Is(err, ErrNoProviders) {
+		t.Fatalf("err = %v, want ErrNoProviders", err)
+	}
+}
+
+// TestStoredRoundTripsAnInstance pins the mapping between the domain type and
+// the shape config.toml holds, which is what keeps a saved provider identical
+// after a reload.
+func TestStoredRoundTripsAnInstance(t *testing.T) {
+	inst := Instance{
+		ID: "claude-secondary", Kind: KindClaudeCode, Name: "Second account",
+		BinaryPath: "/opt/claude", ConfigDir: "/tmp/other", DefaultModel: "haiku", Enabled: true,
+	}
+	if got := InstanceOf(inst.Stored()); got != inst {
+		t.Fatalf("round trip = %+v, want %+v", got, inst)
 	}
 }
 

@@ -59,8 +59,7 @@ func cmdSettings(st *store.Store, args []string) error {
 // which of them the caller passed, so unmentioned settings keep their value.
 type settingsPatch struct {
 	set              map[string]bool
-	model            string
-	claudePath       string
+	defaultProvider  string
 	heartbeat        int
 	idleTimeout      int
 	maxRunHistory    int
@@ -82,8 +81,7 @@ type settingsPatch struct {
 }
 
 func (p *settingsPatch) register(fs *flag.FlagSet) {
-	fs.StringVar(&p.model, "default-model", "", "global default model (empty = Claude's own default)")
-	fs.StringVar(&p.claudePath, "claude-path", "", "absolute path to the claude binary (empty = auto-detect)")
+	fs.StringVar(&p.defaultProvider, "default-provider", "", "provider instance a task runs on when it names none")
 	fs.IntVar(&p.heartbeat, "heartbeat-minutes", 0, "how often to look for due tasks (0 = default)")
 	fs.IntVar(&p.idleTimeout, "idle-timeout-minutes", 0, "kill a run with no output for this long (0 = default, negative = never)")
 	fs.IntVar(&p.maxRunHistory, "max-run-history", 0, "runs to keep before pruning (0 = default, negative = keep all)")
@@ -91,7 +89,7 @@ func (p *settingsPatch) register(fs *flag.FlagSet) {
 	fs.StringVar(&p.systemPromptFile, "system-prompt-file", "", "read the custom system prompt from a file ('-' = stdin)")
 	fs.BoolVar(&p.paused, "paused", false, "pause every run globally (nothing starts while on)")
 	fs.BoolVar(&p.promptReview, "prompt-review", true, "let Claude check a task's prompt against this machine before it is queued")
-	fs.StringVar(&p.promptReviewMdl, "prompt-review-model", "", "model for that check (empty = the default model)")
+	fs.StringVar(&p.promptReviewMdl, "prompt-review-model", "", "model for that check (empty = the provider's default model)")
 	fs.BoolVar(&p.pushoverOn, "pushover", false, "send notifications to Pushover")
 	fs.StringVar(&p.pushoverToken, "pushover-token", "", "Pushover API token")
 	fs.StringVar(&p.pushoverUser, "pushover-user", "", "Pushover user key")
@@ -126,11 +124,8 @@ func (p *settingsPatch) resolve(fs *flag.FlagSet, readFile func(string) ([]byte,
 }
 
 func (p settingsPatch) apply(s store.Settings) (store.Settings, error) {
-	if p.set["default-model"] {
-		s.DefaultModel = p.model
-	}
-	if p.set["claude-path"] {
-		s.ClaudePath = p.claudePath
+	if p.set["default-provider"] {
+		s.DefaultProvider = p.defaultProvider
 	}
 	if p.set["heartbeat-minutes"] {
 		if p.heartbeat < 0 {
@@ -193,8 +188,7 @@ func (p settingsPatch) apply(s store.Settings) (store.Settings, error) {
 // credentials reduced to whether they are set — config.toml holds them in clear
 // text and printing them would leak them into terminal scrollback and logs.
 type settingsView struct {
-	DefaultModel       string `json:"default_model"`
-	ClaudePath         string `json:"claude_path"`
+	DefaultProvider    string `json:"default_provider"`
 	HeartbeatMinutes   int    `json:"heartbeat_minutes"`
 	IdleTimeoutMinutes int    `json:"idle_timeout_minutes"`
 	MaxRunHistory      int    `json:"max_run_history"`
@@ -214,8 +208,7 @@ type settingsView struct {
 
 func newSettingsView(s store.Settings) settingsView {
 	return settingsView{
-		DefaultModel:       s.DefaultModel,
-		ClaudePath:         s.ClaudePath,
+		DefaultProvider:    s.DefaultProvider,
 		HeartbeatMinutes:   s.HeartbeatMinutes,
 		IdleTimeoutMinutes: s.IdleTimeoutMinutes,
 		MaxRunHistory:      s.MaxRunHistory,
@@ -237,13 +230,12 @@ func newSettingsView(s store.Settings) settingsView {
 func printSettings(s store.Settings) {
 	v := newSettingsView(s)
 	fmt.Printf("paused:                    %s\n", pausedLabel(v.Paused))
-	fmt.Printf("default_model:             %s\n", orDefault(v.DefaultModel, "(Claude's own default)"))
-	fmt.Printf("claude_path:               %s\n", orDefault(v.ClaudePath, "(auto-detect)"))
+	fmt.Printf("default_provider:          %s\n", orDefault(v.DefaultProvider, "(the first configured one)"))
 	fmt.Printf("heartbeat_minutes:         %s\n", numericLabel(v.HeartbeatMinutes, store.DefaultHeartbeatMinutes, ""))
 	fmt.Printf("idle_timeout_minutes:      %s\n", numericLabel(v.IdleTimeoutMinutes, store.DefaultIdleTimeoutMinutes, "never kill a run"))
 	fmt.Printf("max_run_history:           %s\n", numericLabel(v.MaxRunHistory, store.DefaultMaxRunHistory, "keep every run"))
 	fmt.Printf("prompt_review:             %s\n", boolLabel(v.PromptReview))
-	fmt.Printf("prompt_review_model:       %s\n", orDefault(v.PromptReviewModel, "(same as the default model)"))
+	fmt.Printf("prompt_review_model:       %s\n", orDefault(v.PromptReviewModel, "(the provider's default model)"))
 	fmt.Printf("pushover:                  %s\n", pushoverLabel(v))
 	fmt.Printf("ntfy:                      %s\n", ntfyLabel(v))
 	fmt.Printf("webhook:                   %s\n", webhookLabel(v))

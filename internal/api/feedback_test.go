@@ -29,8 +29,8 @@ func (f fakeCLI) Run(context.Context, string, []string) ([]byte, error) {
 }
 
 // newFeedbackServer wires a server whose feedback chat answers with out. The
-// store gets an explicit claude path so availability does not depend on what is
-// installed on the machine running the tests.
+// claude provider gets an explicit binary path so availability does not depend
+// on what is installed on the machine running the tests.
 func newFeedbackServer(t *testing.T, cli feedback.CLIRunner) (*httptest.Server, *store.Store) {
 	t.Helper()
 	st, err := store.Open(t.TempDir())
@@ -41,7 +41,7 @@ func newFeedbackServer(t *testing.T, cli feedback.CLIRunner) (*httptest.Server, 
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	cfg.Settings.ClaudePath = "/usr/local/bin/claude"
+	cfg.Providers[0].BinaryPath = "/usr/local/bin/claude"
 	if err := st.SaveConfig(cfg); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
@@ -49,7 +49,7 @@ func newFeedbackServer(t *testing.T, cli feedback.CLIRunner) (*httptest.Server, 
 	if cli != nil {
 		svc = feedback.New(cli)
 	}
-	srv := httptest.NewServer(Handler(Deps{Store: st, Feedback: svc, OSVersion: func() string { return "15.6" }}))
+	srv := httptest.NewServer(handler(Deps{Store: st, Feedback: svc, OSVersion: func() string { return "15.6" }}))
 	t.Cleanup(srv.Close)
 	return srv, st
 }
@@ -141,7 +141,7 @@ func TestFeedbackURLLeavesOutAnUnknownOSVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
-	srv := httptest.NewServer(Handler(Deps{Store: st}))
+	srv := httptest.NewServer(handler(Deps{Store: st}))
 	t.Cleanup(srv.Close)
 	var got map[string]string
 	do(t, srv, http.MethodPost, "/api/feedback/url", map[string]any{"title": "T", "body": "B"}).into(t, &got)

@@ -21,6 +21,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/engine"
 	"github.com/danielmaier42/claudeq/internal/executor"
 	"github.com/danielmaier42/claudeq/internal/limit"
+	"github.com/danielmaier42/claudeq/internal/provider"
 	"github.com/danielmaier42/claudeq/internal/provider/adapters"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
@@ -33,16 +34,17 @@ Usage:
   claudeq list [--json]
   claudeq show   ID [--json]       (one task in full, prompt included)
   claudeq add    --id ID --prompt P --dir DIR [--name N] [--trigger asap|fixed|cron]
-                 [--at RFC3339] [--cron EXPR] [--model M] [--parallel] [--skip-permissions]
-                 [--notify] [--quiet-history]
+                 [--at RFC3339] [--cron EXPR] [--provider ID] [--model M] [--parallel]
+                 [--skip-permissions] [--notify] [--quiet-history]
   claudeq edit   ID                (open the whole task in $EDITOR)
   claudeq edit   ID [--name N] [--prompt P | --prompt-file PATH] [--dir DIR]
-                 [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR] [--model M]
+                 [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR]
+                 [--provider ID] [--model M]
                  [--parallel=BOOL] [--enabled=BOOL] [--skip-permissions=BOOL]
                  [--notify=BOOL] [--quiet-history=BOOL]  (only the flags you pass are changed)
   claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [--name N]
-                 [--model M] [--parallel=BOOL] [--skip-permissions=BOOL] [--notify=BOOL]
-                 [--quiet-history=BOOL]
+                 [--provider ID] [--model M] [--parallel=BOOL] [--skip-permissions=BOOL]
+                 [--notify=BOOL] [--quiet-history=BOOL]
                  (queue a follow-up task; settings you do not pass are inherited from
                  the calling task)
   claudeq publish --file PATH [--title T] [--description D]
@@ -58,8 +60,8 @@ Usage:
   claudeq run-now ID               (run once, now, for testing)
   claudeq status [--all]           (recent runs; unread marked *)
   claudeq read RUNID | claudeq read-all
-  claudeq settings [--json] [--default-model M] [--skip-permissions=BOOL]
-                   [--claude-path PATH] [--heartbeat-minutes N]
+  claudeq provider ...             (the harnesses tasks run on; run it for its own help)
+  claudeq settings [--json] [--default-provider ID] [--heartbeat-minutes N]
                    [--idle-timeout-minutes N] [--max-run-history N]
                    [--system-prompt S | --system-prompt-file PATH]
                    [--paused=BOOL] [--pushover=BOOL] [--pushover-token T]
@@ -130,6 +132,8 @@ func run(args []string) error {
 		return app.MarkAllRead(st)
 	case "settings":
 		return cmdSettings(st, rest)
+	case "provider":
+		return cmdProvider(st, rest)
 	default:
 		fmt.Println(usage)
 		return fmt.Errorf("unknown command %q", cmd)
@@ -211,7 +215,7 @@ func cmdAdd(st *store.Store, args []string) error {
 	t := task.Task{
 		ID: *id, Name: *name, Prompt: *prompt, WorkingDir: *dir,
 		Trigger: task.Trigger(*trig), Cron: *cronArg, Enabled: true,
-		Model: s.model, Parallel: s.parallel, NotifyOnResult: s.notify,
+		Provider: s.provider, Model: s.model, Parallel: s.parallel, NotifyOnResult: s.notify,
 		QuietHistory: s.quietHistory, Permissions: task.PermissionsFor(s.skipPerms),
 	}
 	if t.Name == "" {
@@ -230,11 +234,34 @@ func cmdAdd(st *store.Store, args []string) error {
 	if err := t.Validate(); err != nil {
 		return err
 	}
+	if err := ensureRunnable(st, t.Provider); err != nil {
+		return err
+	}
 	if err := app.AddTask(st, t); err != nil {
 		return err
 	}
 	fmt.Printf("added task %q\n", t.ID)
 	return nil
+}
+
+// newProviderChecker builds the readiness checker the task commands use. It is
+// a variable so tests can answer for a harness that is not installed on the
+// machine running them.
+var newProviderChecker = func() *provider.Checker { return provider.NewChecker(adapters.Default()) }
+
+// ensureRunnable refuses to file work for a provider that cannot run it. The
+// point of the queue is unattended execution, so a job whose harness is missing
+// or logged out is rejected here — while someone is looking at the terminal —
+// rather than failing at three in the morning. An empty id means the default
+// provider.
+func ensureRunnable(st *store.Store, providerID string) error {
+	set, err := app.Providers(st)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), providerCheckTimeout)
+	defer cancel()
+	return app.EnsureRunnable(ctx, set, newProviderChecker(), providerID)
 }
 
 // queueOpts are the caller-supplied parts of `claudeq queue`. Everything not
@@ -294,6 +321,13 @@ func cmdQueue(st *store.Store, args []string) error {
 		t, err := buildQueuedTask(parentJSON, newQueueID(now), o, now)
 		if err != nil {
 			return err // deterministic (independent of the id) — do not retry
+		}
+		if attempt == 0 {
+			// Checked once per call, not once per id retry: the provider does not
+			// become ready between two attempts a microsecond apart.
+			if err := ensureRunnable(st, t.Provider); err != nil {
+				return err
+			}
 		}
 		if err := app.AddTask(st, t); err != nil {
 			lastErr = err // almost certainly an id collision; regenerate and retry
@@ -543,9 +577,10 @@ func cmdRunNow(st *store.Store, id string) error {
 	// task tested with run-now can queue follow-up work too. This process is the
 	// claudeq CLI, so its own path is the queue binary.
 	self, _ := os.Executable()
+	registry := adapters.Default()
 	eng := engine.New(st, limit.New(c), &executor.Executor{
-		Registry: adapters.Default(), Home: st.Home(), QueueBin: self,
-	}, c)
+		Registry: registry, Home: st.Home(), QueueBin: self,
+	}, c, provider.NewChecker(registry))
 	fmt.Printf("running task %q now...\n", id)
 	started := c.Now()
 	if err := eng.RunTaskNow(context.Background(), id); err != nil {
