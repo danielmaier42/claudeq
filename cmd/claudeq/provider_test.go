@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -233,5 +234,30 @@ func TestCmdProviderRejectsBadInput(t *testing.T) {
 				t.Fatal("expected an error")
 			}
 		})
+	}
+}
+
+// TestCmdImportRefusesAnUnreadyProvider: a bundle carries no machine-local
+// provider, so the imported task runs on the default one — which still has to
+// be able to run it.
+func TestCmdImportRefusesAnUnreadyProvider(t *testing.T) {
+	src := newTestStore(t)
+	if err := app.AddTask(src, baseTask()); err != nil {
+		t.Fatalf("AddTask: %v", err)
+	}
+	out := filepath.Join(t.TempDir(), "shared.claudeq")
+	withProviderHealth(t, providerReady)
+	if err := cmdExport(src, []string{"nightly", "--out", out}); err != nil {
+		t.Fatalf("cmdExport: %v", err)
+	}
+
+	withProviderHealth(t, providerMissing)
+	dst := newTestStore(t)
+	if err := cmdImport(dst, []string{out}); err == nil {
+		t.Fatal("expected the import to be refused")
+	}
+	cfg, _ := dst.LoadConfig()
+	if len(cfg.Tasks) != 0 {
+		t.Fatalf("a refused import must not be stored, got %+v", cfg.Tasks)
 	}
 }
