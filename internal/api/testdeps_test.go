@@ -26,6 +26,18 @@ func (s stubAdapter) CheckHealth(context.Context, provider.Instance, provider.Pr
 	return s.health
 }
 
+func (stubAdapter) ListModels(context.Context, provider.Instance, provider.Prober) []provider.Model {
+	return []provider.Model{{ID: "sonnet", Label: "Sonnet (latest)"}}
+}
+
+func (stubAdapter) InteractiveResumeCommand(inst provider.Instance, req provider.Request) (provider.Command, error) {
+	args := []string{"--resume", req.SessionID}
+	if req.AccessMode.OrDefault() == provider.AccessFullAccess {
+		args = append(args, "--dangerously-skip-permissions")
+	}
+	return provider.Command{Path: inst.BinaryPath, Args: args}, nil
+}
+
 func (stubAdapter) Command(provider.Instance, provider.Request) (provider.Command, error) {
 	return provider.Command{}, nil
 }

@@ -55,7 +55,6 @@ type Deps struct {
 	Runner       RunNower        // optional; enables the run-now endpoint
 	Canceler     RunCanceler     // optional; enables the cancel-run endpoint
 	OpenTerminal TerminalOpener  // optional; enables the continue-run endpoint
-	Models       func() []Model  // optional; enables dynamic model listing
 	ChooseFolder FolderChooser   // optional; enables the native folder dialog
 	SaveFile     SaveFileDialog  // optional; enables the task export dialog
 	ActiveTasks  func() []string // optional; ids of currently-running tasks (hidden from the queue)
@@ -120,6 +119,7 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("DELETE /api/artifacts/{id}", s.deleteArtifact)
 	mux.HandleFunc("GET /api/artifacts/{id}/content", s.artifactContent)
 	mux.HandleFunc("GET /api/providers", s.listProviders)
+	mux.HandleFunc("GET /api/providers/kinds", s.listProviderKinds)
 	mux.HandleFunc("POST /api/providers", s.addProvider)
 	mux.HandleFunc("PUT /api/providers/{id}", s.updateProvider)
 	mux.HandleFunc("DELETE /api/providers/{id}", s.deleteProvider)
@@ -536,16 +536,12 @@ func (s *server) continueRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The interactive resume goes to the provider instance that owns the
-	// session. claudeq never offers to continue a Claude session on another
-	// account, let alone another harness.
-	bin, err := s.resumeBinary(*run.Task)
+	// session, and the adapter says how that harness reopens one. claudeq never
+	// offers to continue a session on another account, let alone another harness.
+	argv, err := s.resumeCommand(*run.Task, run.SessionID)
 	if err != nil {
 		writeErr(w, http.StatusConflict, err)
 		return
-	}
-	argv := []string{bin, "--resume", run.SessionID}
-	if run.Task.Permissions == task.PermissionsSkip {
-		argv = append(argv, "--dangerously-skip-permissions")
 	}
 	if err := s.d.OpenTerminal(r.Context(), run.Task.WorkingDir, argv); err != nil {
 		writeErr(w, http.StatusBadGateway, err)
@@ -554,30 +550,48 @@ func (s *server) continueRun(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// resumeBinary resolves the CLI that can reopen a run's session: the binary of
-// the provider instance the task runs on. A harness that cannot be resumed
-// interactively, or an instance that is no longer configured, is reported
-// instead of guessing at another one.
-func (s *server) resumeBinary(t task.Task) (string, error) {
+// resumeCommand builds the argv that reopens a run's session in a terminal. The
+// provider instance the task runs on owns the session, and its adapter knows how
+// that harness is asked to continue one — so a Codex thread is reopened with
+// Codex, with the same authority the run had.
+func (s *server) resumeCommand(t task.Task, sessionID string) ([]string, error) {
 	set, err := app.Providers(s.d.Store)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	resolved, err := set.Resolve(provider.Selection{ProviderID: t.Provider})
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	ad, err := s.d.Registry.Lookup(resolved.Instance.Kind)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if !ad.Capabilities().InteractiveResume {
-		return "", fmt.Errorf("%s cannot continue a session in a terminal", resolved.Instance.Label())
+		return nil, fmt.Errorf("%s cannot continue a session in a terminal", resolved.Instance.Label())
 	}
-	if bin := ad.ResolveBinary(resolved.Instance); bin != "" {
-		return bin, nil
+	if ad.ResolveBinary(resolved.Instance) == "" {
+		return nil, fmt.Errorf("%s is not installed on this Mac", resolved.Instance.Label())
 	}
-	return "", fmt.Errorf("%s is not installed on this Mac", resolved.Instance.Label())
+	cmd, err := ad.InteractiveResumeCommand(resolved.Instance, provider.Request{
+		SessionID:  sessionID,
+		WorkingDir: t.WorkingDir,
+		AccessMode: accessMode(t.Permissions),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return append([]string{cmd.Path}, cmd.Args...), nil
+}
+
+// accessMode maps a task's permission setting onto claudeq's provider-neutral
+// access intent, the same way the engine does for a run — so a continued session
+// gets exactly the authority the run it continues had.
+func accessMode(p task.Permissions) provider.AccessMode {
+	if p == task.PermissionsSkip {
+		return provider.AccessFullAccess
+	}
+	return provider.AccessProviderDefault
 }
 
 // runView is a run plus its unread flag and whether its interrupted session is
@@ -834,12 +848,33 @@ func (s *server) getStats(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, computeStats(runs, time.Now()))
 }
 
-func (s *server) listModels(w http.ResponseWriter, _ *http.Request) {
-	if s.d.Models != nil {
-		writeJSON(w, http.StatusOK, s.d.Models())
+// listModels answers with the models one provider suggests. The provider is
+// named by the `provider` query parameter; without one the default provider's
+// list is returned, which is what the task form wants before anything is chosen.
+//
+// A catalog is never validation: a model a task names but this list does not is
+// passed to the harness unchanged, so a discovery failure costs suggestions and
+// nothing else.
+func (s *server) listModels(w http.ResponseWriter, r *http.Request) {
+	set, ok := s.providerSet(w)
+	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, fallbackModels)
+	resolved, err := set.Resolve(provider.Selection{ProviderID: r.URL.Query().Get("provider")})
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err)
+		return
+	}
+	ad, err := s.d.Registry.Lookup(resolved.Instance.Kind)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err)
+		return
+	}
+	models := ad.ListModels(r.Context(), resolved.Instance, provider.ExecProber{})
+	if models == nil {
+		models = []provider.Model{}
+	}
+	writeJSON(w, http.StatusOK, models)
 }
 
 // getHealth reports daemon health the UI can warn about: whether scheduled-wake

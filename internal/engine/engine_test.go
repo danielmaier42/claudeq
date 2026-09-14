@@ -90,6 +90,14 @@ func (a *healthAdapter) CheckHealth(context.Context, provider.Instance, provider
 	return a.health
 }
 
+func (a *healthAdapter) ListModels(context.Context, provider.Instance, provider.Prober) []provider.Model {
+	return nil
+}
+
+func (a *healthAdapter) InteractiveResumeCommand(provider.Instance, provider.Request) (provider.Command, error) {
+	return provider.Command{}, nil
+}
+
 func (a *healthAdapter) Command(provider.Instance, provider.Request) (provider.Command, error) {
 	return provider.Command{}, nil
 }

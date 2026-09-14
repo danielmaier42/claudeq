@@ -88,6 +88,7 @@ func printTask(t task.Task) {
 	fmt.Printf("parallel:          %t\n", t.Parallel)
 	fmt.Printf("provider:          %s\n", orDefault(t.Provider, "(the default provider)"))
 	fmt.Printf("model:             %s\n", model)
+	fmt.Printf("reasoning_effort:  %s\n", orDefault(t.ReasoningEffort, "(the provider's own)"))
 	fmt.Printf("permissions:       %s\n", t.Permissions)
 	fmt.Printf("notify_on_result:  %t\n", t.NotifyOnResult)
 	fmt.Printf("quiet_history:     %t\n", t.QuietHistory)
@@ -147,6 +148,7 @@ func cmdEdit(st *store.Store, args []string) error {
 type taskSettings struct {
 	provider     string
 	model        string
+	reasoning    string
 	parallel     bool
 	skipPerms    bool
 	notify       bool
@@ -158,6 +160,7 @@ type taskSettings struct {
 func (s *taskSettings) register(fs *flag.FlagSet, dflt string) {
 	fs.StringVar(&s.provider, "provider", "", "provider instance to run on; empty = the default provider (default: "+dflt+")")
 	fs.StringVar(&s.model, "model", "", "model override; empty = the provider's default model (default: "+dflt+")")
+	fs.StringVar(&s.reasoning, "reasoning-effort", "", "how hard the model should think, for providers that take it (default: "+dflt+")")
 	fs.BoolVar(&s.parallel, "parallel", false, "allow running alongside other parallel tasks (default: "+dflt+")")
 	fs.BoolVar(&s.skipPerms, "skip-permissions", false, "bypass permission prompts (default: "+dflt+")")
 	fs.BoolVar(&s.notify, "notify", false, "notify on the run's result, not just failures (default: "+dflt+")")
@@ -178,6 +181,9 @@ func (s taskSettings) apply(t *task.Task, has func(string) bool) {
 	}
 	if has("model") {
 		t.Model = s.model
+	}
+	if has("reasoning-effort") {
+		t.ReasoningEffort = s.reasoning
 	}
 	if has("parallel") {
 		t.Parallel = s.parallel
@@ -331,20 +337,21 @@ func readPromptFile(path string) ([]byte, error) {
 // config.toml format untouched and lets fixed_at be an empty-able RFC3339
 // string.
 type taskDoc struct {
-	ID             string `toml:"id"`
-	Name           string `toml:"name"`
-	Enabled        bool   `toml:"enabled"`
-	WorkingDir     string `toml:"working_dir"`
-	Trigger        string `toml:"trigger"`
-	FixedAt        string `toml:"fixed_at"`
-	Cron           string `toml:"cron"`
-	Parallel       bool   `toml:"parallel"`
-	Provider       string `toml:"provider"`
-	Model          string `toml:"model"`
-	Permissions    string `toml:"permissions"`
-	NotifyOnResult bool   `toml:"notify_on_result"`
-	QuietHistory   bool   `toml:"quiet_history"`
-	Prompt         string `toml:"prompt,multiline"`
+	ID              string `toml:"id"`
+	Name            string `toml:"name"`
+	Enabled         bool   `toml:"enabled"`
+	WorkingDir      string `toml:"working_dir"`
+	Trigger         string `toml:"trigger"`
+	FixedAt         string `toml:"fixed_at"`
+	Cron            string `toml:"cron"`
+	Parallel        bool   `toml:"parallel"`
+	Provider        string `toml:"provider"`
+	Model           string `toml:"model"`
+	ReasoningEffort string `toml:"reasoning_effort"`
+	Permissions     string `toml:"permissions"`
+	NotifyOnResult  bool   `toml:"notify_on_result"`
+	QuietHistory    bool   `toml:"quiet_history"`
+	Prompt          string `toml:"prompt,multiline"`
 }
 
 const taskDocHeader = `# claudeq task — edit, save, and close this file to apply.
@@ -356,6 +363,7 @@ const taskDocHeader = `# claudeq task — edit, save, and close this file to app
 #   cron               5-field crontab expression, for trigger = "cron"
 #   provider           empty = the default provider (claudeq provider list)
 #   model              empty = the provider's own default model
+#   reasoning_effort   empty = the provider's own; ignored by providers without it
 #   permissions        default | skip  (skip bypasses permission prompts)
 #   quiet_history      true drops successful runs from history (frequent watcher jobs)
 `
@@ -364,7 +372,8 @@ func encodeTaskDoc(t task.Task) ([]byte, error) {
 	d := taskDoc{
 		ID: t.ID, Name: t.Name, Enabled: t.Enabled, WorkingDir: t.WorkingDir,
 		Trigger: string(t.Trigger), Cron: t.Cron, Parallel: t.Parallel,
-		Provider: t.Provider, Model: t.Model, Permissions: string(t.Permissions),
+		Provider: t.Provider, Model: t.Model, ReasoningEffort: t.ReasoningEffort,
+		Permissions:    string(t.Permissions),
 		NotifyOnResult: t.NotifyOnResult, QuietHistory: t.QuietHistory, Prompt: t.Prompt,
 	}
 	if !t.FixedAt.IsZero() {
@@ -394,7 +403,7 @@ func decodeTaskDoc(data []byte, orig task.Task) (task.Task, error) {
 	t := task.Task{
 		ID: d.ID, Name: d.Name, Prompt: d.Prompt, WorkingDir: d.WorkingDir,
 		Trigger: task.Trigger(d.Trigger), Cron: d.Cron, Parallel: d.Parallel,
-		Enabled: d.Enabled, Provider: d.Provider, Model: d.Model,
+		Enabled: d.Enabled, Provider: d.Provider, Model: d.Model, ReasoningEffort: d.ReasoningEffort,
 		Permissions: task.Permissions(d.Permissions), NotifyOnResult: d.NotifyOnResult,
 		QuietHistory: d.QuietHistory,
 	}

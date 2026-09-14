@@ -653,6 +653,15 @@ type Settings struct {
 	// PromptReviewModel is the model used for that review. Empty means "the same
 	// model as everything else", i.e. the reviewing provider's default model.
 	PromptReviewModel string `toml:"prompt_review_model,omitempty" json:"prompt_review_model"`
+	// ShowCodexBeta reveals the Codex provider in the app: its setup in Settings
+	// and its entry in the task form.
+	//
+	// It is presentation state and nothing else. The adapter is always
+	// registered, the API and the CLI always accept Codex, and the scheduler
+	// never looks at this flag — so a Codex task made from the command line runs,
+	// and stays visible in Queue and Activity, whatever the app is showing.
+	// Hiding setup controls must never hide actual work.
+	ShowCodexBeta bool `toml:"show_codex_beta,omitempty" json:"show_codex_beta"`
 }
 
 // ErrPaused is what a refused run carries while Settings.Paused is on. A pause

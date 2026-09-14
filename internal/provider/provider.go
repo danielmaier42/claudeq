@@ -36,6 +36,9 @@ type Kind string
 // same string by construction.
 const KindClaudeCode Kind = store.DefaultProviderKind
 
+// KindCodex is the adapter for the Codex CLI.
+const KindCodex Kind = "codex"
+
 // Instance is a configured adapter instance — the thing a task selects by ID.
 // It is the domain form of [store.Provider]: the store owns how it is written
 // to config.toml, this package owns what it means.
@@ -143,6 +146,10 @@ type Capabilities struct {
 	RateLimitResume bool
 	// Subagents: the harness runs its own subagents inside one job.
 	Subagents bool
+	// Beta marks an adapter claudeq does not yet consider finished. It is a
+	// property of the adapter, not a preference: the app uses it to label and to
+	// decide what to offer, so nothing has to branch on a particular kind.
+	Beta bool
 	// AccessModes lists the access modes this adapter can actually enforce.
 	AccessModes []AccessMode
 }
@@ -177,6 +184,10 @@ type Request struct {
 	// SystemPrompt is claudeq's own run guidance, to be delivered alongside the
 	// harness's built-in instructions rather than replacing them.
 	SystemPrompt string
+	// ReasoningEffort is how hard the model should think, for the harnesses that
+	// take such a setting. Empty leaves it to the harness. An adapter whose
+	// Capabilities do not claim ReasoningEffort ignores it.
+	ReasoningEffort string
 }
 
 // Command is the process invocation an adapter produced for a [Request].
@@ -189,6 +200,18 @@ type Command struct {
 	// configuration-directory variable). They are appended to the daemon's
 	// environment, so a later entry wins.
 	Env []string
+	// Stdin is written to the process's standard input, which is how a harness
+	// that takes its prompt there receives it. Empty attaches nothing, and the
+	// process sees an immediately closed stdin.
+	Stdin string
+}
+
+// Model is a model an adapter offers as a suggestion. The id is what a task
+// stores; the label is what the app shows. A catalog is never validation: a
+// model a task names but this list does not is passed to the harness anyway.
+type Model struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
 }
 
 // EventType is a normalized application event. Adapters translate their
@@ -286,8 +309,17 @@ type Adapter interface {
 	// look at the filesystem and ask the CLI cheap questions through p — its
 	// version, whether it is logged in — but must never consume model usage.
 	CheckHealth(ctx context.Context, inst Instance, p Prober) Health
+	// ListModels returns the models this instance suggests, best effort. It may
+	// ask the CLI through p, must never consume model usage, and returns its own
+	// fallback list rather than nothing when discovery fails — a provider whose
+	// catalog cannot be read is still perfectly able to run.
+	ListModels(ctx context.Context, inst Instance, p Prober) []Model
 	// Command builds the invocation for a run on the given instance.
 	Command(inst Instance, req Request) (Command, error)
+	// InteractiveResumeCommand builds the command that reopens a finished run's
+	// session in a terminal. Adapters whose Capabilities do not claim
+	// InteractiveResume return ErrUnsupported.
+	InteractiveResumeCommand(inst Instance, req Request) (Command, error)
 	// NewParser returns a parser for one run's output.
 	NewParser() Parser
 }

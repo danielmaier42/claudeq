@@ -170,6 +170,14 @@ func (s stubAdapter) CheckHealth(context.Context, provider.Instance, provider.Pr
 	return s.health
 }
 
+func (s stubAdapter) ListModels(context.Context, provider.Instance, provider.Prober) []provider.Model {
+	return nil
+}
+
+func (s stubAdapter) InteractiveResumeCommand(provider.Instance, provider.Request) (provider.Command, error) {
+	return provider.Command{}, nil
+}
+
 func (s stubAdapter) Command(provider.Instance, provider.Request) (provider.Command, error) {
 	return provider.Command{}, nil
 }

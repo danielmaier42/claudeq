@@ -31,6 +31,22 @@ type Adapter struct {
 	mu       sync.Mutex
 	probed   bool   // DetectBinary has run (see DetectBinary)
 	detected string // what it found; "" means the CLI was not located
+
+	// catalog holds the model list, asked at most once per process: a binary's
+	// own help text does not change while the daemon runs.
+	catalog cachedProbe[[]provider.Model]
+}
+
+// cachedProbe holds the answer to a question that is expensive to ask and does
+// not change while the daemon runs.
+type cachedProbe[T any] struct {
+	once sync.Once
+	val  T
+}
+
+func (c *cachedProbe[T]) do(ask func() T) T {
+	c.once.Do(func() { c.val = ask() })
+	return c.val
 }
 
 // New returns the Claude Code adapter.

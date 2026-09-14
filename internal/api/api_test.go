@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/danielmaier42/claudeq/internal/app"
+	"github.com/danielmaier42/claudeq/internal/provider"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
 )
@@ -756,17 +757,24 @@ func TestGetStatsEndpoint(t *testing.T) {
 	}
 }
 
+// TestListModels: the catalog belongs to a provider, so the endpoint asks the
+// adapter of the instance named in the query — or of the default one.
 func TestListModels(t *testing.T) {
 	srv, _ := newServer(t, nil)
-	var models []Model
-	do(t, srv, "GET", "/api/models", nil).into(t, &models)
-	if len(models) == 0 {
-		t.Fatal("expected at least one model")
-	}
-	for _, m := range models {
-		if m.ID == "" || m.Label == "" {
-			t.Fatalf("model missing id/label: %+v", m)
+	for _, path := range []string{"/api/models", "/api/models?provider=claude"} {
+		var models []provider.Model
+		do(t, srv, "GET", path, nil).into(t, &models)
+		if len(models) == 0 {
+			t.Fatalf("%s: expected at least one model", path)
 		}
+		for _, m := range models {
+			if m.ID == "" || m.Label == "" {
+				t.Fatalf("%s: model missing id/label: %+v", path, m)
+			}
+		}
+	}
+	if r := do(t, srv, "GET", "/api/models?provider=nope", nil); r.Status != http.StatusNotFound {
+		t.Fatalf("an unknown provider = %d, want 404", r.Status)
 	}
 }
 

@@ -464,6 +464,7 @@ func (e *Engine) launchTask(t task.Task, settings store.Settings, resolved provi
 		Resume:             resume,
 		Model:              resolved.Model,
 		AccessMode:         accessMode(t.Permissions),
+		ReasoningEffort:    t.ReasoningEffort,
 		CustomSystemPrompt: settings.SystemPrompt,
 		IdleTimeout:        settings.IdleTimeout(),
 		Log:                logFile,

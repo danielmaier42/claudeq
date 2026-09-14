@@ -22,6 +22,35 @@ type providerView struct {
 	// Detected is the binary claudeq would use when no path is configured, so
 	// the Settings card can offer it instead of asking the operator to find it.
 	Detected string `json:"detected,omitempty"`
+	// Beta marks an instance of an adapter claudeq does not consider finished,
+	// so the app can say so wherever it names the provider.
+	Beta bool `json:"beta,omitempty"`
+}
+
+// providerKind is one adapter this build can run, for the "add a provider" form.
+type providerKind struct {
+	Kind string `json:"kind"`
+	// Beta marks a kind claudeq does not consider finished. The app offers it
+	// only after the operator asks for beta features; everything else about it —
+	// the API, the CLI, the scheduler — works either way.
+	Beta bool `json:"beta"`
+}
+
+// listProviderKinds reports the adapters this build supports. The app needs it
+// to offer anything but the kind it already has, and it is the registry that
+// answers — so a later adapter appears here by being registered, with no change
+// on this side.
+func (s *server) listProviderKinds(w http.ResponseWriter, _ *http.Request) {
+	kinds := s.d.Registry.Kinds()
+	out := make([]providerKind, 0, len(kinds))
+	for _, k := range kinds {
+		ad, err := s.d.Registry.Lookup(k)
+		if err != nil {
+			continue
+		}
+		out = append(out, providerKind{Kind: string(k), Beta: ad.Capabilities().Beta})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // providerSet reads the configured instances, answering the caller with a plain
@@ -46,8 +75,9 @@ func (s *server) views(ctx context.Context, set provider.Set, only string, fresh
 		}
 		h := s.d.Providers.CheckMaybeFresh(ctx, inst, fresh)
 		v := providerView{Instance: inst, Health: h, Default: inst.ID == set.DefaultID()}
-		if inst.BinaryPath == "" {
-			if ad, err := s.d.Registry.Lookup(inst.Kind); err == nil {
+		if ad, err := s.d.Registry.Lookup(inst.Kind); err == nil {
+			v.Beta = ad.Capabilities().Beta
+			if inst.BinaryPath == "" {
 				v.Detected = ad.DetectBinary()
 			}
 		}

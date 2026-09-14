@@ -1,0 +1,217 @@
+// Package codex is the provider adapter for the Codex CLI. It owns everything
+// claudeq knows about that harness: how `codex exec` is invoked, how its JSONL
+// stream maps onto claudeq's normalized events, how a thread is resumed, and how
+// its account directory is selected. Nothing outside this package needs to know
+// any of it.
+//
+// What the CLI actually does was established by the spike in
+// .wip/multi-provider/CODEX_PROVIDER_SPIKE.md against codex-cli 0.154.0; the
+// sanitized fixtures it captured drive this package's parser tests.
+package codex
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/danielmaier42/claudeq/internal/provider"
+)
+
+// BinaryName is the CLI's command name, used when no path is configured and
+// detection found nothing — the exec lookup may still succeed at run time.
+const BinaryName = "codex"
+
+// ConfigDirEnv is the environment variable Codex reads its configuration,
+// credentials and stored threads from. An instance with its own directory is
+// how a second Codex account stays separate.
+const ConfigDirEnv = "CODEX_HOME"
+
+// developerInstructionsKey is the config override claudeq delivers its run
+// contract through. Codex *replaces* this value rather than appending to it, so
+// the adapter must not use it blindly — see Command.
+const developerInstructionsKey = "developer_instructions"
+
+// Adapter runs jobs through the Codex CLI.
+type Adapter struct {
+	// detect locates the CLI; swapped in tests.
+	detect func() string
+
+	binary  cachedProbe[string]
+	catalog cachedProbe[[]provider.Model]
+}
+
+// New returns the Codex adapter.
+func New() *Adapter { return &Adapter{detect: DetectBinary} }
+
+// Kind implements provider.Adapter.
+func (a *Adapter) Kind() provider.Kind { return provider.KindCodex }
+
+// Capabilities implements provider.Adapter. Codex takes a sandbox mode on the
+// command line, so unlike Claude Code it can actually enforce the restricted
+// access modes, and it reports token usage but no monetary cost.
+func (a *Adapter) Capabilities() provider.Capabilities {
+	return provider.Capabilities{
+		SessionResume:     true,
+		InteractiveResume: true,
+		StructuredOutput:  true,
+		ModelDiscovery:    true,
+		ReasoningEffort:   true,
+		UsageMetrics:      true,
+		CostMetrics:       false,
+		RateLimitResume:   true,
+		Subagents:         true,
+		// Beta until the one open spike question is answered: what a real
+		// ChatGPT allowance exhaustion looks like in the JSONL stream.
+		Beta: true,
+		AccessModes: []provider.AccessMode{
+			provider.AccessProviderDefault,
+			provider.AccessReadOnly,
+			provider.AccessWorkspaceWrite,
+			provider.AccessFullAccess,
+		},
+	}
+}
+
+// DetectBinary locates the CLI, probing at most once per process — the
+// login-shell fallback is far too expensive to repeat before every job.
+func (a *Adapter) DetectBinary() string {
+	return a.binary.do(func() string { return a.detect() })
+}
+
+// ResolveBinary implements provider.Adapter: the instance's configured path
+// first, then detection, then "" when the CLI cannot be located at all.
+func (a *Adapter) ResolveBinary(inst provider.Instance) string {
+	if inst.BinaryPath != "" {
+		return inst.BinaryPath
+	}
+	return a.DetectBinary()
+}
+
+// binaryOr resolves the executable for a run, falling back to the bare name so
+// an exec-time PATH lookup still gets a chance.
+func (a *Adapter) binaryOr(inst provider.Instance) string {
+	if p := a.ResolveBinary(inst); p != "" {
+		return p
+	}
+	return BinaryName
+}
+
+// sandboxFor maps claudeq's access intent onto Codex's --sandbox values. The
+// provider default is expressed by passing no flag at all, so the instance's own
+// configuration decides — which is exactly what "provider-default" promises.
+func sandboxFor(mode provider.AccessMode) (string, bool) {
+	switch mode {
+	case provider.AccessReadOnly:
+		return "read-only", true
+	case provider.AccessWorkspaceWrite:
+		return "workspace-write", true
+	case provider.AccessFullAccess:
+		return "danger-full-access", true
+	default:
+		return "", false
+	}
+}
+
+// Command implements provider.Adapter. The shape is the one the spike verified:
+// the prompt goes in through stdin with "-" as the positional argument, because
+// passing it as an argument while stdin is not a terminal made Codex announce
+// that it was reading stdin as well.
+func (a *Adapter) Command(inst provider.Instance, req provider.Request) (provider.Command, error) {
+	if req.SessionID == "" {
+		return provider.Command{}, fmt.Errorf("codex: a run needs a session id")
+	}
+	access := req.AccessMode.OrDefault()
+	if !a.Capabilities().SupportsAccess(access) {
+		return provider.Command{}, provider.UnsupportedAccessError(inst, access)
+	}
+
+	args := []string{"exec"}
+	if req.Resume {
+		// `codex exec resume <thread>` continues the thread the run started.
+		args = append(args, "resume")
+	}
+	args = append(args, "--json")
+	if sandbox, ok := sandboxFor(access); ok {
+		args = append(args, "--sandbox", sandbox)
+	}
+	if req.WorkingDir != "" {
+		args = append(args, "--cd", req.WorkingDir)
+	}
+	if req.Model != "" {
+		args = append(args, "--model", req.Model)
+	}
+	if req.ReasoningEffort != "" {
+		args = append(args, "-c", "model_reasoning_effort="+tomlString(req.ReasoningEffort))
+	}
+	// The override replaces the configured value, so the instance's own
+	// developer instructions are read and carried along rather than dropped.
+	if prompt := developerInstructions(req.SystemPrompt, ownInstructions(inst.ConfigDir)); prompt != "" {
+		args = append(args, "-c", developerInstructionsKey+"="+tomlString(prompt))
+	}
+	if req.Resume {
+		args = append(args, req.SessionID)
+	}
+	args = append(args, "-")
+
+	return provider.Command{
+		Path:  a.binaryOr(inst),
+		Args:  args,
+		Env:   a.env(inst),
+		Stdin: req.Prompt,
+	}, nil
+}
+
+// InteractiveResumeCommand implements provider.Adapter: the command that reopens
+// a finished run's thread in a terminal. --include-non-interactive is what makes
+// a thread created by `codex exec` resolvable here.
+func (a *Adapter) InteractiveResumeCommand(inst provider.Instance, req provider.Request) (provider.Command, error) {
+	if req.SessionID == "" {
+		return provider.Command{}, fmt.Errorf("codex: continuing a session needs its id")
+	}
+	access := req.AccessMode.OrDefault()
+	if !a.Capabilities().SupportsAccess(access) {
+		return provider.Command{}, provider.UnsupportedAccessError(inst, access)
+	}
+	args := []string{"resume", "--include-non-interactive"}
+	if sandbox, ok := sandboxFor(access); ok {
+		args = append(args, "--sandbox", sandbox)
+	}
+	if req.WorkingDir != "" {
+		args = append(args, "--cd", req.WorkingDir)
+	}
+	args = append(args, req.SessionID)
+	return provider.Command{Path: a.binaryOr(inst), Args: args, Env: a.env(inst)}, nil
+}
+
+// env is the instance's own environment: its account directory, when it has one.
+func (a *Adapter) env(inst provider.Instance) []string {
+	if inst.ConfigDir == "" {
+		return nil
+	}
+	return []string{ConfigDirEnv + "=" + inst.ConfigDir}
+}
+
+// tomlString quotes a value for a `-c key=value` override, which Codex parses as
+// TOML. A run contract is several paragraphs with quotes and newlines in it, so
+// this is not optional.
+func tomlString(v string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range v {
+		switch r {
+		case '"':
+			b.WriteString(`\"`)
+		case '\\':
+			b.WriteString(`\\`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
+}

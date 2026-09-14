@@ -183,6 +183,9 @@ type Request struct {
 	Model string
 	// AccessMode is the authority this run gets.
 	AccessMode provider.AccessMode
+	// ReasoningEffort is the task's reasoning-effort setting, passed only to a
+	// harness whose adapter claims it.
+	ReasoningEffort string
 	// CustomSystemPrompt is the operator's optional system prompt (Settings.
 	// SystemPrompt). It is appended after the built-in prompt; blank means none.
 	CustomSystemPrompt string
@@ -196,13 +199,14 @@ type Request struct {
 // providerRequest is the neutral description of this run handed to the adapter.
 func (r Request) providerRequest() provider.Request {
 	return provider.Request{
-		Prompt:       r.Task.Prompt,
-		WorkingDir:   r.Task.WorkingDir,
-		Model:        r.Model,
-		SessionID:    r.SessionID,
-		Resume:       r.Resume,
-		AccessMode:   r.AccessMode,
-		SystemPrompt: systemPrompt(r.CustomSystemPrompt),
+		Prompt:          r.Task.Prompt,
+		WorkingDir:      r.Task.WorkingDir,
+		Model:           r.Model,
+		SessionID:       r.SessionID,
+		Resume:          r.Resume,
+		AccessMode:      r.AccessMode,
+		SystemPrompt:    systemPrompt(r.CustomSystemPrompt),
+		ReasoningEffort: r.ReasoningEffort,
 	}
 }
 
@@ -276,7 +280,11 @@ func (e *Executor) Run(ctx context.Context, req Request) (provider.Result, error
 	cmd := exec.CommandContext(runCtx, invocation.Path, invocation.Args...) //nolint:gosec // the path comes from the configured provider instance or its adapter's detection
 	cmd.Dir = req.Task.WorkingDir
 	cmd.Env = e.runEnv(req, invocation.Env) // lets the run queue follow-up tasks (self-queue)
-	configureProcessGroup(cmd)              // so a killed run takes its child processes with it
+	configureProcessGroup(cmd)              // so a killed run takes its whole process tree with it
+	// A harness that takes its prompt on stdin gets it here. One that does not
+	// sees stdin closed immediately, which is what it wants: a headless run must
+	// never sit waiting for input nobody will type.
+	cmd.Stdin = strings.NewReader(invocation.Stdin)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

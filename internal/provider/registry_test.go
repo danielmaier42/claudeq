@@ -34,6 +34,14 @@ func (f *fakeAdapter) CheckHealth(_ context.Context, _ Instance, _ Prober) Healt
 	return f.health
 }
 
+func (f *fakeAdapter) ListModels(context.Context, Instance, Prober) []Model {
+	return []Model{{ID: "fake-model", Label: "Fake model"}}
+}
+
+func (f *fakeAdapter) InteractiveResumeCommand(_ Instance, req Request) (Command, error) {
+	return Command{Path: f.binary, Args: []string{"resume", req.SessionID}}, nil
+}
+
 func (f *fakeAdapter) Command(_ Instance, req Request) (Command, error) {
 	if !f.caps.SupportsAccess(req.AccessMode.OrDefault()) {
 		return Command{}, UnsupportedAccessError(Instance{ID: string(f.kind)}, req.AccessMode)

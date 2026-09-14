@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/danielmaier42/claudeq/internal/provider"
@@ -179,4 +180,104 @@ func redact(s string) string {
 		return string(r[:limit]) + "…"
 	}
 	return line
+}
+
+// aliasPref are the model tiers claudeq knows Claude Code accepts, in the order
+// it offers them. Every one is always selectable: the CLI's `--model` help text
+// names only a couple as examples, so it cannot be read as the full set.
+var aliasPref = []string{"opus", "sonnet", "haiku", "fable"}
+
+// quotedRe finds the aliases the help text quotes.
+var quotedRe = regexp.MustCompile(`'([a-zA-Z0-9-]+)'`)
+
+// ListModels implements provider.Adapter: the known tiers, plus any further
+// alias this binary's own `--help` advertises for --model. A binary that cannot
+// be asked still yields the known tiers, because a model list is a suggestion
+// and a provider whose catalog cannot be read runs perfectly well.
+func (a *Adapter) ListModels(ctx context.Context, inst provider.Instance, p provider.Prober) []provider.Model {
+	return a.catalog.do(func() []provider.Model {
+		bin := a.ResolveBinary(inst)
+		if bin == "" {
+			return orderAliases(nil)
+		}
+		out, err := p.Probe(ctx, a.probeCommand(inst, bin, "--help"))
+		if err != nil {
+			return orderAliases(nil)
+		}
+		return orderAliases(aliasesFromHelp(string(out)))
+	})
+}
+
+// aliasesFromHelp extracts the model aliases advertised in the --model help text.
+func aliasesFromHelp(help string) []string {
+	i := strings.Index(help, "--model <model>")
+	if i < 0 {
+		return nil
+	}
+	end := min(i+500, len(help))
+	seen := map[string]bool{}
+	var aliases []string
+	for _, m := range quotedRe.FindAllStringSubmatch(help[i:end], -1) {
+		tok := m[1]
+		// Skip full model names (claude-fable-5 and the like); the aliases are
+		// what a task should store, because they follow the latest release.
+		if strings.HasPrefix(tok, "claude-") || seen[tok] {
+			continue
+		}
+		seen[tok] = true
+		aliases = append(aliases, tok)
+	}
+	return aliases
+}
+
+// orderAliases turns the advertised aliases into the selectable list: every
+// known tier first, in aliasPref order, then anything else the help mentioned,
+// in the order it appeared.
+func orderAliases(aliases []string) []provider.Model {
+	extra := map[string]bool{}
+	for _, a := range aliases {
+		extra[a] = true
+	}
+	out := make([]provider.Model, 0, len(aliasPref)+len(aliases))
+	for _, pref := range aliasPref {
+		out = append(out, provider.Model{ID: pref, Label: title(pref) + " (latest)"})
+		delete(extra, pref)
+	}
+	for _, a := range aliases {
+		if extra[a] {
+			out = append(out, provider.Model{ID: a, Label: title(a)})
+			delete(extra, a)
+		}
+	}
+	return out
+}
+
+func title(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// InteractiveResumeCommand implements provider.Adapter: `claude --resume` in the
+// task's directory, with the same authority the run had — a task that skipped
+// permission prompts resumes the same way, so the continued session behaves like
+// the one it continues.
+func (a *Adapter) InteractiveResumeCommand(inst provider.Instance, req provider.Request) (provider.Command, error) {
+	if req.SessionID == "" {
+		return provider.Command{}, fmt.Errorf("claude-code: continuing a session needs its id")
+	}
+	access := req.AccessMode.OrDefault()
+	if !a.Capabilities().SupportsAccess(access) {
+		return provider.Command{}, provider.UnsupportedAccessError(inst, access)
+	}
+	args := []string{"--resume", req.SessionID}
+	if access == provider.AccessFullAccess {
+		args = append(args, "--dangerously-skip-permissions")
+	}
+	cmd := provider.Command{Path: a.binary(inst), Args: args}
+	if inst.ConfigDir != "" {
+		cmd.Env = append(cmd.Env, ConfigDirEnv+"="+inst.ConfigDir)
+	}
+	return cmd, nil
 }
