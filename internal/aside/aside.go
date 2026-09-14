@@ -50,7 +50,7 @@ var ErrUnavailable = errors.New("this provider cannot answer claudeq's own quest
 func (r *Runner) Ask(ctx context.Context, inst provider.Instance, req provider.AsideRequest) (provider.Aside, error) {
 	ad, err := r.Registry.Lookup(inst.Kind)
 	if err != nil {
-		return provider.Aside{}, fmt.Errorf("%w: %s", ErrUnavailable, err)
+		return provider.Aside{}, fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
 	if !ad.Capabilities().Asides {
 		return provider.Aside{}, fmt.Errorf("%w: %s", ErrUnavailable, inst.Label())
