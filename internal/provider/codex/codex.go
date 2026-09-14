@@ -36,7 +36,7 @@ type Adapter struct {
 	detect func() string
 
 	binary  cachedProbe[string]
-	catalog cachedProbe[[]provider.Model]
+	catalog provider.Catalog
 }
 
 // New returns the Codex adapter.

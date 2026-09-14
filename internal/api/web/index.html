@@ -650,7 +650,7 @@ async function loadTasks(){
   // whether Run now is offered at all, and both must be right on every poll.
   let tasks, paused=false;
   try{ const [t,s,ps]=await Promise.all([api('GET','/api/tasks'),api('GET','/api/settings'),api('GET','/api/providers')]);
-    tasks=t; paused=!!s.paused; PROVIDERS=ps||[]; setConn(true);
+    tasks=t; paused=!!s.paused; PROVIDERS=ps||[]; SHOW_BETA=!!s.show_codex_beta; setConn(true);
     BETA_PROVIDERS=new Set(PROVIDERS.filter(p=>p.beta).flatMap(p=>p.default?[p.id,'']:[p.id]));
   }catch(e){ setConn(false); return; }
   tasks=tasks||[];
@@ -748,7 +748,12 @@ const REASONING_LEVELS=['low','medium','high','xhigh'];
 // with the reason it is blocked rather than being quietly moved.
 async function fillProviderChoices(providerID, model, effort){
   const sel=$('#f-provider');
-  if(!PROVIDERS.length){ try{ PROVIDERS=await api('GET','/api/providers')||[]; }catch{} }
+  if(!PROVIDERS.length){
+    try{
+      const [ps,st]=await Promise.all([api('GET','/api/providers'),api('GET','/api/settings')]);
+      PROVIDERS=ps||[]; SHOW_BETA=!!st.show_codex_beta;
+    }catch{}
+  }
   const offered=PROVIDERS.filter(p=>p.enabled&&p.health&&p.health.state==='ready'&&(!p.beta||betaAllowed()));
   const current=PROVIDERS.find(p=>p.id===providerID);
   if(providerID && current && !offered.some(p=>p.id===providerID)) offered.push(current);
@@ -1474,12 +1479,14 @@ async function loadSettings(){
   $('#s-wh-enabled').checked=!!s.webhook?.enabled; $('#s-wh-url').value=s.webhook?.url||'';
   $('#s-wh-template').value=s.webhook?.template||'';
   $('#s-sysprompt').value=s.system_prompt||'';
-  $('#s-beta-codex').checked=!!s.show_codex_beta;
+  SHOW_BETA=!!s.show_codex_beta;
+  $('#s-beta-codex').checked=SHOW_BETA;
   // Revealing beta providers changes what may be added and what a task may be
   // pointed at, so the lists are rebuilt rather than left saying something else.
   $('#s-beta-codex').onchange=async e=>{
     try{ await api('PUT','/api/settings',{...(await api('GET','/api/settings')),show_codex_beta:e.target.checked}); }
     catch(err){ toast(err.message,'err'); e.target.checked=!e.target.checked; return; }
+    SHOW_BETA=e.target.checked;
     loadProviders();
   };
   // The Settings view is rebuilt on every visit, so its review controller is
@@ -1531,10 +1538,14 @@ async function loadProviders(){
   PROVIDERS.forEach(p=>box.append(providerCard(p)));
   renderAddProvider();
 }
-// betaAllowed reports whether the app may offer a provider claudeq does not
-// consider finished. It gates offering only: a beta provider that is already
-// configured keeps its card and runs its tasks either way.
-function betaAllowed(){ return !!$('#s-beta-codex')?.checked; }
+// SHOW_BETA is the operator's "offer providers that are still in beta"
+// preference, read from the settings rather than from the Settings form — the
+// task sheet needs it on a fresh page load, long before that form exists.
+//
+// It gates offering only: a beta provider that is already configured keeps its
+// card and runs its tasks either way.
+let SHOW_BETA=false;
+function betaAllowed(){ return SHOW_BETA; }
 function providerCard(p){
   const wrap=el('div');
   const detected=p.detected?`Detected: ${p.detected}`:'';
@@ -1601,9 +1612,12 @@ function providerCard(p){
 // kept even when the list does not contain it: a model catalog is a suggestion,
 // never validation.
 async function fillProviderModels(select,p){
-  select.innerHTML=`<option value="">Provider default</option>`;
+  // The stored value is rendered first and replaced only once the real list has
+  // arrived: blanking the field while the request is out would let a Save in
+  // that window write an empty default model.
+  select.innerHTML=modelOptionsFrom([],p.default_model||'','Provider default');
   let models=[];
-  try{ models=await api('GET','/api/models?provider='+encodeURIComponent(p.id))||[]; }catch{}
+  try{ models=await api('GET','/api/models?provider='+encodeURIComponent(p.id))||[]; }catch{ return; }
   select.innerHTML=modelOptionsFrom(models,p.default_model||'','Provider default');
 }
 // renderAddProvider offers a second instance: another account of a harness you

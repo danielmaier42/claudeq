@@ -581,7 +581,7 @@ func cmdRunNow(st *store.Store, id string) error {
 	// claudeq CLI, so its own path is the queue binary.
 	self, _ := os.Executable()
 	registry := adapters.Default()
-	eng := engine.New(st, limit.New(c), &executor.Executor{
+	eng := engine.New(st, limit.NewGates(c), &executor.Executor{
 		Registry: registry, Home: st.Home(), QueueBin: self,
 	}, c, provider.NewChecker(registry))
 	fmt.Printf("running task %q now...\n", id)

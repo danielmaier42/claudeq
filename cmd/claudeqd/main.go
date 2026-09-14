@@ -137,7 +137,7 @@ func cmdRun(args []string) error {
 	reportProviderHealth(st, checker)
 
 	c := clock.Real{}
-	eng := engine.New(st, limit.New(c), &executor.Executor{
+	eng := engine.New(st, limit.NewGates(c), &executor.Executor{
 		Registry: registry,
 		Home:     home,
 		QueueBin: resolveQueueBin(),

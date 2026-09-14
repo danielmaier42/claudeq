@@ -448,3 +448,54 @@ func TestListModelsFallsBackToTheBundledList(t *testing.T) {
 		})
 	}
 }
+
+// TestCatalogIsPerInstance: two instances of one kind can be two installations
+// — a second account, or a path pointing at another build — so one answer for
+// both would show the wrong models for the second.
+func TestCatalogIsPerInstance(t *testing.T) {
+	a := newAdapter("")
+	first, second := instance(fakeBinary(t)), instance(fakeBinary(t))
+	p := &fakeProber{out: map[string][]byte{
+		"debug": []byte(`{"models":[{"slug":"only-here","display_name":"Only here"}]}`),
+	}}
+	if got := a.ListModels(context.Background(), first, p); len(got) != 1 || got[0].ID != "only-here" {
+		t.Fatalf("models = %+v, want the discovered one", got)
+	}
+	p.out["debug"] = []byte(`{"models":[{"slug":"other-build"}]}`)
+	if got := a.ListModels(context.Background(), second, p); len(got) != 1 || got[0].ID != "other-build" {
+		t.Fatalf("models = %+v, want the second instance asked for itself", got)
+	}
+}
+
+// TestAFallbackCatalogIsNotRemembered: a provider whose CLI was not installed
+// yet must not be stuck on the fallback list for the daemon's lifetime.
+func TestAFallbackCatalogIsNotRemembered(t *testing.T) {
+	a := newAdapter("")
+	inst := instance(fakeBinary(t))
+	failing := &fakeProber{err: map[string]error{"debug": errors.New("unknown command")}}
+	if got := a.ListModels(context.Background(), inst, failing); len(got) != len(bundledModels) {
+		t.Fatalf("models = %+v, want the fallback", got)
+	}
+	working := &fakeProber{out: map[string][]byte{
+		"debug": []byte(`{"models":[{"slug":"now-installed"}]}`),
+	}}
+	if got := a.ListModels(context.Background(), inst, working); len(got) != 1 || got[0].ID != "now-installed" {
+		t.Fatalf("models = %+v, want the real catalog once it can be read", got)
+	}
+}
+
+// TestLoginStatusThatCouldNotBeAskedIsNotALogout: "I could not ask" must not
+// read as "nobody is signed in" — that verdict refuses new tasks.
+func TestLoginStatusThatCouldNotBeAskedIsNotALogout(t *testing.T) {
+	p := &fakeProber{
+		out: map[string][]byte{"--version": []byte("codex-cli 0.154.0")},
+		err: map[string]error{"login": errors.New("signal: killed")},
+	}
+	h := newAdapter("").CheckHealth(context.Background(), instance(fakeBinary(t)), p)
+	if h.State != provider.HealthCheckFailed {
+		t.Fatalf("state = %q (%s), want check_failed", h.State, h.Reason)
+	}
+	if h.KnownUnready() {
+		t.Fatal("an unanswered probe must not refuse new tasks")
+	}
+}

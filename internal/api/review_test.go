@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/danielmaier42/claudeq/internal/provider"
 	"github.com/danielmaier42/claudeq/internal/review"
 	"github.com/danielmaier42/claudeq/internal/store"
 )
@@ -231,5 +232,44 @@ func TestReviewPromptCancelsThePreviousReview(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("the superseded review was never cancelled")
+	}
+}
+
+// TestReviewRunsOnClaudeCodeOnly: the reviewer builds Claude Code's own flags,
+// so pointing it at another harness would exec a command that harness does not
+// have. It reports itself unavailable instead — the same "nothing to show here"
+// as a missing binary.
+func TestReviewRunsOnClaudeCodeOnly(t *testing.T) {
+	rv := &fakeReviewer{res: review.Result{OK: true}}
+	srv, st := newReviewServer(t, rv, store.Settings{}, "/opt/claude", "sonnet")
+	if err := st.UpdateConfig(func(cfg *store.Config) error {
+		cfg.Providers[0].Kind = string(provider.KindCodex)
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+
+	r := do(t, srv, "POST", "/api/review/prompt", reviewRequest{Kind: "task", Prompt: "p"})
+	if r.Status != http.StatusOK {
+		t.Fatalf("status = %d (%s)", r.Status, r.Body)
+	}
+	var got reviewResponse
+	r.into(t, &got)
+	if got.Enabled {
+		t.Fatal("the review must report itself unavailable rather than run on another harness")
+	}
+	if rv.count() != 0 {
+		t.Fatal("no review may be started against a harness whose flags it does not speak")
+	}
+}
+
+// TestReviewFallsBackToTheProvidersDefaultModel: an empty review model means
+// "the same model as everything else", which is now the provider's default.
+func TestReviewFallsBackToTheProvidersDefaultModel(t *testing.T) {
+	rv := &fakeReviewer{res: review.Result{OK: true}}
+	srv, _ := newReviewServer(t, rv, store.Settings{}, "/opt/claude", "sonnet")
+	do(t, srv, "POST", "/api/review/prompt", reviewRequest{Kind: "task", Prompt: "p"})
+	if got := rv.request().Model; got != "sonnet" {
+		t.Fatalf("model = %q, want the provider's default", got)
 	}
 }

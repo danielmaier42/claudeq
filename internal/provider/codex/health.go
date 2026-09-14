@@ -52,6 +52,18 @@ func (a *Adapter) CheckHealth(ctx context.Context, inst provider.Instance, p pro
 	out, loginErr := p.Probe(ctx, a.probeCommand(inst, bin, "login", "status"))
 	detail := firstLine(string(version))
 	if loginErr != nil {
+		// A non-zero exit means "not logged in" only when the CLI said so. A
+		// probe that timed out or died says nothing about the account, and
+		// reporting it as logged out would refuse new tasks for a provider that
+		// may be perfectly fine.
+		if !saysNotLoggedIn(string(out)) {
+			return provider.Health{
+				State:  provider.HealthCheckFailed,
+				Binary: bin,
+				Detail: detail,
+				Reason: fmt.Sprintf("Codex at %s could not report its login status (%s).", bin, redact(loginErr.Error())),
+			}
+		}
 		return provider.Health{
 			State:  provider.HealthNotAuthenticated,
 			Binary: bin,
@@ -86,18 +98,18 @@ type modelCatalog struct {
 // answer falls back to the small built-in list, and either way the result is
 // only a suggestion for the UI.
 func (a *Adapter) ListModels(ctx context.Context, inst provider.Instance, p provider.Prober) []provider.Model {
-	return a.catalog.do(func() []provider.Model {
+	return a.catalog.Lookup(inst, func() ([]provider.Model, bool) {
 		bin := a.ResolveBinary(inst)
 		if bin == "" {
-			return bundledModels
+			return bundledModels, false
 		}
 		out, err := p.Probe(ctx, a.probeCommand(inst, bin, "debug", "models", "--bundled"))
 		if err != nil {
-			return bundledModels
+			return bundledModels, false
 		}
 		var cat modelCatalog
 		if err := decodeJSON(out, &cat); err != nil || len(cat.Models) == 0 {
-			return bundledModels
+			return bundledModels, false
 		}
 		models := make([]provider.Model, 0, len(cat.Models))
 		for _, m := range cat.Models {
@@ -111,10 +123,16 @@ func (a *Adapter) ListModels(ctx context.Context, inst provider.Instance, p prov
 			models = append(models, provider.Model{ID: m.Slug, Label: label})
 		}
 		if len(models) == 0 {
-			return bundledModels
+			return bundledModels, false
 		}
-		return models
+		return models, true
 	})
+}
+
+// saysNotLoggedIn reports whether the CLI itself said nobody is signed in, as
+// opposed to the probe failing for reasons of its own.
+func saysNotLoggedIn(out string) bool {
+	return strings.Contains(strings.ToLower(out), "not logged in")
 }
 
 // checkConfigDir reports the instance's own settings as invalid when the account

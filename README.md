@@ -135,10 +135,12 @@ The nightly cycle looks like this:
   never started: it keeps its place in the queue, says *blocked* with the reason,
   and starts by itself once the provider works again. You hear about it once,
   when it breaks, not on every check. See [Providers](#providers).
-- **Rate-limit aware** — a reactive global gate: a run that hits the limit is
-  paused, the wait is derived from the CLI's retry signal, and the session is
-  resumed automatically once the limit resets (falling back to a fresh restart if
-  resume fails), so a task never gets stuck. A waiting run says so — *rescheduled*
+- **Rate-limit aware, per provider** — a run that hits the limit is paused, the
+  wait is derived from the CLI's retry signal, and the session is resumed
+  automatically once the limit resets (falling back to a fresh restart if resume
+  fails), so a task never gets stuck. The allowance belongs to an account, so
+  only that provider's tasks wait: a blocked Codex does not hold up Claude Code,
+  and two accounts of the same harness do not hold up each other. A waiting run says so — *rescheduled*
   with the time it continues — and its resume can be cancelled if you no longer
   want the work.
 - **Auth-error aware** — a login/authentication failure is detected, surfaced as
@@ -405,7 +407,8 @@ What follows from an unready provider:
   daemon restart.
 
 A rate limit is not a provider problem: that pauses the run and resumes it, as
-it always did.
+it always did — and it pauses only the provider that hit it. The other providers
+keep working, because the allowance belongs to one account.
 
 ### Credentials
 

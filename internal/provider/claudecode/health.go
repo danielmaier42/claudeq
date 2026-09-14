@@ -195,16 +195,16 @@ var quotedRe = regexp.MustCompile(`'([a-zA-Z0-9-]+)'`)
 // be asked still yields the known tiers, because a model list is a suggestion
 // and a provider whose catalog cannot be read runs perfectly well.
 func (a *Adapter) ListModels(ctx context.Context, inst provider.Instance, p provider.Prober) []provider.Model {
-	return a.catalog.do(func() []provider.Model {
+	return a.catalog.Lookup(inst, func() ([]provider.Model, bool) {
 		bin := a.ResolveBinary(inst)
 		if bin == "" {
-			return orderAliases(nil)
+			return orderAliases(nil), false
 		}
 		out, err := p.Probe(ctx, a.probeCommand(inst, bin, "--help"))
 		if err != nil {
-			return orderAliases(nil)
+			return orderAliases(nil), false
 		}
-		return orderAliases(aliasesFromHelp(string(out)))
+		return orderAliases(aliasesFromHelp(string(out))), true
 	})
 }
 
