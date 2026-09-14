@@ -146,10 +146,9 @@ func Context(deps []Dependency) string {
 			fmt.Fprintf(&b, "error: %s\n", oneLine(d.Run.Error, 300))
 		}
 		answer, cut := clip(strings.TrimSpace(d.Run.FinalOutput), budget)
-		switch {
-		case answer == "":
+		if answer == "" {
 			b.WriteString("answer: none recorded\n")
-		default:
+		} else {
 			b.WriteString("answer:\n")
 			b.WriteString(answer)
 			b.WriteString("\n")
