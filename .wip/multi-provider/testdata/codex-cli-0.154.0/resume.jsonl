@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"<THREAD_ID>"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"<ITEM_ID>","type":"agent_message","text":"RESUME_OK"}}
+{"type":"turn.completed","usage":{"input_tokens":32176,"cached_input_tokens":22272,"cache_write_input_tokens":0,"output_tokens":14,"reasoning_output_tokens":0}}
