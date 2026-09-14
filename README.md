@@ -218,8 +218,9 @@ The nightly cycle looks like this:
 
 ## The app
 
-The dashboard (and the native window that wraps it) has five views, plus a
-**Feedback** entry at the bottom of the sidebar ([below](#sending-feedback)):
+The dashboard (and the native window that wraps it) has five views. Four sit at
+the top of the sidebar; **Settings** and **Feedback** ([below](#sending-feedback))
+sit at the bottom, out of the way of the work:
 
 - **Queue** — the pending tasks in priority order. Add, edit, delete, enable/pause,
   reorder, or **run now** (a manual test run, independent of the trigger). The
