@@ -246,6 +246,10 @@
   .msg.result { background:color-mix(in srgb, var(--accent) 12%, var(--card-2)); border:.5px solid var(--hairline); }
   .msg.err-msg { background:color-mix(in srgb, var(--danger) 14%, var(--card-2)); border:.5px solid var(--hairline); }
   .msg.err-msg .who { color:var(--danger); }
+  /* A claudeq remark about the run itself (a dropped session, say) is not a
+     failure, so it does not borrow the failure colour. */
+  .msg.note-msg { background:var(--card-2); border:.5px solid var(--hairline); }
+  .msg.note-msg .who { color:var(--muted); }
   .msg .who { font-size:10px; font-weight:700; color:var(--fg2); margin-bottom:4px; text-transform:uppercase; letter-spacing:.4px; }
   .tool { font-size:12px; background:var(--seg-bg); border-radius:8px; padding:7px 11px; }
   .tool .tname { font-weight:600; color:var(--accent); font-family:"SF Mono",ui-monospace,monospace; }
@@ -1224,7 +1228,7 @@ function appendLogEvent(box, ev){
     box.append(el('div','msg user','<div class="who">You</div>'+esc(ev.message.content))); return 1;
   }
   if(ev.type==='result'){ box.append(el('div','msg result','<div class="who">Result'+(ev.is_error?' · error':'')+'</div>'+esc(ev.result||'(no text)'))); return 1; }
-  if(ev.type==='claudeq_status'){ box.append(el('div','msg err-msg','<div class="who">'+esc((ev.status||'error').replace(/_/g,' '))+'</div>'+esc(ev.message||''))); return 1; }
+  if(ev.type==='claudeq_status'){ const kind=ev.status==='note'?'note-msg':'err-msg'; box.append(el('div','msg '+kind,'<div class="who">'+esc((ev.status||'error').replace(/_/g,' '))+'</div>'+esc(ev.message||''))); return 1; }
   if(ev.type==='system' && ev.subtype==='init'){ box.append(el('div','rawline','session started'+(ev.model?' · '+esc(ev.model):''))); return 0; }
   return 0;
 }

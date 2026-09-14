@@ -35,6 +35,25 @@ func (s RunStatus) Terminal() bool {
 	}
 }
 
+// RunProvider is the execution identity of one run, recorded as it was at the
+// time. A run that says it used Codex with a given model keeps saying so after
+// the provider is renamed, re-pointed or deleted.
+type RunProvider struct {
+	// ID is the provider instance the run executed on.
+	ID string `json:"id,omitempty"`
+	// Kind is the adapter that ran it.
+	Kind string `json:"kind,omitempty"`
+	// Name is what that instance was called, for display without a lookup that
+	// may no longer resolve.
+	Name string `json:"name,omitempty"`
+	// Model is the effective model; empty means the harness's own default.
+	Model string `json:"model,omitempty"`
+	// ReasoningEffort is what the run asked for, where the harness takes one.
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	// AccessMode is the authority the run was given.
+	AccessMode string `json:"access_mode,omitempty"`
+}
+
 // Run is one execution of a task. History is an append-only event log; the
 // latest event for a run id is authoritative (see Store.Runs).
 type Run struct {
@@ -52,6 +71,11 @@ type Run struct {
 	// Task is a snapshot of the definition this run used, so the run can be
 	// replayed from history even after the task leaves the queue.
 	Task *task.Task `json:"task,omitempty"`
+
+	// Provider is the execution identity this run actually had. It is a
+	// snapshot, not a reference: editing or removing a provider afterwards must
+	// not rewrite what an old run says it ran on.
+	Provider RunProvider `json:"provider,omitzero"`
 
 	// ResumeAt is when a rate-limited run is scheduled to resume its session,
 	// so the pause is visible as a plan rather than a dead end. Set only for

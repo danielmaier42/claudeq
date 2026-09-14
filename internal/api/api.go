@@ -205,7 +205,7 @@ func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
 		v := taskView{Task: t, Running: active[t.ID], BlockedReason: blocked[t.Provider]}
 		// A task whose session is waiting for the rate limit is not idle: say so
 		// in the queue, so it does not look like a job that simply hangs.
-		if !active[t.ID] && st != nil && st.PendingResume(t.ID) != "" {
+		if !active[t.ID] && st != nil && hasPendingResume(st, t.ID) {
 			v.WaitingForLimit = true
 		}
 		// For recurring tasks, surface the next scheduled occurrence so the UI can
@@ -639,7 +639,14 @@ func resumePending(r store.Run, st *store.State, active map[string]bool) bool {
 	if r.Status != store.StatusRateLimited || active[r.TaskID] {
 		return false
 	}
-	return r.SessionID != "" && st.PendingResume(r.TaskID) == r.SessionID
+	pending, ok := st.PendingResume(r.TaskID)
+	return ok && r.SessionID != "" && pending.SessionID == r.SessionID
+}
+
+// hasPendingResume reports whether a task holds a session waiting to continue.
+func hasPendingResume(st *store.State, taskID string) bool {
+	_, ok := st.PendingResume(taskID)
+	return ok
 }
 
 func (s *server) readRun(w http.ResponseWriter, r *http.Request) {

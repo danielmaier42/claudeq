@@ -902,7 +902,7 @@ func TestRunsReportPendingResume(t *testing.T) {
 		}
 	}
 	if err := st.UpdateState(func(s *store.State) error {
-		s.SetPendingResume("a", "sess-1")
+		s.SetPendingResume("a", "sess-1", "claude")
 		return nil
 	}); err != nil {
 		t.Fatalf("UpdateState: %v", err)
@@ -957,7 +957,7 @@ func TestTasksReportWaitingForLimit(t *testing.T) {
 		t.Fatalf("SaveConfig: %v", err)
 	}
 	if err := st.UpdateState(func(s *store.State) error {
-		s.SetPendingResume("a", "sess-1")
+		s.SetPendingResume("a", "sess-1", "claude")
 		return nil
 	}); err != nil {
 		t.Fatalf("UpdateState: %v", err)

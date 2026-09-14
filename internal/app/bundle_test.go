@@ -139,7 +139,7 @@ func TestImportTaskStartsFromCleanState(t *testing.T) {
 	if err := s.UpdateState(func(st *store.State) error {
 		st.MarkCompletedOnce("nightly")
 		st.RecordStart("nightly", stale)
-		st.SetPendingResume("nightly", "sess")
+		st.SetPendingResume("nightly", "sess", "claude")
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -152,7 +152,8 @@ func TestImportTaskStartsFromCleanState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := st.LastStart(got.ID); ok || st.IsCompletedOnce(got.ID) || st.PendingResume(got.ID) != "" {
+	_, resuming := st.PendingResume(got.ID)
+	if _, ok := st.LastStart(got.ID); ok || st.IsCompletedOnce(got.ID) || resuming {
 		t.Errorf("stale state survived the import: %+v", st)
 	}
 }
