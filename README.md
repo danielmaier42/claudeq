@@ -323,7 +323,7 @@ Two harnesses are supported:
 | Type | CLI | Notes |
 |------|-----|-------|
 | Claude (`claude-code`) | [Claude Code](https://claude.com/claude-code) | Reports token counts and cost. Its only authority settings are "ask" and "skip every prompt". |
-| Codex (`codex`) | [Codex](https://learn.chatgpt.com/docs/developer-commands?surface=cli) | **Beta.** Takes a reasoning effort and a real sandbox mode, so read-only and workspace-write actually mean something. Reports tokens but no cost — ClaudeQ never invents one. |
+| Codex (`codex`) | [Codex](https://learn.chatgpt.com/docs/developer-commands?surface=cli) | **Beta.** Takes a reasoning effort and a real sandbox mode, so read-only and workspace-write actually mean something. Tasks may use a working folder that is not itself a Git repository. Reports tokens but no cost — ClaudeQ never invents one. |
 
 You can configure as many instances as you like, including two of the same kind:
 give each its own configuration directory and they are two accounts, with their

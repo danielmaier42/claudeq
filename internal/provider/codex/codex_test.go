@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -45,7 +46,7 @@ func TestCommandGoldenArguments(t *testing.T) {
 			name: "a plain run",
 			req:  provider.Request{Prompt: "do it", WorkingDir: "/repo", SessionID: "s-1"},
 			wantArgs: []string{
-				"exec", "--json", "--cd", "/repo", "-",
+				"exec", "--json", "--skip-git-repo-check", "--cd", "/repo", "-",
 			},
 		},
 		{
@@ -55,7 +56,7 @@ func TestCommandGoldenArguments(t *testing.T) {
 				Model: "gpt-5.6-sol", ReasoningEffort: "xhigh",
 			},
 			wantArgs: []string{
-				"exec", "--json", "--cd", "/repo", "--model", "gpt-5.6-sol",
+				"exec", "--json", "--skip-git-repo-check", "--cd", "/repo", "--model", "gpt-5.6-sol",
 				"-c", `model_reasoning_effort="xhigh"`, "-",
 			},
 		},
@@ -65,7 +66,7 @@ func TestCommandGoldenArguments(t *testing.T) {
 				Prompt: "review it", WorkingDir: "/repo", SessionID: "s-1",
 				AccessMode: provider.AccessReadOnly,
 			},
-			wantArgs: []string{"exec", "--json", "--sandbox", "read-only", "--cd", "/repo", "-"},
+			wantArgs: []string{"exec", "--json", "--skip-git-repo-check", "--sandbox", "read-only", "--cd", "/repo", "-"},
 		},
 		{
 			name: "full access",
@@ -73,14 +74,14 @@ func TestCommandGoldenArguments(t *testing.T) {
 				Prompt: "fix it", WorkingDir: "/repo", SessionID: "s-1",
 				AccessMode: provider.AccessFullAccess,
 			},
-			wantArgs: []string{"exec", "--json", "--sandbox", "danger-full-access", "--cd", "/repo", "-"},
+			wantArgs: []string{"exec", "--json", "--skip-git-repo-check", "--sandbox", "danger-full-access", "--cd", "/repo", "-"},
 		},
 		{
 			name: "a resumed thread",
 			req: provider.Request{
 				Prompt: "carry on", WorkingDir: "/repo", SessionID: "thread-42", Resume: true,
 			},
-			wantArgs: []string{"exec", "resume", "--json", "--cd", "/repo", "thread-42", "-"},
+			wantArgs: []string{"exec", "resume", "--json", "--skip-git-repo-check", "--cd", "/repo", "thread-42", "-"},
 		},
 	}
 	for _, tc := range tests {
@@ -99,6 +100,21 @@ func TestCommandGoldenArguments(t *testing.T) {
 				t.Fatalf("stdin = %q, want the prompt", got.Stdin)
 			}
 		})
+	}
+}
+
+// TestCommandAllowsNonRepositoryWorkingDirectories protects project collection
+// folders: ClaudeQ accepts them, so the Codex adapter must not reject them
+// before the task starts.
+func TestCommandAllowsNonRepositoryWorkingDirectories(t *testing.T) {
+	got, err := newAdapter("").Command(isolated(t, "/opt/codex"), provider.Request{
+		Prompt: "p", WorkingDir: "/projects", SessionID: "s-1",
+	})
+	if err != nil {
+		t.Fatalf("Command: %v", err)
+	}
+	if !slices.Contains(got.Args, "--skip-git-repo-check") {
+		t.Fatalf("args = %q, want --skip-git-repo-check", got.Args)
 	}
 }
 
