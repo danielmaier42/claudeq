@@ -5,6 +5,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/danielmaier42/claudeq/internal/store"
@@ -13,6 +14,9 @@ import (
 
 // AddTask appends a task and persists the config. IDs must be unique.
 func AddTask(s *store.Store, t task.Task) error {
+	if err := checkDependencies(s, t); err != nil {
+		return err
+	}
 	return s.UpdateConfig(func(cfg *store.Config) error {
 		if indexOf(cfg.Tasks, t.ID) >= 0 {
 			return fmt.Errorf("task %q already exists", t.ID)
@@ -20,6 +24,60 @@ func AddTask(s *store.Store, t task.Task) error {
 		cfg.Tasks = append(cfg.Tasks, t)
 		return nil
 	})
+}
+
+// ErrUnknownDependency reports a job a task wants to wait for that does not
+// exist here.
+var ErrUnknownDependency = errors.New("unknown job")
+
+// ErrInvalidDependency reports a job that exists but cannot be waited for.
+var ErrInvalidDependency = errors.New("cannot be waited for")
+
+// checkDependencies refuses a task that waits for a job claudeq has never heard
+// of: it would wait for good, which in an unattended queue means a deliverable
+// that silently never appears.
+//
+// It is also what makes a cycle impossible. A job may only name jobs that
+// already exist, and its own id is new, so the dependencies can only ever point
+// backwards in time.
+func checkDependencies(s *store.Store, t task.Task) error {
+	if len(t.DependsOn) == 0 {
+		return nil
+	}
+	cfg, err := s.LoadConfig()
+	if err != nil {
+		return err
+	}
+	var ran map[string]bool
+	for _, dep := range t.DependsOn {
+		if i := indexOf(cfg.Tasks, dep); i >= 0 {
+			// A recurring job has no last run: it finishes and comes round again,
+			// so "wait until it is done" has no meaning. Waiting for one would
+			// release the join on its first occurrence and never again.
+			if cfg.Tasks[i].Trigger == task.TriggerCron {
+				return fmt.Errorf("%w: job %q runs on a schedule, so it never reaches a final result to wait for",
+					ErrInvalidDependency, dep)
+			}
+			continue
+		}
+		// Not in the queue: a one-shot job that has already finished is a
+		// perfectly good thing to depend on, so history is the second place to
+		// look. It is read at most once.
+		if ran == nil {
+			runs, err := s.Runs()
+			if err != nil {
+				return fmt.Errorf("read history: %w", err)
+			}
+			ran = make(map[string]bool, len(runs))
+			for _, r := range runs {
+				ran[r.TaskID] = true
+			}
+		}
+		if !ran[dep] {
+			return fmt.Errorf("%w %q: a job can only wait for one that already exists", ErrUnknownDependency, dep)
+		}
+	}
+	return nil
 }
 
 // RemoveTask deletes a task by id, along with its scheduling state, so the id

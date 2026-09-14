@@ -24,6 +24,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
 	"github.com/danielmaier42/claudeq/internal/update"
+	"github.com/danielmaier42/claudeq/internal/workflow"
 )
 
 //go:embed web/*
@@ -194,6 +195,7 @@ func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
 	st, _ := s.d.Store.LoadState()
 	active := s.activeTasks()
 	blocked := s.blockedReasons(r.Context(), cfg)
+	waiting := s.waitingFor(cfg)
 	out := make([]taskView, 0, len(cfg.Tasks))
 	for _, t := range cfg.Tasks {
 		// A running one-shot task moves to Activity and is hidden here. Recurring
@@ -202,7 +204,7 @@ func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
 		if active[t.ID] && t.Trigger != task.TriggerCron {
 			continue
 		}
-		v := taskView{Task: t, Running: active[t.ID], BlockedReason: blocked[t.Provider]}
+		v := taskView{Task: t, Running: active[t.ID], BlockedReason: blocked[t.Provider], WaitingFor: waiting[t.ID]}
 		// A task whose session is waiting for the rate limit is not idle: say so
 		// in the queue, so it does not look like a job that simply hangs.
 		if !active[t.ID] && st != nil && hasPendingResume(st, t.ID) {
@@ -242,6 +244,35 @@ type taskView struct {
 	// queued and starts by itself once the provider works again, so the queue
 	// has to say that rather than showing a job that silently never runs.
 	BlockedReason string `json:"blocked_reason,omitempty"`
+	// WaitingFor names the jobs this one is still waiting for. A join sitting in
+	// the queue looks like a job that never starts unless the queue says what it
+	// is waiting on.
+	WaitingFor []string `json:"waiting_for,omitempty"`
+}
+
+// waitingFor names, per task, the jobs it is still waiting for. Only tasks that
+// depend on something appear, and history is read at most once.
+func (s *server) waitingFor(cfg store.Config) map[string][]string {
+	var dependent []task.Task
+	for _, t := range cfg.Tasks {
+		if len(t.DependsOn) > 0 {
+			dependent = append(dependent, t)
+		}
+	}
+	if len(dependent) == 0 {
+		return nil
+	}
+	runs, err := s.d.Store.Runs()
+	if err != nil {
+		return nil
+	}
+	out := map[string][]string{}
+	for _, t := range dependent {
+		if _, names := workflow.Ready(workflow.Resolve(t, cfg.Tasks, runs)); len(names) > 0 {
+			out[t.ID] = names
+		}
+	}
+	return out
 }
 
 // blockedReasons maps a task's provider field to why that provider cannot run
@@ -617,7 +648,11 @@ func accessMode(p task.Permissions) provider.AccessMode {
 // still scheduled to resume.
 type runView struct {
 	store.Run
-	Unread bool `json:"unread"`
+	// FinalOutput shadows the run record's own: the answer can be kilobytes and
+	// the list carries hundreds of runs, so it is not sent with the list. What
+	// the run said is read from its log.
+	FinalOutput string `json:"final_output,omitempty"`
+	Unread      bool   `json:"unread"`
 	// ResumePending marks a rate-limited run whose session the daemon is still
 	// going to pick up once the gate reopens. It is what separates a run that is
 	// merely waiting from one whose pause is history (already resumed, canceled,

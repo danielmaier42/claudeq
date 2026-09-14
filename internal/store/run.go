@@ -54,6 +54,11 @@ type RunProvider struct {
 	AccessMode string `json:"access_mode,omitempty"`
 }
 
+// MaxFinalOutput bounds the answer kept on a run record. History is read whole
+// on every load, so an answer that runs to megabytes would be paid for by every
+// list of runs; past this the text is cut and said to be cut.
+const MaxFinalOutput = 16 << 10
+
 // Run is one execution of a task. History is an append-only event log; the
 // latest event for a run id is authoritative (see Store.Runs).
 type Run struct {
@@ -76,6 +81,25 @@ type Run struct {
 	// snapshot, not a reference: editing or removing a provider afterwards must
 	// not rewrite what an old run says it ran on.
 	Provider RunProvider `json:"provider,omitzero"`
+
+	// FinalOutput is the harness's own final answer, as opposed to the run log:
+	// the text a dependent job consolidates and the notification quotes. Tool
+	// events, diagnostics and the raw stream stay in the log and are never
+	// treated as the answer.
+	FinalOutput string `json:"final_output,omitempty"`
+	// FinalOutputTruncated records that the answer was longer than claudeq
+	// keeps. History is read into memory on every load, so one run cannot be
+	// allowed to grow it without bound — and a reader has to be told that what
+	// they see is not all of it.
+	FinalOutputTruncated bool `json:"final_output_truncated,omitempty"`
+
+	// WorkflowID groups the runs of one piece of work: a job queued by another
+	// job inherits its parent's workflow, and a run that has none starts one
+	// under its own id. That is what turns a fan-out and its join — or an
+	// ordinary self-queued chain — into something the app can show together.
+	WorkflowID string `json:"workflow_id,omitempty"`
+	// ParentRunID is the run that queued this run's task, when one did.
+	ParentRunID string `json:"parent_run_id,omitempty"`
 
 	// ResumeAt is when a rate-limited run is scheduled to resume its session,
 	// so the pause is visible as a plan rather than a dead end. Set only for

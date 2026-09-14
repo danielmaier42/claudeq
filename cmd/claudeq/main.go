@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -47,8 +48,10 @@ Usage:
                  [--provider ID] [--model M] [--reasoning-effort E]
                  [--parallel=BOOL] [--skip-permissions=BOOL]
                  [--notify=BOOL] [--quiet-history=BOOL]
+                 [--depends-on JOBID]... [--include-results] [--json]
                  (queue a follow-up task; settings you do not pass are inherited from
-                 the calling task)
+                 the calling task. --depends-on waits for jobs that already exist,
+                 --include-results puts their answers in front of the prompt)
   claudeq publish --file PATH [--title T] [--description D]
                  (publish a file as an artifact; shows up in the Artifacts view)
   claudeq notify --title T --message M [--url U]
@@ -278,6 +281,10 @@ type queueOpts struct {
 	dir    string // working directory override (--dir)
 	name   string // display name (--name)
 
+	dependsOn      jobList // --depends-on, repeatable
+	includeResults bool    // --include-results
+	asJSON         bool    // --json
+
 	// Per-call overrides of the inherited settings, the same flags `add` and
 	// `edit` take; set records which of them were passed.
 	taskSettings
@@ -285,6 +292,25 @@ type queueOpts struct {
 }
 
 func (o queueOpts) has(name string) bool { return o.set[name] }
+
+// jobList collects a repeatable --depends-on flag, in the order given.
+type jobList []string
+
+func (l *jobList) String() string { return strings.Join(*l, ",") }
+
+func (l *jobList) Set(v string) error {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return fmt.Errorf("a dependency needs a job id")
+	}
+	for _, have := range *l {
+		if have == v {
+			return fmt.Errorf("job %q is listed twice", v)
+		}
+	}
+	*l = append(*l, v)
+	return nil
+}
 
 // parseQueueOpts parses the `claudeq queue` flags and records which of the
 // override flags were passed.
@@ -297,6 +323,9 @@ func parseQueueOpts(args []string) (queueOpts, error) {
 	fs.StringVar(&o.cron, "cron", "", "5-field cron expression for a recurring task")
 	fs.StringVar(&o.dir, "dir", "", "working directory (default: the calling task's dir)")
 	fs.StringVar(&o.name, "name", "", "display name (default: derived from the prompt)")
+	fs.Var(&o.dependsOn, "depends-on", "job id this task waits for; repeat for several")
+	fs.BoolVar(&o.includeResults, "include-results", false, "put what those jobs answered in front of this prompt")
+	fs.BoolVar(&o.asJSON, "json", false, "print the new job as JSON instead of a sentence")
 	o.register(fs, "inherited")
 	if err := fs.Parse(args); err != nil {
 		return queueOpts{}, err
@@ -333,13 +362,46 @@ func cmdQueue(st *store.Store, args []string) error {
 			}
 		}
 		if err := app.AddTask(st, t); err != nil {
+			// A job it wants to wait for does not exist; regenerating the id
+			// would not change that, so it is reported rather than retried.
+			if errors.Is(err, app.ErrUnknownDependency) || errors.Is(err, app.ErrInvalidDependency) {
+				return err
+			}
 			lastErr = err // almost certainly an id collision; regenerate and retry
 			continue
 		}
+		return printQueued(t, o.asJSON)
+	}
+	return lastErr
+}
+
+// printQueued reports the new job. The JSON form exists because a run that
+// fans out has to feed these ids straight back into `queue --depends-on`, and
+// parsing a sentence for an id is how that goes wrong.
+func printQueued(t task.Task, asJSON bool) error {
+	if !asJSON {
 		fmt.Printf("queued task %q (%s)\n", t.ID, queueWhen(t))
 		return nil
 	}
-	return lastErr
+	out, err := json.MarshalIndent(struct {
+		JobID      string   `json:"job_id"`
+		Name       string   `json:"name"`
+		Provider   string   `json:"provider,omitempty"`
+		Model      string   `json:"model,omitempty"`
+		When       string   `json:"when"`
+		WorkflowID string   `json:"workflow_id,omitempty"`
+		ParentRun  string   `json:"parent_run,omitempty"`
+		DependsOn  []string `json:"depends_on,omitempty"`
+	}{
+		JobID: t.ID, Name: t.Name, Provider: t.Provider, Model: t.Model,
+		When: queueWhen(t), WorkflowID: t.WorkflowID, ParentRun: t.ParentRun,
+		DependsOn: t.DependsOn,
+	}, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode the queued job: %w", err)
+	}
+	fmt.Println(string(out))
+	return nil
 }
 
 // buildQueuedTask assembles the task to enqueue. It starts from the calling task
@@ -366,6 +428,15 @@ func buildQueuedTask(parentJSON, id string, o queueOpts, now time.Time) (task.Ta
 	t.FixedAt = time.Time{}
 	t.Cron = ""
 	t.QuietHistory = false
+	// The dependencies are this call's, never the parent's: inheriting them
+	// would make every job in a chain wait for what the first one waited for.
+	t.DependsOn = o.dependsOn
+	t.IncludeResults = o.includeResults
+	// A job queued by a run belongs to that run's workflow, and records which
+	// run queued it. Run standalone, both are empty and the run it produces
+	// starts a workflow of its own.
+	t.ParentRun = os.Getenv(executor.EnvRunID)
+	t.WorkflowID = os.Getenv(executor.EnvWorkflowID)
 	if o.dir != "" {
 		t.WorkingDir = o.dir
 	}
@@ -414,6 +485,9 @@ func buildQueuedTask(parentJSON, id string, o queueOpts, now time.Time) (task.Ta
 
 	if t.Name == "" {
 		t.Name = defaultQueueName(o.prompt)
+	}
+	if t.IncludeResults && len(t.DependsOn) == 0 {
+		return task.Task{}, fmt.Errorf("--include-results needs at least one --depends-on")
 	}
 	if err := t.Validate(); err != nil {
 		return task.Task{}, err

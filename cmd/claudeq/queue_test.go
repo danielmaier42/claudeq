@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/danielmaier42/claudeq/internal/app"
+	"github.com/danielmaier42/claudeq/internal/executor"
 	"github.com/danielmaier42/claudeq/internal/task"
 )
 
@@ -369,4 +370,112 @@ func captureStdout(t *testing.T, fn func() error) string {
 		t.Fatalf("command failed: %v", runErr)
 	}
 	return out
+}
+
+// TestCmdQueueBuildsAFanOutAndJoin: the ids come back as JSON because a run
+// that fans out has to feed them straight into the join, and parsing a sentence
+// for an id is how that goes wrong.
+func TestCmdQueueBuildsAFanOutAndJoin(t *testing.T) {
+	withProviderHealth(t, providerReady)
+	st := newTestStore(t)
+	t.Setenv(executor.EnvRunID, "run-root")
+	t.Setenv(executor.EnvWorkflowID, "wf-root")
+
+	dir := t.TempDir()
+	first := captureStdout(t, func() error {
+		return cmdQueue(st, []string{"--json", "--prompt", "ask Claude", "--dir", dir})
+	})
+	var child struct {
+		JobID      string `json:"job_id"`
+		WorkflowID string `json:"workflow_id"`
+		ParentRun  string `json:"parent_run"`
+	}
+	if err := json.Unmarshal([]byte(first), &child); err != nil {
+		t.Fatalf("queue --json did not print JSON (%v): %s", err, first)
+	}
+	if child.JobID == "" {
+		t.Fatalf("no job id in %s", first)
+	}
+	if child.WorkflowID != "wf-root" || child.ParentRun != "run-root" {
+		t.Fatalf("child = %+v, want it to join its parent's workflow", child)
+	}
+
+	if err := cmdQueue(st, []string{"--prompt", "consolidate", "--dir", t.TempDir(),
+		"--depends-on", child.JobID, "--include-results"}); err != nil {
+		t.Fatalf("queue join: %v", err)
+	}
+	cfg, _ := st.LoadConfig()
+	join := cfg.Tasks[len(cfg.Tasks)-1]
+	if len(join.DependsOn) != 1 || join.DependsOn[0] != child.JobID {
+		t.Fatalf("join depends on %v, want the child's id", join.DependsOn)
+	}
+	if !join.IncludeResults {
+		t.Fatal("the join did not ask for the results")
+	}
+	// The dependency is this call's alone: the child must not have inherited one.
+	if len(cfg.Tasks[0].DependsOn) != 0 {
+		t.Fatalf("the child inherited dependencies: %v", cfg.Tasks[0].DependsOn)
+	}
+}
+
+// TestCmdQueueRefusesAJobThatDoesNotExist: a job waiting for something that was
+// never queued waits for good, and in an unattended queue that is a deliverable
+// that silently never appears.
+func TestCmdQueueRefusesAJobThatDoesNotExist(t *testing.T) {
+	withProviderHealth(t, providerReady)
+	st := newTestStore(t)
+	err := cmdQueue(st, []string{"--prompt", "consolidate", "--dir", t.TempDir(), "--depends-on", "q-nope"})
+	if err == nil {
+		t.Fatal("a dependency on a job that does not exist was accepted")
+	}
+	if !strings.Contains(err.Error(), "q-nope") {
+		t.Fatalf("error = %v, want it to name the job", err)
+	}
+	if cfg, _ := st.LoadConfig(); len(cfg.Tasks) != 0 {
+		t.Fatalf("a task was queued anyway: %+v", cfg.Tasks)
+	}
+}
+
+// TestCmdQueueRefusesResultsWithoutDependencies: there would be nothing to put
+// in front of the prompt, so the flag is a mistake worth reporting.
+func TestCmdQueueRefusesResultsWithoutDependencies(t *testing.T) {
+	withProviderHealth(t, providerReady)
+	st := newTestStore(t)
+	if err := cmdQueue(st, []string{"--prompt", "p", "--dir", t.TempDir(), "--include-results"}); err == nil {
+		t.Fatal("--include-results was accepted without a dependency")
+	}
+}
+
+// TestCmdQueueRefusesARecurringDependent: its second occurrence would find the
+// same dependencies long finished and run immediately, which is no dependency.
+func TestCmdQueueRefusesARecurringDependent(t *testing.T) {
+	withProviderHealth(t, providerReady)
+	st := newTestStore(t)
+	once := baseTask()
+	once.ID, once.Trigger, once.Cron = "one-shot", task.TriggerASAP, ""
+	if err := app.AddTask(st, once); err != nil {
+		t.Fatal(err)
+	}
+	err := cmdQueue(st, []string{"--prompt", "p", "--dir", t.TempDir(), "--cron", "0 3 * * *", "--depends-on", "one-shot"})
+	if err == nil {
+		t.Fatal("a recurring task was allowed to depend on a one-shot job")
+	}
+}
+
+// TestCmdQueueRefusesARecurringDependency: a job that runs on a schedule never
+// reaches a last result, so "wait until it is done" has no meaning — the join
+// would be released by its first occurrence and never again.
+func TestCmdQueueRefusesARecurringDependency(t *testing.T) {
+	withProviderHealth(t, providerReady)
+	st := newTestStore(t)
+	if err := app.AddTask(st, baseTask()); err != nil { // baseTask is a cron task
+		t.Fatal(err)
+	}
+	err := cmdQueue(st, []string{"--prompt", "p", "--dir", t.TempDir(), "--depends-on", "nightly"})
+	if err == nil {
+		t.Fatal("waiting for a recurring job was accepted")
+	}
+	if !strings.Contains(err.Error(), "schedule") {
+		t.Fatalf("error = %v, want it to explain why", err)
+	}
 }

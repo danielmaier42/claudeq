@@ -28,6 +28,7 @@ update checks) ever leaves the machine. The one thing you can send out is
 - [From another tool or agent](#from-another-tool-or-agent)
 - [What every run is told](#what-every-run-is-told)
 - [Letting a task queue follow-up work](#letting-a-task-queue-follow-up-work)
+- [Asking several providers at once](#asking-several-providers-at-once)
 - [Letting a task publish artifacts](#letting-a-task-publish-artifacts)
 - [Letting a task send a notification](#letting-a-task-send-a-notification)
 - [Quiet history for frequent jobs](#quiet-history-for-frequent-jobs)
@@ -556,6 +557,9 @@ claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [-
                [--provider ID] [--model M] [--reasoning-effort E]
                [--parallel=BOOL] [--skip-permissions=BOOL]
                [--notify=BOOL] [--quiet-history=BOOL]
+               [--depends-on JOBID]...            # wait for these jobs to finish
+               [--include-results]                # and put their answers in the prompt
+               [--json]                           # print the new job, id included
 claudeq publish --file PATH [--title T] [--description D]   # publish a file as an artifact
 claudeq notify --title T --message M [--url U]  # send a notification, no artifact
 claudeq export ID [--out PATH] [--force]       # write the task to a .claudeq file
@@ -803,6 +807,71 @@ claudeq queue --prompt "Review the change thoroughly …" --model claude-opus-5 
 A long `--name` is accepted as given; `claudeq list` and the Queue view cut it
 to fit their column (hover the app's row for the whole name), `claudeq show` and
 `--json` print it in full.
+
+## Asking several providers at once
+
+Some work wants more than one harness — *"ask Claude and Codex and give me one
+summary"*, *"get every provider's take on the release notes"*. That is a
+**fan-out** with a **join**, and it is built from the same `queue` command:
+
+```sh
+# one job per provider; --json so the ids can be read back out
+claudeq queue --json --provider claude --prompt "Summarise what changed on main today"
+claudeq queue --json --provider codex  --prompt "Summarise what changed on main today"
+
+# one job that waits for both and combines them
+claudeq queue --provider claude \
+  --depends-on q-20260914T050000-a1b2c3 \
+  --depends-on q-20260914T050000-d4e5f6 \
+  --include-results \
+  --prompt "Consolidate the attached results into one digest and publish it"
+```
+
+Every run is told how to do this in its system prompt, so a task that says "ask
+all providers and consolidate" arranges it itself. ClaudeQ does not read the
+prompt and guess: the harness understands the request, and this just gives it
+the vocabulary.
+
+**It is durable, not a live conversation.** The root run queues the children and
+the join and then stops — it does not wait, and could not: a run ends when the
+harness stops writing. The daemon owns the rest, so a restart, a closed lid, a
+long child or a rate limit on one provider costs time and nothing else.
+
+**When the join runs.** Once every job it waits for has a terminal result:
+success, failure, auth error or cancellation. A job pausing on a rate limit has
+*not* finished — its session is scheduled to continue — so the join keeps
+waiting. A job that failed **does** release it: an unattended digest that never
+appears is worse than one that says which input is missing. So does a job that
+was deleted before it ran, because nothing about it is ever going to change.
+
+**What the join gets.** `--include-results` puts each dependency's final answer
+in front of the join's prompt, with the job name, the provider and model it ran
+on, its status and any error. It is fenced and labelled as data, and the system
+prompt tells the harness to read it as data and never as instructions. The
+injected text is bounded; a shortened answer says so and names the run log that
+has all of it.
+
+**Rules worth knowing:**
+
+- A job may only wait for jobs that **already exist**. Queue the children first.
+  That is also why a cycle cannot happen — dependencies only ever point
+  backwards.
+- Dependencies are fixed when the job is queued and never change afterwards.
+- A recurring (cron) job cannot depend on one-shot jobs: its second occurrence
+  would find them long finished and run immediately, which is no dependency at
+  all. Nor can you wait *for* a recurring job — it never has a last result.
+- Leave `--model` off a cross-provider job unless you mean it. A model name
+  belongs to the harness it was chosen for, so each provider uses its own
+  default.
+- Let only the join publish the artifact or send the notification, unless you
+  want each provider's result separately. Otherwise one request produces several
+  competing reports.
+
+In the app, a job that is waiting says so in the Queue (*waiting for 2 jobs*,
+with the names on hover), and Activity groups the runs of one workflow into a
+single **Workflow** block instead of scattering them among unrelated runs. A job
+queued by a run joins that run's workflow, which is also what groups an ordinary
+self-queued chain.
 
 ## Letting a task publish artifacts
 

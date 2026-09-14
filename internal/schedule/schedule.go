@@ -22,11 +22,20 @@ type Inputs struct {
 	// CronAnchor is the time from which the next cron occurrence is computed:
 	// the last run's start, or the task's first-seen time. Required for cron.
 	CronAnchor time.Time
+	// DependenciesMet is false while a task is still waiting for a job it
+	// depends on. It is true for a task that depends on nothing.
+	DependenciesMet bool
 }
 
 // Due reports whether the task should start now.
 func Due(t task.Task, in Inputs) (bool, error) {
 	if !t.Enabled || in.Running {
+		return false, nil
+	}
+	// A job that waits for others is not due, whatever its trigger says. The
+	// trigger decides the earliest it may start; the dependencies decide whether
+	// its input exists yet.
+	if len(t.DependsOn) > 0 && !in.DependenciesMet {
 		return false, nil
 	}
 
