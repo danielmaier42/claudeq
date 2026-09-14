@@ -992,3 +992,42 @@ func TestHealthReportsLimitedUntil(t *testing.T) {
 		t.Fatalf("limited_until = %q, want empty while the gate is open", got["limited_until"])
 	}
 }
+
+func TestUpdateTaskTakesTheProviderFromThePayload(t *testing.T) {
+	// PUT replaces the task, so the provider follows the payload like every
+	// other field: the dashboard sends back the one it loaded (see
+	// taskProvider in index.html), and an explicitly empty one means the
+	// default provider.
+	srv, st := newServer(t, nil)
+	tk := sampleTask("a")
+	tk.Provider = "claude-secondary"
+	if err := st.SaveConfig(store.Config{Tasks: []task.Task{tk}}); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	kept := tk
+	kept.Name = "renamed"
+	if r := do(t, srv, "PUT", "/api/tasks/a", kept); r.Status != http.StatusOK {
+		t.Fatalf("update = %d (%s)", r.Status, r.Body)
+	}
+	cfg, err := st.LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Tasks[0].Provider != "claude-secondary" || cfg.Tasks[0].Name != "renamed" {
+		t.Fatalf("task = %+v, want the provider kept and the name changed", cfg.Tasks[0])
+	}
+
+	cleared := kept
+	cleared.Provider = ""
+	if r := do(t, srv, "PUT", "/api/tasks/a", cleared); r.Status != http.StatusOK {
+		t.Fatalf("update = %d (%s)", r.Status, r.Body)
+	}
+	cfg, err = st.LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Tasks[0].Provider != "" {
+		t.Fatalf("provider = %q, want it cleared back to the default", cfg.Tasks[0].Provider)
+	}
+}

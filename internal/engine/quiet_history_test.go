@@ -8,6 +8,7 @@ import (
 
 	"github.com/danielmaier42/claudeq/internal/clock"
 	"github.com/danielmaier42/claudeq/internal/executor"
+	"github.com/danielmaier42/claudeq/internal/provider"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
 )
@@ -17,8 +18,8 @@ import (
 func runQuietTask(t *testing.T, status store.RunStatus) *store.Store {
 	t.Helper()
 	fc := clock.NewFake(time.Date(2026, 9, 7, 8, 0, 0, 0, time.UTC))
-	r := &stub{result: func(req executor.Request, _ int) executor.Result {
-		return executor.Result{Status: status, SessionID: req.SessionID, ExitCode: 1, RetryAfter: time.Minute}
+	r := &stub{result: func(req executor.Request, _ int) provider.Result {
+		return provider.Result{Status: status, SessionID: req.SessionID, ExitCode: 1, RetryAfter: time.Minute}
 	}}
 	e, st := newTestEngine(t, r, fc)
 	watcher := asapTask("watch", false)

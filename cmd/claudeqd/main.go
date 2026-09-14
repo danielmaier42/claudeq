@@ -35,6 +35,8 @@ import (
 	"github.com/danielmaier42/claudeq/internal/launchd"
 	"github.com/danielmaier42/claudeq/internal/limit"
 	"github.com/danielmaier42/claudeq/internal/notify"
+	"github.com/danielmaier42/claudeq/internal/provider"
+	"github.com/danielmaier42/claudeq/internal/provider/adapters"
 	"github.com/danielmaier42/claudeq/internal/review"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/system"
@@ -121,15 +123,25 @@ func cmdRun(args []string) error {
 		fmt.Fprintln(os.Stderr, "claudeqd: backfill last runs:", err)
 	}
 
-	// Resolve the Claude Code binary. An explicit setting wins; otherwise detect
-	// it (the daemon's launchd PATH excludes ~/.local/bin, so a plain lookup at
-	// exec time would fail). Per-run, the engine still prefers the live setting.
+	// The adapter registry is what the engine runs jobs through; every harness
+	// claudeq supports contributes one adapter to it and nothing else changes.
+	registry := adapters.Default()
+
+	// Resolve the Claude Code binary for the startup report below. An explicit
+	// setting wins; otherwise detect it (the daemon's launchd PATH excludes
+	// ~/.local/bin, so a plain lookup at exec time would fail). Per-run, the
+	// engine passes the live setting to the adapter, which detects for itself
+	// when no path is configured.
 	claudeBin := ""
 	if cfg, err := st.LoadConfig(); err == nil {
 		claudeBin = cfg.Settings.ClaudePath
 	}
 	if claudeBin == "" {
-		claudeBin = executor.DetectBinary()
+		if ad, err := registry.Lookup(provider.KindClaudeCode); err == nil {
+			// Through the adapter, so the login-shell probe is cached and does
+			// not run again on the first job.
+			claudeBin = ad.DetectBinary()
+		}
 	}
 	if claudeBin == "" {
 		fmt.Fprintln(os.Stderr, "claudeqd: warning: could not locate the 'claude' binary; set it in Settings")
@@ -139,7 +151,7 @@ func cmdRun(args []string) error {
 
 	c := clock.Real{}
 	eng := engine.New(st, limit.New(c), &executor.Executor{
-		Bin:      claudeBin,
+		Registry: registry,
 		Home:     home,
 		QueueBin: resolveQueueBin(),
 	}, c)

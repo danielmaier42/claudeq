@@ -4,15 +4,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/danielmaier42/claudeq/internal/provider"
+	"github.com/danielmaier42/claudeq/internal/provider/claudecode"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
 )
@@ -25,54 +27,32 @@ func sampleTask() task.Task {
 	}
 }
 
-func TestArgsFreshRun(t *testing.T) {
-	e := &Executor{}
-	tk := sampleTask()
-	args := e.Args(Request{Task: tk, SessionID: "SID", Model: "claude-opus-4-8"})
-
-	joined := strings.Join(args, " ")
-	for _, want := range []string{"-p", "--output-format stream-json", "--model claude-opus-4-8", "--session-id SID"} {
-		if !strings.Contains(joined, want) {
-			t.Fatalf("args %q missing %q", joined, want)
-		}
-	}
-	if args[len(args)-1] != tk.Prompt {
-		t.Fatalf("prompt must be the last arg, got %q", args[len(args)-1])
-	}
-	if strings.Contains(joined, "--resume") {
-		t.Fatal("fresh run must not use --resume")
+// claudeInstance is the provider instance every migrated claudeq configuration
+// has, pointed at a binary of the test's choosing.
+func claudeInstance(bin string) provider.Instance {
+	return provider.Instance{
+		ID:         provider.DefaultInstanceID,
+		Kind:       provider.KindClaudeCode,
+		Name:       provider.DefaultInstanceName,
+		BinaryPath: bin,
+		Enabled:    true,
 	}
 }
 
-func TestArgsResumeAndPermissions(t *testing.T) {
-	e := &Executor{}
-	tk := sampleTask()
-
-	args := strings.Join(e.Args(Request{
-		Task: tk, SessionID: "SID", Resume: true,
-		Model: "claude-haiku-4-5-20251001", SkipPermissions: true,
-	}), " ")
-	if !strings.Contains(args, "--resume SID") {
-		t.Fatalf("resume run must use --resume, got %q", args)
-	}
-	if strings.Contains(args, "--session-id") {
-		t.Fatal("resume run must not also pass --session-id")
-	}
-	if !strings.Contains(args, "--dangerously-skip-permissions") {
-		t.Fatalf("skip permissions not applied, got %q", args)
-	}
-	if !strings.Contains(args, "--model claude-haiku-4-5-20251001") {
-		t.Fatalf("model override missing, got %q", args)
-	}
+// claudeExecutor returns an executor whose registry holds the real Claude Code
+// adapter; the binary is chosen per request through the provider instance.
+func claudeExecutor() *Executor {
+	return &Executor{Registry: provider.NewRegistry(claudecode.New())}
 }
 
-func TestArgsAppendsSelfQueueSystemPrompt(t *testing.T) {
-	e := &Executor{}
+func TestSystemPromptIsAppendedAsOneValue(t *testing.T) {
+	e := claudeExecutor()
 	tk := sampleTask()
-	args := e.Args(Request{Task: tk, SessionID: "SID"})
-
-	// The prompt must remain the final positional argument, immediately preceded
-	// by the --append-system-prompt flag and its (single) value.
+	cmd, err := e.Command(Request{Task: tk, Provider: claudeInstance(""), SessionID: "SID"})
+	if err != nil {
+		t.Fatalf("Command: %v", err)
+	}
+	args := cmd.Args
 	if args[len(args)-1] != tk.Prompt {
 		t.Fatalf("prompt must be the last arg, got %q", args[len(args)-1])
 	}
@@ -101,7 +81,7 @@ func TestArgsAppendsSelfQueueSystemPrompt(t *testing.T) {
 func TestBuiltinSystemPromptFramesTheHeadlessRun(t *testing.T) {
 	// The headless framing must come first: everything else in the built-in
 	// prompt (queueing, publishing, notifying) assumes the run is unattended and
-	// ends when Claude stops writing.
+	// ends when the harness stops writing.
 	if !strings.HasPrefix(builtinSystemPrompt, headlessSystemPrompt) {
 		t.Fatal("the headless framing must open the built-in prompt")
 	}
@@ -123,11 +103,15 @@ func TestBuiltinSystemPromptFramesTheHeadlessRun(t *testing.T) {
 	}
 }
 
-func TestArgsAppendsCustomSystemPrompt(t *testing.T) {
-	e := &Executor{}
+func TestCommandAppendsCustomSystemPrompt(t *testing.T) {
+	e := claudeExecutor()
 	tk := sampleTask()
 	const custom = "Always run the tests before finishing."
-	args := e.Args(Request{Task: tk, SessionID: "SID", CustomSystemPrompt: custom})
+	cmd, err := e.Command(Request{Task: tk, Provider: claudeInstance(""), SessionID: "SID", CustomSystemPrompt: custom})
+	if err != nil {
+		t.Fatalf("Command: %v", err)
+	}
+	args := cmd.Args
 
 	// Still a single --append-system-prompt value, right before the prompt.
 	if args[len(args)-1] != tk.Prompt {
@@ -166,14 +150,7 @@ func TestRunEnvCarriesSelfQueueContext(t *testing.T) {
 	tk.Permissions = task.PermissionsSkip
 	tk.Parallel = true
 
-	env := e.runEnv(Request{Task: tk})
-	got := map[string]string{}
-	for _, kv := range env {
-		if k, v, ok := strings.Cut(kv, "="); ok {
-			got[k] = v // later duplicates win, matching exec semantics
-		}
-	}
-
+	got := envMap(e.runEnv(Request{Task: tk}, nil))
 	if got[store.EnvHome] != "/data/home" {
 		t.Fatalf("%s = %q, want /data/home", store.EnvHome, got[store.EnvHome])
 	}
@@ -192,13 +169,7 @@ func TestRunEnvCarriesSelfQueueContext(t *testing.T) {
 func TestRunEnvCarriesRunAndTaskIDs(t *testing.T) {
 	e := &Executor{}
 	tk := sampleTask() // sampleTask sets a non-empty ID
-	env := e.runEnv(Request{Task: tk, RunID: "20260721T030000-abcd"})
-	got := map[string]string{}
-	for _, kv := range env {
-		if k, v, ok := strings.Cut(kv, "="); ok {
-			got[k] = v
-		}
-	}
+	got := envMap(e.runEnv(Request{Task: tk, RunID: "20260721T030000-abcd"}, nil))
 	if got[EnvRunID] != "20260721T030000-abcd" {
 		t.Fatalf("%s = %q, want the run id", EnvRunID, got[EnvRunID])
 	}
@@ -209,7 +180,7 @@ func TestRunEnvCarriesRunAndTaskIDs(t *testing.T) {
 
 func TestRunEnvOmitsUnsetRunID(t *testing.T) {
 	e := &Executor{}
-	env := e.runEnv(Request{Task: sampleTask()}) // no RunID
+	env := e.runEnv(Request{Task: sampleTask()}, nil) // no RunID
 	if strings.Contains(strings.Join(env, "\n"), EnvRunID+"=") {
 		t.Fatalf("%s must be omitted when RunID is unset", EnvRunID)
 	}
@@ -217,7 +188,7 @@ func TestRunEnvOmitsUnsetRunID(t *testing.T) {
 
 func TestRunEnvOmitsUnsetPaths(t *testing.T) {
 	e := &Executor{} // no Home / QueueBin configured
-	env := e.runEnv(Request{Task: sampleTask()})
+	env := e.runEnv(Request{Task: sampleTask()}, nil)
 	joined := strings.Join(env, "\n")
 	if strings.Contains(joined, store.EnvHome+"=") {
 		t.Fatal("CLAUDEQ_HOME must be omitted when Home is unset")
@@ -230,20 +201,27 @@ func TestRunEnvOmitsUnsetPaths(t *testing.T) {
 	}
 }
 
-func TestArgsNoModelWhenEmpty(t *testing.T) {
+func TestRunEnvAppliesAdapterEnvLast(t *testing.T) {
+	// An adapter's own variables (a configuration directory, say) must win over
+	// whatever the daemon inherited under the same name.
+	t.Setenv("PROVIDER_CONFIG_DIR", "/inherited")
 	e := &Executor{}
-	// Compare whole arguments: the appended system prompt legitimately mentions
-	// "--model" when it documents the queue overrides.
-	args := e.Args(Request{Task: sampleTask(), SessionID: "S"})
-	isFlag := func(name string) func(string) bool {
-		return func(a string) bool { return a == name || strings.HasPrefix(a, name+"=") }
+	env := e.runEnv(Request{Task: sampleTask()}, []string{"PROVIDER_CONFIG_DIR=/instance"})
+	if got := envMap(env)["PROVIDER_CONFIG_DIR"]; got != "/instance" {
+		t.Fatalf("adapter env = %q, want the adapter's value to win", got)
 	}
-	if slices.ContainsFunc(args, isFlag("--model")) {
-		t.Fatalf("no model should be passed when empty, got %q", args)
+}
+
+// envMap collapses an environment slice the way exec does: a later duplicate
+// wins.
+func envMap(env []string) map[string]string {
+	got := map[string]string{}
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			got[k] = v
+		}
 	}
-	if slices.ContainsFunc(args, isFlag("--dangerously-skip-permissions")) {
-		t.Fatalf("skip should not be set by default, got %q", args)
-	}
+	return got
 }
 
 // fakeClaude writes an executable script to a temp dir that prints the given
@@ -262,13 +240,16 @@ func fakeClaude(t *testing.T, stdout string, exitCode int) string {
 	return path
 }
 
-func runFake(t *testing.T, stdout string, exitCode int) Result {
+func runFake(t *testing.T, stdout string, exitCode int) provider.Result {
 	t.Helper()
-	e := &Executor{Bin: fakeClaude(t, stdout, exitCode)}
+	bin := fakeClaude(t, stdout, exitCode)
+	e := claudeExecutor()
 	var log bytes.Buffer
 	tk := sampleTask()
 	tk.WorkingDir = t.TempDir()
-	res, err := e.Run(context.Background(), Request{Task: tk, SessionID: "assigned-sid", Log: &log})
+	res, err := e.Run(context.Background(), Request{
+		Task: tk, Provider: claudeInstance(bin), SessionID: "assigned-sid", Log: &log,
+	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -278,22 +259,44 @@ func runFake(t *testing.T, stdout string, exitCode int) Result {
 	return res
 }
 
-func TestRequestBinOverridesExecutorDefault(t *testing.T) {
-	// The Executor's own Bin points nowhere; the per-run Request.Bin is a working
-	// fake CLI. Run must use the request override and succeed.
-	e := &Executor{Bin: "/nonexistent/claude"}
+func TestRunUsesTheInstanceBinary(t *testing.T) {
+	// The registry's adapter would detect or fall back to a bare name; the
+	// instance's configured path is what must actually be executed.
 	out := `{"type":"result","subtype":"success","is_error":false,"result":"OK","session_id":"real-sid"}`
+	res := runFake(t, out, 0)
+	if res.Status != store.StatusSuccess {
+		t.Fatalf("status = %q, want success (the instance binary should have run)", res.Status)
+	}
+}
+
+func TestRunRejectsAnUnregisteredProviderKind(t *testing.T) {
+	e := &Executor{Registry: provider.NewRegistry(claudecode.New())}
+	inst := claudeInstance("/nonexistent/claude")
+	inst.Kind = "opencode"
 	tk := sampleTask()
 	tk.WorkingDir = t.TempDir()
-	var log bytes.Buffer
-	res, err := e.Run(context.Background(), Request{
-		Task: tk, SessionID: "sid", Bin: fakeClaude(t, out, 0), Log: &log,
-	})
-	if err != nil {
-		t.Fatalf("Run with Request.Bin override: %v", err)
+	_, err := e.Run(context.Background(), Request{Task: tk, Provider: inst, SessionID: "sid"})
+	if err == nil {
+		t.Fatal("a provider whose kind has no adapter must not run")
 	}
-	if res.Status != store.StatusSuccess {
-		t.Fatalf("status = %q, want success (override binary should have run)", res.Status)
+	if !strings.Contains(err.Error(), "opencode") {
+		t.Fatalf("error %q should name the unregistered kind", err)
+	}
+}
+
+func TestRunRejectsAnAccessModeTheProviderCannotEnforce(t *testing.T) {
+	// Claude Code has no read-only sandbox flag, so claudeq must refuse the run
+	// rather than start one that silently has more authority than asked for.
+	bin := fakeClaude(t, `{"type":"result","is_error":false,"result":"ok","session_id":"s"}`, 0)
+	e := claudeExecutor()
+	tk := sampleTask()
+	tk.WorkingDir = t.TempDir()
+	_, err := e.Run(context.Background(), Request{
+		Task: tk, Provider: claudeInstance(bin), SessionID: "sid",
+		AccessMode: provider.AccessReadOnly,
+	})
+	if !errors.Is(err, provider.ErrUnsupported) {
+		t.Fatalf("err = %v, want provider.ErrUnsupported", err)
 	}
 }
 
@@ -307,13 +310,14 @@ func TestRunIdleTimeoutKillsHungRun(t *testing.T) {
 	if err := os.WriteFile(path, []byte("#!/bin/sh\nsleep 10\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	e := &Executor{Bin: path}
+	e := claudeExecutor()
 	tk := sampleTask()
 	tk.WorkingDir = t.TempDir()
 	var log bytes.Buffer
 	start := time.Now()
 	res, err := e.Run(context.Background(), Request{
-		Task: tk, SessionID: "sid", IdleTimeout: 150 * time.Millisecond, Log: &log,
+		Task: tk, Provider: claudeInstance(path), SessionID: "sid",
+		IdleTimeout: 150 * time.Millisecond, Log: &log,
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -331,11 +335,15 @@ func TestRunIdleTimeoutKillsHungRun(t *testing.T) {
 
 func TestRunNoIdleTimeoutCompletesNormally(t *testing.T) {
 	// A quick run with the watchdog enabled must still succeed (no false kill).
-	e := &Executor{Bin: fakeClaude(t, `{"type":"result","is_error":false,"result":"ok","session_id":"s"}`, 0)}
+	bin := fakeClaude(t, `{"type":"result","is_error":false,"result":"ok","session_id":"s"}`, 0)
+	e := claudeExecutor()
 	tk := sampleTask()
 	tk.WorkingDir = t.TempDir()
 	var log bytes.Buffer
-	res, err := e.Run(context.Background(), Request{Task: tk, SessionID: "sid", IdleTimeout: time.Hour, Log: &log})
+	res, err := e.Run(context.Background(), Request{
+		Task: tk, Provider: claudeInstance(bin), SessionID: "sid",
+		IdleTimeout: time.Hour, Log: &log,
+	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -356,9 +364,7 @@ func TestRunSuccess(t *testing.T) {
 }
 
 func TestRunRateLimited(t *testing.T) {
-	out := strings.Join([]string{
-		`{"type":"system","subtype":"api_retry","error_status":429,"error":"rate_limit","retry_delay_ms":5000,"session_id":"real-sid"}`,
-	}, "\n")
+	out := `{"type":"system","subtype":"api_retry","error_status":429,"error":"rate_limit","retry_delay_ms":5000,"session_id":"real-sid"}`
 	res := runFake(t, out, 1)
 	if res.Status != store.StatusRateLimited {
 		t.Fatalf("status = %q, want rate_limited_waiting", res.Status)
@@ -388,10 +394,78 @@ func TestRunRateLimitEventCarriesResetTime(t *testing.T) {
 	}
 }
 
-func TestRunRejectedRateLimitEventAloneClassifies(t *testing.T) {
-	// Even without a 429 or an error field elsewhere, a rejected
-	// rate_limit_event means the run is rate-limited.
-	out := `{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1784655600},"session_id":"real-sid"}`
+func TestRunAuthError(t *testing.T) {
+	out := `{"type":"result","subtype":"error","is_error":true,"error":"authentication_failed"}`
+	res := runFake(t, out, 1)
+	if res.Status != store.StatusAuthError {
+		t.Fatalf("status = %q, want auth_error", res.Status)
+	}
+	// The message names the provider instance, so an operator with more than one
+	// configured account knows which login to fix.
+	if !strings.Contains(res.Message, provider.DefaultInstanceName) {
+		t.Fatalf("message = %q, want it to name the provider", res.Message)
+	}
+}
+
+func TestRunFailure(t *testing.T) {
+	out := `{"type":"result","subtype":"error","is_error":true,"result":"boom"}`
+	res := runFake(t, out, 2)
+	if res.Status != store.StatusFailed {
+		t.Fatalf("status = %q, want failed", res.Status)
+	}
+	if res.ExitCode != 2 {
+		t.Fatalf("exit code = %d, want 2", res.ExitCode)
+	}
+}
+
+func TestRunCapturesMetricsAndFinalOutput(t *testing.T) {
+	out := `{"type":"result","subtype":"success","is_error":false,"result":"All done.","session_id":"s","total_cost_usd":0.012,"num_turns":2,"duration_ms":3400,"usage":{"input_tokens":1200,"output_tokens":300}}`
+	res := runFake(t, out, 0)
+	if res.Status != store.StatusSuccess {
+		t.Fatalf("status = %q, want success", res.Status)
+	}
+	if res.FinalOutput != "All done." {
+		t.Fatalf("final output = %q, want %q", res.FinalOutput, "All done.")
+	}
+	if res.Metrics == nil || res.Metrics.CostUSD != 0.012 || res.Metrics.InputTokens != 1200 || res.Metrics.OutputTokens != 300 {
+		t.Fatalf("unexpected metrics: %+v", res.Metrics)
+	}
+}
+
+func TestRunMalformedOutputIsNotMistakenForSuccess(t *testing.T) {
+	// Garbage on stdout carries no terminal result, so even a zero exit must not
+	// be reported as a successful run.
+	res := runFake(t, "not json at all\n{\"type\":", 0)
+	if res.Status != store.StatusFailed {
+		t.Fatalf("status = %q, want failed", res.Status)
+	}
+}
+
+func TestRunRateLimitWindowReportedAfterTheRejection(t *testing.T) {
+	// The reset time may arrive on a line after the one that rejects the
+	// request. It must still reach the result, so the engine waits for the real
+	// reopening instead of a blind backoff.
+	out := strings.Join([]string{
+		`{"type":"system","subtype":"api_retry","error_status":429,"error":"rate_limit","session_id":"real-sid"}`,
+		`{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1784655600},"session_id":"real-sid"}`,
+		`{"type":"result","subtype":"error","is_error":true,"result":"aborted","session_id":"real-sid"}`,
+	}, "\n")
+	res := runFake(t, out, 1)
+	if res.Status != store.StatusRateLimited {
+		t.Fatalf("status = %q, want rate_limited_waiting", res.Status)
+	}
+	if want := time.Unix(1784655600, 0); !res.ResetAt.Equal(want) {
+		t.Fatalf("reset at = %v, want %v", res.ResetAt, want)
+	}
+}
+
+func TestRunRateLimitWinsOverPartialResult(t *testing.T) {
+	// A rate-limit event followed by an errored result must classify as
+	// rate-limited (so the gate waits), not a plain failure.
+	out := strings.Join([]string{
+		`{"type":"system","subtype":"api_retry","error_status":429,"retry_delay_ms":1000}`,
+		`{"type":"result","is_error":true,"result":"aborted"}`,
+	}, "\n")
 	res := runFake(t, out, 1)
 	if res.Status != store.StatusRateLimited {
 		t.Fatalf("status = %q, want rate_limited_waiting", res.Status)
@@ -411,46 +485,10 @@ func TestRunAllowedRateLimitEventDoesNotClassify(t *testing.T) {
 	}
 }
 
-func TestRunAuthError(t *testing.T) {
-	out := `{"type":"result","subtype":"error","is_error":true,"error":"authentication_failed"}`
-	res := runFake(t, out, 1)
-	if res.Status != store.StatusAuthError {
-		t.Fatalf("status = %q, want auth_error", res.Status)
-	}
-}
-
-func TestRunFailure(t *testing.T) {
-	out := `{"type":"result","subtype":"error","is_error":true,"result":"boom"}`
-	res := runFake(t, out, 2)
-	if res.Status != store.StatusFailed {
-		t.Fatalf("status = %q, want failed", res.Status)
-	}
-	if res.ExitCode != 2 {
-		t.Fatalf("exit code = %d, want 2", res.ExitCode)
-	}
-}
-
-func TestRunCapturesMetricsAndResultText(t *testing.T) {
-	out := `{"type":"result","subtype":"success","is_error":false,"result":"All done.","session_id":"s","total_cost_usd":0.012,"num_turns":2,"duration_ms":3400,"usage":{"input_tokens":1200,"output_tokens":300}}`
-	res := runFake(t, out, 0)
-	if res.Status != store.StatusSuccess {
-		t.Fatalf("status = %q, want success", res.Status)
-	}
-	if res.ResultText != "All done." {
-		t.Fatalf("result text = %q, want %q", res.ResultText, "All done.")
-	}
-	if res.Metrics == nil || res.Metrics.CostUSD != 0.012 || res.Metrics.InputTokens != 1200 || res.Metrics.OutputTokens != 300 {
-		t.Fatalf("unexpected metrics: %+v", res.Metrics)
-	}
-}
-
-func TestRunRateLimitWinsOverPartialResult(t *testing.T) {
-	// A rate-limit event followed by an errored result must classify as
-	// rate-limited (so the gate waits), not a plain failure.
-	out := strings.Join([]string{
-		`{"type":"system","subtype":"api_retry","error_status":429,"retry_delay_ms":1000}`,
-		`{"type":"result","is_error":true,"result":"aborted"}`,
-	}, "\n")
+func TestRunRejectedRateLimitEventAloneClassifies(t *testing.T) {
+	// Even without a 429 or an error field elsewhere, a rejected
+	// rate_limit_event means the run is rate-limited.
+	out := `{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1784655600},"session_id":"real-sid"}`
 	res := runFake(t, out, 1)
 	if res.Status != store.StatusRateLimited {
 		t.Fatalf("status = %q, want rate_limited_waiting", res.Status)

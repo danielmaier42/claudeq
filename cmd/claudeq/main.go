@@ -21,6 +21,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/engine"
 	"github.com/danielmaier42/claudeq/internal/executor"
 	"github.com/danielmaier42/claudeq/internal/limit"
+	"github.com/danielmaier42/claudeq/internal/provider/adapters"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
 	"github.com/danielmaier42/claudeq/internal/version"
@@ -542,7 +543,9 @@ func cmdRunNow(st *store.Store, id string) error {
 	// task tested with run-now can queue follow-up work too. This process is the
 	// claudeq CLI, so its own path is the queue binary.
 	self, _ := os.Executable()
-	eng := engine.New(st, limit.New(c), &executor.Executor{Home: st.Home(), QueueBin: self}, c)
+	eng := engine.New(st, limit.New(c), &executor.Executor{
+		Registry: adapters.Default(), Home: st.Home(), QueueBin: self,
+	}, c)
 	fmt.Printf("running task %q now...\n", id)
 	started := c.Now()
 	if err := eng.RunTaskNow(context.Background(), id); err != nil {

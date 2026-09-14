@@ -63,7 +63,12 @@ type Task struct {
 	// Enabled toggles the task without deleting it.
 	Enabled bool `toml:"enabled" json:"enabled"`
 
-	// Model overrides the global default model when non-empty.
+	// Provider selects the configured provider instance this task runs on, by
+	// its stable id (see internal/provider). Empty inherits the global default
+	// provider, which is what every task migrated from a pre-provider config
+	// does.
+	Provider string `toml:"provider,omitempty" json:"provider,omitempty"`
+	// Model overrides the effective provider's default model when non-empty.
 	Model string `toml:"model,omitempty" json:"model,omitempty"`
 	// Permissions decides how Claude Code's permission prompts are handled.
 	Permissions Permissions `toml:"permissions" json:"permissions"`

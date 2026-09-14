@@ -373,3 +373,43 @@ func TestDecodeTaskDocMissingID(t *testing.T) {
 		t.Fatalf("got %v, want a missing-id error", err)
 	}
 }
+
+func TestApplyEditedDocKeepsAProviderTheDocumentDoesNotShow(t *testing.T) {
+	// The editable document has no provider line. A round-trip through the
+	// editor must not move the task onto the default provider — and it must keep
+	// the provider the task has when the write lands, not the one it had when
+	// the editor opened.
+	st := newTestStore(t)
+	orig := baseTask()
+	if err := app.AddTask(st, orig); err != nil {
+		t.Fatalf("AddTask: %v", err)
+	}
+	before, err := encodeTaskDoc(orig)
+	if err != nil {
+		t.Fatalf("encodeTaskDoc: %v", err)
+	}
+	after := []byte(strings.Replace(string(before), "old prompt", "edited prompt", 1))
+
+	// Someone assigns the task to another provider while the editor is open.
+	// The document does not show providers, so this is not a conflicting edit.
+	if err := app.EditTask(st, orig.ID, func(t *task.Task) error {
+		t.Provider = "claude-secondary"
+		return nil
+	}); err != nil {
+		t.Fatalf("EditTask: %v", err)
+	}
+
+	if err := applyEditedDoc(st, orig, before, after); err != nil {
+		t.Fatalf("applyEditedDoc: %v", err)
+	}
+	got, err := findTask(st, orig.ID)
+	if err != nil {
+		t.Fatalf("findTask: %v", err)
+	}
+	if got.Provider != "claude-secondary" {
+		t.Fatalf("provider = %q, want the one set while the editor was open", got.Provider)
+	}
+	if got.Prompt != "edited prompt" {
+		t.Fatalf("prompt = %q, want the edit applied", got.Prompt)
+	}
+}

@@ -495,7 +495,9 @@ func (c Config) checkUniqueIDs() error {
 
 // Settings holds global configuration.
 type Settings struct {
-	// DefaultModel is used for runs unless a task overrides it (FA-28).
+	// DefaultModel is used for runs unless a task overrides it (FA-28). It is
+	// the default model of the `claude` provider instance derived from these
+	// settings (see provider.FromSettings).
 	DefaultModel string `toml:"default_model" json:"default_model"`
 	// LegacySkipPermissions is the removed global "may do anything" default.
 	// It is only read to migrate old configs (see migrate) and never written
@@ -515,6 +517,8 @@ type Settings struct {
 	// ClaudePath is an absolute path to the Claude Code binary. Empty means
 	// claudeq auto-detects it (the daemon's launchd PATH excludes ~/.local/bin,
 	// so an explicit path is often needed). The GUI pre-fills this via detection.
+	// It is the binary path of the `claude` provider instance derived from these
+	// settings (see provider.FromSettings).
 	ClaudePath string `toml:"claude_path" json:"claude_path"`
 	// IdleTimeoutMinutes kills a run that produces no output for this many
 	// minutes — a hung/deadlocked process. A working run keeps streaming events,

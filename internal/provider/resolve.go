@@ -1,0 +1,147 @@
+package provider
+
+import (
+	"errors"
+	"fmt"
+
+	"github.com/danielmaier42/claudeq/internal/store"
+)
+
+// DefaultInstanceID is the ID of the Claude Code instance every claudeq
+// configuration has. It is the migration target for the pre-provider settings
+// and the default provider for a task that names none.
+const DefaultInstanceID = "claude"
+
+// DefaultInstanceName is that instance's display name. It appears in run
+// messages, so it reads as the product the operator installed.
+const DefaultInstanceName = "Claude Code"
+
+// Errors a selection can fail with. None of them is ever answered by silently
+// substituting another provider, account or model.
+var (
+	// ErrUnknownProvider means no configured instance has that ID.
+	ErrUnknownProvider = errors.New("unknown provider")
+	// ErrProviderDisabled means the instance exists but is switched off.
+	ErrProviderDisabled = errors.New("provider is disabled")
+	// ErrNoProviders means nothing is configured to run at all.
+	ErrNoProviders = errors.New("no provider is configured")
+)
+
+// Selection is what a task or a queue override asked for. An empty field
+// inherits, following the resolution table in Set.Resolve.
+type Selection struct {
+	// ProviderID names a configured instance. Empty selects the default.
+	ProviderID string
+	// Model names a model for that provider. Empty selects the provider's own
+	// default model.
+	Model string
+}
+
+// Resolved is the effective execution identity for one run.
+type Resolved struct {
+	// Instance is the provider instance that will run the job.
+	Instance Instance
+	// Model is the effective model; empty means the harness's own default.
+	Model string
+}
+
+// Set is the configured provider instances plus which of them is the default.
+type Set struct {
+	instances []Instance
+	defaultID string
+}
+
+// NewSet builds a set. It rejects an instance list that could not be resolved
+// unambiguously: a missing or duplicate ID, or a default that names no member.
+func NewSet(defaultID string, instances []Instance) (Set, error) {
+	seen := make(map[string]struct{}, len(instances))
+	for _, inst := range instances {
+		if inst.ID == "" {
+			return Set{}, fmt.Errorf("provider set: instance with empty id")
+		}
+		if _, dup := seen[inst.ID]; dup {
+			return Set{}, fmt.Errorf("provider set: duplicate provider id %q", inst.ID)
+		}
+		seen[inst.ID] = struct{}{}
+	}
+	if defaultID != "" {
+		if _, ok := seen[defaultID]; !ok {
+			return Set{}, fmt.Errorf("provider set: default provider %q is not configured", defaultID)
+		}
+	}
+	out := make([]Instance, len(instances))
+	copy(out, instances)
+	return Set{instances: out, defaultID: defaultID}, nil
+}
+
+// FromSettings derives the configured provider instances from the stored
+// settings. This is the migration from the pre-provider configuration: the
+// Claude Code binary path and the global default model become the `claude`
+// instance of kind `claude-code`, which every existing task then runs on. It is
+// a pure mapping, so applying it repeatedly changes nothing.
+func FromSettings(s store.Settings) Set {
+	return Set{
+		instances: []Instance{{
+			ID:           DefaultInstanceID,
+			Kind:         KindClaudeCode,
+			Name:         DefaultInstanceName,
+			BinaryPath:   s.ClaudePath,
+			DefaultModel: s.DefaultModel,
+			Enabled:      true,
+		}},
+		defaultID: DefaultInstanceID,
+	}
+}
+
+// All returns the configured instances in order.
+func (s Set) All() []Instance {
+	out := make([]Instance, len(s.instances))
+	copy(out, s.instances)
+	return out
+}
+
+// DefaultID returns the ID of the default provider, or "" when none is set.
+func (s Set) DefaultID() string { return s.defaultID }
+
+// Lookup returns the instance with the given ID.
+func (s Set) Lookup(id string) (Instance, bool) {
+	for _, inst := range s.instances {
+		if inst.ID == id {
+			return inst, true
+		}
+	}
+	return Instance{}, false
+}
+
+// Resolve applies the resolution table:
+//
+//	neither given        default provider, that provider's default model
+//	only a model given   default provider, the given model
+//	only a provider      that provider, that provider's default model
+//	both given           that provider, the given model
+//
+// Because the model default always comes from the resolved instance, changing
+// the provider without naming a model can never carry a model from the old
+// provider into the new one. There is no fallback to another provider: a
+// selection that cannot be honoured returns an error saying why.
+func (s Set) Resolve(sel Selection) (Resolved, error) {
+	id := sel.ProviderID
+	if id == "" {
+		id = s.defaultID
+	}
+	if id == "" {
+		return Resolved{}, ErrNoProviders
+	}
+	inst, ok := s.Lookup(id)
+	if !ok {
+		return Resolved{}, fmt.Errorf("%w %q", ErrUnknownProvider, id)
+	}
+	if !inst.Enabled {
+		return Resolved{}, fmt.Errorf("%w: %q", ErrProviderDisabled, id)
+	}
+	model := sel.Model
+	if model == "" {
+		model = inst.DefaultModel
+	}
+	return Resolved{Instance: inst, Model: model}, nil
+}

@@ -19,8 +19,8 @@ import (
 	"time"
 
 	"github.com/danielmaier42/claudeq/internal/app"
-	"github.com/danielmaier42/claudeq/internal/executor"
 	"github.com/danielmaier42/claudeq/internal/feedback"
+	"github.com/danielmaier42/claudeq/internal/provider/claudecode"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
 	"github.com/danielmaier42/claudeq/internal/update"
@@ -470,7 +470,7 @@ func claudeBin(s store.Settings) string {
 	if s.ClaudePath != "" {
 		return s.ClaudePath
 	}
-	if p := executor.DetectBinary(); p != "" {
+	if p := claudecode.DetectBinary(); p != "" {
 		return p
 	}
 	return "claude"
@@ -763,7 +763,7 @@ func (s *server) getHealth(w http.ResponseWriter, _ *http.Request) {
 // whichClaude reports the auto-detected Claude Code binary path so the GUI can
 // pre-fill the setting. Empty path means it could not be located.
 func (s *server) whichClaude(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"path": executor.DetectBinary()})
+	writeJSON(w, http.StatusOK, map[string]string{"path": claudecode.DetectBinary()})
 }
 
 func (s *server) chooseFolder(w http.ResponseWriter, r *http.Request) {

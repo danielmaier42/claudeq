@@ -1,6 +1,9 @@
-// Package executor runs a task through the Claude Code CLI in headless mode and
-// classifies the outcome (success / rate-limited / auth-error / failed) from
-// the stream-json output. Flags follow the verified CLI behaviour (PLAN.md §8).
+// Package executor runs one queued task through a provider harness and
+// classifies the outcome. It is provider-neutral: it resolves the adapter for
+// the task's provider instance from the registry, asks it for the invocation,
+// streams the process output to the run log, and folds the adapter's normalized
+// events into a result. Everything harness-specific lives in the adapter
+// (internal/provider).
 package executor
 
 import (
@@ -17,6 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/danielmaier42/claudeq/internal/provider"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
 )
@@ -39,8 +43,8 @@ const (
 )
 
 // headlessSystemPrompt opens claudeq's built-in guidance, because everything
-// else depends on it: a run is non-interactive and ends when Claude stops
-// writing, so anything Claude would normally defer to a later turn — a scheduled
+// else depends on it: a run is non-interactive and ends when the harness stops
+// writing, so anything it would normally defer to a later turn — a scheduled
 // wakeup, a background watcher, a question for the operator — never happens.
 const headlessSystemPrompt = `You are running headless inside claudeq, a local queue that runs Claude Code jobs unattended. Nobody is at the keyboard and there is no next turn: the run ends the moment you stop writing, and the process is torn down with it. Anything you defer to later in this session therefore never happens — a wakeup you schedule (ScheduleWakeup) dies with the process, a background watcher or monitor (Monitor, background shell commands) is killed, and nobody will answer a question you leave open. So decide instead of asking, and never end a run by announcing that you are waiting for something.
 
@@ -52,9 +56,10 @@ Either way, name every unfinished item concretely in your final message, with id
 
 `
 
-// selfQueueSystemPrompt is appended to every run's system prompt so Claude knows
-// it can schedule follow-up work as a separate claudeq task instead of doing it
-// inline. Settings it does not override are inherited from the calling task.
+// selfQueueSystemPrompt is appended to every run's system prompt so the harness
+// knows it can schedule follow-up work as a separate claudeq task instead of
+// doing it inline. Settings it does not override are inherited from the calling
+// task.
 const selfQueueSystemPrompt = `When you find work that should run as its own separate job — later, at a specific time, on a schedule, or independently of this run — schedule it as a new claudeq task instead of doing it now, using the claudeq CLI:
 
   "${CLAUDEQ_BIN:-claudeq}" queue --prompt "<what the new task should do>"
@@ -85,9 +90,9 @@ claudeq stores its data in the directory named by the CLAUDEQ_HOME environment v
   state.json      read-status and scheduling bookkeeping
 Read these files directly when a task asks you to look at what earlier runs did.`
 
-// artifactSystemPrompt is appended to every run's system prompt so Claude knows
-// it can publish a file as a claudeq artifact, which then appears in the app's
-// central Artifacts view for the operator to review.
+// artifactSystemPrompt is appended to every run's system prompt so the harness
+// knows it can publish a file as a claudeq artifact, which then appears in the
+// app's central Artifacts view for the operator to review.
 const artifactSystemPrompt = `
 
 When a task produces a file that is a deliverable for the operator to review — a report, summary, export, generated document, chart, HTML page, PDF, and the like — publish it as a claudeq artifact so it shows up in the app's Artifacts view:
@@ -102,8 +107,8 @@ Notes:
   - Publish only finished deliverables worth keeping — not intermediate scratch files, logs, or work you are still editing.
   - HTML and PDF artifacts get an in-app viewer, so they are good formats for anything meant to be read.`
 
-// notifySystemPrompt is appended to every run's system prompt so Claude knows
-// it can send the operator a notification directly — the way a watcher job
+// notifySystemPrompt is appended to every run's system prompt so the harness
+// knows it can send the operator a notification directly — the way a watcher job
 // reports a change without producing an artifact.
 const notifySystemPrompt = `
 
@@ -136,8 +141,7 @@ const builtinSystemPrompt = headlessSystemPrompt + selfQueueSystemPrompt + artif
 // systemPrompt combines the built-in prompt (always first) with the operator's
 // optional custom system prompt (last, introduced by customSystemPromptIntro). A
 // blank custom prompt yields exactly builtinSystemPrompt, so runs without one are
-// unaffected. Claude Code accepts --append-system-prompt only once, so both parts
-// are joined into one value.
+// unaffected. It is one value, because a harness may accept only one.
 func systemPrompt(custom string) string {
 	custom = strings.TrimSpace(custom)
 	if custom == "" {
@@ -146,10 +150,11 @@ func systemPrompt(custom string) string {
 	return builtinSystemPrompt + customSystemPromptIntro + custom
 }
 
-// Executor builds and runs Claude Code invocations.
+// Executor builds and runs provider invocations.
 type Executor struct {
-	// Bin is the Claude Code binary (default "claude").
-	Bin string
+	// Registry holds the adapters; the request's provider instance selects one
+	// by its kind.
+	Registry *provider.Registry
 	// Home is the claudeq data directory. When set it is passed to each run as
 	// CLAUDEQ_HOME so any task the run queues targets the same store.
 	Home string
@@ -159,29 +164,27 @@ type Executor struct {
 	QueueBin string
 }
 
-// Request is a single execution. Model and SkipPermissions are the already
-// resolved effective values (task override applied over global defaults).
+// Request is a single execution. Provider, Model and AccessMode are the already
+// resolved effective values (see provider.Set.Resolve).
 type Request struct {
 	// Task is what to run.
 	Task task.Task
+	// Provider is the resolved provider instance this run executes on.
+	Provider provider.Instance
 	// RunID is the id of this run, passed to the run as CLAUDEQ_RUN_ID so an
 	// artifact it publishes is attributed to the run. Empty leaves it unset.
 	RunID string
-	// SessionID is the UUID claudeq assigns for this task's session so it can be
+	// SessionID is the session id claudeq assigns for this task so it can be
 	// resumed later (PLAN.md V1).
 	SessionID string
 	// Resume continues an existing session instead of starting fresh.
 	Resume bool
-	// Model is the effective model; empty means use Claude Code's own default.
+	// Model is the effective model; empty means the provider's own default.
 	Model string
-	// SkipPermissions bypasses permission prompts for this run.
-	SkipPermissions bool
-	// Bin overrides the Claude Code binary for this run (an absolute path from
-	// settings). Empty falls back to the Executor's configured binary.
-	Bin string
+	// AccessMode is the authority this run gets.
+	AccessMode provider.AccessMode
 	// CustomSystemPrompt is the operator's optional system prompt (Settings.
-	// SystemPrompt). It is appended after the built-in self-queue prompt; blank
-	// means none.
+	// SystemPrompt). It is appended after the built-in prompt; blank means none.
 	CustomSystemPrompt string
 	// IdleTimeout kills the run if it produces no output for this long — a
 	// hung/deadlocked process. Zero disables the watchdog.
@@ -190,52 +193,51 @@ type Request struct {
 	Log io.Writer
 }
 
-// Result is the classified outcome of a run.
-type Result struct {
-	Status     store.RunStatus
-	SessionID  string
-	ExitCode   int
-	RetryAfter time.Duration // set when Status == StatusRateLimited
-	ResetAt    time.Time     // absolute limit-reset time from a rate_limit_event; zero if not reported
-	Message    string        // short human-readable detail
-	ResultText string        // the final result text from the CLI, if any
-	Metrics    *Metrics      // cost/token/timing from the result event, if any
+// providerRequest is the neutral description of this run handed to the adapter.
+func (r Request) providerRequest() provider.Request {
+	return provider.Request{
+		Prompt:       r.Task.Prompt,
+		WorkingDir:   r.Task.WorkingDir,
+		Model:        r.Model,
+		SessionID:    r.SessionID,
+		Resume:       r.Resume,
+		AccessMode:   r.AccessMode,
+		SystemPrompt: systemPrompt(r.CustomSystemPrompt),
+	}
 }
 
-// Metrics are the cost/token/timing figures from the CLI's result event.
-type Metrics struct {
-	CostUSD      float64
-	InputTokens  int
-	OutputTokens int
-	NumTurns     int
-	DurationMS   int64
+// adapterFor resolves the adapter for a request's provider instance and checks
+// that the instance can do what the request asks, so an impossible run is
+// reported before a process is spawned rather than as a mysterious CLI error.
+func (e *Executor) adapterFor(req Request) (provider.Adapter, error) {
+	if e.Registry == nil {
+		return nil, errors.New("no provider registry configured")
+	}
+	ad, err := e.Registry.Lookup(req.Provider.Kind)
+	if err != nil {
+		return nil, fmt.Errorf("provider %q: %w", req.Provider.ID, err)
+	}
+	if req.Resume && !ad.Capabilities().SessionResume {
+		return nil, fmt.Errorf("provider %q: %w: resuming a session", req.Provider.ID, provider.ErrUnsupported)
+	}
+	return ad, nil
 }
 
-// Args returns the CLI arguments for a request (excluding the binary name).
+// Command returns the invocation a request produces, without running it.
 // Exposed for testing and transparency.
-func (e *Executor) Args(req Request) []string {
-	args := []string{"-p", "--output-format", "stream-json", "--verbose"}
-
-	if req.Model != "" {
-		args = append(args, "--model", req.Model)
+func (e *Executor) Command(req Request) (provider.Command, error) {
+	ad, err := e.adapterFor(req)
+	if err != nil {
+		return provider.Command{}, err
 	}
-	if req.SkipPermissions {
-		args = append(args, "--dangerously-skip-permissions")
-	}
-	if req.Resume {
-		args = append(args, "--resume", req.SessionID)
-	} else {
-		args = append(args, "--session-id", req.SessionID)
-	}
-	args = append(args, "--append-system-prompt", systemPrompt(req.CustomSystemPrompt))
-	args = append(args, req.Task.Prompt)
-	return args
+	return ad.Command(req.Provider, req.providerRequest())
 }
 
-// runEnv is the environment for a run: the daemon's own environment plus the
-// variables a run needs to queue follow-up tasks (see selfQueueSystemPrompt).
-// Appended keys win over any inherited value of the same name.
-func (e *Executor) runEnv(req Request) []string {
+// runEnv is the environment for a run: the daemon's own environment, the
+// variables a run needs to queue follow-up tasks (see selfQueueSystemPrompt),
+// and finally the adapter's own additions. Appended keys win over any inherited
+// value of the same name.
+func (e *Executor) runEnv(req Request, adapterEnv []string) []string {
 	env := os.Environ()
 	if e.Home != "" {
 		env = append(env, store.EnvHome+"="+e.Home)
@@ -252,46 +254,39 @@ func (e *Executor) runEnv(req Request) []string {
 	if req.Task.ID != "" {
 		env = append(env, EnvTaskID+"="+req.Task.ID)
 	}
-	return env
-}
-
-func (e *Executor) bin() string {
-	if e.Bin != "" {
-		return e.Bin
-	}
-	return "claude"
-}
-
-// binFor resolves the binary for a request: an explicit per-run override wins,
-// otherwise the Executor's configured default.
-func (e *Executor) binFor(req Request) string {
-	if req.Bin != "" {
-		return req.Bin
-	}
-	return e.bin()
+	return append(env, adapterEnv...)
 }
 
 // Run executes the request, streaming output to req.Log, and returns the
-// classified result. A non-nil error indicates claudeq failed to run the CLI
-// at all (as opposed to the CLI reporting a task failure, which is a Result).
-func (e *Executor) Run(ctx context.Context, req Request) (Result, error) {
-	bin := e.binFor(req)
+// classified result. A non-nil error indicates claudeq failed to run the
+// harness at all (as opposed to the harness reporting a task failure, which is
+// a Result).
+func (e *Executor) Run(ctx context.Context, req Request) (provider.Result, error) {
+	ad, err := e.adapterFor(req)
+	if err != nil {
+		return provider.Result{}, err
+	}
+	invocation, err := ad.Command(req.Provider, req.providerRequest())
+	if err != nil {
+		return provider.Result{}, err
+	}
+
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, bin, e.Args(req)...)
+	cmd := exec.CommandContext(runCtx, invocation.Path, invocation.Args...) //nolint:gosec // the path comes from the configured provider instance or its adapter's detection
 	cmd.Dir = req.Task.WorkingDir
-	cmd.Env = e.runEnv(req)    // lets the run queue follow-up tasks (self-queue)
-	configureProcessGroup(cmd) // so a killed run takes its child processes with it
+	cmd.Env = e.runEnv(req, invocation.Env) // lets the run queue follow-up tasks (self-queue)
+	configureProcessGroup(cmd)              // so a killed run takes its child processes with it
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return Result{}, fmt.Errorf("stdout pipe: %w", err)
+		return provider.Result{}, fmt.Errorf("stdout pipe: %w", err)
 	}
 	log := &syncWriter{w: req.Log}
 	cmd.Stderr = log
 
 	if err := cmd.Start(); err != nil {
-		return Result{}, fmt.Errorf("start %s: %w", bin, err)
+		return provider.Result{}, fmt.Errorf("start %s: %w", invocation.Path, err)
 	}
 
 	// Idle watchdog: kill the process if it stops producing output for too long.
@@ -304,14 +299,15 @@ func (e *Executor) Run(ctx context.Context, req Request) (Result, error) {
 		go idleWatch(req.IdleTimeout, &lastActivity, &idleKilled, cancel, done)
 	}
 
-	cls := classifier{sessionID: req.SessionID}
+	parser := ad.NewParser()
+	collector := provider.NewCollector(req.SessionID, req.Provider.Name)
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	for sc.Scan() {
 		line := sc.Bytes()
 		lastActivity.Store(time.Now().UnixNano())
 		_, _ = log.Write(append(cloneLine(line), '\n'))
-		cls.consume(line)
+		collector.AddAll(parser.Parse(line))
 	}
 	scanErr := sc.Err()
 
@@ -322,13 +318,13 @@ func (e *Executor) Run(ctx context.Context, req Request) (Result, error) {
 		if errors.As(waitErr, &ee) {
 			exitCode = ee.ExitCode()
 		} else if !idleKilled.Load() {
-			return Result{}, fmt.Errorf("wait %s: %w", bin, waitErr)
+			return provider.Result{}, fmt.Errorf("wait %s: %w", invocation.Path, waitErr)
 		}
 	}
 	if idleKilled.Load() {
-		return Result{
+		return provider.Result{
 			Status:    store.StatusFailed,
-			SessionID: cls.sessionID,
+			SessionID: collector.SessionID(),
 			ExitCode:  exitCode,
 			Message:   fmt.Sprintf("stopped after %s of no output (looked hung)", req.IdleTimeout),
 		}, nil
@@ -336,10 +332,10 @@ func (e *Executor) Run(ctx context.Context, req Request) (Result, error) {
 	if scanErr != nil {
 		// We could not read the output reliably, so we cannot trust the
 		// classification; report it as a run error.
-		return Result{}, fmt.Errorf("read %s output: %w", bin, scanErr)
+		return provider.Result{}, fmt.Errorf("read %s output: %w", invocation.Path, scanErr)
 	}
 
-	return cls.result(exitCode), nil
+	return collector.Result(exitCode), nil
 }
 
 // idleWatch cancels the run's context (killing the process) when no output has
@@ -397,125 +393,6 @@ func cloneLine(b []byte) []byte {
 	copy(out, b)
 	return out
 }
-
-// streamEvent covers the fields we read from both the final `result` envelope
-// and intermediate `api_retry` system events. Unknown fields are ignored.
-type streamEvent struct {
-	Type           string         `json:"type"`
-	Subtype        string         `json:"subtype"`
-	IsError        bool           `json:"is_error"`
-	APIErrorStatus *int           `json:"api_error_status"`
-	ErrorStatus    *int           `json:"error_status"`
-	Error          string         `json:"error"`
-	RetryDelayMS   *int           `json:"retry_delay_ms"`
-	SessionID      string         `json:"session_id"`
-	ResultText     string         `json:"result"`
-	TotalCostUSD   float64        `json:"total_cost_usd"`
-	NumTurns       int            `json:"num_turns"`
-	DurationMS     int64          `json:"duration_ms"`
-	Usage          *usageTokens   `json:"usage"`
-	RateLimitInfo  *rateLimitInfo `json:"rate_limit_info"`
-}
-
-// rateLimitInfo is the payload of a `rate_limit_event` stream event. ResetsAt
-// is the absolute reset time as unix seconds; Status is "rejected" when the
-// request was actually blocked (as opposed to a mere approaching-limit
-// warning).
-type rateLimitInfo struct {
-	Status   string `json:"status"`
-	ResetsAt int64  `json:"resetsAt"`
-}
-
-type usageTokens struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
-}
-
-type classifier struct {
-	sessionID  string
-	sawResult  bool
-	resultErr  bool
-	rateLimit  bool
-	authError  bool
-	retryDelay time.Duration
-	resetAt    time.Time
-	resultText string
-	metrics    *Metrics
-}
-
-func (c *classifier) consume(line []byte) {
-	var ev streamEvent
-	if err := json.Unmarshal(line, &ev); err != nil {
-		return // non-JSON or partial line: ignore for classification
-	}
-	if ev.SessionID != "" {
-		c.sessionID = ev.SessionID
-	}
-	switch ev.Error {
-	case "rate_limit":
-		c.rateLimit = true
-	case "authentication_failed":
-		c.authError = true
-	}
-	if statusIs(ev.APIErrorStatus, 429) || statusIs(ev.ErrorStatus, 429) {
-		c.rateLimit = true
-	}
-	if statusIs(ev.APIErrorStatus, 401) || statusIs(ev.ErrorStatus, 401) {
-		c.authError = true
-	}
-	if ev.RetryDelayMS != nil && *ev.RetryDelayMS > 0 {
-		c.retryDelay = time.Duration(*ev.RetryDelayMS) * time.Millisecond
-	}
-	if info := ev.RateLimitInfo; info != nil {
-		// A rejected request means we are actually rate-limited (a session-limit
-		// hit surfaces this way even when no 429/error field follows). Any
-		// rate_limit_event carries the window's absolute reset time — remember
-		// it so the engine can requeue for the real reset instead of a blind
-		// backoff.
-		if info.Status == "rejected" {
-			c.rateLimit = true
-		}
-		if info.ResetsAt > 0 {
-			c.resetAt = time.Unix(info.ResetsAt, 0)
-		}
-	}
-	if ev.Type == "result" {
-		c.sawResult = true
-		c.resultErr = ev.IsError
-		c.resultText = ev.ResultText
-		m := &Metrics{CostUSD: ev.TotalCostUSD, NumTurns: ev.NumTurns, DurationMS: ev.DurationMS}
-		if ev.Usage != nil {
-			m.InputTokens = ev.Usage.InputTokens
-			m.OutputTokens = ev.Usage.OutputTokens
-		}
-		c.metrics = m
-	}
-}
-
-func (c *classifier) result(exitCode int) Result {
-	res := Result{SessionID: c.sessionID, ExitCode: exitCode, RetryAfter: c.retryDelay, ResetAt: c.resetAt, ResultText: c.resultText, Metrics: c.metrics}
-	switch {
-	case c.authError:
-		res.Status = store.StatusAuthError
-		res.Message = "Claude Code reported an authentication problem"
-	case c.rateLimit && (!c.sawResult || c.resultErr):
-		res.Status = store.StatusRateLimited
-		res.Message = "rate limit hit; waiting for reset"
-	case c.sawResult && !c.resultErr && exitCode == 0:
-		res.Status = store.StatusSuccess
-	case exitCode == -1:
-		// Terminated by a signal (e.g. the daemon was stopped) before it could
-		// finish. Not a task failure per se, but the run did not complete.
-		res.Status = store.StatusFailed
-		res.Message = "run was interrupted before completing (the process was terminated — e.g. the daemon stopped)"
-	default:
-		res.Status = store.StatusFailed
-		res.Message = fmt.Sprintf("run failed (exit %d)", exitCode)
-	}
-	return res
-}
-
-func statusIs(p *int, want int) bool { return p != nil && *p == want }
 
 // syncWriter serializes concurrent writes from the stdout scan loop and the
 // stderr copy.
