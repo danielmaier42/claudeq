@@ -304,11 +304,20 @@ func TestMorningDigestAcrossProviders(t *testing.T) {
 		healthAdapter: &healthAdapter{health: provider.Health{State: provider.HealthReady}},
 		kind:          provider.KindCodex, name: "Codex",
 	}
-	checker := &provider.Checker{Registry: provider.NewRegistry(claude, codex), TTL: time.Nanosecond}
+	third := &kindAdapter{
+		healthAdapter: &healthAdapter{health: provider.Health{State: provider.HealthReady}},
+		kind:          provider.Kind("acme"), name: "Acme",
+	}
+	checker := &provider.Checker{Registry: provider.NewRegistry(claude, codex, third), TTL: time.Nanosecond}
 
 	// Each child answers as its own provider, so the join's input is traceable
-	// back to who produced it.
+	// back to who produced it — and one of them fails, which is the case an
+	// unattended digest has to survive.
 	r := &stub{result: func(req executor.Request, _ int) provider.Result {
+		if req.Provider.ID == "acme" {
+			return provider.Result{Status: store.StatusFailed, SessionID: req.SessionID,
+				Message: "the acme CLI exited 1"}
+		}
 		return provider.Result{Status: store.StatusSuccess, SessionID: req.SessionID,
 			FinalOutput: req.Provider.ID + " reports: all quiet"}
 	}}
@@ -321,26 +330,30 @@ func TestMorningDigestAcrossProviders(t *testing.T) {
 	onClaude.Provider = store.DefaultProviderID
 	onCodex := childTask("digest-codex")
 	onCodex.Provider = "codex"
-	join := joinTask("digest-claude", "digest-codex")
-	join.WorkflowID = "wf-digest"
-	onClaude.WorkflowID, onCodex.WorkflowID = "wf-digest", "wf-digest"
+	onAcme := childTask("digest-acme")
+	onAcme.Provider = "acme"
+	join := joinTask("digest-claude", "digest-codex", "digest-acme")
+	for _, t := range []*task.Task{&onClaude, &onCodex, &onAcme, &join} {
+		t.WorkflowID = "wf-digest"
+	}
 
 	if err := st.SaveConfig(store.Config{
 		Providers: []store.Provider{
 			{ID: store.DefaultProviderID, Kind: store.DefaultProviderKind, Name: "Claude", Enabled: true},
 			{ID: "codex", Kind: string(provider.KindCodex), Name: "Codex", Enabled: true},
+			{ID: "acme", Kind: "acme", Name: "Acme", Enabled: true},
 		},
-		Tasks: []task.Task{onClaude, onCodex, join},
+		Tasks: []task.Task{onClaude, onCodex, onAcme, join},
 	}); err != nil {
 		t.Fatalf("SaveConfig: %v", err)
 	}
 
-	// Tick one runs both children; the join is not eligible yet.
+	// Tick one runs every child; the join is not eligible yet.
 	if err := e.Tick(context.Background()); err != nil {
 		t.Fatalf("Tick 1: %v", err)
 	}
 	e.WaitIdle()
-	if got := len(r.requests()); got != 2 {
+	if got := len(r.requests()); got != 3 {
 		t.Fatalf("%d runs on the first tick, want one per provider", got)
 	}
 
@@ -352,19 +365,33 @@ func TestMorningDigestAcrossProviders(t *testing.T) {
 	e.WaitIdle()
 
 	reqs := r.requests()
-	if len(reqs) != 3 || reqs[2].Task.ID != "join" {
-		t.Fatalf("expected the join to run third, got %d runs", len(reqs))
+	if len(reqs) != 4 || reqs[3].Task.ID != "join" {
+		t.Fatalf("expected the join to run last, got %d runs", len(reqs))
 	}
-	prompt := reqs[2].Task.Prompt
-	for _, want := range []string{"claude reports: all quiet", "codex reports: all quiet"} {
+	// Exactly one join means exactly one place the digest is published from:
+	// three children each publishing would be three competing reports.
+	joins := 0
+	for _, req := range reqs {
+		if req.Task.ID == "join" {
+			joins++
+		}
+	}
+	if joins != 1 {
+		t.Fatalf("the join ran %d times, want once", joins)
+	}
+	prompt := reqs[3].Task.Prompt
+	for _, want := range []string{
+		"claude reports: all quiet", "codex reports: all quiet",
+		"status: failed", "the acme CLI exited 1",
+	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("the join is missing %q:\n%s", want, prompt)
 		}
 	}
 
-	// All three runs read as one piece of work, and each says what it ran on.
+	// Every run reads as one piece of work, and each says what it ran on.
 	runs, _ := st.Runs()
-	if len(runs) != 3 {
+	if len(runs) != 4 {
 		t.Fatalf("got %d runs in history", len(runs))
 	}
 	providers := map[string]bool{}
@@ -374,7 +401,49 @@ func TestMorningDigestAcrossProviders(t *testing.T) {
 		}
 		providers[run.Provider.ID] = true
 	}
-	if !providers["claude"] || !providers["codex"] {
-		t.Fatalf("the workflow did not span both providers: %v", providers)
+	for _, want := range []string{"claude", "codex", "acme"} {
+		if !providers[want] {
+			t.Fatalf("the workflow did not reach %q: %v", want, providers)
+		}
+	}
+}
+
+// TestADependencyOutlivesTheDaemon: the dependency is on disk, in the config and
+// the history, so a daemon that restarts mid-workflow picks it up where it was.
+// Nothing in memory is holding the join open.
+func TestADependencyOutlivesTheDaemon(t *testing.T) {
+	fc := clock.NewFake(time.Date(2026, 9, 14, 3, 0, 0, 0, time.UTC))
+	r := &stub{result: func(req executor.Request, _ int) provider.Result {
+		return provider.Result{Status: store.StatusSuccess, SessionID: req.SessionID, FinalOutput: "child done"}
+	}}
+	e, st := newTestEngine(t, r, fc)
+	saveTasks(t, st, childTask("a"), joinTask("a"))
+
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	e.WaitIdle()
+	if got := len(r.requests()); got != 1 {
+		t.Fatalf("%d runs, want only the child", got)
+	}
+
+	// A second engine over the same store is what a restart amounts to.
+	fresh := New(st, limit.NewGates(fc), r, fc,
+		&provider.Checker{Registry: provider.NewRegistry(&healthAdapter{health: provider.Health{State: provider.HealthReady}}), TTL: time.Nanosecond})
+	fresh.newRunID = func() string { return "run-after-restart" }
+	fresh.newSessionID = func() string { return "sess-after-restart" }
+
+	fc.Advance(time.Minute)
+	if err := fresh.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick after restart: %v", err)
+	}
+	fresh.WaitIdle()
+
+	reqs := r.requests()
+	if len(reqs) != 2 || reqs[1].Task.ID != "join" {
+		t.Fatalf("the join did not run after the restart: %d runs", len(reqs))
+	}
+	if !strings.Contains(reqs[1].Task.Prompt, "child done") {
+		t.Errorf("the join lost the child's answer across the restart:\n%s", reqs[1].Task.Prompt)
 	}
 }

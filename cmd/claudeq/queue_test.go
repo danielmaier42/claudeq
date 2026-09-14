@@ -451,11 +451,31 @@ func TestCmdQueueRefusesResultsWithoutDependencies(t *testing.T) {
 func TestCmdQueueRefusesARecurringDependent(t *testing.T) {
 	withProviderHealth(t, providerReady)
 	st := newTestStore(t)
-	if err := app.AddTask(st, baseTask()); err != nil {
+	once := baseTask()
+	once.ID, once.Trigger, once.Cron = "one-shot", task.TriggerASAP, ""
+	if err := app.AddTask(st, once); err != nil {
 		t.Fatal(err)
 	}
-	err := cmdQueue(st, []string{"--prompt", "p", "--dir", t.TempDir(), "--cron", "0 3 * * *", "--depends-on", "nightly"})
+	err := cmdQueue(st, []string{"--prompt", "p", "--dir", t.TempDir(), "--cron", "0 3 * * *", "--depends-on", "one-shot"})
 	if err == nil {
 		t.Fatal("a recurring task was allowed to depend on a one-shot job")
+	}
+}
+
+// TestCmdQueueRefusesARecurringDependency: a job that runs on a schedule never
+// reaches a last result, so "wait until it is done" has no meaning — the join
+// would be released by its first occurrence and never again.
+func TestCmdQueueRefusesARecurringDependency(t *testing.T) {
+	withProviderHealth(t, providerReady)
+	st := newTestStore(t)
+	if err := app.AddTask(st, baseTask()); err != nil { // baseTask is a cron task
+		t.Fatal(err)
+	}
+	err := cmdQueue(st, []string{"--prompt", "p", "--dir", t.TempDir(), "--depends-on", "nightly"})
+	if err == nil {
+		t.Fatal("waiting for a recurring job was accepted")
+	}
+	if !strings.Contains(err.Error(), "schedule") {
+		t.Fatalf("error = %v, want it to explain why", err)
 	}
 }

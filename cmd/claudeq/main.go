@@ -364,7 +364,7 @@ func cmdQueue(st *store.Store, args []string) error {
 		if err := app.AddTask(st, t); err != nil {
 			// A job it wants to wait for does not exist; regenerating the id
 			// would not change that, so it is reported rather than retried.
-			if errors.Is(err, app.ErrUnknownDependency) {
+			if errors.Is(err, app.ErrUnknownDependency) || errors.Is(err, app.ErrInvalidDependency) {
 				return err
 			}
 			lastErr = err // almost certainly an id collision; regenerate and retry

@@ -859,7 +859,7 @@ has all of it.
 - Dependencies are fixed when the job is queued and never change afterwards.
 - A recurring (cron) job cannot depend on one-shot jobs: its second occurrence
   would find them long finished and run immediately, which is no dependency at
-  all.
+  all. Nor can you wait *for* a recurring job — it never has a last result.
 - Leave `--model` off a cross-provider job unless you mean it. A model name
   belongs to the harness it was chosen for, so each provider uses its own
   default.

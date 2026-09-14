@@ -30,6 +30,9 @@ func AddTask(s *store.Store, t task.Task) error {
 // exist here.
 var ErrUnknownDependency = errors.New("unknown job")
 
+// ErrInvalidDependency reports a job that exists but cannot be waited for.
+var ErrInvalidDependency = errors.New("cannot be waited for")
+
 // checkDependencies refuses a task that waits for a job claudeq has never heard
 // of: it would wait for good, which in an unattended queue means a deliverable
 // that silently never appears.
@@ -47,7 +50,14 @@ func checkDependencies(s *store.Store, t task.Task) error {
 	}
 	var ran map[string]bool
 	for _, dep := range t.DependsOn {
-		if indexOf(cfg.Tasks, dep) >= 0 {
+		if i := indexOf(cfg.Tasks, dep); i >= 0 {
+			// A recurring job has no last run: it finishes and comes round again,
+			// so "wait until it is done" has no meaning. Waiting for one would
+			// release the join on its first occurrence and never again.
+			if cfg.Tasks[i].Trigger == task.TriggerCron {
+				return fmt.Errorf("%w: job %q runs on a schedule, so it never reaches a final result to wait for",
+					ErrInvalidDependency, dep)
+			}
 			continue
 		}
 		// Not in the queue: a one-shot job that has already finished is a
