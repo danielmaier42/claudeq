@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -77,7 +78,7 @@ func TestRoundTripKeepsEveryField(t *testing.T) {
 		t.Errorf("fixed_at = %v, want %v", got.FixedAt, want.FixedAt)
 	}
 	got.FixedAt, want.FixedAt = time.Time{}, time.Time{}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("round trip changed the task:\n got %+v\nwant %+v", got, want)
 	}
 }

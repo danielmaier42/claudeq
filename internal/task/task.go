@@ -79,6 +79,27 @@ type Task struct {
 	// NotifyOnResult sends a notification with the outcome and last result
 	// message when the run finishes (success or failure), not just on failures.
 	NotifyOnResult bool `toml:"notify_on_result,omitempty" json:"notify_on_result,omitempty"`
+	// DependsOn lists the one-shot job ids this task waits for. It becomes
+	// eligible only once every one of them has reached a terminal result —
+	// success, failure, auth error or cancellation. A rate-limited job that is
+	// still scheduled to resume has not finished, so the wait continues.
+	//
+	// Dependencies are fixed when the task is queued and never change
+	// afterwards. That is what rules out a cycle: a job can only name jobs that
+	// already existed when it was created.
+	DependsOn []string `toml:"depends_on,omitempty" json:"depends_on,omitempty"`
+	// IncludeResults asks for what the dependencies answered to be put in front
+	// of this task's prompt, so a join can consolidate them without going
+	// looking for run logs. It means nothing without DependsOn.
+	IncludeResults bool `toml:"include_results,omitempty" json:"include_results,omitempty"`
+
+	// ParentRun is the run that queued this task, when one did.
+	ParentRun string `toml:"parent_run,omitempty" json:"parent_run,omitempty"`
+	// WorkflowID groups everything that came out of one piece of work. A task
+	// queued by a run inherits that run's workflow; a run that has none starts
+	// one under its own id.
+	WorkflowID string `toml:"workflow_id,omitempty" json:"workflow_id,omitempty"`
+
 	// QuietHistory keeps the task's routine runs out of the way: a run that
 	// succeeds (or pauses on the rate limit, which resolves itself) is never
 	// written to history and its log is deleted, so a frequent watcher job
@@ -133,7 +154,37 @@ func (t Task) Validate() error {
 		return fmt.Errorf("%w: unknown permissions %q", ErrInvalidTask, t.Permissions)
 	}
 
+	// A recurring task cannot wait for a job that finishes once: its second
+	// occurrence would find the same dependencies long terminal and run
+	// immediately, which is not a dependency at all.
+	if len(t.DependsOn) > 0 && t.Trigger == TriggerCron {
+		return fmt.Errorf("%w: a recurring task cannot depend on other jobs", ErrInvalidTask)
+	}
+	for _, dep := range t.DependsOn {
+		if dep == t.ID {
+			return fmt.Errorf("%w: task %q cannot depend on itself", ErrInvalidTask, t.ID)
+		}
+		if err := CheckID(dep); err != nil {
+			return fmt.Errorf("%w: dependency %q: %w", ErrInvalidTask, dep, err)
+		}
+	}
+
 	return nil
+}
+
+// DependenciesEqual reports whether two tasks name the same dependencies, in
+// the same order. Dependencies are fixed when a task is queued, so this is what
+// an edit is checked against.
+func DependenciesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // CronSchedule parses the task's cron expression. It must only be called on a

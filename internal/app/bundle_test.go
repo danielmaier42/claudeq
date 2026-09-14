@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -32,7 +33,7 @@ func TestExportImportRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExportTask: %v", err)
 	}
-	if exported != orig {
+	if !reflect.DeepEqual(exported, orig) {
 		t.Errorf("ExportTask returned %+v", exported)
 	}
 	if _, err := ExportTask(src, "nope", &buf, time.Now()); err == nil || !strings.Contains(err.Error(), "not found") {
@@ -51,14 +52,14 @@ func TestExportImportRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ImportTask: %v", err)
 	}
-	if got != orig {
+	if !reflect.DeepEqual(got, orig) {
 		t.Errorf("imported task differs:\n got %+v\nwant %+v", got, orig)
 	}
 	cfg, err := dst.LoadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Tasks) != 1 || cfg.Tasks[0] != orig {
+	if len(cfg.Tasks) != 1 || !reflect.DeepEqual(cfg.Tasks[0], orig) {
 		t.Errorf("stored tasks = %+v", cfg.Tasks)
 	}
 }
@@ -172,7 +173,7 @@ func TestReadImportKeepsAnExistingWorkingDir(t *testing.T) {
 	// The gaps a file can leave open are filled, everything else is untouched.
 	want := in
 	want.ID, want.Permissions = "shared", task.PermissionsDefault
-	if d.Task != want {
+	if !reflect.DeepEqual(d.Task, want) {
 		t.Errorf("draft %+v, want %+v", d.Task, want)
 	}
 }

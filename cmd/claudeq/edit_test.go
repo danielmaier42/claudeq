@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -110,7 +111,7 @@ func TestTaskPatchApply(t *testing.T) {
 				t.Fatalf("apply: %v", err)
 			}
 			want := tc.want(start)
-			if got != want {
+			if !reflect.DeepEqual(got, want) {
 				t.Errorf("got  %+v\nwant %+v", got, want)
 			}
 			if err := got.Validate(); err != nil {
@@ -212,7 +213,7 @@ func TestTaskDocRoundTrip(t *testing.T) {
 		t.Errorf("fixed_at = %v, want %v", got.FixedAt, orig.FixedAt)
 	}
 	got.FixedAt = orig.FixedAt // compared above; times differ by location only
-	if got != orig {
+	if !reflect.DeepEqual(got, orig) {
 		t.Errorf("round trip:\ngot  %+v\nwant %+v", got, orig)
 	}
 	// The document is meant to be edited by hand: every setting must be visible.

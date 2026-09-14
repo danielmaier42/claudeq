@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -65,7 +66,7 @@ func TestImportTaskEndpointReadsWithoutQueueing(t *testing.T) {
 	}
 	var got app.ImportDraft
 	r.into(t, &got)
-	if got.Task != shared {
+	if !reflect.DeepEqual(got.Task, shared) {
 		t.Errorf("draft %+v, want %+v", got.Task, shared)
 	}
 	if got.MissingWorkingDir != "" {
@@ -162,7 +163,7 @@ func TestExportTaskEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("written file is not a bundle: %v", err)
 	}
-	if read != orig {
+	if !reflect.DeepEqual(read, orig) {
 		t.Errorf("file holds %+v, want %+v", read, orig)
 	}
 

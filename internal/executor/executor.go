@@ -40,6 +40,10 @@ const (
 	EnvRunID = "CLAUDEQ_RUN_ID"
 	// EnvTaskID holds the current task's id, for the same attribution.
 	EnvTaskID = "CLAUDEQ_TASK_ID"
+	// EnvWorkflowID holds the workflow this run belongs to. `claudeq queue`
+	// puts it on the task it creates, so a fan-out, its join and an ordinary
+	// self-queued chain all read as one piece of work afterwards.
+	EnvWorkflowID = "CLAUDEQ_WORKFLOW_ID"
 )
 
 // headlessSystemPrompt opens claudeq's built-in guidance, because everything
@@ -175,6 +179,10 @@ type Request struct {
 	// RunID is the id of this run, passed to the run as CLAUDEQ_RUN_ID so an
 	// artifact it publishes is attributed to the run. Empty leaves it unset.
 	RunID string
+	// WorkflowID groups this run with whatever queued it and whatever it queues.
+	// It is handed to the run as CLAUDEQ_WORKFLOW_ID so a follow-up joins the
+	// same workflow instead of starting one of its own.
+	WorkflowID string
 	// SessionID is the session id claudeq assigns for this task so it can be
 	// resumed later (PLAN.md V1).
 	SessionID string
@@ -266,6 +274,9 @@ func (e *Executor) runEnv(req Request, adapterEnv []string) []string {
 	}
 	if req.Task.ID != "" {
 		env = append(env, EnvTaskID+"="+req.Task.ID)
+	}
+	if req.WorkflowID != "" {
+		env = append(env, EnvWorkflowID+"="+req.WorkflowID)
 	}
 	return append(env, adapterEnv...)
 }

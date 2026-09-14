@@ -15,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/danielmaier42/claudeq/internal/clock"
 	"github.com/danielmaier42/claudeq/internal/executor"
@@ -25,6 +26,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
 	"github.com/danielmaier42/claudeq/internal/wake"
+	"github.com/danielmaier42/claudeq/internal/workflow"
 )
 
 // DefaultRateLimitBackoff is used when a rate-limit event does not carry a
@@ -174,7 +176,14 @@ func (e *Engine) Tick(ctx context.Context) error {
 	// its own rate limit is dropped here too — there is no point probing a
 	// harness that may not be asked to run anyway, and the allowance belongs to
 	// that account alone, so the other providers carry on.
-	due, err := e.dueTasks(cfg)
+	// Which dependent jobs may go is decided once per tick, from history: it is
+	// the same answer for every task, and reading the log per task would make a
+	// fan-out quadratic in its own size.
+	deps, err := e.dependencyState(cfg)
+	if err != nil {
+		return err
+	}
+	due, err := e.dueTasks(cfg, deps)
 	if err != nil {
 		return err
 	}
@@ -209,7 +218,7 @@ func (e *Engine) Tick(ctx context.Context) error {
 	// one-shot or cron state, so it simply runs once the provider is ready again.
 	runnable := make([]task.Task, 0, len(due))
 	for _, t := range due {
-		stillDue, err := e.isDue(t, st, now)
+		stillDue, err := e.isDue(t, st, deps, now)
 		if err != nil {
 			return err
 		}
@@ -225,7 +234,7 @@ func (e *Engine) Tick(ctx context.Context) error {
 	starts := make([]start, 0, len(selected))
 	for _, t := range selected {
 		if res, err := health.resolve(providers, t); err == nil {
-			starts = append(starts, start{task: t, resolved: res})
+			starts = append(starts, start{task: t, resolved: res, deps: deps[t.ID]})
 		}
 	}
 
@@ -246,7 +255,7 @@ func (e *Engine) Tick(ctx context.Context) error {
 
 	for _, s := range starts {
 		sessionID, resume, dropped := e.sessionFor(s.task, st, s.resolved.Instance.ID)
-		if err := e.launchTask(s.task, cfg.Settings, s.resolved, sessionID, resume, dropped, now); err != nil {
+		if err := e.launchTask(s.task, cfg.Settings, s.resolved, s.deps, sessionID, resume, dropped, now); err != nil {
 			return err
 		}
 	}
@@ -257,7 +266,7 @@ func (e *Engine) Tick(ctx context.Context) error {
 // provider anything. The verdict is re-taken under the lock before a start is
 // recorded (see Tick); this first pass exists only to find out which harnesses
 // are worth probing at all.
-func (e *Engine) dueTasks(cfg store.Config) ([]task.Task, error) {
+func (e *Engine) dueTasks(cfg store.Config, deps dependencyState) ([]task.Task, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -272,7 +281,7 @@ func (e *Engine) dueTasks(cfg store.Config) ([]task.Task, error) {
 	e.seedCronAnchors(cfg, st, now)
 	due := make([]task.Task, 0, len(cfg.Tasks))
 	for _, t := range cfg.Tasks {
-		ok, err := e.isDue(t, st, now)
+		ok, err := e.isDue(t, st, deps, now)
 		if err != nil {
 			return nil, err
 		}
@@ -301,13 +310,14 @@ func (e *Engine) notRateLimited(set provider.Set, due []task.Task) []task.Task {
 
 // isDue evaluates one task's trigger. The caller holds e.mu, because whether the
 // task is already running is part of the answer.
-func (e *Engine) isDue(t task.Task, st *store.State, now time.Time) (bool, error) {
+func (e *Engine) isDue(t task.Task, st *store.State, deps dependencyState, now time.Time) (bool, error) {
 	anchor, _ := st.LastStart(t.ID)
 	ok, err := schedule.Due(t, schedule.Inputs{
-		Now:           now,
-		Running:       e.active[t.ID],
-		CompletedOnce: st.IsCompletedOnce(t.ID),
-		CronAnchor:    anchor,
+		Now:             now,
+		Running:         e.active[t.ID],
+		CompletedOnce:   st.IsCompletedOnce(t.ID),
+		CronAnchor:      anchor,
+		DependenciesMet: deps.met(t.ID),
 	})
 	if err != nil {
 		return false, fmt.Errorf("evaluate task %q: %w", t.ID, err)
@@ -315,11 +325,48 @@ func (e *Engine) isDue(t task.Task, st *store.State, now time.Time) (bool, error
 	return ok, nil
 }
 
+// dependencyState is one tick's answer to "may this dependent job go yet", and
+// what its dependencies said — computed once, from the run history.
+type dependencyState map[string][]workflow.Dependency
+
+// met reports whether every job the task waits for has finished. A task that
+// waits for nothing is always met.
+func (d dependencyState) met(taskID string) bool {
+	ok, _ := workflow.Ready(d[taskID])
+	return ok
+}
+
+// dependencyState resolves every waiting task's dependencies against history.
+// Tasks that depend on nothing are not in the map and cost nothing.
+func (e *Engine) dependencyState(cfg store.Config) (dependencyState, error) {
+	var waiting []task.Task
+	for _, t := range cfg.Tasks {
+		if len(t.DependsOn) > 0 {
+			waiting = append(waiting, t)
+		}
+	}
+	if len(waiting) == 0 {
+		return nil, nil
+	}
+	runs, err := e.store.Runs()
+	if err != nil {
+		return nil, fmt.Errorf("read history for dependencies: %w", err)
+	}
+	out := make(dependencyState, len(waiting))
+	for _, t := range waiting {
+		out[t.ID] = workflow.Resolve(t, cfg.Tasks, runs)
+	}
+	return out, nil
+}
+
 // start is one task the scheduler picked, together with the execution identity
 // it was cleared to run under.
 type start struct {
 	task     task.Task
 	resolved provider.Resolved
+	// deps are the finished jobs this one waited for, so their answers can be
+	// put in front of its prompt when it asked for them.
+	deps []workflow.Dependency
 }
 
 // providerHealth is one tick's readiness verdict per provider id, taken before
@@ -492,7 +539,7 @@ func (e *Engine) runningState() schedule.Running {
 // launchTask starts a run for t on the already-resolved execution identity. The
 // caller must hold e.mu, have checked that the provider can run, and have
 // persisted the RecordStart. sessionID/resume come from the caller's snapshot.
-func (e *Engine) launchTask(t task.Task, settings store.Settings, resolved provider.Resolved, sessionID string, resume bool, dropped string, started time.Time) error {
+func (e *Engine) launchTask(t task.Task, settings store.Settings, resolved provider.Resolved, deps []workflow.Dependency, sessionID string, resume bool, dropped string, started time.Time) error {
 	runID := e.newRunID()
 
 	logFile, err := os.Create(e.store.LogPath(runID))
@@ -501,11 +548,20 @@ func (e *Engine) launchTask(t task.Task, settings store.Settings, resolved provi
 	}
 
 	snapshot := t
+	// A run that belongs to no workflow yet starts one under its own id, so a
+	// job it queues has something to inherit and the two read as one piece of
+	// work afterwards.
+	workflowID := t.WorkflowID
+	if workflowID == "" {
+		workflowID = runID
+	}
 	rec := store.Run{
 		RunID: runID, TaskID: t.ID, TaskName: t.Name,
 		StartedAt: started, Status: store.StatusRunning,
 		SessionID: sessionID, LogPath: e.store.LogPath(runID),
-		Task: &snapshot,
+		Task:        &snapshot,
+		WorkflowID:  workflowID,
+		ParentRunID: t.ParentRun,
 		// The identity is written down now, while it is true. A provider renamed
 		// or removed tomorrow must not change what this run says it ran on.
 		Provider: store.RunProvider{
@@ -544,8 +600,17 @@ func (e *Engine) launchTask(t task.Task, settings store.Settings, resolved provi
 	}
 	e.awake.acquire() // hold off idle system sleep until this run finishes
 
+	// What the jobs it waited for answered goes in front of its own prompt,
+	// fenced and labelled as data. The task itself is left alone: history keeps
+	// the prompt the operator wrote, not one with a digest baked into it.
+	prompted := t
+	if t.IncludeResults && len(deps) > 0 {
+		prompted.Prompt = workflow.Context(deps) + "\n" + t.Prompt
+	}
+
 	req := executor.Request{
-		Task:               t,
+		Task:               prompted,
+		WorkflowID:         workflowID,
 		Provider:           resolved.Instance,
 		RunID:              runID,
 		SessionID:          sessionID,
@@ -786,6 +851,10 @@ func (e *Engine) finish(t task.Task, providerID string, rec store.Run, res provi
 	} else if res.Message != "" {
 		rec.Error = res.Message
 	}
+	// The harness's own answer is kept on the record, bounded: it is what a
+	// dependent job consolidates and what the notification quotes, and history
+	// is read whole on every load.
+	rec.FinalOutput, rec.FinalOutputTruncated = clipOutput(res.FinalOutput)
 	if m := res.Metrics; m != nil {
 		rec.CostUSD = m.CostUSD
 		rec.InputTokens = m.InputTokens
@@ -855,6 +924,21 @@ func (e *Engine) finish(t task.Task, providerID string, rec store.Run, res provi
 
 	// Notify outside any lock so channel I/O never blocks other finishing runs.
 	e.notifyOutcome(t, rec, res.FinalOutput)
+}
+
+// clipOutput cuts a final answer to what a run record may carry, reporting
+// whether it had to. The cut lands on a rune boundary, so the stored text is
+// never half a character.
+func clipOutput(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	if len(s) <= store.MaxFinalOutput {
+		return s, false
+	}
+	cut := store.MaxFinalOutput
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut], true
 }
 
 // quietDrop reports whether a run of a quiet-history task leaves history
@@ -1102,6 +1186,16 @@ func (e *Engine) RunTaskNow(ctx context.Context, taskID string) error {
 		return err
 	}
 
+	// A manual run is the operator overriding the schedule, so it does not wait
+	// for the jobs the task depends on. What those jobs have answered so far is
+	// still handed over, marked with what has not finished — running a join by
+	// hand is a legitimate way to see it work, and silently dropping the results
+	// would make it look broken.
+	deps, err := e.dependencyState(cfg)
+	if err != nil {
+		return err
+	}
+
 	e.mu.Lock()
 	if e.active[taskID] {
 		e.mu.Unlock()
@@ -1117,7 +1211,7 @@ func (e *Engine) RunTaskNow(ctx context.Context, taskID string) error {
 		e.mu.Unlock()
 		return fmt.Errorf("record run start: %w", err)
 	}
-	startErr := e.launchTask(*target, cfg.Settings, resolved, sessionID, resume, dropped, now)
+	startErr := e.launchTask(*target, cfg.Settings, resolved, deps[taskID], sessionID, resume, dropped, now)
 	e.mu.Unlock()
 
 	e.WaitIdle()

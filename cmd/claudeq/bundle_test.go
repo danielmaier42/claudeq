@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -33,7 +34,7 @@ func TestCmdExportImportRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if read, _, err := bundle.Read(data); err != nil || read != orig {
+	if read, _, err := bundle.Read(data); err != nil || !reflect.DeepEqual(read, orig) {
 		t.Errorf("exported file holds %+v (%v), want %+v", read, err, orig)
 	}
 
@@ -49,7 +50,7 @@ func TestCmdExportImportRoundTrip(t *testing.T) {
 	// than leaving the task to follow whatever the default happens to be.
 	want := orig
 	want.Provider = store.DefaultProviderID
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("imported %+v, want %+v", got, want)
 	}
 
