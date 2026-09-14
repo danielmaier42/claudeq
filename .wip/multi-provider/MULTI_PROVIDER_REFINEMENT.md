@@ -748,6 +748,18 @@ decide whether a provider can support the required structured, resumable flow.
 Neither feature silently falls back to another provider. Prompt review becomes
 temporarily unavailable. Feedback offers its existing manual path.
 
+Both run as an **aside**: a question SwarmQ asks a harness on its own behalf
+rather than to carry out the operator's work. An aside gets no tools, no project
+configuration and a working directory outside any repository, and returns the
+structure the caller asked for. It is a capability like any other, so Settings
+offers a provider for these two jobs only where the adapter claims it.
+
+Claude Code claims it. Codex does not yet: an aside additionally requires no
+tools at all, a neutral directory outside any repository, and an answer that
+keeps to a schema, and none of those three was measured in the provider spike.
+Spiking them the same way is what makes Codex eligible; until then it reports
+that it cannot, rather than failing at the point of use.
+
 ## Export and import
 
 A task bundle must not depend on a machine-local provider ID or configuration
@@ -761,9 +773,13 @@ directory. It includes an optional provider hint:
 }
 ```
 
-Import attempts to match the hint to local providers. With no unambiguous ready
-match, the task sheet requires the operator to select a provider. Import never
-creates provider instances, copies configuration paths or imports credentials.
+Import attempts to match the hint to local providers: exactly one enabled
+instance of that kind is taken, together with the model. With no unambiguous
+match — none, or several accounts of the same kind — the task sheet requires the
+operator to select a provider, and the model is dropped with the harness it was
+chosen for. Import never creates provider instances, copies configuration paths
+or imports credentials. A bundle written before hints existed carries none, and
+imports exactly as it always did.
 
 The CLI import command accepts `--provider` and `--model` overrides. Without a
 match or override it reports the unresolved provider rather than queuing a task
