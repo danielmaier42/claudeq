@@ -13,9 +13,8 @@ import (
 
 // runFixture feeds one of the spike's captured streams through the parser and
 // collector exactly as the executor does, and returns the run's outcome. The
-// fixtures are sanitized recordings of the real CLI (see
-// .wip/multi-provider/CODEX_PROVIDER_SPIKE.md); no Codex process is started here
-// or anywhere else in the test suite.
+// fixtures are sanitized recordings of the real CLI at codex-cli 0.154.0; no
+// Codex process is started here or anywhere else in the test suite.
 func runFixture(t *testing.T, name string, exitCode int) provider.Result {
 	t.Helper()
 	f, err := os.Open(filepath.Join("testdata", name))

@@ -4,9 +4,10 @@
 // its account directory is selected. Nothing outside this package needs to know
 // any of it.
 //
-// What the CLI actually does was established by the spike in
-// .wip/multi-provider/CODEX_PROVIDER_SPIKE.md against codex-cli 0.154.0; the
-// sanitized fixtures it captured drive this package's parser tests.
+// What the CLI actually does was established by a spike against codex-cli
+// 0.154.0 — nothing here is guessed from documentation. The sanitized streams
+// it captured live in testdata/ and drive this package's parser tests; the
+// spike's own write-up is in the repository history.
 package codex
 
 import (

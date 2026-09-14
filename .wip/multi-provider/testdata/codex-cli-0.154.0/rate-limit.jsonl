@@ -1,4 +1,0 @@
-{"type":"thread.started","thread_id":"<THREAD_ID>"}
-{"type":"turn.started"}
-{"type":"error","message":"exceeded retry limit, last status: 429 Too Many Requests"}
-{"type":"turn.failed","error":{"message":"exceeded retry limit, last status: 429 Too Many Requests"}}
