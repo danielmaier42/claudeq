@@ -1,0 +1,6 @@
+{"type":"thread.started","thread_id":"<THREAD_ID>"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"<ITEM_ID>","type":"collab_tool_call","tool":"wait","sender_thread_id":"<AGENT_ID>","receiver_thread_ids":[],"prompt":null,"agents_states":{},"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"<ITEM_ID>","type":"collab_tool_call","tool":"wait","sender_thread_id":"<AGENT_ID>","receiver_thread_ids":[],"prompt":null,"agents_states":{},"status":"completed"}}
+{"type":"item.completed","item":{"id":"<ITEM_ID>","type":"agent_message","text":"PARENT_OK"}}
+{"type":"turn.completed","usage":{"input_tokens":36585,"cached_input_tokens":32128,"cache_write_input_tokens":0,"output_tokens":62,"reasoning_output_tokens":0}}

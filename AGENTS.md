@@ -49,6 +49,10 @@ If any gate fails, it is fixed before the work is reported — never reported wi
   **open a pull request** against `main` afterwards. This holds for every code change, no
   matter how small; a one-line fix still gets its own branch and PR. Keep the branch current
   with `origin/main` and CI green while the PR is open.
+- **GitFlow branch names.** All branches use GitFlow prefixes: `feature/<short-topic>` for
+  features and planned enhancements, `hotfix/<short-topic>` for urgent production fixes,
+  and `release/<version>` for release preparation. Do not create tool- or agent-specific
+  prefixes such as `t3code/`, `claude/` or `codex/`.
 - **Never merge a PR.** An agent may open, update, and push to feature branches and
   keep CI green, but **merging is exclusively the maintainer's decision and action** —
   never merge (squash, rebase, or otherwise), never push directly to `main`, and never
@@ -104,4 +108,3 @@ never let it drift:
   the CLI/command reference, the settings table, and the "Data on disk" table.
 - Before reporting work as done, re-read the relevant README sections and confirm they reflect
   reality — treat a stale README as a failed quality gate, exactly like a red test.
-
