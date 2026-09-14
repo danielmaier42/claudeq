@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -624,5 +625,110 @@ func TestARateLimitBlocksOnlyItsOwnProvider(t *testing.T) {
 	}
 	if !ran["another"] {
 		t.Fatal("a task on the working provider must still start")
+	}
+}
+
+// TestRunRecordsTheExecutionIdentity: history says what a run actually used, and
+// keeps saying it after the provider is renamed or removed.
+func TestRunRecordsTheExecutionIdentity(t *testing.T) {
+	fc := clock.NewFake(time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC))
+	r := &stub{}
+	e, st := newTestEngine(t, r, fc)
+
+	tk := asapTask("a", false)
+	tk.Model, tk.ReasoningEffort, tk.Permissions = "opus", "xhigh", task.PermissionsSkip
+	if err := st.SaveConfig(store.Config{
+		Providers: []store.Provider{claudeProvider("/opt/claude", "sonnet")},
+		Tasks:     []task.Task{tk},
+	}); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	e.WaitIdle()
+
+	runs, err := st.Runs()
+	if err != nil {
+		t.Fatalf("Runs: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("got %d runs, want one", len(runs))
+	}
+	want := store.RunProvider{
+		ID: store.DefaultProviderID, Kind: store.DefaultProviderKind, Name: store.DefaultProviderName,
+		Model: "opus", ReasoningEffort: "xhigh", AccessMode: string(provider.AccessFullAccess),
+	}
+	if runs[0].Provider != want {
+		t.Fatalf("provider snapshot = %+v, want %+v", runs[0].Provider, want)
+	}
+
+	// Rename the provider: the run still says what it ran on.
+	if err := st.UpdateConfig(func(cfg *store.Config) error {
+		cfg.Providers[0].Name = "Renamed"
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+	again, _ := st.Runs()
+	if again[0].Provider.Name != store.DefaultProviderName {
+		t.Fatalf("provider name = %q, want the snapshot kept", again[0].Provider.Name)
+	}
+}
+
+// TestMovedTaskDoesNotResumeAnotherProvidersSession: a session id is the
+// harness's own, so a task pointed at a different provider while it waits out a
+// rate limit starts fresh instead of handing over a conversation the new
+// provider never had.
+func TestMovedTaskDoesNotResumeAnotherProvidersSession(t *testing.T) {
+	start := time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC)
+	fc := clock.NewFake(start)
+	e, st, r := rateLimitedTask(t, asapTask("a", false), fc)
+
+	state, _ := st.LoadState()
+	pending, ok := state.PendingResume("a")
+	if !ok || pending.ProviderID != store.DefaultProviderID {
+		t.Fatalf("pending resume = %+v, want one owned by %q", pending, store.DefaultProviderID)
+	}
+
+	// Add a second account of the same kind and move the task onto it.
+	if err := st.UpdateConfig(func(cfg *store.Config) error {
+		cfg.Providers = append(cfg.Providers, store.Provider{
+			ID: "claude-work", Kind: store.DefaultProviderKind, Name: "Claude (work)", Enabled: true,
+		})
+		cfg.Tasks[0].Provider = "claude-work"
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+
+	// The old provider's gate is still shut; the new one's was never closed.
+	fc.Advance(time.Minute)
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick after the move: %v", err)
+	}
+	e.WaitIdle()
+
+	reqs := r.requests()
+	if len(reqs) != 2 {
+		t.Fatalf("expected the task to run on the new provider, got %d runs", len(reqs))
+	}
+	if reqs[1].Resume {
+		t.Fatal("the new provider must not be handed the old one's session")
+	}
+	if reqs[1].SessionID == reqs[0].SessionID {
+		t.Fatalf("session %q was reused across providers", reqs[1].SessionID)
+	}
+	if reqs[1].Provider.ID != "claude-work" {
+		t.Fatalf("ran on %q, want claude-work", reqs[1].Provider.ID)
+	}
+
+	// And the run says why, where the run is read.
+	log, err := os.ReadFile(st.LogPath("run-2"))
+	if err != nil {
+		t.Fatalf("read run log: %v", err)
+	}
+	if !strings.Contains(string(log), "starts fresh") {
+		t.Fatalf("run log does not explain the dropped session: %s", log)
 	}
 }

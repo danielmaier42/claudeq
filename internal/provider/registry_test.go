@@ -55,6 +55,14 @@ func (f *fakeAdapter) Command(_ Instance, req Request) (Command, error) {
 
 func (f *fakeAdapter) NewParser() Parser { return &fakeParser{events: f.events} }
 
+func (f *fakeAdapter) AsideCommand(_ Instance, req AsideRequest) (Command, error) {
+	return Command{Path: "fake", Args: []string{req.Text}}, nil
+}
+
+func (f *fakeAdapter) ParseAside(out []byte) (Aside, error) {
+	return Aside{Text: string(out)}, nil
+}
+
 type fakeParser struct{ events []Event }
 
 // Parse returns the scripted events on the first line and nothing after, which

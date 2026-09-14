@@ -1,19 +1,22 @@
 // Package review checks a prompt against the machine it will run on before the
 // task is queued: the paths it names, the folders they would be written into,
 // and the instruction files it tells the run to read. The findings and the
-// rewrite are produced by Claude Code itself, run headless, tool-free and
-// short-lived — claudeq only supplies the filesystem facts.
+// rewrite are produced by a harness, asked as an aside — tool-free,
+// short-lived, in a directory of its own — while claudeq supplies the
+// filesystem facts. Which harness answers is the operator's choice; this
+// package does not know one from another.
 package review
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/danielmaier42/claudeq/internal/aside"
+	"github.com/danielmaier42/claudeq/internal/provider"
 )
 
 // Kind is which of claudeq's two prompt fields is being reviewed. They differ
@@ -46,10 +49,11 @@ type Request struct {
 	// WorkingDir is the task's working directory; relative paths in the prompt
 	// resolve against it. Empty for KindSystem.
 	WorkingDir string
-	// Model is the model to review with. Empty lets Claude Code pick.
+	// Model is the model to review with. Empty leaves the choice to the harness.
 	Model string
-	// Bin overrides the Claude Code binary (an absolute path from settings).
-	Bin string
+	// Provider is the instance that answers. A zero instance cannot, and the
+	// review reports itself unavailable.
+	Provider provider.Instance
 }
 
 // Result is what the review found.
@@ -63,28 +67,28 @@ type Result struct {
 	RevisedPrompt string `json:"revised_prompt,omitempty"`
 }
 
-// Runner executes the Claude Code binary and returns its stdout. It is a field
-// on Reviewer so tests can drive the whole pipeline without the real CLI.
-type Runner func(ctx context.Context, bin, dir string, args []string) ([]byte, error)
+// Asker puts one question to a provider instance (satisfied by *aside.Runner).
+// It is an interface so this package can be driven end to end without starting
+// a CLI.
+type Asker interface {
+	Ask(ctx context.Context, inst provider.Instance, req provider.AsideRequest) (provider.Aside, error)
+}
 
-// Reviewer runs prompt reviews through the Claude Code CLI.
+// ErrUnavailable means no review can run right now: no provider is chosen for
+// it, or the chosen one cannot answer claudeq's questions. The caller reports
+// it as "review unavailable", never as a finding about the prompt.
+var ErrUnavailable = aside.ErrUnavailable
+
+// Reviewer runs prompt reviews as asides.
 type Reviewer struct {
-	// Bin is the Claude Code binary used when a request does not override it.
-	Bin string
-	// Home is the user's home directory, used to expand "~" in a prompt's paths
-	// and as the neutral working directory of the review process itself. Empty
-	// falls back to os.UserHomeDir.
+	// Home is the user's home directory, used to expand "~" in a prompt's paths.
+	// Empty falls back to os.UserHomeDir.
 	Home string
 	// Timeout bounds one review; zero uses DefaultTimeout.
 	Timeout time.Duration
-	// Run executes the CLI; nil uses the real one.
-	Run Runner
+	// Ask runs the review turn.
+	Ask Asker
 }
-
-// ErrNoBinary means claudeq does not know where the Claude Code binary is, so
-// no review can run. The caller reports it as "review unavailable", never as a
-// finding about the prompt.
-var ErrNoBinary = errors.New("no claude binary configured")
 
 // Review inspects the prompt and returns what to tell the operator. An empty
 // prompt is fine by definition and costs no model call.
@@ -92,12 +96,8 @@ func (r *Reviewer) Review(ctx context.Context, req Request) (Result, error) {
 	if strings.TrimSpace(req.Prompt) == "" {
 		return Result{OK: true}, nil
 	}
-	bin := req.Bin
-	if bin == "" {
-		bin = r.Bin
-	}
-	if bin == "" {
-		return Result{}, ErrNoBinary
+	if r.Ask == nil || req.Provider.ID == "" {
+		return Result{}, fmt.Errorf("%w: no provider is configured to review prompts", ErrUnavailable)
 	}
 
 	home := r.Home
@@ -113,21 +113,17 @@ func (r *Reviewer) Review(ctx context.Context, req Request) (Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	run := r.Run
-	if run == nil {
-		run = execRun
-	}
-	// The review reads nothing itself, so it runs in a neutral directory rather
-	// than in the task's folder — which may not even exist yet.
-	dir := home
-	if dir == "" {
-		dir = os.TempDir()
-	}
-	out, err := run(ctx, bin, dir, Args(req.Model, systemPrompt(req.Kind), userMessage(req, facts)))
+	// One question, one answer: the review keeps no session, and reads nothing
+	// itself — every filesystem fact it needs is already in the message.
+	answer, err := r.Ask.Ask(ctx, req.Provider, provider.AsideRequest{
+		Model:  req.Model,
+		System: systemPrompt(req.Kind),
+		Text:   userMessage(req, facts),
+	})
 	if err != nil {
-		return Result{}, fmt.Errorf("run %s: %w", bin, err)
+		return Result{}, err
 	}
-	res, err := parseResult(out)
+	res, err := parseResult(answer)
 	if err != nil {
 		return Result{}, err
 	}
@@ -139,61 +135,16 @@ func (r *Reviewer) Review(ctx context.Context, req Request) (Result, error) {
 	return res, nil
 }
 
-// Args builds the CLI arguments for a review (excluding the binary name).
-// Exposed for testing and transparency.
-//
-// The review is deliberately the narrowest Claude Code invocation claudeq can
-// make: --tools "" removes every tool (all the filesystem facts it needs are in
-// the message already), --safe-mode drops CLAUDE.md, skills, plugins, hooks and
-// MCP servers so a review costs the same everywhere and cannot be steered by a
-// project's own configuration, and --no-session-persistence keeps these
-// throwaway turns out of the user's resumable session history.
-func Args(model, system, message string) []string {
-	args := []string{
-		"-p", "--output-format", "json",
-		"--safe-mode", "--no-session-persistence", "--tools", "",
-	}
-	if model != "" {
-		args = append(args, "--model", model)
-	}
-	args = append(args, "--system-prompt", system, message)
-	return args
-}
-
-func execRun(ctx context.Context, bin, dir string, args []string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, bin, args...) //nolint:gosec // bin is the configured Claude Code binary
-	cmd.Dir = dir
-	out, err := cmd.Output()
-	if err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
-			return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(shorten(string(ee.Stderr), 300)))
-		}
-		return nil, err
-	}
-	return out, nil
-}
-
-// cliEnvelope is the part of `claude -p --output-format json` claudeq reads.
-type cliEnvelope struct {
-	Result  string `json:"result"`
-	IsError bool   `json:"is_error"`
-	Subtype string `json:"subtype"`
-}
-
-// parseResult unwraps the CLI's JSON envelope and then the review object the
-// model wrote into it.
-func parseResult(out []byte) (Result, error) {
-	var env cliEnvelope
-	if err := json.Unmarshal(out, &env); err != nil {
-		return Result{}, fmt.Errorf("parse claude output: %w", err)
-	}
-	if env.IsError {
-		return Result{}, fmt.Errorf("claude reported %s: %s", orDefault(env.Subtype, "an error"), shorten(env.Result, 200))
-	}
-	body := jsonObject(env.Result)
+// parseResult reads the review object out of what the harness said. A model
+// that wraps its JSON in a code fence or a sentence has still answered, so the
+// object is pulled out rather than the whole thing rejected.
+func parseResult(answer provider.Aside) (Result, error) {
+	body := string(answer.Structured)
 	if body == "" {
-		return Result{}, fmt.Errorf("no review in claude's answer: %s", shorten(env.Result, 200))
+		body = jsonObject(answer.Text)
+	}
+	if body == "" {
+		return Result{}, fmt.Errorf("no review in the answer: %s", shorten(answer.Text, 200))
 	}
 	var res Result
 	if err := json.Unmarshal([]byte(body), &res); err != nil {
@@ -233,11 +184,4 @@ func shorten(s string, n int) string {
 		return s
 	}
 	return strings.TrimSpace(s[:n]) + "…"
-}
-
-func orDefault(s, fallback string) string {
-	if s == "" {
-		return fallback
-	}
-	return s
 }

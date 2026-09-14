@@ -21,7 +21,7 @@ import (
 func bundleOf(t *testing.T, tk task.Task) []byte {
 	t.Helper()
 	var buf bytes.Buffer
-	if err := bundle.Write(&buf, tk, time.Now()); err != nil {
+	if err := bundle.Write(&buf, tk, bundle.ProviderHint{}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	return buf.Bytes()
@@ -158,7 +158,7 @@ func TestExportTaskEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	read, err := bundle.Read(data)
+	read, _, err := bundle.Read(data)
 	if err != nil {
 		t.Fatalf("written file is not a bundle: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestExportTaskEndpointDoesNotClobberUnseenName(t *testing.T) {
 		t.Fatalf("status %d body %s", r.Status, r.Body)
 	}
 	data, _ := os.ReadFile(filepath.Join(dir, "plain.claudeq"))
-	if _, err := bundle.Read(data); err != nil {
+	if _, _, err := bundle.Read(data); err != nil {
 		t.Errorf("file was not replaced with a bundle: %v", err)
 	}
 }

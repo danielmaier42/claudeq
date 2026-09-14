@@ -1,6 +1,7 @@
 // Package feedback turns a short chat with the user into a GitHub issue draft
-// for the ClaudeQ repository. It runs the Claude Code CLI in a locked-down,
-// tool-less print session and hands the resulting draft to the dashboard, which
+// for the ClaudeQ repository. It asks a harness as an aside — locked down,
+// tool-free, in a directory of its own — and hands the resulting draft to the
+// dashboard, which
 // shows it for review before the user opens a prefilled "new issue" page in
 // their browser. ClaudeQ itself never talks to GitHub and holds no credentials:
 // the issue is created by the user, in their own logged-in browser session.
@@ -13,18 +14,17 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/danielmaier42/claudeq/internal/provider"
 )
 
-// Model is the model every feedback turn runs on. Drafting an issue from two
-// short messages is cheap work, and it must not depend on the user's default
-// model (which may be an expensive one they picked for real tasks).
-const Model = "haiku"
+// DefaultModel is what a feedback turn runs on when Settings names no model.
+// Drafting an issue from two short messages is cheap work, and it must not
+// silently land on the expensive model someone picked for real tasks.
+const DefaultModel = "haiku"
 
 // MaxUserTurns caps the conversation: the opening report plus at most two
 // clarifying rounds. On the last turn the assistant is told it must deliver.
@@ -104,43 +104,20 @@ type Draft struct {
 	Final bool `json:"final"`
 }
 
-// CLIRunner runs the Claude Code CLI in dir and returns its stdout. Injectable
-// so the conversation logic is testable against a stub instead of the real API.
-type CLIRunner interface {
-	Run(ctx context.Context, dir string, argv []string) ([]byte, error)
-}
-
-// ExecRunner runs the CLI as a child process.
-type ExecRunner struct{}
-
-// Run executes argv in dir and returns stdout only, so a warning the CLI prints
-// on stderr can never corrupt the JSON we parse.
-func (ExecRunner) Run(ctx context.Context, dir string, argv []string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // argv[0] is the configured/detected claude binary
-	cmd.Dir = dir
-	// No stdin: with a terminal or an open pipe the CLI waits for piped input
-	// for a few seconds before giving up.
-	cmd.Stdin = nil
-	out, err := cmd.Output()
-	if err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
-			return out, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(ee.Stderr)))
-		}
-		return out, err
-	}
-	return out, nil
+// Asker puts one question to a provider instance (satisfied by *aside.Runner).
+// It is an interface so the conversation logic is testable against a stub
+// instead of a real harness.
+type Asker interface {
+	Ask(ctx context.Context, inst provider.Instance, req provider.AsideRequest) (provider.Aside, error)
 }
 
 // Service holds the in-flight feedback conversations.
 type Service struct {
-	run CLIRunner
+	ask Asker
 	now func() time.Time
 
 	mu       sync.Mutex
 	sessions map[string]*session
-	dir      string // stable cwd for the CLI's session store
-	dirErr   error
 }
 
 type session struct {
@@ -148,18 +125,15 @@ type session struct {
 	seen  time.Time
 }
 
-// New returns a Service running turns through r (nil means the real CLI).
-func New(r CLIRunner) *Service {
-	if r == nil {
-		r = ExecRunner{}
-	}
-	return &Service{run: r, now: time.Now, sessions: map[string]*session{}}
+// New returns a Service running its turns through a.
+func New(a Asker) *Service {
+	return &Service{ask: a, now: time.Now, sessions: map[string]*session{}}
 }
 
 // Turn sends text to the conversation identified by sessionID (empty starts a
-// new one) and returns the assistant's answer. bin is the Claude Code binary to
-// invoke.
-func (s *Service) Turn(ctx context.Context, bin, sessionID, text string) (Draft, error) {
+// new one) and returns the assistant's answer. inst is the provider that
+// answers, and model the model it answers with ("" uses DefaultModel).
+func (s *Service) Turn(ctx context.Context, inst provider.Instance, model, sessionID, text string) (Draft, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return Draft{}, errors.New("say what you would like to report before sending")
@@ -167,14 +141,13 @@ func (s *Service) Turn(ctx context.Context, bin, sessionID, text string) (Draft,
 	if len([]rune(text)) > maxInputChars {
 		text = string([]rune(text)[:maxInputChars])
 	}
-	if bin == "" {
-		return Draft{}, errors.New("the Claude Code CLI was not found")
+	if s.ask == nil {
+		return Draft{}, errors.New("the feedback assistant is not available")
+	}
+	if model == "" {
+		model = DefaultModel
 	}
 
-	dir, err := s.sessionDir()
-	if err != nil {
-		return Draft{}, err
-	}
 	id, turns, resume := s.begin(sessionID)
 	last := turns >= MaxUserTurns
 	if last {
@@ -183,15 +156,33 @@ func (s *Service) Turn(ctx context.Context, bin, sessionID, text string) (Draft,
 
 	ctx, cancel := context.WithTimeout(ctx, turnTimeout)
 	defer cancel()
-	out, err := s.run.Run(ctx, dir, argv(bin, id, resume, text))
+	req := provider.AsideRequest{
+		Model:     model,
+		Text:      text,
+		Schema:    schema,
+		SessionID: id,
+		Resume:    resume,
+		// A first answer may be a question, so the session has to survive it.
+		// The last turn has to deliver, and nothing will resume it.
+		Continues: !last,
+	}
+	if !resume {
+		req.System = systemPrompt
+	}
+	answer, err := s.ask.Ask(ctx, inst, req)
 	if err != nil {
 		s.forget(id)
 		return Draft{}, fmt.Errorf("the feedback assistant could not be reached: %w", err)
 	}
-	d, err := parse(out)
+	d, err := parse(answer)
 	if err != nil {
 		s.forget(id)
 		return Draft{}, err
+	}
+	// A harness that names its own sessions answers with an id of its own; the
+	// dashboard sends back whatever it is told here.
+	if answer.SessionID != "" {
+		id = s.rename(id, answer.SessionID)
 	}
 	d.SessionID = id
 	d.Final = last
@@ -207,58 +198,29 @@ func (s *Service) Turn(ctx context.Context, bin, sessionID, text string) (Draft,
 	return d, nil
 }
 
-// argv builds the CLI invocation for one turn. The session is deliberately
-// bare: no tools, no MCP servers, no user settings, skills or CLAUDE.md, so a
-// feedback chat can neither touch the machine nor drag project context into a
-// public issue.
-func argv(bin, sessionID string, resume bool, text string) []string {
-	a := []string{bin, "-p",
-		"--model", Model,
-		"--tools", "",
-		"--strict-mcp-config",
-		"--disable-slash-commands",
-		"--safe-mode",
-		"--output-format", "json",
-		"--json-schema", schema,
-	}
-	if resume {
-		a = append(a, "--resume", sessionID)
-	} else {
-		a = append(a, "--session-id", sessionID, "--system-prompt", systemPrompt)
-	}
-	return append(a, text)
-}
-
-// cliResult is the subset of `--output-format json` we read.
-type cliResult struct {
-	IsError          bool            `json:"is_error"`
-	Subtype          string          `json:"subtype"`
-	Result           string          `json:"result"`
-	StructuredOutput json.RawMessage `json:"structured_output"`
-}
-
-func parse(out []byte) (Draft, error) {
-	var res cliResult
-	if err := json.Unmarshal(out, &res); err != nil {
-		return Draft{}, fmt.Errorf("the feedback assistant returned no usable answer: %w", err)
-	}
-	if res.IsError {
-		msg := strings.TrimSpace(res.Result)
-		if msg == "" {
-			msg = res.Subtype
-		}
-		return Draft{}, fmt.Errorf("the feedback assistant failed: %s", msg)
-	}
-	raw := res.StructuredOutput
+func parse(answer provider.Aside) (Draft, error) {
+	raw := answer.Structured
 	if len(raw) == 0 {
-		// No structured output: some CLI versions only put the JSON in `result`.
-		raw = json.RawMessage(strings.TrimSpace(res.Result))
+		// The harness did not validate the shape itself, so the object has to be
+		// found in what it wrote.
+		raw = json.RawMessage(jsonObject(answer.Text))
 	}
 	var d Draft
 	if err := json.Unmarshal(raw, &d); err != nil {
 		return Draft{}, errors.New("the feedback assistant returned no usable answer")
 	}
 	return sanitize(d)
+}
+
+// jsonObject pulls the outermost JSON object out of an answer, tolerating the
+// code fence and the odd sentence models like to wrap it in.
+func jsonObject(s string) string {
+	start := strings.IndexByte(s, '{')
+	end := strings.LastIndexByte(s, '}')
+	if start < 0 || end <= start {
+		return ""
+	}
+	return s[start : end+1]
 }
 
 // sanitize normalizes a draft and rejects one that says nothing usable.
@@ -332,6 +294,34 @@ func (s *Service) begin(sessionID string) (id string, turns int, resume bool) {
 	return id, 1, false
 }
 
+// newSessionID names a conversation before it exists, so two started at once
+// cannot be confused for one another. A harness that insists on naming its own
+// reports that name back and rename adopts it.
+func newSessionID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("%08x-0000-4000-8000-%012x", time.Now().UnixNano()&0xffffffff, time.Now().UnixNano())
+	}
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+// rename moves a conversation's bookkeeping to the id the harness reported for
+// it, so the next turn finds the same count under the id the dashboard holds.
+func (s *Service) rename(from, to string) string {
+	if from == to {
+		return to
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sess, ok := s.sessions[from]; ok {
+		delete(s.sessions, from)
+		s.sessions[to] = sess
+	}
+	return to
+}
+
 func (s *Service) forget(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -345,43 +335,6 @@ func (s *Service) pruneLocked() {
 			delete(s.sessions, id)
 		}
 	}
-}
-
-// sessionDirName is the throwaway directory the CLI runs in, inside the user's
-// own temporary directory (per-user on macOS, so the fixed name is not shared).
-const sessionDirName = "claudeq-feedback"
-
-// sessionDir is a stable empty directory the CLI runs in, so resuming a
-// conversation finds it in Claude Code's per-project session store — and so no
-// real project directory (with its CLAUDE.md and history) is ever the cwd. The
-// name is fixed rather than random: Claude Code keys its session store by the
-// directory, and a fresh path per daemon start would leave a new stale project
-// behind at every login.
-func (s *Service) sessionDir() (string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.dir != "" || s.dirErr != nil {
-		return s.dir, s.dirErr
-	}
-	dir := filepath.Join(os.TempDir(), sessionDirName)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		s.dirErr = fmt.Errorf("preparing the feedback session: %w", err)
-		return "", s.dirErr
-	}
-	s.dir = dir
-	return s.dir, nil
-}
-
-func newSessionID() string {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		// Only the CLI ever sees this id, and it is namespaced per directory; a
-		// time-based fallback keeps feedback working if the pool ever fails.
-		return fmt.Sprintf("%08x-0000-4000-8000-%012x", time.Now().UnixNano()&0xffffffff, time.Now().UnixNano())
-	}
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
 // MaxURLLen bounds the prefilled issue URL. GitHub answers a longer request

@@ -205,7 +205,7 @@ func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
 		v := taskView{Task: t, Running: active[t.ID], BlockedReason: blocked[t.Provider]}
 		// A task whose session is waiting for the rate limit is not idle: say so
 		// in the queue, so it does not look like a job that simply hangs.
-		if !active[t.ID] && st != nil && st.PendingResume(t.ID) != "" {
+		if !active[t.ID] && st != nil && hasPendingResume(st, t.ID) {
 			v.WaitingForLimit = true
 		}
 		// For recurring tasks, surface the next scheduled occurrence so the UI can
@@ -538,7 +538,7 @@ func (s *server) continueRun(w http.ResponseWriter, r *http.Request) {
 	// The interactive resume goes to the provider instance that owns the
 	// session, and the adapter says how that harness reopens one. claudeq never
 	// offers to continue a session on another account, let alone another harness.
-	argv, err := s.resumeCommand(*run.Task, run.SessionID)
+	argv, err := s.resumeCommand(*run, *run.Task)
 	if err != nil {
 		writeErr(w, http.StatusConflict, err)
 		return
@@ -550,16 +550,24 @@ func (s *server) continueRun(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// resumeCommand builds the argv that reopens a run's session in a terminal. The
-// provider instance the task runs on owns the session, and its adapter knows how
-// that harness is asked to continue one — so a Codex thread is reopened with
-// Codex, with the same authority the run had.
-func (s *server) resumeCommand(t task.Task, sessionID string) ([]string, error) {
+// resumeCommand builds the argv that reopens a run's session in a terminal.
+//
+// The provider that owns the session is the one the run used, not the one the
+// task points at today: a task moved to another provider since then has left
+// its old conversation where it was, and offering to continue it with a harness
+// that never had it would open an empty terminal at best. What the run recorded
+// is therefore what is asked; only a run from before that was recorded falls
+// back to the task's own provider.
+func (s *server) resumeCommand(run store.Run, t task.Task) ([]string, error) {
 	set, err := app.Providers(s.d.Store)
 	if err != nil {
 		return nil, err
 	}
-	resolved, err := set.Resolve(provider.Selection{ProviderID: t.Provider})
+	owner := run.Provider.ID
+	if owner == "" {
+		owner = t.Provider
+	}
+	resolved, err := set.Resolve(provider.Selection{ProviderID: owner})
 	if err != nil {
 		return nil, err
 	}
@@ -574,14 +582,25 @@ func (s *server) resumeCommand(t task.Task, sessionID string) ([]string, error) 
 		return nil, fmt.Errorf("%s is not installed on this Mac", resolved.Instance.Label())
 	}
 	cmd, err := ad.InteractiveResumeCommand(resolved.Instance, provider.Request{
-		SessionID:  sessionID,
+		SessionID:  run.SessionID,
 		WorkingDir: t.WorkingDir,
-		AccessMode: accessMode(t.Permissions),
+		AccessMode: resumeAccess(run, t),
 	})
 	if err != nil {
 		return nil, err
 	}
 	return append([]string{cmd.Path}, cmd.Args...), nil
+}
+
+// resumeAccess is the authority a continued session gets: the one the run
+// actually had, so changing the task's permissions afterwards does not hand a
+// finished conversation more authority than it ever ran with. A run from before
+// that was recorded falls back to the task.
+func resumeAccess(run store.Run, t task.Task) provider.AccessMode {
+	if run.Provider.AccessMode != "" {
+		return provider.AccessMode(run.Provider.AccessMode)
+	}
+	return accessMode(t.Permissions)
 }
 
 // accessMode maps a task's permission setting onto claudeq's provider-neutral
@@ -639,7 +658,14 @@ func resumePending(r store.Run, st *store.State, active map[string]bool) bool {
 	if r.Status != store.StatusRateLimited || active[r.TaskID] {
 		return false
 	}
-	return r.SessionID != "" && st.PendingResume(r.TaskID) == r.SessionID
+	pending, ok := st.PendingResume(r.TaskID)
+	return ok && r.SessionID != "" && pending.SessionID == r.SessionID
+}
+
+// hasPendingResume reports whether a task holds a session waiting to continue.
+func hasPendingResume(st *store.State, taskID string) bool {
+	_, ok := st.PendingResume(taskID)
+	return ok
 }
 
 func (s *server) readRun(w http.ResponseWriter, r *http.Request) {

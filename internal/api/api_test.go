@@ -561,7 +561,7 @@ func TestCancelRunEndpoint(t *testing.T) {
 // continueFixture seeds a store with one run and returns a server whose
 // TerminalOpener records its invocation. The run's fields are shaped by
 // mutate, the stored settings by mutateSettings (both optional).
-func continueFixture(t *testing.T, mutate func(*store.Run), mutateSettings func(*store.Settings)) (*httptest.Server, *struct {
+func continueFixture(t *testing.T, mutate func(*store.Run), mutateSettings func(*store.Settings)) (*httptest.Server, *store.Store, *struct {
 	dir  string
 	argv []string
 }) {
@@ -599,11 +599,11 @@ func continueFixture(t *testing.T, mutate func(*store.Run), mutateSettings func(
 	}
 	srv := httptest.NewServer(handler(Deps{Store: st, OpenTerminal: opener}))
 	t.Cleanup(srv.Close)
-	return srv, got
+	return srv, st, got
 }
 
 func TestContinueRunOpensTerminal(t *testing.T) {
-	srv, got := continueFixture(t, nil, nil)
+	srv, _, got := continueFixture(t, nil, nil)
 	if r := do(t, srv, "POST", "/api/runs/r1/continue", nil); r.Status != http.StatusNoContent {
 		t.Fatalf("continue status = %d (%s)", r.Status, r.Body)
 	}
@@ -613,6 +613,54 @@ func TestContinueRunOpensTerminal(t *testing.T) {
 	want := []string{"/opt/claude", "--resume", "sess-1"}
 	if len(got.argv) != len(want) || got.argv[0] != want[0] || got.argv[1] != want[1] || got.argv[2] != want[2] {
 		t.Fatalf("opener argv = %v, want %v", got.argv, want)
+	}
+}
+
+// TestContinueRunFollowsTheRunsOwnProvider: a task moved to another provider
+// left its finished conversation where it was. Continuing it has to go back to
+// the harness that holds it, not to whatever the task points at today.
+func TestContinueRunFollowsTheRunsOwnProvider(t *testing.T) {
+	srv, srvStore, got := continueFixture(t, func(r *store.Run) {
+		r.Provider = store.RunProvider{ID: "claude-work", Kind: store.DefaultProviderKind, Name: "Claude (work)"}
+		tk := *r.Task
+		tk.Provider = store.DefaultProviderID // the task has since been moved back
+		r.Task = &tk
+	}, nil)
+	// The instance the run used exists, with a binary of its own.
+	if err := srvStore.UpdateConfig(func(cfg *store.Config) error {
+		cfg.Providers = append(cfg.Providers, store.Provider{
+			ID: "claude-work", Kind: store.DefaultProviderKind, Name: "Claude (work)",
+			BinaryPath: "/opt/claude-work", Enabled: true,
+		})
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+
+	if r := do(t, srv, "POST", "/api/runs/r1/continue", nil); r.Status != http.StatusNoContent {
+		t.Fatalf("continue status = %d (%s)", r.Status, r.Body)
+	}
+	if got.argv[0] != "/opt/claude-work" {
+		t.Fatalf("argv = %v, want the binary of the provider that owns the session", got.argv)
+	}
+}
+
+// TestContinueRunKeepsTheAuthorityItHad: raising a task's permissions later must
+// not retroactively hand a finished conversation more authority.
+func TestContinueRunKeepsTheAuthorityItHad(t *testing.T) {
+	srv, _, got := continueFixture(t, func(r *store.Run) {
+		r.Provider = store.RunProvider{ID: store.DefaultProviderID, AccessMode: string(provider.AccessProviderDefault)}
+		tk := *r.Task
+		tk.Permissions = task.PermissionsSkip // changed after the run
+		r.Task = &tk
+	}, nil)
+	if r := do(t, srv, "POST", "/api/runs/r1/continue", nil); r.Status != http.StatusNoContent {
+		t.Fatalf("continue status = %d (%s)", r.Status, r.Body)
+	}
+	for _, a := range got.argv {
+		if a == "--dangerously-skip-permissions" {
+			t.Fatalf("argv %v carries authority the run never had", got.argv)
+		}
 	}
 }
 
@@ -630,7 +678,7 @@ func TestContinueRunPermissionFlag(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			srv, got := continueFixture(t,
+			srv, _, got := continueFixture(t,
 				func(r *store.Run) {
 					tk := *r.Task
 					tk.Permissions = c.perms
@@ -672,7 +720,7 @@ func TestContinueRunGuards(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			srv, _ := continueFixture(t, c.mutate, nil)
+			srv, _, _ := continueFixture(t, c.mutate, nil)
 			if r := do(t, srv, "POST", "/api/runs/r1/continue", nil); r.Status != c.status {
 				t.Fatalf("status = %d (%s), want %d", r.Status, r.Body, c.status)
 			}
@@ -681,7 +729,7 @@ func TestContinueRunGuards(t *testing.T) {
 }
 
 func TestContinueRunNotFound(t *testing.T) {
-	srv, _ := continueFixture(t, nil, nil)
+	srv, _, _ := continueFixture(t, nil, nil)
 	if r := do(t, srv, "POST", "/api/runs/nope/continue", nil); r.Status != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", r.Status)
 	}
@@ -902,7 +950,7 @@ func TestRunsReportPendingResume(t *testing.T) {
 		}
 	}
 	if err := st.UpdateState(func(s *store.State) error {
-		s.SetPendingResume("a", "sess-1")
+		s.SetPendingResume("a", "sess-1", "claude")
 		return nil
 	}); err != nil {
 		t.Fatalf("UpdateState: %v", err)
@@ -957,7 +1005,7 @@ func TestTasksReportWaitingForLimit(t *testing.T) {
 		t.Fatalf("SaveConfig: %v", err)
 	}
 	if err := st.UpdateState(func(s *store.State) error {
-		s.SetPendingResume("a", "sess-1")
+		s.SetPendingResume("a", "sess-1", "claude")
 		return nil
 	}); err != nil {
 		t.Fatalf("UpdateState: %v", err)
@@ -1053,7 +1101,7 @@ func TestUpdateTaskTakesTheProviderFromThePayload(t *testing.T) {
 // task runs on, and its adapter says how that harness reopens one — so a task
 // that skipped permission prompts resumes with the same authority.
 func TestContinueRunUsesTheOwningProvider(t *testing.T) {
-	srv, got := continueFixture(t, func(r *store.Run) { r.Task.Permissions = task.PermissionsSkip }, nil)
+	srv, _, got := continueFixture(t, func(r *store.Run) { r.Task.Permissions = task.PermissionsSkip }, nil)
 	if r := do(t, srv, "POST", "/api/runs/r1/continue", nil); r.Status != http.StatusNoContent {
 		t.Fatalf("continue status = %d (%s)", r.Status, r.Body)
 	}

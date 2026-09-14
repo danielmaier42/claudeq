@@ -1,13 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/danielmaier42/claudeq/internal/app"
 	"github.com/danielmaier42/claudeq/internal/bundle"
+	"github.com/danielmaier42/claudeq/internal/store"
+	"github.com/danielmaier42/claudeq/internal/task"
 )
 
 func TestCmdExportImportRoundTrip(t *testing.T) {
@@ -29,7 +33,7 @@ func TestCmdExportImportRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if read, err := bundle.Read(data); err != nil || read != orig {
+	if read, _, err := bundle.Read(data); err != nil || read != orig {
 		t.Errorf("exported file holds %+v (%v), want %+v", read, err, orig)
 	}
 
@@ -41,8 +45,12 @@ func TestCmdExportImportRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != orig {
-		t.Errorf("imported %+v, want %+v", got, orig)
+	// The import names the local instance the file's hint resolved to, rather
+	// than leaving the task to follow whatever the default happens to be.
+	want := orig
+	want.Provider = store.DefaultProviderID
+	if got != want {
+		t.Errorf("imported %+v, want %+v", got, want)
 	}
 
 	// Importing again keeps the first task and gives the copy a suffix; --id
@@ -125,4 +133,71 @@ func TestCmdImportErrors(t *testing.T) {
 	if got, _ := findTask(st, "nightly"); got.ID != "" {
 		t.Errorf("a failed import stored a task: %+v", got)
 	}
+}
+
+// TestCmdImportRefusesAnUnresolvedProvider: a task written for a harness this
+// Mac cannot place is not queued on a guess. Importing onto the wrong account
+// spends the wrong allowance, so the command says what the file wants.
+func TestCmdImportRefusesAnUnresolvedProvider(t *testing.T) {
+	st := newTestStore(t)
+	path := writeBundle(t, bundle.ProviderHint{Kind: "codex", ProviderName: "Codex"})
+
+	err := cmdImport(st, []string{path})
+	if err == nil {
+		t.Fatal("an unresolvable provider was imported anyway")
+	}
+	if !strings.Contains(err.Error(), "codex") || !strings.Contains(err.Error(), "--provider") {
+		t.Fatalf("error = %v, want it to name the harness and the way out", err)
+	}
+	if tasks, _ := st.LoadConfig(); len(tasks.Tasks) != 0 {
+		t.Fatalf("a task was queued anyway: %+v", tasks.Tasks)
+	}
+}
+
+// TestCmdImportProviderOverride: --provider decides where the task lands, over
+// whatever the file's hint would have resolved to, and the exporter's model is
+// left behind with the account it was chosen for.
+func TestCmdImportProviderOverride(t *testing.T) {
+	st := newTestStore(t)
+	if err := st.UpdateConfig(func(cfg *store.Config) error {
+		cfg.Providers = append(cfg.Providers, store.Provider{
+			ID: "claude-work", Kind: store.DefaultProviderKind, Name: "Claude (work)",
+			BinaryPath: "/opt/claude-work", Enabled: true,
+		})
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+	path := writeBundle(t, bundle.ProviderHint{Kind: store.DefaultProviderKind, Model: "opus", ProviderName: "Claude"})
+
+	withProviderHealth(t, providerReady)
+	if err := cmdImport(st, []string{path, "--provider", "claude-work"}); err != nil {
+		t.Fatalf("cmdImport --provider: %v", err)
+	}
+	got, err := findTask(st, "shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Provider != "claude-work" {
+		t.Fatalf("provider = %q, want the override", got.Provider)
+	}
+	if got.Model != "" {
+		t.Fatalf("model = %q, want the exporter's model left behind with its account", got.Model)
+	}
+}
+
+// writeBundle writes a one-task bundle with the given hint and returns its path.
+func writeBundle(t *testing.T, hint bundle.ProviderHint) string {
+	t.Helper()
+	tk := task.Task{ID: "shared", Name: "Shared", Prompt: "p", WorkingDir: t.TempDir(),
+		Trigger: task.TriggerASAP, Enabled: true, Permissions: task.PermissionsDefault, Model: "opus"}
+	var buf bytes.Buffer
+	if err := bundle.Write(&buf, tk, hint, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "shared.claudeq")
+	if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

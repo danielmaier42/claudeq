@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/danielmaier42/claudeq/internal/api"
+	"github.com/danielmaier42/claudeq/internal/aside"
 	"github.com/danielmaier42/claudeq/internal/clock"
 	"github.com/danielmaier42/claudeq/internal/engine"
 	"github.com/danielmaier42/claudeq/internal/executor"
@@ -166,6 +167,11 @@ func cmdRun(args []string) error {
 	updSvc := update.NewService(update.GitHubFetcher{}, update.DefaultInterval)
 	go updSvc.Run(ctx)
 
+	// Prompt review and the feedback assistant ask a harness questions of
+	// claudeq's own (see internal/aside); both go through the one runner, so
+	// they cannot drift apart in how they invoke a provider.
+	asides := &aside.Runner{Registry: registry}
+
 	httpSrv := &http.Server{
 		Addr: *addr,
 		Handler: api.Handler(api.Deps{
@@ -176,8 +182,8 @@ func cmdRun(args []string) error {
 			WakeError:    eng.WakeError, WarmFileAccess: warmFileAccess, Updates: updSvc,
 			LimitedUntil: eng.LimitedUntil,
 			NotifyStatus: notify.MacAuthorization,
-			Feedback:     feedback.New(nil), OSVersion: osVersion(system.Real{}),
-			Review:   &review.Reviewer{},
+			Feedback:     feedback.New(asides), OSVersion: osVersion(system.Real{}),
+			Review:   &review.Reviewer{Ask: asides},
 			Registry: registry, Providers: checker,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,

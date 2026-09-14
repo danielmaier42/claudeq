@@ -66,10 +66,10 @@ func settingsJSON(t *testing.T, mutate func(m map[string]any)) string {
 func TestRoundTripKeepsEveryField(t *testing.T) {
 	want := fullTask()
 	var buf bytes.Buffer
-	if err := Write(&buf, want, time.Date(2026, 9, 7, 10, 30, 0, 0, time.UTC)); err != nil {
+	if err := Write(&buf, want, ProviderHint{}, time.Date(2026, 9, 7, 10, 30, 0, 0, time.UTC)); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
-	got, err := Read(buf.Bytes())
+	got, _, err := Read(buf.Bytes())
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestRoundTripKeepsEveryField(t *testing.T) {
 
 func TestWriteLayout(t *testing.T) {
 	var buf bytes.Buffer
-	if err := Write(&buf, fullTask(), time.Date(2026, 9, 7, 10, 30, 0, 0, time.UTC)); err != nil {
+	if err := Write(&buf, fullTask(), ProviderHint{}, time.Date(2026, 9, 7, 10, 30, 0, 0, time.UTC)); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
@@ -152,7 +152,7 @@ func TestReadRejectsBrokenBundles(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, err := Read(c.data)
+			_, _, err := Read(c.data)
 			if err == nil {
 				t.Fatal("Read succeeded, want an error")
 			}
@@ -174,7 +174,7 @@ func TestReadPromptComesFromPromptMD(t *testing.T) {
 		promptName:   "the real prompt",
 		"README.txt": "ignored",
 	})
-	got, err := Read(data)
+	got, _, err := Read(data)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestReadKeepsFileAsIs(t *testing.T) {
 		}),
 		promptName: "p",
 	})
-	got, err := Read(data)
+	got, _, err := Read(data)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestReadAcceptsFinderRezip(t *testing.T) {
 		"__MACOSX/sweep/._prompt.md": "junk",
 		"__MACOSX/sweep/.DS_Store":   "junk",
 	})
-	got, err := Read(data)
+	got, _, err := Read(data)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -225,13 +225,13 @@ func TestReadAcceptsFinderRezip(t *testing.T) {
 		settingsName: settingsJSON(t, nil), promptName: "root prompt",
 		"old/" + settingsName: settingsJSON(t, nil), "old/" + promptName: "nested prompt",
 	})
-	if got, err := Read(data); err != nil || got.Prompt != "root prompt" {
+	if got, _, err := Read(data); err != nil || got.Prompt != "root prompt" {
 		t.Errorf("got %+v, %v", got, err)
 	}
 }
 
 func TestReadRejectsOversizedInput(t *testing.T) {
-	if _, err := Read(make([]byte, MaxSize+1)); err == nil || !errors.Is(err, ErrInvalid) {
+	if _, _, err := Read(make([]byte, MaxSize+1)); err == nil || !errors.Is(err, ErrInvalid) {
 		t.Errorf("oversized bundle: %v", err)
 	}
 	// An entry that inflates past the limit is rejected from its header,
@@ -240,7 +240,7 @@ func TestReadRejectsOversizedInput(t *testing.T) {
 	if len(big) > 64<<10 {
 		t.Fatalf("test bundle should compress well, got %d bytes", len(big))
 	}
-	_, err := Read(big)
+	_, _, err := Read(big)
 	if err == nil || !strings.Contains(err.Error(), "prompt.md exceeds") {
 		t.Errorf("oversized entry: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestSaveAndLoad(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "t.claudeq")
 	var buf bytes.Buffer
-	if err := Write(&buf, fullTask(), time.Now()); err != nil {
+	if err := Write(&buf, fullTask(), ProviderHint{}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if err := Save(p, buf.Bytes(), false); err != nil {
@@ -276,7 +276,7 @@ func TestSaveAndLoad(t *testing.T) {
 	if err := Save(p, []byte("x"), false); !errors.Is(err, fs.ErrExist) {
 		t.Errorf("second Save without overwrite: %v", err)
 	}
-	got, err := Load(p)
+	got, _, err := Load(p)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -287,14 +287,14 @@ func TestSaveAndLoad(t *testing.T) {
 		t.Errorf("Save with overwrite: %v", err)
 	}
 
-	if _, err := Load(filepath.Join(dir, "missing.claudeq")); err == nil {
+	if _, _, err := Load(filepath.Join(dir, "missing.claudeq")); err == nil {
 		t.Error("Load of a missing file succeeded")
 	}
 	huge := filepath.Join(dir, "huge.claudeq")
 	if err := os.WriteFile(huge, make([]byte, MaxSize+1), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Load(huge); err == nil || !errors.Is(err, ErrInvalid) {
+	if _, _, err := Load(huge); err == nil || !errors.Is(err, ErrInvalid) {
 		t.Errorf("Load of an oversized file: %v", err)
 	}
 }
@@ -314,13 +314,13 @@ func TestBundleDoesNotCarryAMachineLocalProvider(t *testing.T) {
 	src := fullTask()
 	src.Provider = "claude-secondary"
 	var buf bytes.Buffer
-	if err := Write(&buf, src, time.Now()); err != nil {
+	if err := Write(&buf, src, ProviderHint{}, time.Now()); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	if strings.Contains(buf.String(), "claude-secondary") {
 		t.Fatal("the exported bundle still names a local provider instance")
 	}
-	got, err := Read(buf.Bytes())
+	got, _, err := Read(buf.Bytes())
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}

@@ -41,6 +41,14 @@ func (stubAdapter) Command(provider.Instance, provider.Request) (provider.Comman
 }
 func (stubAdapter) NewParser() provider.Parser { return nil }
 
+func (stubAdapter) AsideCommand(provider.Instance, provider.AsideRequest) (provider.Command, error) {
+	return provider.Command{}, provider.ErrUnsupported
+}
+
+func (stubAdapter) ParseAside([]byte) (provider.Aside, error) {
+	return provider.Aside{}, provider.ErrUnsupported
+}
+
 // withProviderHealth makes every readiness check in this test answer h.
 func withProviderHealth(t *testing.T, h provider.Health) {
 	t.Helper()

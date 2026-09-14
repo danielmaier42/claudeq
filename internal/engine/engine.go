@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"sync"
@@ -244,8 +245,8 @@ func (e *Engine) Tick(ctx context.Context) error {
 	}
 
 	for _, s := range starts {
-		sessionID, resume := e.sessionFor(s.task, st)
-		if err := e.launchTask(s.task, cfg.Settings, s.resolved, sessionID, resume, now); err != nil {
+		sessionID, resume, dropped := e.sessionFor(s.task, st, s.resolved.Instance.ID)
+		if err := e.launchTask(s.task, cfg.Settings, s.resolved, sessionID, resume, dropped, now); err != nil {
 			return err
 		}
 	}
@@ -491,7 +492,7 @@ func (e *Engine) runningState() schedule.Running {
 // launchTask starts a run for t on the already-resolved execution identity. The
 // caller must hold e.mu, have checked that the provider can run, and have
 // persisted the RecordStart. sessionID/resume come from the caller's snapshot.
-func (e *Engine) launchTask(t task.Task, settings store.Settings, resolved provider.Resolved, sessionID string, resume bool, started time.Time) error {
+func (e *Engine) launchTask(t task.Task, settings store.Settings, resolved provider.Resolved, sessionID string, resume bool, dropped string, started time.Time) error {
 	runID := e.newRunID()
 
 	logFile, err := os.Create(e.store.LogPath(runID))
@@ -505,6 +506,16 @@ func (e *Engine) launchTask(t task.Task, settings store.Settings, resolved provi
 		StartedAt: started, Status: store.StatusRunning,
 		SessionID: sessionID, LogPath: e.store.LogPath(runID),
 		Task: &snapshot,
+		// The identity is written down now, while it is true. A provider renamed
+		// or removed tomorrow must not change what this run says it ran on.
+		Provider: store.RunProvider{
+			ID:              resolved.Instance.ID,
+			Kind:            string(resolved.Instance.Kind),
+			Name:            resolved.Instance.Label(),
+			Model:           resolved.Model,
+			ReasoningEffort: t.ReasoningEffort,
+			AccessMode:      string(accessMode(t.Permissions)),
+		},
 	}
 	// Record the start before marking the task active, so a failure here leaves
 	// no task stuck in the running set (which would block the scheduler). A
@@ -515,6 +526,14 @@ func (e *Engine) launchTask(t task.Task, settings store.Settings, resolved provi
 			_ = logFile.Close()
 			return fmt.Errorf("record run start: %w", err)
 		}
+	}
+
+	// A session that could not be continued is said so in the run's own log,
+	// where whoever reads the run will look for it. It goes through the same
+	// handle the executor writes to, so it cannot collide with the harness's
+	// first line.
+	if dropped != "" {
+		writeNote(logFile, dropped)
 	}
 
 	e.active[t.ID] = true
@@ -623,7 +642,7 @@ func (e *Engine) cancelResume(runID string) error {
 	if err != nil {
 		return fmt.Errorf("load state: %w", err)
 	}
-	if sid := st.PendingResume(rec.TaskID); sid == "" || sid != rec.SessionID {
+	if pending, ok := st.PendingResume(rec.TaskID); !ok || pending.SessionID != rec.SessionID {
 		return fmt.Errorf("run %q is no longer scheduled to resume", runID)
 	}
 
@@ -705,13 +724,36 @@ func (e *Engine) logStatus(rec store.Run) {
 	_ = e.store.AppendRunLog(rec.RunID, append(line, '\n'))
 }
 
-// sessionFor returns the session id to use and whether it is a resume. A task
-// waiting to resume after a rate limit reuses its pending session id.
-func (e *Engine) sessionFor(t task.Task, st *store.State) (string, bool) {
-	if sid := st.PendingResume(t.ID); sid != "" {
-		return sid, true
+// writeNote records a claudeq remark in a run's log, so something the operator
+// needs to know about the run is where they read the run.
+func writeNote(log io.Writer, message string) {
+	line, err := json.Marshal(map[string]string{"type": "claudeq_status", "status": "note", "message": message})
+	if err != nil {
+		return
 	}
-	return e.newSessionID(), false
+	_, _ = log.Write(append(line, '\n'))
+}
+
+// sessionFor returns the session to use, whether it is a resume, and — when a
+// waiting session had to be abandoned — why.
+//
+// A task waiting after a rate limit continues its own session. It can only do
+// that on the provider that issued it: a session id means nothing to another
+// harness, and nothing at all to another account. A task moved in the meantime
+// therefore starts fresh rather than handing Codex a Claude conversation.
+func (e *Engine) sessionFor(t task.Task, st *store.State, providerID string) (sessionID string, resume bool, dropped string) {
+	pending, ok := st.PendingResume(t.ID)
+	switch {
+	case !ok:
+		return e.newSessionID(), false, ""
+	case pending.ProviderID == "" || pending.ProviderID == providerID:
+		// No provider recorded means it was written before sessions carried one,
+		// when there was only the one provider to have issued it.
+		return pending.SessionID, true, ""
+	}
+	return e.newSessionID(), false, fmt.Sprintf(
+		"the interrupted session belongs to provider %q and this task now runs on %q, so it starts fresh",
+		pending.ProviderID, providerID)
 }
 
 // finish records a completed run and updates scheduling state. providerID is
@@ -785,7 +827,7 @@ func (e *Engine) finish(t task.Task, providerID string, rec store.Run, res provi
 			rec.ResumeAt = &resume
 		}
 		_ = e.store.UpdateState(func(st *store.State) error {
-			st.SetPendingResume(t.ID, res.SessionID)
+			st.SetPendingResume(t.ID, res.SessionID, providerID)
 			return nil
 		})
 	default:
@@ -1065,7 +1107,7 @@ func (e *Engine) RunTaskNow(ctx context.Context, taskID string) error {
 		e.mu.Unlock()
 		return fmt.Errorf("task %q is already running", taskID)
 	}
-	sessionID, resume := e.sessionFor(*target, st)
+	sessionID, resume, dropped := e.sessionFor(*target, st, resolved.Instance.ID)
 	now := e.clock.Now()
 	if err := e.store.UpdateState(func(cur *store.State) error {
 		cur.RecordStart(taskID, now)
@@ -1075,7 +1117,7 @@ func (e *Engine) RunTaskNow(ctx context.Context, taskID string) error {
 		e.mu.Unlock()
 		return fmt.Errorf("record run start: %w", err)
 	}
-	startErr := e.launchTask(*target, cfg.Settings, resolved, sessionID, resume, now)
+	startErr := e.launchTask(*target, cfg.Settings, resolved, sessionID, resume, dropped, now)
 	e.mu.Unlock()
 
 	e.WaitIdle()

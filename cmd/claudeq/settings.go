@@ -68,6 +68,9 @@ type settingsPatch struct {
 	paused           bool
 	promptReview     bool
 	promptReviewMdl  string
+	promptReviewProv string
+	feedbackProvider string
+	feedbackModel    string
 	pushoverOn       bool
 	pushoverToken    string
 	pushoverUser     string
@@ -89,7 +92,10 @@ func (p *settingsPatch) register(fs *flag.FlagSet) {
 	fs.StringVar(&p.systemPromptFile, "system-prompt-file", "", "read the custom system prompt from a file ('-' = stdin)")
 	fs.BoolVar(&p.paused, "paused", false, "pause every run globally (nothing starts while on)")
 	fs.BoolVar(&p.promptReview, "prompt-review", true, "let Claude check a task's prompt against this machine before it is queued")
+	fs.StringVar(&p.promptReviewProv, "prompt-review-provider", "", "provider that answers that check (empty = the default provider)")
 	fs.StringVar(&p.promptReviewMdl, "prompt-review-model", "", "model for that check (empty = the provider's default model)")
+	fs.StringVar(&p.feedbackProvider, "feedback-provider", "", "provider the feedback assistant drafts on (empty = the default provider)")
+	fs.StringVar(&p.feedbackModel, "feedback-model", "", "model it drafts with (empty = claudeq's own small, fast choice)")
 	fs.BoolVar(&p.pushoverOn, "pushover", false, "send notifications to Pushover")
 	fs.StringVar(&p.pushoverToken, "pushover-token", "", "Pushover API token")
 	fs.StringVar(&p.pushoverUser, "pushover-user", "", "Pushover user key")
@@ -148,8 +154,17 @@ func (p settingsPatch) apply(s store.Settings) (store.Settings, error) {
 	if p.set["prompt-review"] {
 		s.PromptReviewDisabled = !p.promptReview
 	}
+	if p.set["prompt-review-provider"] {
+		s.PromptReviewProvider = p.promptReviewProv
+	}
 	if p.set["prompt-review-model"] {
 		s.PromptReviewModel = p.promptReviewMdl
+	}
+	if p.set["feedback-provider"] {
+		s.FeedbackProvider = p.feedbackProvider
+	}
+	if p.set["feedback-model"] {
+		s.FeedbackModel = p.feedbackModel
 	}
 	if p.set["pushover"] {
 		s.Pushover.Enabled = p.pushoverOn
@@ -194,7 +209,10 @@ type settingsView struct {
 	MaxRunHistory      int    `json:"max_run_history"`
 	SystemPrompt       string `json:"system_prompt"`
 	PromptReview       bool   `json:"prompt_review"`
+	PromptReviewProv   string `json:"prompt_review_provider"`
 	PromptReviewModel  string `json:"prompt_review_model"`
+	FeedbackProvider   string `json:"feedback_provider"`
+	FeedbackModel      string `json:"feedback_model"`
 	BetaFeatures       bool   `json:"beta_features"`
 	Paused             bool   `json:"paused"`
 	PushoverEnabled    bool   `json:"pushover_enabled"`
@@ -215,7 +233,10 @@ func newSettingsView(s store.Settings) settingsView {
 		MaxRunHistory:      s.MaxRunHistory,
 		SystemPrompt:       s.SystemPrompt,
 		PromptReview:       !s.PromptReviewDisabled,
+		PromptReviewProv:   s.PromptReviewProvider,
 		PromptReviewModel:  s.PromptReviewModel,
+		FeedbackProvider:   s.FeedbackProvider,
+		FeedbackModel:      s.FeedbackModel,
 		BetaFeatures:       s.BetaFeatures,
 		Paused:             s.Paused,
 		PushoverEnabled:    s.Pushover.Enabled,
@@ -237,7 +258,10 @@ func printSettings(s store.Settings) {
 	fmt.Printf("idle_timeout_minutes:      %s\n", numericLabel(v.IdleTimeoutMinutes, store.DefaultIdleTimeoutMinutes, "never kill a run"))
 	fmt.Printf("max_run_history:           %s\n", numericLabel(v.MaxRunHistory, store.DefaultMaxRunHistory, "keep every run"))
 	fmt.Printf("prompt_review:             %s\n", boolLabel(v.PromptReview))
+	fmt.Printf("prompt_review_provider:    %s\n", orDefault(v.PromptReviewProv, "(the default provider)"))
 	fmt.Printf("prompt_review_model:       %s\n", orDefault(v.PromptReviewModel, "(the provider's default model)"))
+	fmt.Printf("feedback_provider:         %s\n", orDefault(v.FeedbackProvider, "(the default provider)"))
+	fmt.Printf("feedback_model:            %s\n", orDefault(v.FeedbackModel, "(claudeq's own choice)"))
 	// Shown but not settable here: it decides what the *app* offers, and the CLI
 	// accepts every provider either way. Settings → System owns it.
 	fmt.Printf("beta_features:             %s (app only)\n", boolLabel(v.BetaFeatures))

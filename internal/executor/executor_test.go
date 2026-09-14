@@ -166,6 +166,41 @@ func TestRunEnvCarriesSelfQueueContext(t *testing.T) {
 	}
 }
 
+// TestRunEnvNamesTheProviderTheRunIsOn: a task that names no provider still runs
+// on one, and a follow-up it queues has to inherit that account — not whatever
+// the default has become by the time the follow-up starts.
+func TestRunEnvNamesTheProviderTheRunIsOn(t *testing.T) {
+	e := &Executor{}
+	tk := sampleTask()
+	tk.Provider = "" // "whatever the default is"
+	got := envMap(e.runEnv(Request{Task: tk, Provider: provider.Instance{ID: "codex"}}, nil))
+
+	var parent task.Task
+	if err := json.Unmarshal([]byte(got[EnvParentTask]), &parent); err != nil {
+		t.Fatalf("parent task env is not valid JSON: %v", err)
+	}
+	if parent.Provider != "codex" {
+		t.Fatalf("parent provider = %q, want the instance this run is on", parent.Provider)
+	}
+}
+
+// TestRunEnvKeepsAnExplicitProvider: a task that names its provider keeps it,
+// resolved instance or not.
+func TestRunEnvKeepsAnExplicitProvider(t *testing.T) {
+	e := &Executor{}
+	tk := sampleTask()
+	tk.Provider = "claude-work"
+	got := envMap(e.runEnv(Request{Task: tk, Provider: provider.Instance{ID: "claude-work"}}, nil))
+
+	var parent task.Task
+	if err := json.Unmarshal([]byte(got[EnvParentTask]), &parent); err != nil {
+		t.Fatalf("parent task env is not valid JSON: %v", err)
+	}
+	if parent.Provider != "claude-work" {
+		t.Fatalf("parent provider = %q", parent.Provider)
+	}
+}
+
 func TestRunEnvCarriesRunAndTaskIDs(t *testing.T) {
 	e := &Executor{}
 	tk := sampleTask() // sampleTask sets a non-empty ID

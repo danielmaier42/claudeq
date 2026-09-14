@@ -106,6 +106,14 @@ func (a *healthAdapter) Command(provider.Instance, provider.Request) (provider.C
 
 func (a *healthAdapter) NewParser() provider.Parser { return nil }
 
+func (a *healthAdapter) AsideCommand(provider.Instance, provider.AsideRequest) (provider.Command, error) {
+	return provider.Command{}, provider.ErrUnsupported
+}
+
+func (a *healthAdapter) ParseAside([]byte) (provider.Aside, error) {
+	return provider.Aside{}, provider.ErrUnsupported
+}
+
 func newTestEngine(t *testing.T, r Runner, fc clock.Clock) (*Engine, *store.Store) {
 	e, st, _ := newTestEngineWithProvider(t, r, fc)
 	return e, st
@@ -298,7 +306,7 @@ func TestRateLimitThenResumeAfterReset(t *testing.T) {
 		t.Fatal("the provider's gate should be closed after a rate limit")
 	}
 	state, _ := st.LoadState()
-	if state.PendingResume("a") == "" {
+	if _, ok := state.PendingResume("a"); !ok {
 		t.Fatal("expected a pending resume session")
 	}
 	if state.IsCompletedOnce("a") {
@@ -640,7 +648,7 @@ func TestCancelResumeTakesOneShotOutOfTheQueue(t *testing.T) {
 		t.Fatal("a canceled run must not still advertise a resume time")
 	}
 	state, _ := st.LoadState()
-	if state.PendingResume("a") != "" {
+	if _, ok := state.PendingResume("a"); ok {
 		t.Fatal("pending resume should be cleared")
 	}
 	cfg, _ := st.LoadConfig()
@@ -678,7 +686,7 @@ func TestCancelResumeKeepsRecurringSchedule(t *testing.T) {
 		t.Fatalf("CancelRun on a waiting run: %v", err)
 	}
 	state, _ := st.LoadState()
-	if state.PendingResume("c") != "" {
+	if _, ok := state.PendingResume("c"); ok {
 		t.Fatal("pending resume should be cleared")
 	}
 	if state.IsCompletedOnce("c") {

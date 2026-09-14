@@ -29,6 +29,10 @@ type providerView struct {
 	// setting, so the task form can offer the field where it means something
 	// instead of the app having to know which kinds those are.
 	ReasoningEffort bool `json:"reasoning_effort"`
+	// Asides reports whether this harness can answer claudeq's own questions —
+	// prompt review, the feedback assistant — so Settings offers it for those
+	// jobs only where it would work.
+	Asides bool `json:"asides"`
 	// TypeName is what the harness is called ("Claude"), as opposed to the
 	// adapter kind it is keyed by ("claude-code").
 	TypeName string `json:"type_name"`
@@ -97,7 +101,7 @@ func (s *server) views(ctx context.Context, set provider.Set, only string, fresh
 		v := providerView{Instance: inst, Health: h, Default: inst.ID == set.DefaultID()}
 		if ad, err := s.d.Registry.Lookup(inst.Kind); err == nil {
 			caps, desc := ad.Capabilities(), ad.Describe()
-			v.Beta, v.ReasoningEffort = caps.Beta, caps.ReasoningEffort
+			v.Beta, v.ReasoningEffort, v.Asides = caps.Beta, caps.ReasoningEffort, caps.Asides
 			v.TypeName, v.DefaultConfigDir = desc.Name, desc.DefaultConfigDir
 			if inst.BinaryPath == "" {
 				v.Detected = ad.DetectBinary()

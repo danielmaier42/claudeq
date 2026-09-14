@@ -185,6 +185,14 @@ func (s stubAdapter) Command(provider.Instance, provider.Request) (provider.Comm
 }
 func (s stubAdapter) NewParser() provider.Parser { return nil }
 
+func (s stubAdapter) AsideCommand(provider.Instance, provider.AsideRequest) (provider.Command, error) {
+	return provider.Command{}, provider.ErrUnsupported
+}
+
+func (s stubAdapter) ParseAside([]byte) (provider.Aside, error) {
+	return provider.Aside{}, provider.ErrUnsupported
+}
+
 func readinessChecker(h provider.Health) *provider.Checker {
 	return provider.NewChecker(provider.NewRegistry(stubAdapter{kind: provider.KindClaudeCode, health: h}))
 }

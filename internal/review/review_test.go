@@ -7,72 +7,38 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/danielmaier42/claudeq/internal/provider"
 )
 
-// envelope builds what `claude -p --output-format json` prints, with body as
-// the model's answer.
-func envelope(t *testing.T, body string) []byte {
-	t.Helper()
-	out, err := json.Marshal(map[string]any{"type": "result", "subtype": "success", "is_error": false, "result": body})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return out
-}
-
-// capture records the invocation a review made and answers with body.
+// capture records the aside a review made and answers with text.
 type capture struct {
-	bin, dir string
-	args     []string
-	calls    int
+	inst  provider.Instance
+	req   provider.AsideRequest
+	calls int
+	text  string
+	err   error
 }
 
-func (c *capture) runner(body []byte, err error) Runner {
-	return func(_ context.Context, bin, dir string, args []string) ([]byte, error) {
-		c.calls++
-		c.bin, c.dir, c.args = bin, dir, args
-		return body, err
-	}
+func (c *capture) Ask(_ context.Context, inst provider.Instance, req provider.AsideRequest) (provider.Aside, error) {
+	c.calls++
+	c.inst, c.req = inst, req
+	return provider.Aside{Text: c.text}, c.err
 }
 
-func TestArgsIsMinimalAndToolFree(t *testing.T) {
-	args := Args("opus", "SYSTEM", "MESSAGE")
-	joined := strings.Join(args, " ")
-	for _, want := range []string{"-p", "--output-format json", "--safe-mode", "--no-session-persistence", "--model opus"} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("args %q missing %q", joined, want)
-		}
-	}
-	// --tools with an empty value removes every tool; the review must never be
-	// able to touch the machine itself.
-	i := indexOf(args, "--tools")
-	if i < 0 || args[i+1] != "" {
-		t.Errorf("args %q should disable all tools", args)
-	}
-	if args[len(args)-1] != "MESSAGE" || args[len(args)-2] != "SYSTEM" {
-		t.Errorf("system prompt and message should be the last two args: %q", args)
-	}
+// reviewer returns a Reviewer answering with body, and the capture behind it.
+func reviewer(t *testing.T, body string) (*Reviewer, *capture) {
+	t.Helper()
+	c := &capture{text: body}
+	return &Reviewer{Home: t.TempDir(), Ask: c}, c
 }
 
-func TestArgsWithoutModel(t *testing.T) {
-	if indexOf(Args("", "s", "m"), "--model") >= 0 {
-		t.Error("an empty model must not be passed to the CLI at all")
-	}
-}
-
-func indexOf(ss []string, want string) int {
-	for i, s := range ss {
-		if s == want {
-			return i
-		}
-	}
-	return -1
-}
+// claude is the instance a review is pointed at.
+var claude = provider.Instance{ID: "claude", Kind: provider.KindClaudeCode, Name: "Claude", Enabled: true}
 
 func TestReviewEmptyPromptCostsNothing(t *testing.T) {
-	var c capture
-	r := &Reviewer{Bin: "claude", Run: c.runner(nil, nil)}
-	res, err := r.Review(context.Background(), Request{Kind: KindTask, Prompt: "   \n  "})
+	r, c := reviewer(t, `{"ok":true}`)
+	res, err := r.Review(context.Background(), Request{Kind: KindTask, Prompt: "   \n  ", Provider: claude})
 	if err != nil || !res.OK {
 		t.Fatalf("got (%+v, %v), want an OK result", res, err)
 	}
@@ -81,38 +47,38 @@ func TestReviewEmptyPromptCostsNothing(t *testing.T) {
 	}
 }
 
-func TestReviewWithoutBinary(t *testing.T) {
-	r := &Reviewer{}
-	if _, err := r.Review(context.Background(), Request{Prompt: "do it"}); !errors.Is(err, ErrNoBinary) {
-		t.Errorf("got %v, want ErrNoBinary", err)
+// TestReviewWithoutAProvider: no provider means no review, reported as
+// unavailable rather than as a finding about the prompt.
+func TestReviewWithoutAProvider(t *testing.T) {
+	r, _ := reviewer(t, "")
+	if _, err := r.Review(context.Background(), Request{Prompt: "do it"}); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("got %v, want ErrUnavailable", err)
+	}
+	bare := &Reviewer{}
+	if _, err := bare.Review(context.Background(), Request{Prompt: "do it", Provider: claude}); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("got %v, want ErrUnavailable", err)
 	}
 }
 
-func TestReviewUsesRequestBinaryAndModel(t *testing.T) {
-	var c capture
-	r := &Reviewer{Bin: "fallback", Home: t.TempDir(), Run: c.runner(envelope(t, `{"ok":true}`), nil)}
-	if _, err := r.Review(context.Background(), Request{Prompt: "do it", Bin: "/opt/claude", Model: "haiku"}); err != nil {
+// TestReviewAsksTheChosenProvider: the instance and model come from the caller,
+// and the question is a one-off — it keeps no session to be resumed.
+func TestReviewAsksTheChosenProvider(t *testing.T) {
+	r, c := reviewer(t, `{"ok":true}`)
+	other := provider.Instance{ID: "claude-work", Kind: provider.KindClaudeCode, Enabled: true}
+	if _, err := r.Review(context.Background(), Request{Prompt: "do it", Model: "haiku", Provider: other}); err != nil {
 		t.Fatal(err)
 	}
-	if c.bin != "/opt/claude" {
-		t.Errorf("bin = %q, want the per-request override", c.bin)
+	if c.inst.ID != "claude-work" {
+		t.Errorf("asked %q, want the requested instance", c.inst.ID)
 	}
-	if i := indexOf(c.args, "--model"); i < 0 || c.args[i+1] != "haiku" {
-		t.Errorf("args %q should carry the requested model", c.args)
+	if c.req.Model != "haiku" {
+		t.Errorf("model = %q, want haiku", c.req.Model)
 	}
-}
-
-func TestReviewRunsInANeutralDirectory(t *testing.T) {
-	home := t.TempDir()
-	var c capture
-	r := &Reviewer{Bin: "claude", Home: home, Run: c.runner(envelope(t, `{"ok":true}`), nil)}
-	// The task's own directory may not exist yet, and the review reads nothing
-	// there anyway, so the process must not be started in it.
-	if _, err := r.Review(context.Background(), Request{Prompt: "x", WorkingDir: "/nope/missing"}); err != nil {
-		t.Fatal(err)
+	if c.req.Continues || c.req.Resume {
+		t.Error("a review is one question; it must not open a conversation")
 	}
-	if c.dir != home {
-		t.Errorf("dir = %q, want the home directory %q", c.dir, home)
+	if c.req.System == "" || !strings.Contains(c.req.Text, "do it") {
+		t.Errorf("the review must send its instructions and the prompt: %+v", c.req)
 	}
 }
 
@@ -132,9 +98,8 @@ func TestReviewParsesAnswers(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			var c capture
-			r := &Reviewer{Bin: "claude", Home: t.TempDir(), Run: c.runner(envelope(t, tc.body), nil)}
-			res, err := r.Review(context.Background(), Request{Prompt: "do it"})
+			r, _ := reviewer(t, tc.body)
+			res, err := r.Review(context.Background(), Request{Prompt: "do it", Provider: claude})
 			if err != nil {
 				t.Fatalf("Review: %v", err)
 			}
@@ -145,11 +110,34 @@ func TestReviewParsesAnswers(t *testing.T) {
 	}
 }
 
+// TestReviewPrefersAValidatedAnswer: when the harness checked the shape itself,
+// that is the answer — not whatever prose surrounds it.
+func TestReviewPrefersAValidatedAnswer(t *testing.T) {
+	r := &Reviewer{Home: t.TempDir(), Ask: asideFunc(func() provider.Aside {
+		return provider.Aside{
+			Text:       "ignore me {\"ok\":true}",
+			Structured: json.RawMessage(`{"ok":false,"message":"real finding"}`),
+		}
+	})}
+	res, err := r.Review(context.Background(), Request{Prompt: "do it", Provider: claude})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Message != "real finding" {
+		t.Errorf("message = %q, want the validated answer", res.Message)
+	}
+}
+
+// asideFunc adapts a plain function to Asker.
+type asideFunc func() provider.Aside
+
+func (f asideFunc) Ask(context.Context, provider.Instance, provider.AsideRequest) (provider.Aside, error) {
+	return f(), nil
+}
+
 func TestReviewDropsARevisionThatChangesNothing(t *testing.T) {
-	var c capture
-	body := `{"ok":false,"message":"m","revised_prompt":"do it"}`
-	r := &Reviewer{Bin: "claude", Home: t.TempDir(), Run: c.runner(envelope(t, body), nil)}
-	res, err := r.Review(context.Background(), Request{Prompt: "do it\n"})
+	r, _ := reviewer(t, `{"ok":false,"message":"m","revised_prompt":"do it"}`)
+	res, err := r.Review(context.Background(), Request{Prompt: "do it\n", Provider: claude})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,11 +150,9 @@ func TestReviewDropsARevisionThatChangesNothing(t *testing.T) {
 }
 
 func TestReviewTruncatesALongMessage(t *testing.T) {
-	var c capture
 	long, _ := json.Marshal(strings.Repeat("word ", 400))
-	body := `{"ok":false,"message":` + string(long) + `}`
-	r := &Reviewer{Bin: "claude", Home: t.TempDir(), Run: c.runner(envelope(t, body), nil)}
-	res, err := r.Review(context.Background(), Request{Prompt: "do it"})
+	r, _ := reviewer(t, `{"ok":false,"message":`+string(long)+`}`)
+	res, err := r.Review(context.Background(), Request{Prompt: "do it", Provider: claude})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,49 +162,44 @@ func TestReviewTruncatesALongMessage(t *testing.T) {
 }
 
 func TestReviewReportsBadOutput(t *testing.T) {
-	tests := []struct {
-		name string
-		out  []byte
-	}{
-		{"not json at all", []byte("claude: command failed")},
-		{"no object in the answer", envelope(t, "sure, looks fine to me")},
-		{"broken object", envelope(t, `{"ok":`)},
-	}
-	for _, tc := range tests {
+	for _, tc := range []struct{ name, text string }{
+		{"no object in the answer", "sure, looks fine to me"},
+		{"broken object", `{"ok":`},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var c capture
-			r := &Reviewer{Bin: "claude", Home: t.TempDir(), Run: c.runner(tc.out, nil)}
-			if _, err := r.Review(context.Background(), Request{Prompt: "do it"}); err == nil {
+			r, _ := reviewer(t, tc.text)
+			if _, err := r.Review(context.Background(), Request{Prompt: "do it", Provider: claude}); err == nil {
 				t.Error("want an error, got none")
 			}
 		})
 	}
 }
 
-func TestReviewReportsACLIError(t *testing.T) {
-	out, err := json.Marshal(map[string]any{"is_error": true, "subtype": "error_during_execution", "result": "boom"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var c capture
-	r := &Reviewer{Bin: "claude", Home: t.TempDir(), Run: c.runner(out, nil)}
-	if _, err := r.Review(context.Background(), Request{Prompt: "do it"}); err == nil ||
-		!strings.Contains(err.Error(), "error_during_execution") {
-		t.Errorf("got %v, want the CLI's error reported", err)
+// TestReviewReportsTheHarnessesError: what the harness said went wrong is what
+// the operator is told.
+func TestReviewReportsTheHarnessesError(t *testing.T) {
+	r, c := reviewer(t, "")
+	c.err = errors.New("claude reported an error: boom")
+	if _, err := r.Review(context.Background(), Request{Prompt: "do it", Provider: claude}); err == nil ||
+		!strings.Contains(err.Error(), "boom") {
+		t.Errorf("got %v, want the harness's error reported", err)
 	}
 }
 
 func TestReviewHonoursItsTimeout(t *testing.T) {
-	r := &Reviewer{Bin: "claude", Home: t.TempDir(), Timeout: 20 * time.Millisecond,
-		Run: func(ctx context.Context, _, _ string, _ []string) ([]byte, error) {
-			<-ctx.Done()
-			return nil, ctx.Err()
-		}}
+	r := &Reviewer{Home: t.TempDir(), Timeout: 20 * time.Millisecond, Ask: blockingAsker{}}
 	start := time.Now()
-	if _, err := r.Review(context.Background(), Request{Prompt: "do it"}); err == nil {
+	if _, err := r.Review(context.Background(), Request{Prompt: "do it", Provider: claude}); err == nil {
 		t.Fatal("want an error when the review runs out of time")
 	}
 	if time.Since(start) > time.Second {
 		t.Errorf("the timeout did not cut the run short (took %s)", time.Since(start))
 	}
+}
+
+type blockingAsker struct{}
+
+func (blockingAsker) Ask(ctx context.Context, _ provider.Instance, _ provider.AsideRequest) (provider.Aside, error) {
+	<-ctx.Done()
+	return provider.Aside{}, ctx.Err()
 }

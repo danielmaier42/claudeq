@@ -55,7 +55,7 @@ Usage:
                  (send a notification over the configured channels, no artifact)
   claudeq export ID [--out PATH] [--force]
                  (write the task to a shareable .claudeq file; default ./ID.claudeq)
-  claudeq import PATH [--id ID]   (add the task from a .claudeq file, settings as-is)
+  claudeq import PATH [--id ID] [--provider ID] [--model NAME]  (add the task from a .claudeq file)
   claudeq rm ID
   claudeq enable ID | claudeq disable ID
   claudeq move   ID INDEX          (0 = highest priority)

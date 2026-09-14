@@ -207,8 +207,8 @@ The nightly cycle looks like this:
   version you skipped. If a version was installed but the background service
   never switched over to it, Settings says so and a **Finish update** button
   hands it over.
-- **Feedback that writes itself** — the **Feedback** entry at the bottom of the
-  sidebar opens a short chat. Describe a bug or a wish, Claude asks at most one
+- **Feedback that writes itself** — the **Feedback** page, at the bottom of the
+  sidebar, is a short chat. Describe a bug or a wish, Claude asks at most one
   clarifying question and drafts a GitHub issue, and you edit it before anything
   is filed. The last step just opens GitHub's prefilled *new issue* page in your
   browser — ClaudeQ holds no GitHub credentials and files nothing itself. See
@@ -292,7 +292,10 @@ and the update button live.
 |-----|-------|---------|--------------|
 | **General** | Defaults for every run | Custom system prompt | Extra instructions appended to every run after the built-in prompt. |
 | | Prompt review | Check prompts with Claude | Whether Claude reviews a prompt against this Mac before the task is queued (on by default). |
+| | | Review provider | Which provider answers the review. Only providers that can hold an *aside* are offered. *Default* follows the global default provider. |
 | | | Review model | Model used for that review; *The provider's default model* falls back to the reviewing provider's own default. |
+| | Feedback | Feedback provider | Which provider drafts the GitHub issue on the [Feedback](#sending-feedback) page. Same rule as above. |
+| | | Feedback model | Model it drafts with; left at *ClaudeQ's choice* it uses a small, fast model rather than whatever you picked for real tasks. |
 | | Execution | Pause all runs | Global stop switch: nothing starts while it is on, not even *Run now*; a run already in flight keeps going. Applies immediately, without pressing Save. |
 | | About | Version / Software updates | Current version and a manual "Check for updates" button. |
 | **Providers** | One block per provider | Its settings | Name, status, binary path, configuration directory, default model and an on/off switch — written by the **Save** button at the top of Settings, like every other field here. **Check again**, **Make default** and **Remove** are actions and take effect at once. The block is headed by the provider's name and type. See [Providers](#providers). |
@@ -556,7 +559,7 @@ claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [-
 claudeq publish --file PATH [--title T] [--description D]   # publish a file as an artifact
 claudeq notify --title T --message M [--url U]  # send a notification, no artifact
 claudeq export ID [--out PATH] [--force]       # write the task to a .claudeq file
-claudeq import PATH [--id ID]                  # add the task from a .claudeq file (as exported)
+claudeq import PATH [--id ID] [--provider ID] [--model NAME]   # add the task from a .claudeq file
 claudeq rm ID
 claudeq enable ID | claudeq disable ID
 claudeq move   ID INDEX                        # 0 = highest priority
@@ -657,7 +660,10 @@ claudeq settings --idle-timeout-minutes 45 --max-run-history 1000
 claudeq settings --paused=true                          # stop every run
 claudeq settings --paused=false                         # let the queue run again
 claudeq settings --prompt-review=false                  # turn the prompt review off
+claudeq settings --prompt-review-provider claude-cheap   # who answers the review ("" = default provider)
 claudeq settings --prompt-review-model haiku            # ("" = the provider's default model)
+claudeq settings --feedback-provider claude-cheap       # who drafts the GitHub issue
+claudeq settings --feedback-model haiku                 # ("" = claudeq's own small, fast choice)
 claudeq settings --pushover=true --pushover-token T --pushover-user U
 claudeq settings --ntfy=true --ntfy-topic claudeq-daniel   # server defaults to ntfy.sh
 claudeq settings --webhook=true --webhook-url https://hooks.slack.com/services/... \
@@ -919,10 +925,24 @@ is left empty and the sheet says which path was dropped — you pick a real one
 before the task can be added. A folder that exists but that ClaudeQ may not read
 yet counts as existing and is kept.
 
+**The provider travels as a hint, never as an account.** A file records which
+*kind* of harness the task was written for (`claude-code`, `codex`), the model,
+and what the exporter called their provider — never a provider id, a
+configuration directory or anything to do with a login. On import ClaudeQ looks
+for your own provider of that kind: exactly one match is taken, with the model.
+Anything else — no match, or several accounts of that kind — leaves the choice
+to you, and the sheet says which harness the file wants. Two accounts are not
+interchangeable (separate allowances, separate logins, often separate
+employers), so ClaudeQ does not pick one for you. Importing never creates a
+provider, copies a path, or touches credentials.
+
 **Import from the CLI.** `claudeq import PATH` (optionally `--id ID` to choose
 the id) adds the task straight to the end of the queue with its settings
 **exactly as exported** — working directory, schedule, model, permissions and
-enabled state included. A working directory that does not exist on this machine
+enabled state included. When the file's provider hint matches no single provider
+here, the import is refused and names what it wants; `--provider ID` places it
+(and `--model NAME` picks the model, since the exporter's belongs to their
+harness). A working directory that does not exist on this machine
 is kept, with a warning naming it; fix it with `claudeq edit ID --dir PATH`.
 Because settings arrive as-is, a task exported as *enabled* with an *as soon as
 possible* trigger is eligible to run right after a CLI import; pause or edit it
@@ -986,13 +1006,20 @@ directory, so a relative path there means something different every time.
 
 Practicalities:
 
-- It runs on the **Claude Code CLI**, so it costs a little usage each time.
-  Choose a fast model under Settings → General → Prompt review → *Review
-  model*, or switch the whole thing off with the toggle next to it.
+- It runs on a provider, so it costs a little usage each time. Which provider
+  and which model are yours to pick under Settings → General → Prompt review —
+  reviewing is frequent, cheap work with no claim on the allowance you reserved
+  for real tasks, so a second account or a fast model earns its keep. Or switch
+  the whole thing off with the toggle above. Only providers that can answer a
+  question of ClaudeQ's own are offered (see below); if none can, the banner
+  simply stays away.
 - The review itself is the narrowest invocation ClaudeQ makes: no tools at all
   (ClaudeQ hands it the path checks and the small files it read), no CLAUDE.md,
-  skills, plugins, hooks or MCP servers, and no saved session. It reads; it
-  never writes.
+  skills, plugins, hooks or MCP servers, no saved session, and a working
+  directory outside any repository. It reads; it never writes. ClaudeQ calls
+  this an *aside* — a question it asks a harness on its own behalf rather than
+  to do your work — and a provider has to be able to hold one to be offered for
+  it. Claude Code can; Codex cannot yet.
 - It re-runs from scratch on every change to the prompt or the working
   directory, and cancels the review still in flight — including its Claude
   process — so only the newest answer is ever shown. An answer is remembered
@@ -1007,16 +1034,17 @@ Practicalities:
 
 ## Sending feedback
 
-**Feedback** at the bottom of the sidebar turns a bug report or a wish into a
-GitHub issue without you having to write one.
+**Feedback** at the bottom of the sidebar is a page of its own, and turns a bug
+report or a wish into a GitHub issue without you having to write one.
 
 1. Say what is wrong, or what ClaudeQ should be able to do — in whatever
    language you think in.
 2. Claude reads it and either asks one short clarifying question (at most twice,
    and only when the report cannot be acted on as it stands) or goes straight to
-   a draft. This runs through your local `claude` CLI on Haiku and costs a
-   fraction of a cent per message; it does not go through the queue, so it works
-   while tasks are running.
+   a draft. This runs on the provider you chose under Settings → General →
+   Feedback, on a small model by default, and costs a fraction of a cent per
+   message; it does not go through the queue, so it works while tasks are
+   running.
 3. You get the finished issue — an English title and body, labelled either
    `bug` or `enhancement` — in editable fields.
    Your ClaudeQ version and macOS version are named there and ride along as a
@@ -1027,12 +1055,15 @@ GitHub issue without you having to write one.
 
 ClaudeQ never talks to GitHub for this and stores no token: your browser is
 already signed in, and the whole issue travels in the page's URL. If the
-assistant cannot be reached — no `claude` binary, or your usage limit is
-exhausted — the sheet keeps what you typed and lets you write the issue by hand.
+assistant cannot be reached — no provider set up to draft one, or your usage
+limit is exhausted — the page keeps what you typed and lets you write the issue
+by hand.
 
-The chat runs the CLI with tools, MCP servers, skills and `CLAUDE.md` files all
-switched off, in an empty throwaway directory, so it can neither touch your
-machine nor pull project context into a public issue. It is told not to put
+The chat runs as an *aside* (see [The prompt review](#the-prompt-review)): tools,
+MCP servers, skills and `CLAUDE.md` files all switched off, in an empty
+throwaway directory, so it can neither touch your machine nor pull project
+context into a public issue. Only a provider that can hold such a conversation
+is offered for it. It is told not to put
 personal data (paths, names, addresses, prompt contents) in the issue — and
 because you see the text before anything is filed, you have the last word on
 that.

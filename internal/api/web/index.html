@@ -246,6 +246,10 @@
   .msg.result { background:color-mix(in srgb, var(--accent) 12%, var(--card-2)); border:.5px solid var(--hairline); }
   .msg.err-msg { background:color-mix(in srgb, var(--danger) 14%, var(--card-2)); border:.5px solid var(--hairline); }
   .msg.err-msg .who { color:var(--danger); }
+  /* A claudeq remark about the run itself (a dropped session, say) is not a
+     failure, so it does not borrow the failure colour. */
+  .msg.note-msg { background:var(--card-2); border:.5px solid var(--hairline); }
+  .msg.note-msg .who { color:var(--muted); }
   .msg .who { font-size:10px; font-weight:700; color:var(--fg2); margin-bottom:4px; text-transform:uppercase; letter-spacing:.4px; }
   .tool { font-size:12px; background:var(--seg-bg); border-radius:8px; padding:7px 11px; }
   .tool .tname { font-weight:600; color:var(--accent); font-family:"SF Mono",ui-monospace,monospace; }
@@ -320,7 +324,7 @@
       Usage</button>
   </nav>
   <nav class="nav nav-foot">
-    <button id="feedbackNav" data-tip="Report a bug or suggest a feature — Claude drafts the GitHub issue, you file it">
+    <button data-tab="feedback" data-tip="Report a bug or suggest a feature — Claude drafts the GitHub issue, you file it">
       <svg viewBox="0 0 20 20"><path d="M16.5 12.5a1.5 1.5 0 0 1-1.5 1.5H7l-3.5 3V5A1.5 1.5 0 0 1 5 3.5h10A1.5 1.5 0 0 1 16.5 5z"/></svg>
       Feedback</button>
     <button data-tab="settings">
@@ -346,6 +350,21 @@
     <section id="news" class="tab" hidden></section>
     <section id="artifacts" class="tab" hidden></section>
     <section id="usage" class="tab" hidden></section>
+    <section id="feedback" class="tab" hidden>
+      <div id="fb-chat" class="chat" hidden></div>
+      <div id="fb-ask">
+        <label class="fld" id="fb-ask-label">What would you like to report?</label>
+        <textarea id="fb-text" rows="5" placeholder="Something that does not work, or something ClaudeQ should be able to do…"></textarea>
+        <div class="hint">Claude turns this into a GitHub issue and may ask one short question first.</div>
+      </div>
+      <div id="fb-review" hidden>
+        <label class="fld">Title</label><input type="text" id="fb-title" placeholder="Short, concrete title">
+        <label class="fld">Description</label><textarea id="fb-body" rows="12" placeholder="What happens, and what you expected"></textarea>
+        <div class="hint" style="margin-top:12px" id="fb-meta"></div>
+        <div class="hint" style="margin-top:8px">Nothing has been sent yet. The button opens a prefilled new issue on <span id="fb-repo" class="mono"></span> in your browser; it is created only when you press <b>Create</b> there — and you can still change or delete anything on that page.</div>
+      </div>
+      <p id="fb-err" class="hint" style="color:var(--danger)"></p>
+    </section>
     <section id="settings" class="tab" hidden></section>
   </div></div>
 </div>
@@ -379,7 +398,8 @@
         — <span class="mono">0 20 * * *</span> = daily at 20:00. Hover a field for details.</div>
     </div>
     <div class="form-row">
-      <div><label class="fld">Provider</label><select id="f-provider"></select></div>
+      <div><label class="fld">Provider</label><select id="f-provider"></select>
+        <div class="hint" id="f-provider-hint" hidden style="color:var(--danger)"></div></div>
       <div><label class="fld">Model</label><select id="f-model"></select></div>
       <div id="f-reasoning-wrap" hidden><label class="fld">Reasoning effort</label><select id="f-reasoning"></select></div>
     </div>
@@ -412,29 +432,6 @@
     <div id="viewerActions" class="row-actions"></div></div>
   <div class="sheet-bd" id="viewerBody"></div>
   <div class="sheet-ft"><button class="btn" id="viewerContinueBtn" hidden data-tip="Opens Terminal in the task's folder and resumes the chat that published this artifact (claude --resume) — with the full conversation context" onclick="continueArtifactRun()">Continue with Claude</button><button class="btn" onclick="viewerSheet.close()">Done</button></div>
-</dialog>
-
-<!-- Feedback sheet -->
-<dialog id="fbSheet">
-  <div class="sheet-hd"><b>Feedback</b></div>
-  <div class="sheet-bd">
-    <div id="fb-chat" class="chat" hidden></div>
-    <div id="fb-ask">
-      <label class="fld" id="fb-ask-label">What would you like to report?</label>
-      <textarea id="fb-text" rows="5" placeholder="Something that does not work, or something ClaudeQ should be able to do…"></textarea>
-      <div class="hint">Claude turns this into a GitHub issue and may ask one short question first.</div>
-    </div>
-    <div id="fb-review" hidden>
-      <label class="fld">Title</label><input type="text" id="fb-title" placeholder="Short, concrete title">
-      <label class="fld">Description</label><textarea id="fb-body" rows="10" placeholder="What happens, and what you expected"></textarea>
-      <div class="hint" style="margin-top:12px" id="fb-meta"></div>
-      <div class="hint" style="margin-top:8px">Nothing has been sent yet. The button opens a prefilled new issue on <span id="fb-repo" class="mono"></span> in your browser; it is created only when you press <b>Create</b> there — and you can still change or delete anything on that page.</div>
-    </div>
-    <p id="fb-err" class="hint" style="color:var(--danger)"></p>
-  </div>
-  <div class="sheet-ft"><button class="btn" id="fb-manual" hidden>Write it myself</button>
-    <button class="btn" onclick="fbSheet.close()">Close</button>
-    <button class="btn primary" id="fb-send">Continue</button></div>
 </dialog>
 
 <!-- Confirm sheet -->
@@ -564,7 +561,7 @@ function runTimeTitle(r){ let t=exactTime(r.started_at);
   if(r.finished_at) t+=' - '+fmtRunDur(new Date(r.finished_at)-new Date(r.started_at));
   return t; }
 
-const TITLES={tasks:'Queue',news:'Activity',artifacts:'Artifacts',usage:'Usage',settings:'Settings'};
+const TITLES={tasks:'Queue',news:'Activity',artifacts:'Artifacts',usage:'Usage',feedback:'Feedback',settings:'Settings'};
 let current='tasks';
 // When the global rate-limit gate reopens (a Date), or null while it is open.
 let LIMITED_UNTIL=null;
@@ -593,6 +590,18 @@ function select(tab){ if(settingsReview){ settingsReview.reset(); settingsReview
   }
   if(tab==='artifacts'){ const b=el('button','btn',EYE+'<span>Mark all read</span>'); b.onclick=markAllArtifactsRead; ta.append(b); loadArtifacts(); }
   if(tab==='usage') loadUsage();
+  if(tab==='feedback'){
+    // Built here, so the page's actions sit where every other page's do. The
+    // ids are the ones the feedback code already talks to.
+    // "Write it myself" is the fallback when the assistant fails mid-conversation:
+    // it keeps what was typed and lets the user finish the issue by hand.
+    const manual=el('button','btn','Write it myself'); manual.id='fb-manual'; manual.hidden=true;
+    manual.onclick=()=>{ $('#fb-err').textContent=''; $('#fb-body').value=fbSaid.join('\n\n'); fbSetMode('review'); $('#fb-title').focus(); };
+    const send=el('button','btn primary','Continue'); send.id='fb-send';
+    send.onclick=()=>{ if(fbBusy) return; if(fbMode==='chat') fbSendTurn(); else fbOpenIssue(); };
+    ta.append(manual, send);
+    openFeedback();
+  }
   if(tab==='settings'){ const b=el('button','btn primary',SAVE+'<span>Save</span>'); b.onclick=saveSettings; ta.append(b); loadSettings(); loadUpdate(); }
 }
 
@@ -622,6 +631,21 @@ async function loadUsage(){
       ${statCell('tokens',fmtTok(w.input_tokens+w.output_tokens))}${statCell('API-equiv. cost',fmtCost(w.cost_usd))}${statCell('runs',w.runs)}${statCell('succeeded',w.success)}${statCell('failed',w.failed)}${statCell('runtime',fmtDur(w.duration_ms))}
     </div></div>`;
   c.append(head);
+
+  // Several providers mean several allowances, so the split says which account
+  // the work went to. With one provider there is nothing to split.
+  if((stats.by_provider||[]).length){
+    const split=el('div');
+    split.innerHTML=`<div class="section-label">By provider</div><div class="group">`
+      +stats.by_provider.map(p=>`<div class="row">
+          <div class="grow"><div class="title">${esc(p.name||p.id||'Not recorded')}</div>
+            <div class="sub">${p.runs} runs · ${p.success} succeeded · ${p.failed} failed · ${fmtDur(p.duration_ms)}</div></div>
+          <div style="text-align:right"><div class="usage-num" style="font-size:15px">${fmtTok(p.input_tokens+p.output_tokens)}</div>
+            <div class="sub">${fmtCost(p.cost_usd)} API-equiv.</div></div>
+        </div>`).join('')
+      +`</div>`;
+    c.append(split);
+  }
 
   const tokChart=el('div');
   tokChart.innerHTML=`<div class="section-label">Tokens per day (14d)</div>`+barChart(stats.per_day, d=>d.tokens, fmtTok);
@@ -817,6 +841,7 @@ async function fillTaskModels(providerID, model, effort){
 }
 
 function openSheet(title,submitLabel){ $('#addErr').textContent=''; $('#f-dir-hint').hidden=true; $('#f-dir-hint').textContent='';
+  $('#f-provider-hint').hidden=true; $('#f-provider-hint').textContent='';
   clearTimeout(cronTimer); cronVerdict.expr=null; showCronStatus(null); cronRecheck();
   $('#addSheetTitle').textContent=title; $('#addSubmitBtn').textContent=submitLabel; $('#addSheet').showModal();
   taskReview.run(); }   // an imported, edited or replayed prompt is reviewed as it opens; an empty new one costs nothing
@@ -1016,6 +1041,14 @@ $('#importFile').onchange=async e=>{
     h.textContent='The file’s working directory ('+d.missing_working_dir+') does not exist on this Mac. Choose a folder.';
     h.hidden=false;
   }
+  // The file says which harness the task was written for. When no single
+  // provider here matches it, the choice is the importer's: ClaudeQ will not
+  // put someone else's task on an account they did not pick.
+  const ph=$('#f-provider-hint');
+  ph.hidden=!d.unresolved_provider;
+  if(d.unresolved_provider){
+    ph.textContent='Written for '+d.unresolved_provider+', which does not match exactly one provider here. Choose where it should run.';
+  }
 };
 async function runNow(id){
   try{ await api('POST',`/api/tasks/${id}/run-now`); }catch(e){ toast(e.message,'err'); return; }
@@ -1045,7 +1078,13 @@ let runsSig='', actFrom='', actTo='', actPage=0; const ACT_PAGE=25;
 function actLocalDate(iso){ const d=new Date(iso); return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
 function actInRange(iso){ const d=actLocalDate(iso); if(actFrom && d<actFrom) return false; if(actTo && d>actTo) return false; return true; }
 async function loadRuns(){
-  let runs; try{ runs=await api('GET','/api/runs'); setConn(true);}catch(e){ setConn(false); return; }
+  let runs;
+  try{
+    // The provider list rides along: which harness a run used is only worth
+    // saying once there is more than one it could have been.
+    const [rs,ps]=await Promise.all([api('GET','/api/runs'),api('GET','/api/providers')]);
+    runs=rs; PROVIDERS=ps||PROVIDERS; setConn(true);
+  }catch(e){ setConn(false); return; }
   const unread=runs.filter(r=>r.unread).length; const badge=$('#unreadCount'); badge.hidden=unread===0; badge.textContent=unread;
   const filtered=runs.filter(r=>actInRange(r.started_at));
   const pages=Math.max(1,Math.ceil(filtered.length/ACT_PAGE));
@@ -1053,7 +1092,7 @@ async function loadRuns(){
   const pageRuns=filtered.slice(actPage*ACT_PAGE, actPage*ACT_PAGE+ACT_PAGE);
   // Re-render only when the data or view actually changed, so the 5s poll doesn't
   // rebuild the DOM (and make the buttons flicker) on every tick.
-  const sig=JSON.stringify([actFrom,actTo,actPage,LIMITED_UNTIL&&LIMITED_UNTIL.toISOString(),
+  const sig=JSON.stringify([actFrom,actTo,actPage,LIMITED_UNTIL&&LIMITED_UNTIL.toISOString(),PROVIDERS.length,
     pageRuns.map(r=>[r.run_id,r.status,r.unread,r.resume_pending,r.resume_at])]);
   if(sig===runsSig && $('#news').childElementCount) return;
   runsSig=sig;
@@ -1066,7 +1105,7 @@ async function loadRuns(){
     const gl=el('div','act-gl'); if(r.unread) gl.append(el('div','unread-dot'));
     const card=el('div','act-card');
     const dir=r.task&&r.task.working_dir?baseName(r.task.working_dir):'';
-    const grow=el('div','grow'); grow.innerHTML=`<div class="title">${esc(r.task_name)}</div><div class="sub"><span class="hint-time" data-tip="${esc(runTimeTitle(r))}">${relTime(r.started_at)}</span>${dir?' · <span class="mono">'+esc(dir)+'</span>':''}${r.resume_pending?' · <span class="resume">'+esc(resumeText(r))+'</span>':''}</div>`;
+    const grow=el('div','grow'); grow.innerHTML=`<div class="title">${esc(r.task_name)}</div><div class="sub"><span class="hint-time" data-tip="${esc(runTimeTitle(r))}">${relTime(r.started_at)}</span>${dir?' · <span class="mono">'+esc(dir)+'</span>':''}${runProviderText(r)}${r.resume_pending?' · <span class="resume">'+esc(resumeText(r))+'</span>':''}</div>`;
     const pill=el('span','pill '+r.status); pill.innerHTML=`<span class="d"></span>${esc(statusLabel(r))}`;
     const actions=el('div','row-actions');
     if(r.task){ const rp=el('button','btn small iconly',REPLAY); rp.title='Re-run this task'; rp.onclick=()=>openReplay(r.task); actions.append(rp); }
@@ -1090,6 +1129,17 @@ async function loadRuns(){
   pager.append(prev,next); foot.append(pager);
   c.append(foot);
 }
+// runProviderText names the harness a run used, with the model it used there —
+// what the run recorded, not what the task says today.
+//
+// It is left out while only one provider is configured: on every row it would
+// be noise, and the answer to "which one?" is already "the only one".
+function runProviderText(r){
+  const p=r.provider;
+  if(!p||!p.name||PROVIDERS.length<2) return '';
+  return ' · '+esc(p.name)+(p.model?' <span class="mono">'+esc(p.model)+'</span>':'');
+}
+
 // A rate-limited run reads as "rescheduled" while its session is still queued
 // to continue; once that plan is gone (resumed, canceled, task deleted) the
 // pause is just what happened to this run.
@@ -1224,7 +1274,7 @@ function appendLogEvent(box, ev){
     box.append(el('div','msg user','<div class="who">You</div>'+esc(ev.message.content))); return 1;
   }
   if(ev.type==='result'){ box.append(el('div','msg result','<div class="who">Result'+(ev.is_error?' · error':'')+'</div>'+esc(ev.result||'(no text)'))); return 1; }
-  if(ev.type==='claudeq_status'){ box.append(el('div','msg err-msg','<div class="who">'+esc((ev.status||'error').replace(/_/g,' '))+'</div>'+esc(ev.message||''))); return 1; }
+  if(ev.type==='claudeq_status'){ const kind=ev.status==='note'?'note-msg':'err-msg'; box.append(el('div','msg '+kind,'<div class="who">'+esc((ev.status||'error').replace(/_/g,' '))+'</div>'+esc(ev.message||''))); return 1; }
   if(ev.type==='system' && ev.subtype==='init'){ box.append(el('div','rawline','session started'+(ev.model?' · '+esc(ev.model):''))); return 0; }
   return 0;
 }
@@ -1414,9 +1464,21 @@ async function loadSettings(){
         <div class="row"><div class="grow"><div class="title">Check prompts with Claude</div>
           <div class="sub multi">Before a task is added, imported or edited, Claude reads its prompt against this Mac — paths that aren't here, a file to be written into a folder that doesn't exist, guidelines it points at — and offers a rewrite under the prompt box. It reviews the system prompt above the same way.</div></div>
           <label class="switch"><input type="checkbox" id="s-review"><span class="sl"></span></label></div>
+        <div class="row"><div class="grow"><div class="title">Review provider</div>
+          <div class="sub">Reviewing costs allowance too, so it can run on an account other than the one your tasks use</div></div>
+          <select id="s-review-provider" style="max-width:230px"></select></div>
         <div class="row"><div class="grow"><div class="title">Review model</div>
           <div class="sub">Runs on every prompt change, so a fast model earns its keep</div></div>
           <select id="s-review-model" style="max-width:230px">${modelOptions(s.prompt_review_model||'',"The provider's default model")}</select></div>
+      </div>
+      <div class="section-label">Feedback</div>
+      <div class="group">
+        <div class="row"><div class="grow"><div class="title">Feedback provider</div>
+          <div class="sub multi">Drafts the GitHub issue on the Feedback page. Nothing is sent anywhere: the draft opens as a prefilled issue in your browser, and you press Create there.</div></div>
+          <select id="s-feedback-provider" style="max-width:230px"></select></div>
+        <div class="row"><div class="grow"><div class="title">Feedback model</div>
+          <div class="sub">Two short messages into an issue — a small model is enough</div></div>
+          <select id="s-feedback-model" style="max-width:230px"></select></div>
       </div>
       <div class="section-label">Execution</div>
       <div class="group">
@@ -1519,7 +1581,11 @@ async function loadSettings(){
     try{ await api('PUT','/api/settings',{...(await api('GET','/api/settings')),beta_features:e.target.checked}); }
     catch(err){ toast(err.message,'err'); e.target.checked=!e.target.checked; return; }
     SHOW_BETA=e.target.checked;
-    loadProviders();
+    // What may be chosen for a review or a draft changes with it, so those two
+    // pickers are rebuilt on what is now on offer — keeping the current choices.
+    await loadProviders();
+    fillAsidePickers($('#s-review-provider').value, $('#s-review-model').value,
+      $('#s-feedback-provider').value, $('#s-feedback-model').value);
   };
   // The Settings view is rebuilt on every visit, so its review controller is
   // bound to the fresh nodes here. The system prompt has no working directory:
@@ -1538,7 +1604,19 @@ async function loadSettings(){
   c.querySelectorAll('#s-tabs button').forEach(b=>b.onclick=()=>selectSettingsPane(b.dataset.pane));
   selectSettingsPane(settingsPane);
   renderUpdateBox(); renderVersionRow(); renderUpdateBadge();
-  loadProviders();
+  // The two pickers below offer configured providers, so they wait for the list
+  // rather than rendering an empty one and correcting itself a moment later.
+  await loadProviders();
+  fillAsidePickers(s.prompt_review_provider||'', s.prompt_review_model||'', s.feedback_provider||'', s.feedback_model||'');
+}
+
+// fillAsidePickers rebuilds the provider/model pairs for the two jobs claudeq
+// runs on its own behalf. It is called again whenever the offered set changes.
+function fillAsidePickers(reviewProvider, reviewModel, feedbackProvider, feedbackModel){
+  fillAsideChoices($('#s-review-provider'), $('#s-review-model'), reviewProvider, reviewModel,
+    "The provider's default model");
+  fillAsideChoices($('#s-feedback-provider'), $('#s-feedback-model'), feedbackProvider, feedbackModel,
+    'ClaudeQ\u2019s choice (a small, fast model)');
 }
 /* ---- Providers ----
    One card per configured harness. The card is the only place the binary path,
@@ -1670,6 +1748,32 @@ async function submitProvider(){
   loadProviders();
 }
 
+// fillAsideChoices fills a provider/model pair for one of the jobs claudeq runs
+// on its own behalf — prompt review, the feedback assistant.
+//
+// Only providers that can actually answer such a question are offered (see
+// internal/aside): a harness that cannot would leave the feature silently
+// unavailable, and an empty list is more honest than a choice that does nothing.
+// A stored provider that is gone keeps its place, marked, so a save does not
+// quietly move the job somewhere else.
+async function fillAsideChoices(providerSel,modelSel,providerID,model,modelEmptyLabel){
+  const offered=PROVIDERS.filter(p=>p.enabled&&p.asides&&(!p.beta||betaAllowed()));
+  const dflt=PROVIDERS.find(p=>p.default);
+  const known=offered.some(p=>p.id===providerID);
+  providerSel.innerHTML=`<option value="">${esc(dflt?`Default (${dflt.name||dflt.id})`:'Default provider')}</option>`
+    +offered.map(p=>`<option value="${esc(p.id)}"${p.id===providerID?' selected':''}>${esc((p.name||p.id)+(p.beta?' (beta)':''))}</option>`).join('')
+    +(providerID&&!known?`<option value="${esc(providerID)}" selected>${esc(providerID)} — unavailable</option>`:'');
+  providerSel.onchange=()=>fillAsideModels(modelSel,providerSel.value,'',modelEmptyLabel);
+  await fillAsideModels(modelSel,providerID,model,modelEmptyLabel);
+}
+// fillAsideModels offers what the chosen provider suggests. Changing the
+// provider clears the model: a model name means nothing to another harness.
+async function fillAsideModels(select,providerID,model,emptyLabel){
+  select.innerHTML=modelOptionsFrom([],model||'',emptyLabel);
+  let models=[];
+  try{ models=await api('GET','/api/models'+(providerID?'?provider='+encodeURIComponent(providerID):''))||[]; }catch{ return; }
+  select.innerHTML=modelOptionsFrom(models,model||'',emptyLabel);
+}
 // fillProviderModels asks the provider itself what it suggests, so a Codex card
 // offers Codex models and a Claude card offers Claude's. The stored value is
 // kept even when the list does not contain it: a model catalog is a suggestion,
@@ -1722,7 +1826,10 @@ async function saveSettings(){
     max_run_history:parseInt($('#s-hist').value||'500',10),
     system_prompt:$('#s-sysprompt').value,
     prompt_review_disabled:!$('#s-review').checked,
+    prompt_review_provider:$('#s-review-provider').value,
     prompt_review_model:$('#s-review-model').value,
+    feedback_provider:$('#s-feedback-provider').value,
+    feedback_model:$('#s-feedback-model').value,
     beta_features:$('#s-beta').checked,
     pushover:{enabled:$('#s-po-enabled').checked,token:$('#s-po-token').value,user_key:$('#s-po-user').value},
     ntfy:{enabled:$('#s-ntfy-enabled').checked,server:$('#s-ntfy-server').value.trim(),topic:$('#s-ntfy-topic').value.trim(),token:$('#s-ntfy-token').value.trim()},
@@ -1915,7 +2022,6 @@ async function checkHealth(){
    locally through the Claude Code CLI, the user edits it here, and the last
    step just opens GitHub's prefilled "new issue" page in the browser. */
 let fbInfo=null, fbSession='', fbMode='chat', fbSaid=[], fbLabels=[], fbBusy=false;
-$('#feedbackNav').onclick=openFeedback;
 async function openFeedback(){
   fbSession=''; fbSaid=[]; fbLabels=[];
   $('#fb-err').textContent=''; $('#fb-chat').innerHTML=''; $('#fb-chat').hidden=true;
@@ -1925,13 +2031,13 @@ async function openFeedback(){
   $('#fb-text').placeholder='Something that does not work, or something ClaudeQ should be able to do…';
   try{ fbInfo=await api('GET','/api/feedback'); }
   catch(e){ fbInfo={available:false,reason:e.message,repo:'',app_version:'',os_version:''}; }
+  // The status request can land after the user has already moved on, and the
+  // page's buttons leave with the toolbar.
+  if(current!=='feedback') return;
   $('#fb-repo').textContent=fbInfo.repo||'GitHub';
   fbRenderMeta();
   if(fbInfo.available){ fbSetMode('chat'); }
   else { fbSetMode('review'); $('#fb-err').textContent='The assistant is unavailable ('+(fbInfo.reason||'unknown reason')+'). Write the issue yourself:'; }
-  // Two quick clicks both get here before the status request resolves, and a
-  // second showModal() on an open dialog throws.
-  if(!$('#fbSheet').open) $('#fbSheet').showModal();
   (fbInfo.available?$('#fb-text'):$('#fb-title')).focus();
 }
 // The environment line and the labels are stated here rather than edited here:
@@ -1952,12 +2058,8 @@ function fbBubble(kind,who,text){ $('#fb-chat').hidden=false;
   const m=el('div','msg '+kind,'<div class="who">'+esc(who)+'</div>'+esc(text));
   $('#fb-chat').append(m); $('#fb-chat').scrollTop=$('#fb-chat').scrollHeight; return m; }
 function fbSetBusy(on){ fbBusy=on; $('#fb-send').disabled=on; $('#fb-text').disabled=on; }
-$('#fb-send').onclick=()=>{ if(fbBusy) return; if(fbMode==='chat') fbSendTurn(); else fbOpenIssue(); };
 // Cmd/Ctrl+Enter sends, like the other multi-line inputs in the app.
 $('#fb-text').addEventListener('keydown',e=>{ if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){ e.preventDefault(); $('#fb-send').click(); } });
-// Fallback when the assistant fails mid-conversation: keep what was typed and
-// let the user finish the issue by hand.
-$('#fb-manual').onclick=()=>{ $('#fb-err').textContent=''; $('#fb-body').value=fbSaid.join('\n\n'); fbSetMode('review'); $('#fb-title').focus(); };
 async function fbSendTurn(){
   const text=$('#fb-text').value.trim();
   if(!text){ $('#fb-err').textContent='Write what you would like to report first.'; return; }
@@ -1987,7 +2089,6 @@ async function fbOpenIssue(){
     const u=httpsOnly(r.url);
     if(!u) throw new Error('the issue link could not be built');
     if(window.cqOpenExternal) window.cqOpenExternal(u); else window.open(u,'_blank','noopener');
-    $('#fbSheet').close();
     toast('Opened GitHub — press “Create” there to file it','ok');
   }catch(e){ $('#fb-err').textContent=e.message; }
   finally{ fbSetBusy(false); }

@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/danielmaier42/claudeq/internal/app"
 	"github.com/danielmaier42/claudeq/internal/feedback"
 	"github.com/danielmaier42/claudeq/internal/provider"
 	"github.com/danielmaier42/claudeq/internal/update"
@@ -16,8 +15,8 @@ import (
 // feedbackStatus tells the dashboard whether the guided feedback chat can run,
 // and pre-fills the two environment details that go into the issue.
 type feedbackStatus struct {
-	// Available is false when no Claude Code binary is configured or found; the
-	// dashboard then offers the plain form instead of the chat.
+	// Available is false when no provider can answer; the dashboard then offers
+	// the plain form instead of the chat.
 	Available bool `json:"available"`
 	// Reason explains an unavailable chat in one sentence.
 	Reason string `json:"reason,omitempty"`
@@ -40,11 +39,12 @@ func (s *server) getFeedback(w http.ResponseWriter, _ *http.Request) {
 		OSVersion:  s.osVersion(),
 		MaxTurns:   feedback.MaxUserTurns,
 	}
+	_, _, ok := s.feedbackTarget()
 	switch {
 	case s.d.Feedback == nil:
 		st.Reason = "the feedback assistant is not available in this build"
-	case s.feedbackBin() == "":
-		st.Reason = "the Claude Code CLI was not found; set its path in Settings"
+	case !ok:
+		st.Reason = "no provider is set up to draft an issue; choose one in Settings"
 	default:
 		st.Available = true
 	}
@@ -66,12 +66,12 @@ func (s *server) feedbackTurn(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	bin := s.feedbackBin()
-	if bin == "" {
-		writeErr(w, http.StatusServiceUnavailable, errors.New("the Claude Code CLI was not found; set its path in Settings"))
+	inst, model, ok := s.feedbackTarget()
+	if !ok {
+		writeErr(w, http.StatusServiceUnavailable, errors.New("no provider is set up to draft an issue; choose one in Settings"))
 		return
 	}
-	d, err := s.d.Feedback.Turn(r.Context(), bin, req.SessionID, req.Text)
+	d, err := s.d.Feedback.Turn(r.Context(), inst, model, req.SessionID, req.Text)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err)
 		return
@@ -145,21 +145,29 @@ func (s *server) osVersion() string {
 	return s.d.OSVersion()
 }
 
-// feedbackBin resolves the Claude Code binary for a feedback turn from the
-// configured provider instance, reporting "" when there is none — the feedback
-// flow then offers its manual path instead of a run that cannot start.
-func (s *server) feedbackBin() string {
-	set, err := app.Providers(s.d.Store)
+// feedbackTarget resolves the provider instance and model a feedback turn runs
+// on: the one Settings names for it, otherwise the default provider.
+//
+// Drafting an issue is a conversation with a schema, which not every harness
+// can hold (see internal/aside). One that cannot is reported as no target,
+// which is what makes the dashboard offer its manual path instead of a chat
+// that would fail on the first message.
+func (s *server) feedbackTarget() (provider.Instance, string, bool) {
+	cfg, err := s.d.Store.LoadConfig()
 	if err != nil {
-		return ""
+		return provider.Instance{}, "", false
 	}
-	inst, ok := set.Lookup(provider.DefaultInstanceID)
-	if !ok {
-		return ""
-	}
-	ad, err := s.d.Registry.Lookup(inst.Kind)
+	set, err := provider.FromConfig(cfg)
 	if err != nil {
-		return ""
+		return provider.Instance{}, "", false
 	}
-	return ad.ResolveBinary(inst)
+	res, err := set.Resolve(provider.Selection{ProviderID: cfg.Settings.FeedbackProvider})
+	if err != nil {
+		return provider.Instance{}, "", false
+	}
+	ad, err := s.d.Registry.Lookup(res.Instance.Kind)
+	if err != nil || !ad.Capabilities().Asides || ad.ResolveBinary(res.Instance) == "" {
+		return provider.Instance{}, "", false
+	}
+	return res.Instance, cfg.Settings.FeedbackModel, true
 }

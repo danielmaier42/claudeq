@@ -104,8 +104,8 @@ func TestReviewPromptReturnsTheFinding(t *testing.T) {
 	if req.Kind != review.KindTask || req.Prompt != "p" || req.WorkingDir != "/w" {
 		t.Errorf("reviewer got %+v", req)
 	}
-	if req.Model != "opus" || req.Bin != "/opt/claude" {
-		t.Errorf("the review must run with the configured model and binary, got model=%q bin=%q", req.Model, req.Bin)
+	if req.Model != "opus" || req.Provider.ID != store.DefaultProviderID {
+		t.Errorf("the review must run with the configured model and provider, got model=%q provider=%q", req.Model, req.Provider.ID)
 	}
 }
 
@@ -155,16 +155,59 @@ func TestReviewPromptWithoutAReviewer(t *testing.T) {
 	}
 }
 
-func TestReviewPromptWithoutAClaudeBinary(t *testing.T) {
-	// Not knowing where claude is is a Settings problem, already reported there.
-	// The prompt sheet stays quiet instead of showing an error the operator
-	// cannot act on from where they are.
-	srv, _ := newReviewServer(t, &fakeReviewer{err: review.ErrNoBinary}, store.Settings{}, "/opt/claude", "")
+func TestReviewPromptWithoutAHarnessToAsk(t *testing.T) {
+	// A provider that cannot answer is a Settings problem, already reported
+	// there. The prompt sheet stays quiet instead of showing an error the
+	// operator cannot act on from where they are.
+	srv, _ := newReviewServer(t, &fakeReviewer{err: review.ErrUnavailable}, store.Settings{}, "/opt/claude", "")
 	r := do(t, srv, "POST", "/api/review/prompt", reviewRequest{Kind: "task", Prompt: "p"})
 	var got reviewResponse
 	r.into(t, &got)
 	if r.Status != http.StatusOK || got.Enabled || !got.OK {
 		t.Errorf("status %d, body %+v", r.Status, got)
+	}
+}
+
+// TestReviewPromptWithoutAConfiguredBinary: the provider names no CLI, so there
+// is nothing to ask and the sheet stays quiet — without the reviewer ever being
+// called.
+func TestReviewPromptWithoutAConfiguredBinary(t *testing.T) {
+	rv := &fakeReviewer{res: review.Result{Message: "should never be asked"}}
+	srv, _ := newReviewServer(t, rv, store.Settings{}, "", "")
+	r := do(t, srv, "POST", "/api/review/prompt", reviewRequest{Kind: "task", Prompt: "p"})
+	var got reviewResponse
+	r.into(t, &got)
+	if r.Status != http.StatusOK || got.Enabled || !got.OK {
+		t.Errorf("status %d, body %+v", r.Status, got)
+	}
+	if rv.count() != 0 {
+		t.Errorf("no binary means no review to run, got %d calls", rv.count())
+	}
+}
+
+// TestReviewPromptUsesItsOwnProvider: Settings can point the review at another
+// instance than the one tasks run on.
+func TestReviewPromptUsesItsOwnProvider(t *testing.T) {
+	rv := &fakeReviewer{res: review.Result{OK: true}}
+	srv, st := newReviewServer(t, rv, store.Settings{}, "/opt/claude", "opus")
+	if err := st.UpdateConfig(func(cfg *store.Config) error {
+		cfg.Providers = append(cfg.Providers, store.Provider{
+			ID: "claude-cheap", Kind: store.DefaultProviderKind, Name: "Claude (cheap)",
+			BinaryPath: "/opt/claude", DefaultModel: "haiku", Enabled: true,
+		})
+		cfg.Settings.PromptReviewProvider = "claude-cheap"
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+
+	do(t, srv, "POST", "/api/review/prompt", reviewRequest{Kind: "task", Prompt: "p"})
+	req := rv.request()
+	if req.Provider.ID != "claude-cheap" {
+		t.Errorf("provider = %q, want the one chosen for reviews", req.Provider.ID)
+	}
+	if req.Model != "haiku" {
+		t.Errorf("model = %q, want that provider's default", req.Model)
 	}
 }
 

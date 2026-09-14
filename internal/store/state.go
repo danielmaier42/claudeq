@@ -1,6 +1,9 @@
 package store
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // State holds machine-managed bookkeeping kept separate from the
 // human-editable config: run read-status (FA-26) and per-task scheduling
@@ -31,9 +34,11 @@ type State struct {
 	// CompletedOnce marks one-shot tasks (asap/fixed) that have already run so
 	// they are not re-enqueued (PLAN.md §7).
 	CompletedOnce map[string]bool `json:"completed_once"`
-	// PendingResumes maps a task id to the Claude Code session id to resume
-	// after a rate-limit wait (PLAN.md D4/V1).
-	PendingResumes map[string]string `json:"pending_resumes"`
+	// PendingResumes maps a task id to the session waiting to be picked up after
+	// a rate-limit wait (PLAN.md D4/V1), and to the provider instance that owns
+	// it. A session id means nothing outside the harness that issued it, so the
+	// provider travels with it.
+	PendingResumes map[string]PendingResume `json:"pending_resumes"`
 	// DismissedUpdateVersion is the release version the user dismissed in the
 	// update prompt. While the latest release equals it, no "update available"
 	// prompt is shown; a newer release supersedes it and prompts again.
@@ -71,7 +76,7 @@ func (s *State) ensureMaps() {
 		s.CompletedOnce = map[string]bool{}
 	}
 	if s.PendingResumes == nil {
-		s.PendingResumes = map[string]string{}
+		s.PendingResumes = map[string]PendingResume{}
 	}
 	if s.NotifiedProviderHealth == nil {
 		s.NotifiedProviderHealth = map[string]string{}
@@ -94,6 +99,35 @@ func (s *State) SetNotifiedProviderState(providerID, state string) {
 // removed and later re-added does not inherit the old one's notification memo.
 func (s *State) ForgetProvider(providerID string) {
 	delete(s.NotifiedProviderHealth, providerID)
+}
+
+// PendingResume is an interrupted session waiting to continue.
+type PendingResume struct {
+	// SessionID is the harness's own id for the conversation.
+	SessionID string `json:"session_id"`
+	// ProviderID is the instance that issued it. A task moved to another
+	// provider cannot continue a session the old one owns, and claudeq does not
+	// try — it starts fresh and says so.
+	ProviderID string `json:"provider_id,omitempty"`
+}
+
+// UnmarshalJSON accepts the shape written before the provider travelled with
+// the session: a bare session id. Such an entry names no provider, which the
+// engine reads as "the one the task runs on now" — the only provider there was
+// when it was written.
+func (p *PendingResume) UnmarshalJSON(data []byte) error {
+	var sessionID string
+	if err := json.Unmarshal(data, &sessionID); err == nil {
+		p.SessionID, p.ProviderID = sessionID, ""
+		return nil
+	}
+	type raw PendingResume // avoid recursing into this method
+	var out raw
+	if err := json.Unmarshal(data, &out); err != nil {
+		return err
+	}
+	*p = PendingResume(out)
+	return nil
 }
 
 // IsRead reports whether a run has been read.
@@ -185,12 +219,17 @@ func (s *State) MarkCompletedOnce(taskID string) { s.CompletedOnce[taskID] = tru
 // IsCompletedOnce reports whether a one-shot task has already run.
 func (s *State) IsCompletedOnce(taskID string) bool { return s.CompletedOnce[taskID] }
 
-// PendingResume returns the session id a task should resume, or "" if none.
-func (s *State) PendingResume(taskID string) string { return s.PendingResumes[taskID] }
+// PendingResume returns the session a task should continue, and whether there
+// is one.
+func (s *State) PendingResume(taskID string) (PendingResume, bool) {
+	p, ok := s.PendingResumes[taskID]
+	return p, ok && p.SessionID != ""
+}
 
-// SetPendingResume records that a task should resume the given session.
-func (s *State) SetPendingResume(taskID, sessionID string) {
-	s.PendingResumes[taskID] = sessionID
+// SetPendingResume records that a task should continue the given session on the
+// provider that issued it.
+func (s *State) SetPendingResume(taskID, sessionID, providerID string) {
+	s.PendingResumes[taskID] = PendingResume{SessionID: sessionID, ProviderID: providerID}
 }
 
 // ClearPendingResume clears any pending resume for a task.
