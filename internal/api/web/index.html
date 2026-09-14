@@ -1422,9 +1422,21 @@ async function loadSettings(){
         <div class="row"><div class="grow"><div class="title">Check prompts with Claude</div>
           <div class="sub multi">Before a task is added, imported or edited, Claude reads its prompt against this Mac — paths that aren't here, a file to be written into a folder that doesn't exist, guidelines it points at — and offers a rewrite under the prompt box. It reviews the system prompt above the same way.</div></div>
           <label class="switch"><input type="checkbox" id="s-review"><span class="sl"></span></label></div>
+        <div class="row"><div class="grow"><div class="title">Review provider</div>
+          <div class="sub">Reviewing costs allowance too, so it can run on an account other than the one your tasks use</div></div>
+          <select id="s-review-provider" style="max-width:230px"></select></div>
         <div class="row"><div class="grow"><div class="title">Review model</div>
           <div class="sub">Runs on every prompt change, so a fast model earns its keep</div></div>
           <select id="s-review-model" style="max-width:230px">${modelOptions(s.prompt_review_model||'',"The provider's default model")}</select></div>
+      </div>
+      <div class="section-label">Feedback</div>
+      <div class="group">
+        <div class="row"><div class="grow"><div class="title">Feedback provider</div>
+          <div class="sub multi">Drafts the GitHub issue on the Feedback page. Nothing is sent anywhere: the draft opens as a prefilled issue in your browser, and you press Create there.</div></div>
+          <select id="s-feedback-provider" style="max-width:230px"></select></div>
+        <div class="row"><div class="grow"><div class="title">Feedback model</div>
+          <div class="sub">Two short messages into an issue — a small model is enough</div></div>
+          <select id="s-feedback-model" style="max-width:230px"></select></div>
       </div>
       <div class="section-label">Execution</div>
       <div class="group">
@@ -1527,7 +1539,11 @@ async function loadSettings(){
     try{ await api('PUT','/api/settings',{...(await api('GET','/api/settings')),beta_features:e.target.checked}); }
     catch(err){ toast(err.message,'err'); e.target.checked=!e.target.checked; return; }
     SHOW_BETA=e.target.checked;
-    loadProviders();
+    // What may be chosen for a review or a draft changes with it, so those two
+    // pickers are rebuilt on what is now on offer — keeping the current choices.
+    await loadProviders();
+    fillAsidePickers($('#s-review-provider').value, $('#s-review-model').value,
+      $('#s-feedback-provider').value, $('#s-feedback-model').value);
   };
   // The Settings view is rebuilt on every visit, so its review controller is
   // bound to the fresh nodes here. The system prompt has no working directory:
@@ -1546,7 +1562,19 @@ async function loadSettings(){
   c.querySelectorAll('#s-tabs button').forEach(b=>b.onclick=()=>selectSettingsPane(b.dataset.pane));
   selectSettingsPane(settingsPane);
   renderUpdateBox(); renderVersionRow(); renderUpdateBadge();
-  loadProviders();
+  // The two pickers below offer configured providers, so they wait for the list
+  // rather than rendering an empty one and correcting itself a moment later.
+  await loadProviders();
+  fillAsidePickers(s.prompt_review_provider||'', s.prompt_review_model||'', s.feedback_provider||'', s.feedback_model||'');
+}
+
+// fillAsidePickers rebuilds the provider/model pairs for the two jobs claudeq
+// runs on its own behalf. It is called again whenever the offered set changes.
+function fillAsidePickers(reviewProvider, reviewModel, feedbackProvider, feedbackModel){
+  fillAsideChoices($('#s-review-provider'), $('#s-review-model'), reviewProvider, reviewModel,
+    "The provider's default model");
+  fillAsideChoices($('#s-feedback-provider'), $('#s-feedback-model'), feedbackProvider, feedbackModel,
+    'ClaudeQ\u2019s choice (a small, fast model)');
 }
 /* ---- Providers ----
    One card per configured harness. The card is the only place the binary path,
@@ -1678,6 +1706,32 @@ async function submitProvider(){
   loadProviders();
 }
 
+// fillAsideChoices fills a provider/model pair for one of the jobs claudeq runs
+// on its own behalf — prompt review, the feedback assistant.
+//
+// Only providers that can actually answer such a question are offered (see
+// internal/aside): a harness that cannot would leave the feature silently
+// unavailable, and an empty list is more honest than a choice that does nothing.
+// A stored provider that is gone keeps its place, marked, so a save does not
+// quietly move the job somewhere else.
+async function fillAsideChoices(providerSel,modelSel,providerID,model,modelEmptyLabel){
+  const offered=PROVIDERS.filter(p=>p.enabled&&p.asides&&(!p.beta||betaAllowed()));
+  const dflt=PROVIDERS.find(p=>p.default);
+  const known=offered.some(p=>p.id===providerID);
+  providerSel.innerHTML=`<option value="">${esc(dflt?`Default (${dflt.name||dflt.id})`:'Default provider')}</option>`
+    +offered.map(p=>`<option value="${esc(p.id)}"${p.id===providerID?' selected':''}>${esc((p.name||p.id)+(p.beta?' (beta)':''))}</option>`).join('')
+    +(providerID&&!known?`<option value="${esc(providerID)}" selected>${esc(providerID)} — unavailable</option>`:'');
+  providerSel.onchange=()=>fillAsideModels(modelSel,providerSel.value,'',modelEmptyLabel);
+  await fillAsideModels(modelSel,providerID,model,modelEmptyLabel);
+}
+// fillAsideModels offers what the chosen provider suggests. Changing the
+// provider clears the model: a model name means nothing to another harness.
+async function fillAsideModels(select,providerID,model,emptyLabel){
+  select.innerHTML=modelOptionsFrom([],model||'',emptyLabel);
+  let models=[];
+  try{ models=await api('GET','/api/models'+(providerID?'?provider='+encodeURIComponent(providerID):''))||[]; }catch{ return; }
+  select.innerHTML=modelOptionsFrom(models,model||'',emptyLabel);
+}
 // fillProviderModels asks the provider itself what it suggests, so a Codex card
 // offers Codex models and a Claude card offers Claude's. The stored value is
 // kept even when the list does not contain it: a model catalog is a suggestion,
@@ -1730,7 +1784,10 @@ async function saveSettings(){
     max_run_history:parseInt($('#s-hist').value||'500',10),
     system_prompt:$('#s-sysprompt').value,
     prompt_review_disabled:!$('#s-review').checked,
+    prompt_review_provider:$('#s-review-provider').value,
     prompt_review_model:$('#s-review-model').value,
+    feedback_provider:$('#s-feedback-provider').value,
+    feedback_model:$('#s-feedback-model').value,
     beta_features:$('#s-beta').checked,
     pushover:{enabled:$('#s-po-enabled').checked,token:$('#s-po-token').value,user_key:$('#s-po-user').value},
     ntfy:{enabled:$('#s-ntfy-enabled').checked,server:$('#s-ntfy-server').value.trim(),topic:$('#s-ntfy-topic').value.trim(),token:$('#s-ntfy-token').value.trim()},
