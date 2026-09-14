@@ -135,7 +135,11 @@ func (a *Adapter) Command(inst provider.Instance, req provider.Request) (provide
 		// `codex exec resume <thread>` continues the thread the run started.
 		args = append(args, "resume")
 	}
-	args = append(args, "--json")
+	// A ClaudeQ task may intentionally run from a project collection or another
+	// directory that is not itself a Git checkout. Codex rejects those folders
+	// by default, even though --cd accepts them. This only disables that preflight
+	// check; it does not alter the task's access mode or sandbox arguments.
+	args = append(args, "--json", "--skip-git-repo-check")
 	if sandbox, ok := sandboxFor(access); ok {
 		args = append(args, "--sandbox", sandbox)
 	}
