@@ -19,6 +19,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/executor"
 	"github.com/danielmaier42/claudeq/internal/limit"
 	"github.com/danielmaier42/claudeq/internal/notify"
+	"github.com/danielmaier42/claudeq/internal/provider"
 	"github.com/danielmaier42/claudeq/internal/schedule"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
@@ -37,7 +38,7 @@ const RateLimitResetBuffer = time.Minute
 // Runner executes a single request. *executor.Executor satisfies it; tests use
 // a stub.
 type Runner interface {
-	Run(ctx context.Context, req executor.Request) (executor.Result, error)
+	Run(ctx context.Context, req executor.Request) (provider.Result, error)
 }
 
 // Waker schedules the machine to wake at a future time. *wake.Scheduler
@@ -199,9 +200,10 @@ func (e *Engine) Tick(_ context.Context) error {
 		}
 	}
 
+	providers := provider.FromSettings(cfg.Settings)
 	for _, t := range toStart {
 		sessionID, resume := e.sessionFor(t, st)
-		if err := e.launchTask(t, cfg.Settings, sessionID, resume, now); err != nil {
+		if err := e.launchTask(t, cfg.Settings, providers, sessionID, resume, now); err != nil {
 			return err
 		}
 	}
@@ -233,8 +235,14 @@ func (e *Engine) runningState() schedule.Running {
 
 // launchTask starts a run for t. The caller must hold e.mu and have already
 // persisted the RecordStart. sessionID/resume come from the caller's snapshot.
-func (e *Engine) launchTask(t task.Task, settings store.Settings, sessionID string, resume bool, started time.Time) error {
+func (e *Engine) launchTask(t task.Task, settings store.Settings, providers provider.Set, sessionID string, resume bool, started time.Time) error {
 	runID := e.newRunID()
+
+	// Resolve the execution identity up front. A task naming a provider claudeq
+	// cannot honour is not quietly moved to another one: the run is recorded and
+	// reported as failed with that reason, so the operator sees it in Activity
+	// and gets the usual failure notification.
+	resolved, resolveErr := providers.Resolve(provider.Selection{ProviderID: t.Provider, Model: t.Model})
 
 	logFile, err := os.Create(e.store.LogPath(runID))
 	if err != nil {
@@ -269,12 +277,12 @@ func (e *Engine) launchTask(t task.Task, settings store.Settings, sessionID stri
 
 	req := executor.Request{
 		Task:               t,
+		Provider:           resolved.Instance,
 		RunID:              runID,
 		SessionID:          sessionID,
 		Resume:             resume,
-		Model:              effectiveModel(t, settings),
-		SkipPermissions:    t.Permissions == task.PermissionsSkip,
-		Bin:                settings.ClaudePath,
+		Model:              resolved.Model,
+		AccessMode:         accessMode(t.Permissions),
 		CustomSystemPrompt: settings.SystemPrompt,
 		IdleTimeout:        settings.IdleTimeout(),
 		Log:                logFile,
@@ -289,7 +297,13 @@ func (e *Engine) launchTask(t task.Task, settings store.Settings, sessionID stri
 		defer e.wg.Done()
 		defer cancelRun()
 		defer func() { _ = logFile.Close() }()
-		res, runErr := e.runGuarded(runCtx, req)
+		var res provider.Result
+		var runErr error
+		if resolveErr != nil {
+			res = provider.Result{Status: store.StatusFailed, Message: resolveErr.Error()}
+		} else {
+			res, runErr = e.runGuarded(runCtx, req)
+		}
 		e.finish(t, rec, res, runErr)
 	}()
 	return nil
@@ -297,10 +311,10 @@ func (e *Engine) launchTask(t task.Task, settings store.Settings, sessionID stri
 
 // runGuarded runs the request and turns a panic into a failed result instead of
 // crashing the daemon, so one bad run never takes the whole queue down.
-func (e *Engine) runGuarded(ctx context.Context, req executor.Request) (res executor.Result, err error) {
+func (e *Engine) runGuarded(ctx context.Context, req executor.Request) (res provider.Result, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			res = executor.Result{Status: store.StatusFailed, Message: fmt.Sprintf("internal error: %v", r)}
+			res = provider.Result{Status: store.StatusFailed, Message: fmt.Sprintf("internal error: %v", r)}
 			err = nil
 		}
 	}()
@@ -456,7 +470,7 @@ func (e *Engine) sessionFor(t task.Task, st *store.State) (string, bool) {
 }
 
 // finish records a completed run and updates scheduling state.
-func (e *Engine) finish(t task.Task, rec store.Run, res executor.Result, runErr error) {
+func (e *Engine) finish(t task.Task, rec store.Run, res provider.Result, runErr error) {
 	e.mu.Lock()
 	delete(e.active, t.ID)
 	wasCanceled := e.canceled[rec.RunID]
@@ -549,7 +563,7 @@ func (e *Engine) finish(t task.Task, rec store.Run, res executor.Result, runErr 
 	}
 
 	// Notify outside any lock so channel I/O never blocks other finishing runs.
-	e.notifyOutcome(t, rec, res.ResultText)
+	e.notifyOutcome(t, rec, res.FinalOutput)
 }
 
 // quietDrop reports whether a run of a quiet-history task leaves history
@@ -801,20 +815,21 @@ func (e *Engine) RunTaskNow(_ context.Context, taskID string) error {
 		e.mu.Unlock()
 		return fmt.Errorf("record run start: %w", err)
 	}
-	startErr := e.launchTask(*target, cfg.Settings, sessionID, resume, now)
+	startErr := e.launchTask(*target, cfg.Settings, provider.FromSettings(cfg.Settings), sessionID, resume, now)
 	e.mu.Unlock()
 
 	e.WaitIdle()
 	return startErr
 }
 
-// effectiveModel resolves the model: a task override wins over the global
-// default; empty means Claude Code's own default (FA-28/30).
-func effectiveModel(t task.Task, s store.Settings) string {
-	if t.Model != task.ModelDefault {
-		return t.Model
+// accessMode maps a task's permission setting onto claudeq's provider-neutral
+// access intent. The two stored values carry the same authority as before:
+// leave the harness's own prompts in place, or bypass them entirely.
+func accessMode(p task.Permissions) provider.AccessMode {
+	if p == task.PermissionsSkip {
+		return provider.AccessFullAccess
 	}
-	return s.DefaultModel
+	return provider.AccessProviderDefault
 }
 
 func shortHex(n int) string {

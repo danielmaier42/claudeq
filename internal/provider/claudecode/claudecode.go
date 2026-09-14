@@ -1,0 +1,255 @@
+// Package claudecode is the provider adapter for the Claude Code CLI. It owns
+// everything claudeq knows about that particular harness: its command-line
+// flags, how a session is started and resumed, how its configuration directory
+// is selected, and how its stream-json output maps onto claudeq's normalized
+// run events. Nothing outside this package needs to know any of it.
+package claudecode
+
+import (
+	"encoding/json"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/danielmaier42/claudeq/internal/provider"
+)
+
+// BinaryName is the CLI's command name, used when no path is configured and
+// detection found nothing — the exec lookup may still succeed at run time.
+const BinaryName = "claude"
+
+// ConfigDirEnv is the environment variable Claude Code reads its configuration
+// (and therefore its account and sessions) from. An instance with its own
+// configuration directory is how a second Claude subscription stays separate.
+const ConfigDirEnv = "CLAUDE_CONFIG_DIR"
+
+// Adapter runs jobs through the Claude Code CLI.
+type Adapter struct {
+	// detect locates the CLI; swapped in tests.
+	detect func() string
+
+	mu       sync.Mutex
+	probed   bool   // DetectBinary has run (see DetectBinary)
+	detected string // what it found; "" means the CLI was not located
+}
+
+// New returns the Claude Code adapter.
+func New() *Adapter { return &Adapter{detect: DetectBinary} }
+
+// Kind implements provider.Adapter.
+func (a *Adapter) Kind() provider.Kind { return provider.KindClaudeCode }
+
+// Capabilities implements provider.Adapter. Claude Code has no flag that
+// enforces a read-only or workspace-only sandbox, so those modes are not
+// claimed: claudeq must not promise a restriction the harness cannot deliver.
+func (a *Adapter) Capabilities() provider.Capabilities {
+	return provider.Capabilities{
+		SessionResume:     true,
+		InteractiveResume: true,
+		StructuredOutput:  true,
+		ModelDiscovery:    true,
+		ReasoningEffort:   false,
+		UsageMetrics:      true,
+		CostMetrics:       true,
+		RateLimitResume:   true,
+		Subagents:         true,
+		AccessModes: []provider.AccessMode{
+			provider.AccessProviderDefault,
+			provider.AccessFullAccess,
+		},
+	}
+}
+
+// DetectBinary locates the CLI, probing at most once per process. The daemon's
+// launchd PATH forces a login-shell probe (see detect.go) that sources the
+// user's profile, which is far too expensive — and too unpredictable — to run
+// before a job, so the answer is kept even when it found nothing. That is how
+// claudeq has always resolved the binary: once, at daemon startup. An operator
+// who installs the CLI afterwards points Settings at it, which skips detection
+// altogether.
+func (a *Adapter) DetectBinary() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.probed {
+		a.detected, a.probed = a.detect(), true
+	}
+	return a.detected
+}
+
+// Command implements provider.Adapter. The argument order is the CLI behaviour
+// verified in PLAN.md §8: the flags first, then the appended system prompt, and
+// the task's prompt as the final positional argument.
+func (a *Adapter) Command(inst provider.Instance, req provider.Request) (provider.Command, error) {
+	if req.SessionID == "" {
+		return provider.Command{}, fmt.Errorf("claude-code: a run needs a session id")
+	}
+	access := req.AccessMode.OrDefault()
+	if !a.Capabilities().SupportsAccess(access) {
+		return provider.Command{}, provider.UnsupportedAccessError(inst, access)
+	}
+
+	args := []string{"-p", "--output-format", "stream-json", "--verbose"}
+	if req.Model != "" {
+		args = append(args, "--model", req.Model)
+	}
+	if access == provider.AccessFullAccess {
+		args = append(args, "--dangerously-skip-permissions")
+	}
+	if req.Resume {
+		args = append(args, "--resume", req.SessionID)
+	} else {
+		args = append(args, "--session-id", req.SessionID)
+	}
+	// Claude Code accepts --append-system-prompt once, so claudeq's guidance
+	// arrives as a single value that adds to — never replaces — the CLI's own
+	// system prompt.
+	args = append(args, "--append-system-prompt", req.SystemPrompt)
+	args = append(args, req.Prompt)
+
+	cmd := provider.Command{Path: a.binary(inst), Args: args}
+	if inst.ConfigDir != "" {
+		cmd.Env = append(cmd.Env, ConfigDirEnv+"="+inst.ConfigDir)
+	}
+	return cmd, nil
+}
+
+// binary resolves the executable: the instance's configured path first, then
+// detection, then the bare name for the exec lookup to try.
+func (a *Adapter) binary(inst provider.Instance) string {
+	if inst.BinaryPath != "" {
+		return inst.BinaryPath
+	}
+	if p := a.DetectBinary(); p != "" {
+		return p
+	}
+	return BinaryName
+}
+
+// NewParser implements provider.Adapter.
+func (a *Adapter) NewParser() provider.Parser { return &parser{} }
+
+// parser translates Claude Code's stream-json output into normalized events.
+// It is per-run because the CLI reports the rate limit and the allowance
+// window's reset time on separate lines, in either order: an approaching-limit
+// event can precede the rejection, or a rejection can be followed by the window
+// details. The parser therefore remembers the timing it has seen and, once a
+// rate limit is known, re-reports it whenever a later line refines it.
+type parser struct {
+	retryAfter   time.Duration
+	resetAt      time.Time
+	sawRateLimit bool
+}
+
+// streamEvent covers the fields claudeq reads from the CLI's stream-json lines:
+// the final `result` envelope, intermediate `api_retry` system events, and
+// `rate_limit_event`. Unknown fields are ignored.
+type streamEvent struct {
+	Type           string         `json:"type"`
+	IsError        bool           `json:"is_error"`
+	APIErrorStatus *int           `json:"api_error_status"`
+	ErrorStatus    *int           `json:"error_status"`
+	Error          string         `json:"error"`
+	RetryDelayMS   *int           `json:"retry_delay_ms"`
+	SessionID      string         `json:"session_id"`
+	ResultText     string         `json:"result"`
+	TotalCostUSD   float64        `json:"total_cost_usd"`
+	NumTurns       int            `json:"num_turns"`
+	DurationMS     int64          `json:"duration_ms"`
+	Usage          *usageTokens   `json:"usage"`
+	RateLimitInfo  *rateLimitInfo `json:"rate_limit_info"`
+}
+
+// rateLimitInfo is the payload of a `rate_limit_event`. ResetsAt is the
+// absolute reset time as unix seconds; Status is "rejected" when the request
+// was actually blocked, as opposed to a mere approaching-limit warning.
+type rateLimitInfo struct {
+	Status   string `json:"status"`
+	ResetsAt int64  `json:"resetsAt"`
+}
+
+type usageTokens struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+}
+
+// Parse implements provider.Parser. A single line can carry several signals —
+// a final result that is itself a 429, for instance — so it returns a slice.
+func (p *parser) Parse(line []byte) []provider.Event {
+	var ev streamEvent
+	if err := json.Unmarshal(line, &ev); err != nil {
+		return nil // non-JSON or partial line: nothing to classify
+	}
+
+	// Remember rate-limit timing wherever it appears, including on an
+	// approaching-limit event that does not itself reject the request: when a
+	// later event does, this is the window it is waiting for.
+	newTiming := false
+	if ev.RetryDelayMS != nil && *ev.RetryDelayMS > 0 {
+		if d := time.Duration(*ev.RetryDelayMS) * time.Millisecond; d != p.retryAfter {
+			p.retryAfter, newTiming = d, true
+		}
+	}
+	if info := ev.RateLimitInfo; info != nil && info.ResetsAt > 0 {
+		if at := time.Unix(info.ResetsAt, 0); !at.Equal(p.resetAt) {
+			p.resetAt, newTiming = at, true
+		}
+	}
+	limited := p.isRateLimited(ev)
+	if limited {
+		p.sawRateLimit = true
+	}
+
+	var out []provider.Event
+	if ev.SessionID != "" {
+		out = append(out, provider.Event{Type: provider.EventSessionStarted, SessionID: ev.SessionID})
+	}
+	if p.isAuthFailure(ev) {
+		out = append(out, provider.Event{Type: provider.EventAuthFailed})
+	}
+	// Report the rate limit when this line signals one, and again when a later
+	// line names the window of a limit already reported — otherwise a reset time
+	// that arrives after the rejection would be lost and the engine would fall
+	// back to a blind backoff.
+	if limited || (newTiming && p.sawRateLimit) {
+		out = append(out, provider.Event{
+			Type:       provider.EventRateLimited,
+			RetryAfter: p.retryAfter,
+			ResetAt:    p.resetAt,
+		})
+	}
+	if ev.Type == "result" {
+		m := &provider.Metrics{CostUSD: ev.TotalCostUSD, NumTurns: ev.NumTurns, DurationMS: ev.DurationMS}
+		if ev.Usage != nil {
+			m.InputTokens = ev.Usage.InputTokens
+			m.OutputTokens = ev.Usage.OutputTokens
+		}
+		out = append(out, provider.Event{
+			Type:        provider.EventCompleted,
+			IsError:     ev.IsError,
+			FinalOutput: ev.ResultText,
+			Metrics:     m,
+		})
+	}
+	return out
+}
+
+func (p *parser) isRateLimited(ev streamEvent) bool {
+	if ev.Error == "rate_limit" {
+		return true
+	}
+	if statusIs(ev.APIErrorStatus, 429) || statusIs(ev.ErrorStatus, 429) {
+		return true
+	}
+	// A rejected request means the allowance is actually exhausted; a session
+	// limit surfaces this way even when no 429 or error field follows.
+	return ev.RateLimitInfo != nil && ev.RateLimitInfo.Status == "rejected"
+}
+
+func (p *parser) isAuthFailure(ev streamEvent) bool {
+	if ev.Error == "authentication_failed" {
+		return true
+	}
+	return statusIs(ev.APIErrorStatus, 401) || statusIs(ev.ErrorStatus, 401)
+}
+
+func statusIs(p *int, want int) bool { return p != nil && *p == want }

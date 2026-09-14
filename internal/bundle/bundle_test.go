@@ -307,3 +307,24 @@ func TestFileName(t *testing.T) {
 		}
 	}
 }
+
+func TestBundleDoesNotCarryAMachineLocalProvider(t *testing.T) {
+	// A provider id names an instance configured on the exporting Mac; it means
+	// nothing on the importing one, so it must not travel in either direction.
+	src := fullTask()
+	src.Provider = "claude-secondary"
+	var buf bytes.Buffer
+	if err := Write(&buf, src, time.Now()); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if strings.Contains(buf.String(), "claude-secondary") {
+		t.Fatal("the exported bundle still names a local provider instance")
+	}
+	got, err := Read(buf.Bytes())
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got.Provider != "" {
+		t.Fatalf("provider = %q, want the importer's default", got.Provider)
+	}
+}

@@ -708,6 +708,10 @@ async function setPaused(on){
 function emptyState(big,sub){ const d=el('div','empty'); d.innerHTML=`<div class="big">${esc(big)}</div><div>${esc(sub)}</div>`; return d; }
 
 let taskMode='add', taskEditId='';
+// The sheet has no provider control yet, so the task's provider rides along
+// invisibly: prefilling remembers it and submitting sends it back. Without this
+// an edit or a replay would silently move the task onto the default provider.
+let taskProvider='';
 function pad2(n){ return String(n).padStart(2,'0'); }
 function toLocalDT(iso){ const d=new Date(iso); return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate())+'T'+pad2(d.getHours())+':'+pad2(d.getMinutes()); }
 function prefillTask(t){
@@ -715,6 +719,7 @@ function prefillTask(t){
   $('#f-model').innerHTML=modelOptions(t.model||'','Global default');
   $('#f-parallel').checked=!!t.parallel; $('#f-skip').checked=(t.permissions==='skip'); $('#f-notify').checked=!!t.notify_on_result;
   $('#f-quiet').checked=!!t.quiet_history;
+  taskProvider=t.provider||'';
   setSeg(t.trigger||'asap');
   $('#f-at').value=(t.trigger==='fixed'&&t.fixed_at)?toLocalDT(t.fixed_at):'';
   $('#f-cron').value=t.trigger==='cron'?(t.cron||''):'';
@@ -723,7 +728,7 @@ function openSheet(title,submitLabel){ $('#addErr').textContent=''; $('#f-dir-hi
   clearTimeout(cronTimer); cronVerdict.expr=null; showCronStatus(null); cronRecheck();
   $('#addSheetTitle').textContent=title; $('#addSubmitBtn').textContent=submitLabel; $('#addSheet').showModal();
   taskReview.run(); }   // an imported, edited or replayed prompt is reviewed as it opens; an empty new one costs nothing
-function openAdd(){ taskMode='add'; taskEditId='';
+function openAdd(){ taskMode='add'; taskEditId=''; taskProvider='';
   ['f-name','f-prompt','f-dir','f-at','f-cron'].forEach(x=>$('#'+x).value='');
   $('#f-model').innerHTML=modelOptions('','Global default');
   $('#f-parallel').checked=false; $('#f-skip').checked=false; $('#f-notify').checked=false; $('#f-quiet').checked=false; setSeg('asap');
@@ -786,7 +791,8 @@ async function submitTask(){
     fixed_at: trig==='fixed'&&$('#f-at').value?new Date($('#f-at').value).toISOString():undefined,
     cron: trig==='cron'?$('#f-cron').value.trim():undefined, model:$('#f-model').value||undefined,
     parallel:$('#f-parallel').checked, enabled:true, permissions:$('#f-skip').checked?'skip':'default',
-    notify_on_result:$('#f-notify').checked, quiet_history:$('#f-quiet').checked};
+    notify_on_result:$('#f-notify').checked, quiet_history:$('#f-quiet').checked,
+    provider:taskProvider||undefined};
   if(!t.working_dir){ $('#addErr').textContent='Please choose a working directory.'; return; }
   if(trig==='cron'){
     // The reason stays on the field itself — repeating it at the footer would say

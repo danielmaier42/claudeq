@@ -9,6 +9,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/clock"
 	"github.com/danielmaier42/claudeq/internal/executor"
 	"github.com/danielmaier42/claudeq/internal/notify"
+	"github.com/danielmaier42/claudeq/internal/provider"
 	"github.com/danielmaier42/claudeq/internal/store"
 )
 
@@ -32,8 +33,8 @@ func (c *capturingNotifier) all() []notify.Notification {
 
 func TestNotifyOnFailureNotOnSuccess(t *testing.T) {
 	fc := clock.NewFake(time.Now())
-	r := &stub{result: func(_ executor.Request, _ int) executor.Result {
-		return executor.Result{Status: store.StatusFailed, ExitCode: 2, Message: "run failed (exit 2)"}
+	r := &stub{result: func(_ executor.Request, _ int) provider.Result {
+		return provider.Result{Status: store.StatusFailed, ExitCode: 2, Message: "run failed (exit 2)"}
 	}}
 	e, st := newTestEngine(t, r, fc)
 	n := &capturingNotifier{}
@@ -73,8 +74,8 @@ func TestNoNotifyOnSuccess(t *testing.T) {
 
 func TestNotifyOnResultSuccessOptIn(t *testing.T) {
 	fc := clock.NewFake(time.Now())
-	r := &stub{result: func(_ executor.Request, _ int) executor.Result {
-		return executor.Result{Status: store.StatusSuccess, ResultText: "All checks passed."}
+	r := &stub{result: func(_ executor.Request, _ int) provider.Result {
+		return provider.Result{Status: store.StatusSuccess, FinalOutput: "All checks passed."}
 	}}
 	e, st := newTestEngine(t, r, fc)
 	n := &capturingNotifier{}
@@ -100,8 +101,8 @@ func TestNotifyOnResultSuccessOptIn(t *testing.T) {
 
 func TestNotifyOnAuthError(t *testing.T) {
 	fc := clock.NewFake(time.Now())
-	r := &stub{result: func(_ executor.Request, _ int) executor.Result {
-		return executor.Result{Status: store.StatusAuthError, ExitCode: 1}
+	r := &stub{result: func(_ executor.Request, _ int) provider.Result {
+		return provider.Result{Status: store.StatusAuthError, ExitCode: 1}
 	}}
 	e, st := newTestEngine(t, r, fc)
 	n := &capturingNotifier{}

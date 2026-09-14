@@ -919,15 +919,17 @@ universal `.pkg` on macOS and attaches it to the GitHub Release.
 ## Architecture
 
 A headless Go daemon owns all state and logic; a thin WKWebView app is the only
-UI, talking to the daemon over loopback. The daemon spawns the `claude` CLI once
-per task in the task's directory using `--output-format stream-json`, which lets
-it watch for rate-limit and auth events as they happen and capture the session id,
-token usage, and cost from the final result. It also spawns a second, far
-smaller kind of `claude` call for the [prompt review](#the-prompt-review):
-one turn, no tools, no session. ClaudeQ performs **no Git
-operations** — any branch/commit behavior is driven entirely by your prompts and
-the repo's own configuration. The full design, decisions, and verification notes
-are in [PLAN.md](PLAN.md).
+UI, talking to the daemon over loopback. Runs go through a **provider adapter**:
+the daemon knows a task runs on a configured provider instance with a model and
+an access mode, and the adapter for that provider owns the rest. The Claude Code
+adapter spawns the `claude` CLI once per task in the task's directory using
+`--output-format stream-json`, which lets it watch for rate-limit and auth events
+as they happen and capture the session id, token usage, and cost from the final
+result. The daemon also spawns a second, far smaller kind of `claude` call for
+the [prompt review](#the-prompt-review): one turn, no tools, no session. ClaudeQ
+performs **no Git operations** — any branch/commit behavior is driven entirely by
+your prompts and the repo's own configuration. The full design, decisions, and
+verification notes are in [PLAN.md](PLAN.md).
 
 ## Requirements
 

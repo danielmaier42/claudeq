@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/danielmaier42/claudeq/internal/executor"
 	"github.com/danielmaier42/claudeq/internal/feedback"
+	"github.com/danielmaier42/claudeq/internal/provider/claudecode"
 	"github.com/danielmaier42/claudeq/internal/update"
 	"github.com/danielmaier42/claudeq/internal/version"
 )
@@ -151,5 +151,5 @@ func (s *server) feedbackBin() string {
 	if cfg, err := s.d.Store.LoadConfig(); err == nil && cfg.Settings.ClaudePath != "" {
 		return cfg.Settings.ClaudePath
 	}
-	return executor.DetectBinary()
+	return claudecode.DetectBinary()
 }

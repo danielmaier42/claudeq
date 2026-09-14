@@ -1,10 +1,12 @@
-package executor
+package claudecode
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // DetectBinary finds the Claude Code CLI. It returns an absolute path, or ""
@@ -43,6 +45,11 @@ func DetectBinary() string {
 	return ""
 }
 
+// loginShellTimeout bounds the profile-sourcing probe below. A shell profile is
+// arbitrary code; an interactive one that blocks (a prompt, a slow network
+// call) must not hold up whoever asked where the CLI is.
+const loginShellTimeout = 5 * time.Second
+
 // viaLoginShell asks the user's login+interactive shell to resolve `claude`, so
 // PATH additions in their profile (~/.zprofile, ~/.zshrc, …) are honoured.
 func viaLoginShell() string {
@@ -50,10 +57,20 @@ func viaLoginShell() string {
 	if shell == "" {
 		shell = "/bin/zsh"
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), loginShellTimeout)
+	defer cancel()
 	// -i -l so both login and interactive profiles are sourced (~/.local/bin is
 	// commonly added in ~/.zshrc, which only an interactive shell reads).
-	out, err := exec.Command(shell, "-ilc", "command -v claude").Output()
-	if err != nil {
+	cmd := exec.CommandContext(ctx, shell, "-ilc", "command -v claude")
+	// Without this, a grandchild holding the output pipe open would keep Output
+	// waiting even after the shell itself was killed.
+	cmd.WaitDelay = time.Second
+	// The output is scanned even when the wait failed: a slow profile can trip
+	// the timeout, and a background grandchild holding stdout open trips
+	// WaitDelay, after the shell already printed the answer. Throwing that away
+	// would leave the daemon believing the CLI is not installed.
+	out, err := cmd.Output()
+	if err != nil && len(out) == 0 {
 		return ""
 	}
 	// A login/interactive shell may print profile noise; take the last line that

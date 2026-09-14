@@ -12,6 +12,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/clock"
 	"github.com/danielmaier42/claudeq/internal/executor"
 	"github.com/danielmaier42/claudeq/internal/limit"
+	"github.com/danielmaier42/claudeq/internal/provider"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
 )
@@ -23,11 +24,11 @@ type stub struct {
 	active    int
 	maxActive int
 	block     chan struct{} // if non-nil, Run waits on it before returning
-	result    func(executor.Request, int) executor.Result
+	result    func(executor.Request, int) provider.Result
 	calls     int
 }
 
-func (s *stub) Run(_ context.Context, req executor.Request) (executor.Result, error) {
+func (s *stub) Run(_ context.Context, req executor.Request) (provider.Result, error) {
 	s.mu.Lock()
 	s.calls++
 	n := s.calls
@@ -49,7 +50,7 @@ func (s *stub) Run(_ context.Context, req executor.Request) (executor.Result, er
 	if s.result != nil {
 		return s.result(req, n), nil
 	}
-	return executor.Result{Status: store.StatusSuccess, SessionID: req.SessionID}, nil
+	return provider.Result{Status: store.StatusSuccess, SessionID: req.SessionID}, nil
 }
 
 func (s *stub) requests() []executor.Request {
@@ -156,11 +157,11 @@ func TestRateLimitBlocksUntilReportedReset(t *testing.T) {
 	start := time.Date(2026, 7, 17, 14, 40, 0, 0, time.UTC)
 	reset := start.Add(5 * time.Hour)
 	fc := clock.NewFake(start)
-	r := &stub{result: func(req executor.Request, call int) executor.Result {
+	r := &stub{result: func(req executor.Request, call int) provider.Result {
 		if call == 1 {
-			return executor.Result{Status: store.StatusRateLimited, SessionID: req.SessionID, ResetAt: reset}
+			return provider.Result{Status: store.StatusRateLimited, SessionID: req.SessionID, ResetAt: reset}
 		}
-		return executor.Result{Status: store.StatusSuccess, SessionID: req.SessionID}
+		return provider.Result{Status: store.StatusSuccess, SessionID: req.SessionID}
 	}}
 	e, st := newTestEngine(t, r, fc)
 	saveTasks(t, st, asapTask("a", false))
@@ -202,8 +203,8 @@ func TestRateLimitStaleResetFallsBackToBackoff(t *testing.T) {
 	// the gate immediately — fall back to the default backoff.
 	start := time.Date(2026, 7, 17, 14, 40, 0, 0, time.UTC)
 	fc := clock.NewFake(start)
-	r := &stub{result: func(req executor.Request, _ int) executor.Result {
-		return executor.Result{Status: store.StatusRateLimited, SessionID: req.SessionID, ResetAt: start.Add(-time.Minute)}
+	r := &stub{result: func(req executor.Request, _ int) provider.Result {
+		return provider.Result{Status: store.StatusRateLimited, SessionID: req.SessionID, ResetAt: start.Add(-time.Minute)}
 	}}
 	e, st := newTestEngine(t, r, fc)
 	saveTasks(t, st, asapTask("a", false))
@@ -221,11 +222,11 @@ func TestRateLimitStaleResetFallsBackToBackoff(t *testing.T) {
 func TestRateLimitThenResumeAfterReset(t *testing.T) {
 	start := time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC)
 	fc := clock.NewFake(start)
-	r := &stub{result: func(req executor.Request, call int) executor.Result {
+	r := &stub{result: func(req executor.Request, call int) provider.Result {
 		if call == 1 {
-			return executor.Result{Status: store.StatusRateLimited, SessionID: req.SessionID, RetryAfter: time.Hour}
+			return provider.Result{Status: store.StatusRateLimited, SessionID: req.SessionID, RetryAfter: time.Hour}
 		}
-		return executor.Result{Status: store.StatusSuccess, SessionID: req.SessionID}
+		return provider.Result{Status: store.StatusSuccess, SessionID: req.SessionID}
 	}}
 	e, st := newTestEngine(t, r, fc)
 	saveTasks(t, st, asapTask("a", false))
@@ -334,12 +335,12 @@ type ctxStub struct {
 	started int
 }
 
-func (s *ctxStub) Run(ctx context.Context, req executor.Request) (executor.Result, error) {
+func (s *ctxStub) Run(ctx context.Context, req executor.Request) (provider.Result, error) {
 	s.mu.Lock()
 	s.started++
 	s.mu.Unlock()
 	<-ctx.Done()
-	return executor.Result{
+	return provider.Result{
 		Status: store.StatusFailed, SessionID: req.SessionID, ExitCode: -1,
 		Message: "run was interrupted before completing (the process was terminated — e.g. the daemon stopped)",
 	}, nil
@@ -510,11 +511,11 @@ func TestCronAnchorIsNotRecordedAsARun(t *testing.T) {
 // works on.
 func rateLimitedTask(t *testing.T, tk task.Task, fc *clock.Fake) (*Engine, *store.Store, *stub) {
 	t.Helper()
-	r := &stub{result: func(req executor.Request, call int) executor.Result {
+	r := &stub{result: func(req executor.Request, call int) provider.Result {
 		if call == 1 {
-			return executor.Result{Status: store.StatusRateLimited, SessionID: req.SessionID, RetryAfter: time.Hour}
+			return provider.Result{Status: store.StatusRateLimited, SessionID: req.SessionID, RetryAfter: time.Hour}
 		}
-		return executor.Result{Status: store.StatusSuccess, SessionID: req.SessionID}
+		return provider.Result{Status: store.StatusSuccess, SessionID: req.SessionID}
 	}}
 	e, st := newTestEngine(t, r, fc)
 	saveTasks(t, st, tk)

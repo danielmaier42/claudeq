@@ -64,6 +64,10 @@ type settings struct {
 func Write(w io.Writer, t task.Task, now time.Time) error {
 	env := envelope{Format: Format, Version: Version, ExportedAt: now.UTC().Truncate(time.Second)}
 	env.Task.Task = t
+	// A provider id identifies an instance configured on *this* Mac, so it means
+	// nothing on the machine the bundle is opened on. The imported task inherits
+	// the importer's default provider instead.
+	env.Task.Provider = ""
 	meta, err := json.MarshalIndent(env, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode task settings: %w", err)
@@ -126,6 +130,7 @@ func Read(data []byte) (task.Task, error) {
 	}
 	t := env.Task.Task
 	t.Prompt = string(prompt)
+	t.Provider = "" // see Write: a provider id is local to the machine that exported
 	return t, nil
 }
 

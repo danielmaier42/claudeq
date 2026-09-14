@@ -468,6 +468,11 @@ func applyEditedDoc(st *store.Store, orig task.Task, before, after []byte) error
 		if !bytes.Equal(current, before) {
 			return fmt.Errorf("the task changed while your editor was open; re-run the edit")
 		}
+		// The document has no provider line, so the task keeps the provider it
+		// has right now rather than being reset to the default one. It is read
+		// here, not from the pre-editor snapshot, so a provider set while the
+		// editor was open survives.
+		edited.Provider = t.Provider
 		*t = edited
 		return nil
 	})
