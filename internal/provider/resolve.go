@@ -10,11 +10,11 @@ import (
 // DefaultInstanceID is the ID of the Claude Code instance every claudeq
 // configuration has. It is the migration target for the pre-provider settings
 // and the default provider for a task that names none.
-const DefaultInstanceID = "claude"
+const DefaultInstanceID = store.DefaultProviderID
 
 // DefaultInstanceName is that instance's display name. It appears in run
 // messages, so it reads as the product the operator installed.
-const DefaultInstanceName = "Claude Code"
+const DefaultInstanceName = store.DefaultProviderName
 
 // Errors a selection can fail with. None of them is ever answered by silently
 // substituting another provider, account or model.
@@ -68,29 +68,31 @@ func NewSet(defaultID string, instances []Instance) (Set, error) {
 		if _, ok := seen[defaultID]; !ok {
 			return Set{}, fmt.Errorf("provider set: default provider %q is not configured", defaultID)
 		}
+	} else if len(instances) > 0 {
+		// No default named: the first configured instance is it. Leaving the
+		// default empty would make every task that names no provider fail, which
+		// is a worse answer than the only one there can be.
+		defaultID = instances[0].ID
 	}
 	out := make([]Instance, len(instances))
 	copy(out, instances)
 	return Set{instances: out, defaultID: defaultID}, nil
 }
 
-// FromSettings derives the configured provider instances from the stored
-// settings. This is the migration from the pre-provider configuration: the
-// Claude Code binary path and the global default model become the `claude`
-// instance of kind `claude-code`, which every existing task then runs on. It is
-// a pure mapping, so applying it repeatedly changes nothing.
-func FromSettings(s store.Settings) Set {
-	return Set{
-		instances: []Instance{{
-			ID:           DefaultInstanceID,
-			Kind:         KindClaudeCode,
-			Name:         DefaultInstanceName,
-			BinaryPath:   s.ClaudePath,
-			DefaultModel: s.DefaultModel,
-			Enabled:      true,
-		}},
-		defaultID: DefaultInstanceID,
+// FromConfig reads the configured provider instances out of a stored
+// configuration. The store seeds and migrates the entries (see
+// store.Config.migrate), so every configuration it hands out already has the
+// Claude Code instance; a Config assembled without it is rejected rather than
+// silently given an invented provider.
+func FromConfig(cfg store.Config) (Set, error) {
+	if len(cfg.Providers) == 0 {
+		return Set{}, ErrNoProviders
 	}
+	insts := make([]Instance, len(cfg.Providers))
+	for i, p := range cfg.Providers {
+		insts[i] = InstanceOf(p)
+	}
+	return NewSet(cfg.Settings.DefaultProvider, insts)
 }
 
 // All returns the configured instances in order.

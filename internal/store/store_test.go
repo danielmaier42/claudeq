@@ -48,13 +48,14 @@ func TestSaveLoadConfigRoundTripPreservesOrder(t *testing.T) {
 	s := openTemp(t)
 	in := Config{
 		Settings: Settings{
-			DefaultModel: "claude-opus-4-8",
-			Paused:       true,
-			Pushover:     Pushover{Token: "tok", UserKey: "usr"},
-			Ntfy:         Ntfy{Enabled: true, Server: "https://ntfy.example.com", Topic: "claudeq", Token: "ntk"},
-			Webhook:      Webhook{Enabled: true, URL: "https://hooks.example.com/x", Template: `{"text":"{{title}}: {{message}}"}`},
+			DefaultProvider: DefaultProviderID,
+			Paused:          true,
+			Pushover:        Pushover{Token: "tok", UserKey: "usr"},
+			Ntfy:            Ntfy{Enabled: true, Server: "https://ntfy.example.com", Topic: "claudeq", Token: "ntk"},
+			Webhook:         Webhook{Enabled: true, URL: "https://hooks.example.com/x", Template: `{"text":"{{title}}: {{message}}"}`},
 		},
-		Tasks: []task.Task{sampleTask("a"), sampleTask("b"), sampleTask("c")},
+		Providers: seedProviders(Settings{}),
+		Tasks:     []task.Task{sampleTask("a"), sampleTask("b"), sampleTask("c")},
 	}
 	if err := s.SaveConfig(in); err != nil {
 		t.Fatalf("SaveConfig: %v", err)
@@ -454,21 +455,6 @@ func TestMigrateConfigNoFile(t *testing.T) {
 	}
 }
 
-func TestReviewModelFallsBackToTheDefaultModel(t *testing.T) {
-	var s Settings
-	if s.ReviewModel() != "" {
-		t.Errorf("nothing configured should mean nothing passed to the CLI, got %q", s.ReviewModel())
-	}
-	s.DefaultModel = "opus"
-	if s.ReviewModel() != "opus" {
-		t.Errorf("ReviewModel() = %q, want the default model", s.ReviewModel())
-	}
-	s.PromptReviewModel = "haiku"
-	if s.ReviewModel() != "haiku" {
-		t.Errorf("ReviewModel() = %q, want its own setting to win", s.ReviewModel())
-	}
-}
-
 func TestPromptReviewIsOnForAnExistingConfig(t *testing.T) {
 	// The setting is stored as "disabled" so a config.toml written before the
 	// feature existed gains it switched on rather than silently off.
@@ -487,8 +473,8 @@ func TestPromptReviewIsOnForAnExistingConfig(t *testing.T) {
 
 func TestPromptReviewSettingsRoundTrip(t *testing.T) {
 	st := openTemp(t)
-	want := Settings{PromptReviewDisabled: true, PromptReviewModel: "haiku"}
-	if err := st.SaveConfig(Config{Settings: want}); err != nil {
+	want := Settings{DefaultProvider: DefaultProviderID, PromptReviewDisabled: true, PromptReviewModel: "haiku"}
+	if err := st.SaveConfig(Config{Settings: want, Providers: seedProviders(Settings{})}); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 	cfg, err := st.LoadConfig()
@@ -497,5 +483,162 @@ func TestPromptReviewSettingsRoundTrip(t *testing.T) {
 	}
 	if cfg.Settings != want {
 		t.Errorf("got %+v, want %+v", cfg.Settings, want)
+	}
+}
+
+// TestMigrateSeedsTheClaudeProvider is the compatibility case for the provider
+// configuration: a config.toml written before providers existed gains the
+// `claude` instance carrying exactly the CLI path and model it used to run
+// with, and the retired global keys are gone from the file afterwards.
+func TestMigrateSeedsTheClaudeProvider(t *testing.T) {
+	s := openTemp(t)
+	raw := `[settings]
+default_model = 'opus'
+claude_path = '/opt/claude'
+heartbeat_minutes = 30
+
+[[tasks]]
+id = 'a'
+name = 'a'
+prompt = 'do a'
+working_dir = '/repo'
+trigger = 'asap'
+enabled = true
+permissions = 'default'
+`
+	if err := os.WriteFile(filepath.Join(s.Home(), configFile), []byte(raw), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := s.LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	want := Provider{
+		ID: DefaultProviderID, Kind: DefaultProviderKind, Name: DefaultProviderName,
+		BinaryPath: "/opt/claude", DefaultModel: "opus", Enabled: true,
+	}
+	if len(cfg.Providers) != 1 || cfg.Providers[0] != want {
+		t.Fatalf("providers = %+v, want exactly %+v", cfg.Providers, want)
+	}
+	if cfg.Settings.DefaultProvider != DefaultProviderID {
+		t.Fatalf("default provider = %q, want %q", cfg.Settings.DefaultProvider, DefaultProviderID)
+	}
+	if cfg.Settings.LegacyClaudePath != "" || cfg.Settings.LegacyDefaultModel != "" {
+		t.Fatal("the retired global model/path are still set after migration")
+	}
+	if cfg.Settings.HeartbeatMinutes != 30 {
+		t.Fatalf("unrelated settings changed: heartbeat = %d", cfg.Settings.HeartbeatMinutes)
+	}
+	if len(cfg.Tasks) != 1 || cfg.Tasks[0].Provider != "" {
+		t.Fatalf("tasks = %+v, want the existing task untouched on the default provider", cfg.Tasks)
+	}
+
+	migrated, err := s.MigrateConfig()
+	if err != nil {
+		t.Fatalf("MigrateConfig: %v", err)
+	}
+	if !migrated {
+		t.Fatal("MigrateConfig reported no change for a pre-provider config")
+	}
+	data, err := os.ReadFile(filepath.Join(s.Home(), configFile))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if strings.Contains(string(data), "claude_path") {
+		t.Fatalf("retired claude_path written back:\n%s", data)
+	}
+	settingsSection, _, found := strings.Cut(string(data), "[[providers]]")
+	if !found {
+		t.Fatalf("the seeded provider was not persisted:\n%s", data)
+	}
+	if strings.Contains(settingsSection, "default_model") {
+		t.Fatalf("retired global default_model written back:\n%s", data)
+	}
+
+	// Idempotent: running it again changes nothing.
+	if migrated, err := s.MigrateConfig(); err != nil || migrated {
+		t.Fatalf("second MigrateConfig = (%t, %v), want (false, nil)", migrated, err)
+	}
+}
+
+// TestLoadConfigOnAFreshInstallHasTheClaudeProvider covers the other seeding
+// path: with no config.toml at all the app still knows about Claude Code, so
+// its Settings card can report what is actually wrong with it.
+func TestLoadConfigOnAFreshInstallHasTheClaudeProvider(t *testing.T) {
+	s := openTemp(t)
+	cfg, err := s.LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if len(cfg.Providers) != 1 || cfg.Providers[0].ID != DefaultProviderID {
+		t.Fatalf("providers = %+v, want the seeded claude instance", cfg.Providers)
+	}
+	if !cfg.Providers[0].Enabled || cfg.Providers[0].BinaryPath != "" {
+		t.Fatalf("seeded instance = %+v, want it enabled with nothing configured", cfg.Providers[0])
+	}
+	if _, err := os.Stat(filepath.Join(s.Home(), configFile)); !os.IsNotExist(err) {
+		t.Fatalf("config.toml conjured up by a read (stat err = %v)", err)
+	}
+}
+
+// TestMigrateKeepsAConfiguredProviderList checks that migration never rewrites
+// providers an operator has already configured.
+func TestMigrateKeepsAConfiguredProviderList(t *testing.T) {
+	cfg := Config{
+		Settings:  Settings{DefaultProvider: "second"},
+		Providers: []Provider{{ID: "first", Kind: DefaultProviderKind}, {ID: "second", Kind: DefaultProviderKind}},
+	}
+	if cfg.migrate() {
+		t.Fatal("a current configuration must not be rewritten")
+	}
+	if len(cfg.Providers) != 2 || cfg.Settings.DefaultProvider != "second" {
+		t.Fatalf("configuration changed: %+v", cfg)
+	}
+}
+
+func TestSaveConfigRejectsBrokenProviderLists(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  Config
+	}{
+		{name: "empty id", cfg: Config{Providers: []Provider{{Kind: DefaultProviderKind}}}},
+		{
+			name: "duplicate id",
+			cfg:  Config{Providers: []Provider{{ID: "claude"}, {ID: "claude"}}},
+		},
+		{
+			name: "default names nothing",
+			cfg:  Config{Settings: Settings{DefaultProvider: "gone"}, Providers: []Provider{{ID: "claude"}}},
+		},
+	}
+	s := openTemp(t)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := s.SaveConfig(tc.cfg); err == nil {
+				t.Fatal("expected SaveConfig to refuse")
+			}
+		})
+	}
+}
+
+func TestNotifiedProviderStateSurvivesAReload(t *testing.T) {
+	s := openTemp(t)
+	if err := s.UpdateState(func(st *State) error {
+		st.SetNotifiedProviderState("claude", "not_installed")
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateState: %v", err)
+	}
+	st, err := s.LoadState()
+	if err != nil {
+		t.Fatalf("LoadState: %v", err)
+	}
+	if got := st.NotifiedProviderState("claude"); got != "not_installed" {
+		t.Fatalf("state = %q, want the recorded one", got)
+	}
+	st.ForgetProvider("claude")
+	if got := st.NotifiedProviderState("claude"); got != "" {
+		t.Fatalf("state after ForgetProvider = %q, want none", got)
 	}
 }

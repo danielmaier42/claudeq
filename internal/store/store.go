@@ -91,7 +91,13 @@ func (s *Store) LoadConfig() (Config, error) {
 func (s *Store) readConfig() (Config, bool, error) {
 	data, err := os.ReadFile(s.path(configFile))
 	if errors.Is(err, os.ErrNotExist) {
-		return Config{}, false, nil
+		// A fresh installation still has the Claude Code provider — its Settings
+		// card reports what is actually wrong (not installed, not logged in)
+		// rather than the app pretending no harness exists. Nothing is written:
+		// this is the default a first save will persist.
+		fresh := Config{}
+		fresh.migrate()
+		return fresh, false, nil
 	}
 	if err != nil {
 		return Config{}, false, fmt.Errorf("read config: %w", err)
@@ -109,6 +115,8 @@ func (s *Store) readConfig() (Config, bool, error) {
 // correctly even before it is rewritten; MigrateConfig writes the result back.
 // It must stay idempotent.
 func (c *Config) migrate() bool {
+	changed := false
+
 	// The global skip-permissions default is gone: a task that relied on it
 	// keeps its authority by carrying the setting itself.
 	if c.Settings.LegacySkipPermissions {
@@ -118,9 +126,28 @@ func (c *Config) migrate() bool {
 			}
 		}
 		c.Settings.LegacySkipPermissions = false
-		return true
+		changed = true
 	}
-	return false
+
+	// Runs go through a configured provider instance now. A configuration
+	// written before that has none, so the Claude Code binary and the global
+	// default model become the `claude` instance every existing task then runs
+	// on — same CLI, same model, same schedule.
+	if len(c.Providers) == 0 {
+		c.Providers = seedProviders(c.Settings)
+		changed = true
+	}
+	if c.Settings.DefaultProvider == "" {
+		c.Settings.DefaultProvider = c.Providers[0].ID
+		changed = true
+	}
+	// The instances own these two values now; leaving copies behind would give
+	// the file two answers to the same question.
+	if c.Settings.LegacyClaudePath != "" || c.Settings.LegacyDefaultModel != "" {
+		c.Settings.LegacyClaudePath, c.Settings.LegacyDefaultModel = "", ""
+		changed = true
+	}
+	return changed
 }
 
 // MigrateConfig persists the migrations LoadConfig applies in memory, so the
@@ -149,6 +176,9 @@ func (s *Store) SaveConfig(cfg Config) error {
 		}
 	}
 	if err := cfg.checkUniqueIDs(); err != nil {
+		return err
+	}
+	if err := cfg.checkProviders(); err != nil {
 		return err
 	}
 
@@ -475,11 +505,92 @@ func writeAtomic(path string, data []byte) error {
 	return nil
 }
 
-// Config is the persisted configuration: global settings plus the ordered task
-// list. List order defines priority — index 0 is highest (PLAN.md FA-11).
+// Config is the persisted configuration: global settings, the configured
+// provider instances, plus the ordered task list. List order defines priority —
+// index 0 is highest (PLAN.md FA-11).
 type Config struct {
-	Settings Settings    `toml:"settings"`
-	Tasks    []task.Task `toml:"tasks"`
+	Settings Settings `toml:"settings"`
+	// Providers are the configured provider instances, in the order they were
+	// added. The domain type built from them lives in internal/provider; this is
+	// only their on-disk shape.
+	Providers []Provider  `toml:"providers,omitempty"`
+	Tasks     []task.Task `toml:"tasks"`
+}
+
+// Identity of the provider instance every claudeq configuration has: the Claude
+// Code CLI, seeded on migration and on a fresh installation (see seedProviders).
+const (
+	// DefaultProviderID is the stable id of that instance — what a task names.
+	DefaultProviderID = "claude"
+	// DefaultProviderKind is the adapter it runs on.
+	DefaultProviderKind = "claude-code"
+	// DefaultProviderName is its display name.
+	DefaultProviderName = "Claude Code"
+)
+
+// Provider is one configured provider instance as config.toml holds it: a
+// stable id, the adapter kind that runs it, and the instance's own settings.
+// Two subscriptions of the same harness are two entries of the same kind with
+// separate configuration directories, so nothing here assumes one instance per
+// kind.
+//
+// The store keeps the file shape only. What an instance can do, and how it is
+// resolved, validated and probed, lives in internal/provider.
+type Provider struct {
+	// ID is the stable identifier a task selects ("claude").
+	ID string `toml:"id" json:"id"`
+	// Kind names the adapter implementation that runs this instance.
+	Kind string `toml:"kind" json:"kind"`
+	// Name is the human-readable label shown in the app and in run messages.
+	Name string `toml:"name" json:"name"`
+	// BinaryPath is an absolute path to the harness CLI. Empty lets the adapter
+	// detect it.
+	BinaryPath string `toml:"binary_path" json:"binary_path"`
+	// ConfigDir selects the harness's configuration (and therefore account)
+	// directory. Empty uses the CLI's own default.
+	ConfigDir string `toml:"config_dir" json:"config_dir"`
+	// DefaultModel is used when neither the task nor the caller names a model.
+	DefaultModel string `toml:"default_model" json:"default_model"`
+	// Enabled turns the instance off without removing it.
+	Enabled bool `toml:"enabled" json:"enabled"`
+}
+
+// seedProviders builds the provider list for a configuration that has none: the
+// Claude Code instance, carrying over the pre-provider global settings so a
+// migrated installation invokes exactly the same CLI with exactly the same
+// model as before.
+func seedProviders(s Settings) []Provider {
+	return []Provider{{
+		ID:           DefaultProviderID,
+		Kind:         DefaultProviderKind,
+		Name:         DefaultProviderName,
+		BinaryPath:   s.LegacyClaudePath,
+		DefaultModel: s.LegacyDefaultModel,
+		Enabled:      true,
+	}}
+}
+
+// checkProviders guards what the file format itself has to guarantee: every
+// instance is addressable by a unique id, and the default names one of them.
+// Whether a kind exists and a path is usable is the provider layer's business
+// (internal/provider), which the store must not depend on.
+func (c Config) checkProviders() error {
+	seen := map[string]struct{}{}
+	for _, p := range c.Providers {
+		if p.ID == "" {
+			return fmt.Errorf("provider with empty id")
+		}
+		if _, dup := seen[p.ID]; dup {
+			return fmt.Errorf("duplicate provider id %q", p.ID)
+		}
+		seen[p.ID] = struct{}{}
+	}
+	if id := c.Settings.DefaultProvider; id != "" {
+		if _, ok := seen[id]; !ok {
+			return fmt.Errorf("default provider %q is not configured", id)
+		}
+	}
+	return nil
 }
 
 func (c Config) checkUniqueIDs() error {
@@ -495,10 +606,13 @@ func (c Config) checkUniqueIDs() error {
 
 // Settings holds global configuration.
 type Settings struct {
-	// DefaultModel is used for runs unless a task overrides it (FA-28). It is
-	// the default model of the `claude` provider instance derived from these
-	// settings (see provider.FromSettings).
-	DefaultModel string `toml:"default_model" json:"default_model"`
+	// DefaultProvider is the id of the provider instance a task runs on when it
+	// names none. Empty falls back to the first configured instance.
+	DefaultProvider string `toml:"default_provider" json:"default_provider"`
+	// LegacyDefaultModel is the retired global default model. Providers carry
+	// their own default model now; this is only read to migrate old configs
+	// (see migrate) and never written back or exposed over the API.
+	LegacyDefaultModel string `toml:"default_model,omitempty" json:"-"`
 	// LegacySkipPermissions is the removed global "may do anything" default.
 	// It is only read to migrate old configs (see migrate) and never written
 	// back or exposed over the API; permissions live on the task now.
@@ -514,12 +628,10 @@ type Settings struct {
 	// Webhook holds the generic JSON webhook channel — the one that covers a
 	// service claudeq does not know about (Slack, Discord, Home Assistant, n8n).
 	Webhook Webhook `toml:"webhook" json:"webhook"`
-	// ClaudePath is an absolute path to the Claude Code binary. Empty means
-	// claudeq auto-detects it (the daemon's launchd PATH excludes ~/.local/bin,
-	// so an explicit path is often needed). The GUI pre-fills this via detection.
-	// It is the binary path of the `claude` provider instance derived from these
-	// settings (see provider.FromSettings).
-	ClaudePath string `toml:"claude_path" json:"claude_path"`
+	// LegacyClaudePath is the retired global path to the Claude Code binary. The
+	// `claude` provider instance carries it now; this is only read to migrate
+	// old configs (see migrate) and never written back or exposed over the API.
+	LegacyClaudePath string `toml:"claude_path,omitempty" json:"-"`
 	// IdleTimeoutMinutes kills a run that produces no output for this many
 	// minutes — a hung/deadlocked process. A working run keeps streaming events,
 	// so it is not affected. 0 = use the default; negative = never kill.
@@ -539,18 +651,8 @@ type Settings struct {
 	// review on, so an existing config gains the feature without being edited.
 	PromptReviewDisabled bool `toml:"prompt_review_disabled" json:"prompt_review_disabled"`
 	// PromptReviewModel is the model used for that review. Empty means "the same
-	// model as everything else", i.e. DefaultModel.
+	// model as everything else", i.e. the reviewing provider's default model.
 	PromptReviewModel string `toml:"prompt_review_model,omitempty" json:"prompt_review_model"`
-}
-
-// ReviewModel returns the model the prompt review runs on: its own setting when
-// one is chosen, otherwise the global default (which may itself be empty, in
-// which case Claude Code picks).
-func (s Settings) ReviewModel() string {
-	if s.PromptReviewModel != "" {
-		return s.PromptReviewModel
-	}
-	return s.DefaultModel
 }
 
 // ErrPaused is what a refused run carries while Settings.Paused is on. A pause

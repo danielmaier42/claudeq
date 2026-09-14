@@ -59,18 +59,65 @@ func (s *stub) requests() []executor.Request {
 	return append([]executor.Request(nil), s.reqs...)
 }
 
+// healthAdapter stands in for the Claude Code adapter so a test can say what
+// the harness's readiness is without an installed CLI.
+type healthAdapter struct {
+	mu     sync.Mutex
+	health provider.Health
+}
+
+func (a *healthAdapter) set(h provider.Health) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.health = h
+}
+
+func (a *healthAdapter) Kind() provider.Kind { return provider.KindClaudeCode }
+
+func (a *healthAdapter) Capabilities() provider.Capabilities {
+	return provider.Capabilities{AccessModes: []provider.AccessMode{
+		provider.AccessProviderDefault, provider.AccessFullAccess,
+	}}
+}
+
+func (a *healthAdapter) DetectBinary() string { return "" }
+
+func (a *healthAdapter) ResolveBinary(inst provider.Instance) string { return inst.BinaryPath }
+
+func (a *healthAdapter) CheckHealth(context.Context, provider.Instance, provider.Prober) provider.Health {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.health
+}
+
+func (a *healthAdapter) Command(provider.Instance, provider.Request) (provider.Command, error) {
+	return provider.Command{}, nil
+}
+
+func (a *healthAdapter) NewParser() provider.Parser { return nil }
+
 func newTestEngine(t *testing.T, r Runner, fc clock.Clock) (*Engine, *store.Store) {
+	e, st, _ := newTestEngineWithProvider(t, r, fc)
+	return e, st
+}
+
+// newTestEngineWithProvider also hands back the adapter whose readiness the
+// test controls. Its checker keeps no verdict at all, so a health change takes
+// effect on the very next tick.
+func newTestEngineWithProvider(t *testing.T, r Runner, fc clock.Clock) (*Engine, *store.Store, *healthAdapter) {
 	t.Helper()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
-	e := New(st, limit.New(fc), r, fc)
+	ad := &healthAdapter{health: provider.Health{State: provider.HealthReady}}
+	checker := &provider.Checker{Registry: provider.NewRegistry(ad), TTL: time.Nanosecond}
+	e := New(st, limit.New(fc), r, fc, checker)
 
 	var runN, sessN int
 	e.newRunID = func() string { runN++; return fmt.Sprintf("run-%d", runN) }
 	e.newSessionID = func() string { sessN++; return fmt.Sprintf("sess-%d", sessN) }
-	return e, st
+	return e, st, ad
 }
 
 func asapTask(id string, parallel bool) task.Task {

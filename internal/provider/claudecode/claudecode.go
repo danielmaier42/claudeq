@@ -113,13 +113,11 @@ func (a *Adapter) Command(inst provider.Instance, req provider.Request) (provide
 	return cmd, nil
 }
 
-// binary resolves the executable: the instance's configured path first, then
-// detection, then the bare name for the exec lookup to try.
+// binary resolves the executable for a run: whatever ResolveBinary found, and
+// the bare name when it found nothing, so an exec-time PATH lookup still gets a
+// chance rather than the run failing before it starts.
 func (a *Adapter) binary(inst provider.Instance) string {
-	if inst.BinaryPath != "" {
-		return inst.BinaryPath
-	}
-	if p := a.DetectBinary(); p != "" {
+	if p := a.ResolveBinary(inst); p != "" {
 		return p
 	}
 	return BinaryName

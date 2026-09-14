@@ -374,13 +374,12 @@ func TestDecodeTaskDocMissingID(t *testing.T) {
 	}
 }
 
-func TestApplyEditedDocKeepsAProviderTheDocumentDoesNotShow(t *testing.T) {
-	// The editable document has no provider line. A round-trip through the
-	// editor must not move the task onto the default provider — and it must keep
-	// the provider the task has when the write lands, not the one it had when
-	// the editor opened.
+func TestEditedDocumentCarriesTheProvider(t *testing.T) {
+	// The document shows which provider a task runs on, so editing it in $EDITOR
+	// neither loses that choice nor silently moves the task to the default one.
 	st := newTestStore(t)
 	orig := baseTask()
+	orig.Provider = "claude-secondary"
 	if err := app.AddTask(st, orig); err != nil {
 		t.Fatalf("AddTask: %v", err)
 	}
@@ -388,16 +387,10 @@ func TestApplyEditedDocKeepsAProviderTheDocumentDoesNotShow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encodeTaskDoc: %v", err)
 	}
-	after := []byte(strings.Replace(string(before), "old prompt", "edited prompt", 1))
-
-	// Someone assigns the task to another provider while the editor is open.
-	// The document does not show providers, so this is not a conflicting edit.
-	if err := app.EditTask(st, orig.ID, func(t *task.Task) error {
-		t.Provider = "claude-secondary"
-		return nil
-	}); err != nil {
-		t.Fatalf("EditTask: %v", err)
+	if !strings.Contains(string(before), "provider = 'claude-secondary'") {
+		t.Fatalf("the document should show the provider:\n%s", before)
 	}
+	after := []byte(strings.Replace(string(before), "old prompt", "edited prompt", 1))
 
 	if err := applyEditedDoc(st, orig, before, after); err != nil {
 		t.Fatalf("applyEditedDoc: %v", err)
@@ -407,7 +400,7 @@ func TestApplyEditedDocKeepsAProviderTheDocumentDoesNotShow(t *testing.T) {
 		t.Fatalf("findTask: %v", err)
 	}
 	if got.Provider != "claude-secondary" {
-		t.Fatalf("provider = %q, want the one set while the editor was open", got.Provider)
+		t.Fatalf("provider = %q, want it kept", got.Provider)
 	}
 	if got.Prompt != "edited prompt" {
 		t.Fatalf("prompt = %q, want the edit applied", got.Prompt)

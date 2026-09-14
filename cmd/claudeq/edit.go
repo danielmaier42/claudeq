@@ -78,7 +78,7 @@ func cmdShow(st *store.Store, args []string) error {
 func printTask(t task.Task) {
 	model := t.Model
 	if model == "" {
-		model = "(global default)"
+		model = "(the provider's default model)"
 	}
 	fmt.Printf("id:                %s\n", t.ID)
 	fmt.Printf("name:              %s\n", t.Name)
@@ -86,6 +86,7 @@ func printTask(t task.Task) {
 	fmt.Printf("trigger:           %s\n", strings.TrimSpace(string(t.Trigger)+" "+triggerWhen(t)))
 	fmt.Printf("working_dir:       %s\n", t.WorkingDir)
 	fmt.Printf("parallel:          %t\n", t.Parallel)
+	fmt.Printf("provider:          %s\n", orDefault(t.Provider, "(the default provider)"))
 	fmt.Printf("model:             %s\n", model)
 	fmt.Printf("permissions:       %s\n", t.Permissions)
 	fmt.Printf("notify_on_result:  %t\n", t.NotifyOnResult)
@@ -114,6 +115,14 @@ func cmdEdit(st *store.Store, args []string) error {
 	if err != nil {
 		return err
 	}
+	// Only a move to another provider is checked; every other edit goes through
+	// whatever state the current provider is in, because that edit may be how the
+	// operator is fixing it.
+	if patch.has("provider") {
+		if err := ensureRunnable(st, patch.provider); err != nil {
+			return err
+		}
+	}
 	if err := app.EditTask(st, id, func(t *task.Task) error {
 		edited, err := patch.apply(*t)
 		if err != nil {
@@ -136,6 +145,7 @@ func cmdEdit(st *store.Store, args []string) error {
 // (see passedFlags), so an explicit --parallel=false still overrides an
 // existing or inherited true.
 type taskSettings struct {
+	provider     string
 	model        string
 	parallel     bool
 	skipPerms    bool
@@ -146,7 +156,8 @@ type taskSettings struct {
 // register declares the setting flags on fs. dflt names what applies when a
 // flag is left out, e.g. "inherited" for queue; it is appended to each help.
 func (s *taskSettings) register(fs *flag.FlagSet, dflt string) {
-	fs.StringVar(&s.model, "model", "", "model override; empty = global default (default: "+dflt+")")
+	fs.StringVar(&s.provider, "provider", "", "provider instance to run on; empty = the default provider (default: "+dflt+")")
+	fs.StringVar(&s.model, "model", "", "model override; empty = the provider's default model (default: "+dflt+")")
 	fs.BoolVar(&s.parallel, "parallel", false, "allow running alongside other parallel tasks (default: "+dflt+")")
 	fs.BoolVar(&s.skipPerms, "skip-permissions", false, "bypass permission prompts (default: "+dflt+")")
 	fs.BoolVar(&s.notify, "notify", false, "notify on the run's result, not just failures (default: "+dflt+")")
@@ -155,6 +166,16 @@ func (s *taskSettings) register(fs *flag.FlagSet, dflt string) {
 
 // apply copies onto t every setting whose flag was passed, per has.
 func (s taskSettings) apply(t *task.Task, has func(string) bool) {
+	// Changing the provider without naming a model drops the old provider's
+	// model, so the new provider's own default applies (the resolution table in
+	// internal/provider). Carrying a Claude model into another harness would
+	// silently produce a run that cannot start.
+	if has("provider") {
+		t.Provider = s.provider
+		if !has("model") {
+			t.Model = ""
+		}
+	}
 	if has("model") {
 		t.Model = s.model
 	}
@@ -318,6 +339,7 @@ type taskDoc struct {
 	FixedAt        string `toml:"fixed_at"`
 	Cron           string `toml:"cron"`
 	Parallel       bool   `toml:"parallel"`
+	Provider       string `toml:"provider"`
 	Model          string `toml:"model"`
 	Permissions    string `toml:"permissions"`
 	NotifyOnResult bool   `toml:"notify_on_result"`
@@ -332,7 +354,8 @@ const taskDocHeader = `# claudeq task — edit, save, and close this file to app
 #   trigger            asap | fixed | cron
 #   fixed_at           RFC3339 start time, for trigger = "fixed"
 #   cron               5-field crontab expression, for trigger = "cron"
-#   model              empty = the global default model
+#   provider           empty = the default provider (claudeq provider list)
+#   model              empty = the provider's own default model
 #   permissions        default | skip  (skip bypasses permission prompts)
 #   quiet_history      true drops successful runs from history (frequent watcher jobs)
 `
@@ -341,7 +364,7 @@ func encodeTaskDoc(t task.Task) ([]byte, error) {
 	d := taskDoc{
 		ID: t.ID, Name: t.Name, Enabled: t.Enabled, WorkingDir: t.WorkingDir,
 		Trigger: string(t.Trigger), Cron: t.Cron, Parallel: t.Parallel,
-		Model: t.Model, Permissions: string(t.Permissions),
+		Provider: t.Provider, Model: t.Model, Permissions: string(t.Permissions),
 		NotifyOnResult: t.NotifyOnResult, QuietHistory: t.QuietHistory, Prompt: t.Prompt,
 	}
 	if !t.FixedAt.IsZero() {
@@ -371,7 +394,7 @@ func decodeTaskDoc(data []byte, orig task.Task) (task.Task, error) {
 	t := task.Task{
 		ID: d.ID, Name: d.Name, Prompt: d.Prompt, WorkingDir: d.WorkingDir,
 		Trigger: task.Trigger(d.Trigger), Cron: d.Cron, Parallel: d.Parallel,
-		Enabled: d.Enabled, Model: d.Model,
+		Enabled: d.Enabled, Provider: d.Provider, Model: d.Model,
 		Permissions: task.Permissions(d.Permissions), NotifyOnResult: d.NotifyOnResult,
 		QuietHistory: d.QuietHistory,
 	}
@@ -468,11 +491,6 @@ func applyEditedDoc(st *store.Store, orig task.Task, before, after []byte) error
 		if !bytes.Equal(current, before) {
 			return fmt.Errorf("the task changed while your editor was open; re-run the edit")
 		}
-		// The document has no provider line, so the task keeps the provider it
-		// has right now rather than being reset to the default one. It is read
-		// here, not from the pre-editor snapshot, so a provider set while the
-		// editor was open survives.
-		edited.Provider = t.Provider
 		*t = edited
 		return nil
 	})

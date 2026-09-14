@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"strings"
@@ -15,11 +16,23 @@ type fakeAdapter struct {
 	caps   Capabilities
 	binary string
 	events []Event
+	health Health
 }
 
 func (f *fakeAdapter) Kind() Kind                 { return f.kind }
 func (f *fakeAdapter) Capabilities() Capabilities { return f.caps }
 func (f *fakeAdapter) DetectBinary() string       { return f.binary }
+
+func (f *fakeAdapter) ResolveBinary(inst Instance) string {
+	if inst.BinaryPath != "" {
+		return inst.BinaryPath
+	}
+	return f.binary
+}
+
+func (f *fakeAdapter) CheckHealth(_ context.Context, _ Instance, _ Prober) Health {
+	return f.health
+}
 
 func (f *fakeAdapter) Command(_ Instance, req Request) (Command, error) {
 	if !f.caps.SupportsAccess(req.AccessMode.OrDefault()) {
@@ -45,6 +58,7 @@ func newFakeAdapter(kind Kind) *fakeAdapter {
 		kind:   kind,
 		binary: "/fake/" + string(kind),
 		caps:   Capabilities{StructuredOutput: true, AccessModes: []AccessMode{AccessProviderDefault}},
+		health: Health{State: HealthReady},
 	}
 }
 

@@ -6,7 +6,9 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/danielmaier42/claudeq/internal/provider"
 	"github.com/danielmaier42/claudeq/internal/review"
+	"github.com/danielmaier42/claudeq/internal/store"
 )
 
 // PromptReviewer checks a draft prompt against this machine (satisfied by
@@ -57,14 +59,19 @@ func (s *server) reviewPrompt(w http.ResponseWriter, r *http.Request) {
 		in.WorkingDir = "" // the system prompt belongs to no single directory
 	}
 
+	// The review runs on the same provider instance the tasks do, so it uses the
+	// account claudeq is actually configured for. Its own model setting wins;
+	// empty means that provider's default model.
+	bin, model := s.reviewTarget(cfg)
+
 	ctx, done := s.beginReview(r.Context())
 	defer done()
 	res, err := s.d.Review.Review(ctx, review.Request{
 		Kind:       kind,
 		Prompt:     in.Prompt,
 		WorkingDir: in.WorkingDir,
-		Model:      cfg.Settings.ReviewModel(),
-		Bin:        cfg.Settings.ClaudePath,
+		Model:      model,
+		Bin:        bin,
 	})
 	switch {
 	case ctx.Err() != nil:
@@ -82,6 +89,26 @@ func (s *server) reviewPrompt(w http.ResponseWriter, r *http.Request) {
 			Enabled: true, OK: res.OK, Message: res.Message, RevisedPrompt: res.RevisedPrompt,
 		})
 	}
+}
+
+// reviewTarget resolves the binary and model the prompt review runs with. An
+// unresolvable or uninstalled provider yields an empty binary, which the
+// reviewer reports as ErrNoBinary — the same "nothing to show here" the
+// dashboard already handles.
+func (s *server) reviewTarget(cfg store.Config) (bin, model string) {
+	set, err := provider.FromConfig(cfg)
+	if err != nil {
+		return "", ""
+	}
+	resolved, err := set.Resolve(provider.Selection{ProviderID: "", Model: cfg.Settings.PromptReviewModel})
+	if err != nil {
+		return "", ""
+	}
+	ad, err := s.d.Registry.Lookup(resolved.Instance.Kind)
+	if err != nil {
+		return "", ""
+	}
+	return ad.ResolveBinary(resolved.Instance), resolved.Model
 }
 
 // beginReview makes this the only live review: it cancels whichever one was

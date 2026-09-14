@@ -11,6 +11,7 @@ import (
 )
 
 func TestCmdExportImportRoundTrip(t *testing.T) {
+	withProviderHealth(t, providerReady)
 	src := newTestStore(t)
 	orig := baseTask()
 	orig.Prompt = "# Sweep\n\nMulti-line prompt with “quotes”.\n"
@@ -97,6 +98,7 @@ func TestExportPath(t *testing.T) {
 }
 
 func TestCmdImportErrors(t *testing.T) {
+	withProviderHealth(t, providerReady)
 	st := newTestStore(t)
 	bad := filepath.Join(t.TempDir(), "bad.claudeq")
 	if err := os.WriteFile(bad, []byte("not a zip"), 0o644); err != nil {
