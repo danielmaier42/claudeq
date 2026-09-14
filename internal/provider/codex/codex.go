@@ -45,6 +45,11 @@ func New() *Adapter { return &Adapter{detect: DetectBinary} }
 // Kind implements provider.Adapter.
 func (a *Adapter) Kind() provider.Kind { return provider.KindCodex }
 
+// Describe implements provider.Adapter.
+func (a *Adapter) Describe() provider.Description {
+	return provider.Description{Name: "Codex", DefaultConfigDir: "~/.codex"}
+}
+
 // Capabilities implements provider.Adapter. Codex takes a sandbox mode on the
 // command line, so unlike Claude Code it can actually enforce the restricted
 // access modes, and it reports token usage but no monetary cost.

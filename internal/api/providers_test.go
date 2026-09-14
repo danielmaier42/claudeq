@@ -287,3 +287,29 @@ func (betaAdapter) Kind() provider.Kind { return provider.KindCodex }
 func (betaAdapter) Capabilities() provider.Capabilities {
 	return provider.Capabilities{Beta: true, ReasoningEffort: true}
 }
+
+// TestProviderSurfaceNamesTheHarness: the app says "Claude", not "claude-code",
+// and shows where that CLI keeps its configuration by default. Both come from
+// the adapter, so a later harness names itself.
+func TestProviderSurfaceNamesTheHarness(t *testing.T) {
+	srv, _ := newProviderServer(t, provider.Health{State: provider.HealthReady})
+
+	var views []providerView
+	do(t, srv, http.MethodGet, "/api/providers", nil).into(t, &views)
+	if len(views) != 1 || views[0].TypeName != "Claude" {
+		t.Fatalf("view = %+v, want the harness named", views)
+	}
+	if views[0].DefaultConfigDir != "~/.claude" {
+		t.Fatalf("default config dir = %q, want the CLI's own", views[0].DefaultConfigDir)
+	}
+
+	var kinds []providerKind
+	do(t, srv, http.MethodGet, "/api/providers/kinds", nil).into(t, &kinds)
+	if len(kinds) != 1 || kinds[0].Name != "Claude" || kinds[0].DefaultConfigDir != "~/.claude" {
+		t.Fatalf("kinds = %+v, want the harness named and its default directory", kinds)
+	}
+	// The stored value stays the adapter kind; only what is shown is the name.
+	if kinds[0].Kind != string(provider.KindClaudeCode) {
+		t.Fatalf("kind = %q, want the stored key unchanged", kinds[0].Kind)
+	}
+}

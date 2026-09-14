@@ -17,7 +17,9 @@ type stubAdapter struct{ health provider.Health }
 
 func (stubAdapter) Kind() provider.Kind                 { return provider.KindClaudeCode }
 func (stubAdapter) Capabilities() provider.Capabilities { return provider.Capabilities{} }
-func (stubAdapter) DetectBinary() string                { return "" }
+
+func (stubAdapter) Describe() provider.Description { return provider.Description{Name: "Stub"} }
+func (stubAdapter) DetectBinary() string           { return "" }
 func (stubAdapter) ResolveBinary(provider.Instance) string {
 	return ""
 }

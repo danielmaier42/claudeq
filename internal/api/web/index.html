@@ -95,6 +95,10 @@
   .btn.small { padding:3px 9px; font-size:12px; }
   .btn:disabled { opacity:.4; cursor:default; }
   .btn[hidden] { display:none; } /* .btn's display would otherwise beat the hidden attribute */
+  /* A row that centres one action. Same trap as .btn above: its own display
+     would beat the hidden attribute, so hiding it has to be spelled out. */
+  .center-action { display:flex; justify-content:center; margin-top:16px; }
+  .center-action[hidden] { display:none; }
   .btn svg { width:14px; height:14px; stroke:currentColor; stroke-width:1.7; fill:none; flex:none; display:block; }
   .btn.iconly { padding:5px 7px; justify-content:center; }
   a.btn { text-decoration:none; }
@@ -197,6 +201,11 @@
   .dir-row input { flex:1; }
   .icon-btn { padding:4px 8px; }
   .icon-btn svg { width:15px; height:15px; stroke:currentColor; stroke-width:1.8; fill:none; display:block; }
+  /* Selects keep the platform's own control by default, which sits oddly next to
+     the text fields they share a row with. Same box, one chevron drawn in. */
+  select { appearance:none; -webkit-appearance:none; padding-right:28px;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%238e8e93' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+    background-repeat:no-repeat; background-position:right 9px center; background-size:12px; }
   input:focus, textarea:focus, select:focus { outline:2px solid color-mix(in srgb,var(--accent) 50%,transparent); outline-offset:-1px; }
   textarea { resize:vertical; }
   .form-row { display:flex; gap:12px; } .form-row > div { flex:1; }
@@ -434,11 +443,11 @@
   <div class="sheet-bd">
     <div class="form-row">
       <div><label class="fld">Id</label><input type="text" id="np-id" placeholder="claude-work"></div>
-      <div><label class="fld">Kind</label><select id="np-kind"></select></div>
+      <div><label class="fld">Type</label><select id="np-kind"></select></div>
     </div>
     <label class="fld">Name</label><input type="text" id="np-name" placeholder="Shown in the app and in run messages">
     <label class="fld">Configuration directory</label><input type="text" id="np-dir" placeholder="the CLI's own">
-    <div class="hint" style="margin-top:6px">The id is how tasks name this provider and cannot be changed later, nor can the kind. Give it its own configuration directory to make it a second account, with its own sessions and its own rate limit. Everything else is set on its card afterwards.</div>
+    <div class="hint" style="margin-top:6px">The id is how tasks name this provider and cannot be changed later, nor can the type. Give it its own configuration directory to make it a second account, with its own sessions and its own rate limit. Everything else is set on its card afterwards.</div>
     <p id="np-err" class="hint" style="color:var(--danger)"></p>
   </div>
   <div class="sheet-ft"><button class="btn" onclick="providerSheet.close()">Cancel</button>
@@ -1431,10 +1440,9 @@ async function loadSettings(){
 
     <div class="s-pane" data-pane="providers">
       <div id="s-providers"><div class="group"><div class="row"><div class="grow"><div class="sub">Loading…</div></div></div></div></div>
-      <div id="s-provider-add" style="display:flex;justify-content:center;margin-top:16px" hidden>
+      <div id="s-provider-add" class="center-action" hidden>
         <button class="btn beta" id="s-add-provider">${SPARK}<span>Add provider</span></button>
       </div>
-      <div class="sub multi" style="margin-top:14px">A provider is one configured agent harness. Tasks run on it, and a task that names none runs on the default. ClaudeQ never stores a provider's login — the CLI owns that.</div>
     </div>
 
     <div class="s-pane" data-pane="notifications">
@@ -1488,12 +1496,7 @@ async function loadSettings(){
       <div class="section-label">Beta features</div>
       <div class="group">
         <div class="row"><div class="grow"><div class="title">Beta features</div>
-          <div class="sub multi">Parts of ClaudeQ that are not finished yet. Switching this on adds:
-            <ul style="margin:6px 0 0 16px;padding:0">
-              <li><b>Add provider</b> in Settings → Providers — a second harness, or a second account of one you already have.</li>
-              <li>The <b>Codex</b> provider, in that form and in the task sheet.</li>
-            </ul>
-            It decides what the app offers and nothing else: anything you have already set up keeps working, its tasks keep running, and the <code>claudeq</code> CLI accepts it either way.</div></div>
+          <div class="sub multi">Parts of ClaudeQ that are not finished yet. It decides what the app offers and nothing else: anything already set up keeps working, and the <code>claudeq</code> CLI accepts it either way.</div></div>
           <label class="switch"><input type="checkbox" id="s-beta"><span class="sl"></span></label></div>
       </div>
     </div>
@@ -1589,7 +1592,7 @@ function providerBlock(p){
     +(p.default?'<span class="chip">default</span>':'')
     +(p.beta?'<span class="chip beta">beta</span>':'');
   wrap.innerHTML=`
-    <div class="section-label" style="margin-top:18px">${esc(p.name||p.id)} · ${esc(p.kind)}</div>
+    <div class="section-label" style="margin-top:18px">${esc(p.name||p.id)} · ${esc(p.type_name||p.kind)}</div>
     <div class="group">
       <div class="row"><div class="grow">
           <div class="title">${chips}</div>
@@ -1603,7 +1606,7 @@ function providerBlock(p){
         <input type="text" class="p-path" placeholder="${esc(p.detected||'/path/to/the CLI')}" style="max-width:260px"></div>
       <div class="row"><div class="grow"><div class="title">Configuration directory</div>
           <div class="sub">Where the CLI keeps its account and sessions — another directory is another account. Absolute path (<code>~</code> is fine); empty uses its own default.</div></div>
-        <input type="text" class="p-dir" placeholder="the CLI's own" style="max-width:260px"></div>
+        <input type="text" class="p-dir" placeholder="${esc(p.default_config_dir||"the CLI's own")}" style="max-width:260px"></div>
       <div class="row"><div class="grow"><div class="title">Default model</div>
           <div class="sub">Used for tasks on this provider that name no model</div></div>
         <select class="p-model" style="max-width:230px"></select></div>
@@ -1651,8 +1654,16 @@ function providerBlock(p){
 // rest is on its card once it exists.
 function openAddProvider(){
   const kinds=PROVIDER_KINDS.filter(k=>!k.beta||betaAllowed());
-  $('#np-kind').innerHTML=kinds.map(k=>`<option value="${esc(k.kind)}">${esc(k.kind)}${k.beta?' (beta)':''}</option>`).join('');
+  $('#np-kind').innerHTML=kinds.map(k=>`<option value="${esc(k.kind)}">${esc(k.name||k.kind)}${k.beta?' (beta)':''}</option>`).join('');
   $('#np-id').value=''; $('#np-name').value=''; $('#np-dir').value=''; $('#np-err').textContent='';
+  // The placeholder is the chosen harness's own location, so an empty field
+  // says what it falls back to rather than leaving it to be guessed.
+  const showDefaultDir=()=>{
+    const k=PROVIDER_KINDS.find(x=>x.kind===$('#np-kind').value);
+    $('#np-dir').placeholder=(k&&k.default_config_dir)||"the CLI's own";
+  };
+  $('#np-kind').onchange=showDefaultDir;
+  showDefaultDir();
   $('#providerSheet').showModal();
   $('#np-id').focus();
 }

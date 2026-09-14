@@ -176,10 +176,14 @@ Claude (work account)  Not logged in
 ```
 
 - Each provider is its own settings block, headed by its name and kind.
-- **Add provider** sits below them and opens a sheet asking for an id, an
-  adapter kind, a name and an optional configuration directory. The id is fixed
-  once created, as is the kind: an instance keeps the harness it was made for,
-  because its tasks, sessions and pending resumes all name it.
+- **Add provider** sits below them and opens a sheet asking for an id, a type, a
+  name and an optional configuration directory. The forms say *type* and name
+  the harness ("Claude"); the adapter *kind* it maps to (`claude-code`) is
+  storage, not vocabulary. The id is fixed once created, as is the type: an
+  instance keeps the harness it was made for, because its tasks, sessions and
+  pending resumes all name it.
+- A configuration-directory field shows the harness's own default as its
+  placeholder, so an empty field says what it falls back to.
 - Adding a provider is itself a beta feature, so the button appears only with
   beta features on, and is marked as beta where it appears.
 - **Remove** refuses while a task or the default-provider setting still names
@@ -203,14 +207,13 @@ Settings → System:
 Beta features
 
 [ ] Beta features
-    Parts of SwarmQ that are not finished yet. Switching this on adds:
-      · Add provider — a second harness, or a second account of one you have
-      · The Codex provider, in that form and in the task sheet
+    Parts of SwarmQ that are not finished yet.
 ```
 
-The option names what it contains, so it is not a switch whose effect the
-operator has to discover. After opt-in, `codex` becomes an addable kind and task
-forms offer Codex. Codex runs and activity rows carry a beta badge.
+The switch says what it is, not what is in it: the list would go stale with
+every stage, and what it reveals is visible where it appears. After opt-in,
+Codex becomes an addable type and task forms offer it. Codex runs and activity
+rows carry a beta badge.
 
 The option must not:
 

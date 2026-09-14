@@ -206,6 +206,20 @@ type Command struct {
 	Stdin string
 }
 
+// Description is what a harness is called and where it keeps its configuration.
+// It lets the app name and explain a provider without knowing which kind it is
+// — the same reason capabilities exist.
+type Description struct {
+	// Name is the harness's product name, as a person would say it ("Claude",
+	// "Codex"), rather than the adapter kind ("claude-code").
+	Name string `json:"name"`
+	// DefaultConfigDir is where the CLI keeps its configuration when nothing
+	// points it elsewhere, written the way a person would ("~/.claude"). It is
+	// shown as the placeholder of the field that overrides it, so an empty field
+	// says what it falls back to.
+	DefaultConfigDir string `json:"default_config_dir"`
+}
+
 // Model is a model an adapter offers as a suggestion. The id is what a task
 // stores; the label is what the app shows. A catalog is never validation: a
 // model a task names but this list does not is passed to the harness anyway.
@@ -300,6 +314,9 @@ type Adapter interface {
 	Kind() Kind
 	// Capabilities describes what the harness can do.
 	Capabilities() Capabilities
+	// Describe reports what the harness is called and where it keeps its
+	// configuration by default.
+	Describe() Description
 	// DetectBinary locates the harness CLI, returning "" when it cannot be found.
 	DetectBinary() string
 	// ResolveBinary reports the executable this instance would run, or "" when

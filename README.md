@@ -295,7 +295,7 @@ and the update button live.
 | | Execution | Pause all runs | Global stop switch: nothing starts while it is on, not even *Run now*; a run already in flight keeps going. Applies immediately, without pressing Save. |
 | | About | Version / Software updates | Current version and a manual "Check for updates" button. |
 | **Providers** | One block per provider | Its settings | Name, status, binary path, configuration directory and default model, plus **Check again**, **Make default**, **Remove** and an on/off switch. The block is headed by the provider's name and kind. See [Providers](#providers). |
-| | | **Add provider** | Below the blocks, and only with beta features on: opens a sheet asking for an id, a kind and optionally a configuration directory. |
+| | | **Add provider** | Below the blocks, and only with beta features on: opens a sheet asking for an id, a type and optionally a configuration directory. |
 | **Notifications** | macOS | Alerts that wait for you | Opens System Settings → Notifications, where ClaudeQ's alert style lives: *Banners* disappear on their own, *Alerts* stay until you click them. |
 | | Pushover | Send to Pushover | Toggle plus API token and user key for phone push. |
 | | ntfy | Send to ntfy | Toggle, server (empty = ntfy.sh), topic, and an optional access token for a protected topic. |
@@ -303,7 +303,7 @@ and the update button live.
 | **System** | Runs | Stop a run with no output for | Idle-timeout watchdog: kills a hung run (default 30 min; a working run keeps streaming and is unaffected; Off disables it). |
 | | | Keep run history | How many runs (and their logs) to retain before pruning (default 500; Unlimited keeps everything). |
 | | Scheduler | Check for due tasks every | How often the daemon wakes to look for work (15 min – 6 h; also the wake safety-net interval). |
-| | Beta features | Beta features | The parts of ClaudeQ that are not finished: **Add provider**, and the **Codex** provider. Presentation only — anything already set up keeps working and the CLI accepts it either way. |
+| | Beta features | Beta features | Reveals the parts of ClaudeQ that are not finished yet — currently **Add provider** and the **Codex** provider. Presentation only: anything already set up keeps working and the CLI accepts it either way. |
 
 ## Providers
 
@@ -315,10 +315,10 @@ already used.
 
 Two harnesses are supported:
 
-| Kind | CLI | Notes |
+| Type | CLI | Notes |
 |------|-----|-------|
-| `claude-code` | [Claude Code](https://claude.com/claude-code) | Reports token counts and cost. Its only authority settings are "ask" and "skip every prompt". |
-| `codex` | [Codex](https://learn.chatgpt.com/docs/developer-commands?surface=cli) | **Beta.** Takes a reasoning effort and a real sandbox mode, so read-only and workspace-write actually mean something. Reports tokens but no cost — ClaudeQ never invents one. |
+| Claude (`claude-code`) | [Claude Code](https://claude.com/claude-code) | Reports token counts and cost. Its only authority settings are "ask" and "skip every prompt". |
+| Codex (`codex`) | [Codex](https://learn.chatgpt.com/docs/developer-commands?surface=cli) | **Beta.** Takes a reasoning effort and a real sandbox mode, so read-only and workspace-write actually mean something. Reports tokens but no cost — ClaudeQ never invents one. |
 
 You can configure as many instances as you like, including two of the same kind:
 give each its own configuration directory and they are two accounts, with their
@@ -330,10 +330,10 @@ A provider has:
 | Field | What it is |
 |-------|------------|
 | Id | The stable name a task selects it by (`claude`). Fixed once created. |
-| Kind | Which harness it runs (`claude-code`). Fixed once created. |
+| Type | Which harness it runs — Claude or Codex. Fixed once created. The app says *type* and names the harness; the adapter kind it maps to (`claude-code`) is what the file stores. |
 | Name | The label shown in the app and in run messages. |
 | Binary | Absolute path to the CLI. The background daemon can't see your shell `PATH`, so a full path is safest; empty auto-detects and the card offers what it found. |
-| Configuration directory | Where that CLI keeps its account and sessions. Empty uses the CLI's own. Two providers with separate directories are two separate accounts. |
+| Configuration directory | Where that CLI keeps its account and sessions. Empty uses the CLI's own (`~/.claude`, `~/.codex`), which the field shows as its placeholder. Two providers with separate directories are two separate accounts. |
 
 Both paths must be absolute; a leading `~` is expanded and stored resolved, so
 the file says what is actually used.
@@ -347,10 +347,9 @@ first — because most tasks name no provider and would all stop at once.
 **Settings → Providers manages all of this.** Each provider gets its own block,
 headed by its name and kind, where you edit the name, binary, configuration
 directory and default model, switch it on or off, make it the default or remove
-it. Below them sits **Add provider**, which opens a sheet asking for the two
-things that cannot be changed afterwards — the id and the kind — plus an
-optional configuration directory, which is what makes the new one a second
-account.
+it. Below them sits **Add provider**, which opens a sheet asking for the two things
+that cannot be changed afterwards — the id and the type — plus an optional
+configuration directory, which is what makes the new one a second account.
 
 `claudeq provider …` does exactly the same things, and both refuse the same
 changes for the same reasons — removing an instance a task still names, for
@@ -360,9 +359,10 @@ instance, which names the tasks that have to change first.
 
 Two things are behind one switch, **Settings → System → Beta features**: adding
 providers at all, and the Codex provider itself. With it off there is no **Add
-provider** button and no `codex` to choose; with it on both appear, the button
+provider** button and no Codex to choose; with it on both appear, the button
 marked as beta, and anything on a beta provider is labelled *beta* wherever it
-shows up.
+shows up. The switch itself does not enumerate what it contains — that is what
+this section is for.
 
 That switch decides what the app *offers* and nothing else. The adapter is
 always part of the build, the API and `claudeq` always accept Codex, and the

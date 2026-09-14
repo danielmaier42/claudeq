@@ -18,7 +18,11 @@ type stubAdapter struct {
 
 func (stubAdapter) Kind() provider.Kind                   { return provider.KindClaudeCode }
 func (s stubAdapter) Capabilities() provider.Capabilities { return s.caps }
-func (stubAdapter) DetectBinary() string                  { return "" }
+
+func (stubAdapter) Describe() provider.Description {
+	return provider.Description{Name: "Claude", DefaultConfigDir: "~/.claude"}
+}
+func (stubAdapter) DetectBinary() string { return "" }
 
 func (stubAdapter) ResolveBinary(inst provider.Instance) string { return inst.BinaryPath }
 

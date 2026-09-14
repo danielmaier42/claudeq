@@ -30,3 +30,21 @@ func TestDefaultResolvesTheClaudeInstanceKind(t *testing.T) {
 		t.Fatalf("Lookup: %v", err)
 	}
 }
+
+// TestEveryAdapterDescribesItself: the app names and explains a provider from
+// what the adapter says, so a harness that says nothing would show up blank.
+func TestEveryAdapterDescribesItself(t *testing.T) {
+	for _, kind := range Default().Kinds() {
+		ad, err := Default().Lookup(kind)
+		if err != nil {
+			t.Fatalf("Lookup %q: %v", kind, err)
+		}
+		desc := ad.Describe()
+		if desc.Name == "" {
+			t.Errorf("adapter %q has no display name", kind)
+		}
+		if desc.DefaultConfigDir == "" {
+			t.Errorf("adapter %q does not say where its CLI keeps its configuration", kind)
+		}
+	}
+}

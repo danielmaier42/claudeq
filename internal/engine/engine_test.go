@@ -80,6 +80,8 @@ func (a *healthAdapter) Capabilities() provider.Capabilities {
 	}}
 }
 
+func (a *healthAdapter) Describe() provider.Description { return provider.Description{Name: "Claude"} }
+
 func (a *healthAdapter) DetectBinary() string { return "" }
 
 func (a *healthAdapter) ResolveBinary(inst provider.Instance) string { return inst.BinaryPath }

@@ -21,7 +21,11 @@ type fakeAdapter struct {
 
 func (f *fakeAdapter) Kind() Kind                 { return f.kind }
 func (f *fakeAdapter) Capabilities() Capabilities { return f.caps }
-func (f *fakeAdapter) DetectBinary() string       { return f.binary }
+
+func (f *fakeAdapter) Describe() Description {
+	return Description{Name: string(f.kind), DefaultConfigDir: "~/.fake"}
+}
+func (f *fakeAdapter) DetectBinary() string { return f.binary }
 
 func (f *fakeAdapter) ResolveBinary(inst Instance) string {
 	if inst.BinaryPath != "" {
