@@ -294,7 +294,7 @@ and the update button live.
 | | | Review model | Model used for that review; *The provider's default model* falls back to the reviewing provider's own default. |
 | | Execution | Pause all runs | Global stop switch: nothing starts while it is on, not even *Run now*; a run already in flight keeps going. Applies immediately, without pressing Save. |
 | | About | Version / Software updates | Current version and a manual "Check for updates" button. |
-| **Providers** | One block per provider | Its settings | Name, status, binary path, configuration directory and default model, plus **Check again**, **Make default**, **Remove** and an on/off switch. The block is headed by the provider's name and kind. See [Providers](#providers). |
+| **Providers** | One block per provider | Its settings | Name, status, binary path, configuration directory, default model and an on/off switch — written by the **Save** button at the top of Settings, like every other field here. **Check again**, **Make default** and **Remove** are actions and take effect at once. The block is headed by the provider's name and type. See [Providers](#providers). |
 | | | **Add provider** | Below the blocks, and only with beta features on: opens a sheet asking for an id, a type and optionally a configuration directory. |
 | **Notifications** | macOS | Alerts that wait for you | Opens System Settings → Notifications, where ClaudeQ's alert style lives: *Banners* disappear on their own, *Alerts* stay until you click them. |
 | | Pushover | Send to Pushover | Toggle plus API token and user key for phone push. |
@@ -345,9 +345,10 @@ switched off or removed while it holds that role — make another one the defaul
 first — because most tasks name no provider and would all stop at once.
 
 **Settings → Providers manages all of this.** Each provider gets its own block,
-headed by its name and kind, where you edit the name, binary, configuration
-directory and default model, switch it on or off, make it the default or remove
-it. Below them sits **Add provider**, which opens a sheet asking for the two things
+headed by its name and type, where you edit the name, binary, configuration
+directory, default model and the on/off switch; one **Save** at the top of
+Settings writes them all, together with everything else on the page. *Check
+again*, *Make default* and *Remove* are actions and take effect at once. Below them sits **Add provider**, which opens a sheet asking for the two things
 that cannot be changed afterwards — the id and the type — plus an optional
 configuration directory, which is what makes the new one a second account.
 

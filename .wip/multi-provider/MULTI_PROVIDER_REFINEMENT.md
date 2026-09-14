@@ -175,7 +175,9 @@ Claude (work account)  Not logged in
   [Make default]  [Check again]  [Save]  [Remove]    (•) on
 ```
 
-- Each provider is its own settings block, headed by its name and kind.
+- Each provider is its own settings block, headed by its name and type. Its
+  fields are part of the Settings form: one Save writes every block. Checking,
+  making default and removing are actions and apply at once.
 - **Add provider** sits below them and opens a sheet asking for an id, a type, a
   name and an optional configuration directory. The forms say *type* and name
   the harness ("Claude"); the adapter *kind* it maps to (`claude-code`) is
@@ -192,7 +194,10 @@ Claude (work account)  Not logged in
 - A path field accepts a leading `~` and stores the resolved path, so the
   configuration file says what is actually used.
 - The rules are the store's, not the form's: the API rejects the same changes
-  the CLI rejects, and the card reports the reason it was given.
+  the CLI rejects, and the block reports the reason it was given.
+- A readiness verdict is about the provider. A probe cut short — the request was
+  abandoned, the daemon is restarting — is not one, is not remembered, and does
+  not replace the last real answer.
 
 Adding a second instance of an adapter kind is how a second subscription is
 set up: same kind, its own configuration directory, its own sessions and

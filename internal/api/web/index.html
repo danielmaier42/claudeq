@@ -1613,25 +1613,16 @@ function providerBlock(p){
       <div class="row"><div class="grow"><div class="sub">${esc(p.health.binary||'')}</div></div>
         <button class="btn p-default"${p.default||!p.enabled?' disabled':''}>Make default</button>
         <button class="btn p-check">Check again</button>
-        <button class="btn danger p-remove"${p.default?' disabled':''}>Remove</button>
-        <button class="btn primary p-save">Save</button></div>
+        <button class="btn danger p-remove"${p.default?' disabled':''}>Remove</button></div>
     </div>`;
   wrap.querySelector('.p-name').value=p.name||'';
   wrap.querySelector('.p-path').value=p.binary_path||'';
   wrap.querySelector('.p-dir').value=p.config_dir||'';
   fillProviderModels(wrap.querySelector('.p-model'),p);
-  const save=async patch=>{
-    const body={name:wrap.querySelector('.p-name').value.trim(),
-      binary_path:wrap.querySelector('.p-path').value.trim(),
-      config_dir:wrap.querySelector('.p-dir').value.trim(),
-      default_model:wrap.querySelector('.p-model').value,
-      enabled:wrap.querySelector('.switch input').checked, ...patch};
-    try{ await api('PUT','/api/providers/'+encodeURIComponent(p.id),body); toast('Provider saved','ok'); }
-    catch(e){ toast(e.message,'err'); }
-    loadProviders();
-  };
-  wrap.querySelector('.p-save').onclick=()=>save({});
-  wrap.querySelector('.switch input').onchange=()=>save({});
+  // The block is a form like every other group in Settings: Save at the top of
+  // the page writes it (see saveSettings). What sits here are actions, not
+  // edits — they take effect at once and reload the list.
+  wrap.dataset.providerId=p.id;
   wrap.querySelector('.p-check').onclick=async ()=>{
     try{ await api('POST','/api/providers/'+encodeURIComponent(p.id)+'/check'); }catch(e){ toast(e.message,'err'); }
     loadProviders();
@@ -1708,6 +1699,21 @@ function openNotificationSettings(){
   if(window.cqOpenExternal) window.cqOpenExternal(url);
   else toast('Open System Settings → Notifications → ClaudeQ','ok');
 }
+// providerEdits reads every provider block back as the payload its instance
+// takes. The blocks are part of the Settings form, so one Save writes them all.
+function providerEdits(){
+  return [...document.querySelectorAll('#s-providers [data-provider-id]')].map(w=>({
+    id:w.dataset.providerId,
+    body:{
+      name:w.querySelector('.p-name').value.trim(),
+      binary_path:w.querySelector('.p-path').value.trim(),
+      config_dir:w.querySelector('.p-dir').value.trim(),
+      default_model:w.querySelector('.p-model').value,
+      enabled:w.querySelector('.switch input').checked,
+    },
+  }));
+}
+
 async function saveSettings(){
   // No paused: the switch writes itself through /api/pause and the server keeps
   // whatever is stored, so Save neither carries nor resets it.
@@ -1721,7 +1727,18 @@ async function saveSettings(){
     pushover:{enabled:$('#s-po-enabled').checked,token:$('#s-po-token').value,user_key:$('#s-po-user').value},
     ntfy:{enabled:$('#s-ntfy-enabled').checked,server:$('#s-ntfy-server').value.trim(),topic:$('#s-ntfy-topic').value.trim(),token:$('#s-ntfy-token').value.trim()},
     webhook:{enabled:$('#s-wh-enabled').checked,url:$('#s-wh-url').value.trim(),template:$('#s-wh-template').value.trim()}};
-  try{ await api('PUT','/api/settings',body); toast('Settings saved','ok'); }catch(e){ toast(e.message,'err'); }
+  try{ await api('PUT','/api/settings',body); }catch(e){ toast(e.message,'err'); return; }
+  // The provider blocks are part of this form too. Each is refused on its own
+  // terms, so a rejected one is named rather than failing the whole save
+  // silently.
+  const failed=[];
+  for(const p of providerEdits()){
+    try{ await api('PUT','/api/providers/'+encodeURIComponent(p.id),p.body); }
+    catch(e){ failed.push(`${p.id}: ${e.message}`); }
+  }
+  if(failed.length){ toast(failed.join('\n'),'err'); }
+  else toast('Settings saved','ok');
+  if(document.querySelector('#s-providers')) loadProviders();
 }
 
 /* ---- Software updates ---- */
