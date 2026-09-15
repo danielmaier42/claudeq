@@ -83,6 +83,13 @@ If any gate fails, it is fixed before the work is reported — never reported wi
   the real app. Say where the built `.pkg` is and which commit it was built from; if the
   build can't be produced (e.g. missing macOS tooling), state that explicitly rather than
   omitting it.
+- **Update and reinstall after a merge.** Once the maintainer merges a PR, pull `origin/main`
+  into the local `/Users/dm/Documents/Private/claudeq` checkout (fast-forward only), rebuild
+  the installer package, and install it so the locally running app matches what is now on
+  `main`. Installing needs the maintainer's password (`sudo installer -pkg … -target /`
+  cannot run unattended) — open the built `.pkg` with `open` and hand the install dialog to
+  the maintainer rather than leaving it unbuilt. Do this without being asked, the same way a
+  PR follows finished branch work.
 
 ## 6. Keep the plan's phase status current
 
