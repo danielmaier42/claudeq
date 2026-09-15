@@ -39,6 +39,9 @@ const KindClaudeCode Kind = store.DefaultProviderKind
 // KindCodex is the adapter for the Codex CLI.
 const KindCodex Kind = "codex"
 
+// KindOpencode is the adapter for the opencode CLI.
+const KindOpencode Kind = "opencode"
+
 // Instance is a configured adapter instance — the thing a task selects by ID.
 // It is the domain form of [store.Provider]: the store owns how it is written
 // to config.toml, this package owns what it means.

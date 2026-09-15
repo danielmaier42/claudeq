@@ -307,14 +307,14 @@ func TestRunUsesTheInstanceBinary(t *testing.T) {
 func TestRunRejectsAnUnregisteredProviderKind(t *testing.T) {
 	e := &Executor{Registry: provider.NewRegistry(claudecode.New())}
 	inst := claudeInstance("/nonexistent/claude")
-	inst.Kind = "opencode"
+	inst.Kind = "gremlin"
 	tk := sampleTask()
 	tk.WorkingDir = t.TempDir()
 	_, err := e.Run(context.Background(), Request{Task: tk, Provider: inst, SessionID: "sid"})
 	if err == nil {
 		t.Fatal("a provider whose kind has no adapter must not run")
 	}
-	if !strings.Contains(err.Error(), "opencode") {
+	if !strings.Contains(err.Error(), "gremlin") {
 		t.Fatalf("error %q should name the unregistered kind", err)
 	}
 }

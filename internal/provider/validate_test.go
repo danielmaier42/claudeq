@@ -26,7 +26,7 @@ func TestValidateInstance(t *testing.T) {
 		{name: "no kind", inst: Instance{ID: "fake"}, wantErr: "missing kind"},
 		{
 			name:    "a kind no adapter implements",
-			inst:    Instance{ID: "oc", Kind: "opencode"},
+			inst:    Instance{ID: "oc", Kind: "gremlin"},
 			wantErr: "known kinds: fake",
 		},
 		{

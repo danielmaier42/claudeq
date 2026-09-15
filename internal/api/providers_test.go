@@ -106,7 +106,7 @@ func TestProviderEndpointsRejectBadChanges(t *testing.T) {
 		},
 		{
 			name: "adding a kind no adapter implements", method: http.MethodPost, path: "/api/providers",
-			body: map[string]any{"id": "oc", "kind": "opencode"}, want: http.StatusBadRequest,
+			body: map[string]any{"id": "oc", "kind": "gremlin"}, want: http.StatusBadRequest,
 		},
 		{
 			name: "removing the only provider", method: http.MethodDelete, path: "/api/providers/claude",

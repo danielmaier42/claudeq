@@ -9,18 +9,20 @@ import (
 
 func TestDefaultRegistersEveryShippedAdapter(t *testing.T) {
 	got := Default().Kinds()
-	want := []provider.Kind{provider.KindClaudeCode, provider.KindCodex}
+	want := []provider.Kind{provider.KindClaudeCode, provider.KindCodex, provider.KindOpencode}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Kinds() = %v, want %v", got, want)
 	}
 }
 
-// TestCodexIsRegisteredUnconditionally is the Beta rule in one test: the adapter
-// is part of the build, whatever the app is currently willing to show. Hiding
-// setup controls must never hide the ability to run.
-func TestCodexIsRegisteredUnconditionally(t *testing.T) {
-	if _, err := Default().Lookup(provider.KindCodex); err != nil {
-		t.Fatalf("Lookup: %v", err)
+// TestBetaAdaptersAreRegisteredUnconditionally is the Beta rule in one test:
+// a beta adapter is part of the build, whatever the app is currently willing
+// to show. Hiding setup controls must never hide the ability to run.
+func TestBetaAdaptersAreRegisteredUnconditionally(t *testing.T) {
+	for _, kind := range []provider.Kind{provider.KindCodex, provider.KindOpencode} {
+		if _, err := Default().Lookup(kind); err != nil {
+			t.Fatalf("Lookup %q: %v", kind, err)
+		}
 	}
 }
 
