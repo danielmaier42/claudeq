@@ -429,7 +429,7 @@
   <div class="sheet-hd"><b id="logTitle">Log</b><div class="spacer" style="flex:1"></div>
     <div class="seg" id="logMode"><button data-v="chat" class="active">Chat</button><button data-v="raw">Raw</button></div></div>
   <div class="sheet-bd"><div id="logBody"></div></div>
-  <div class="sheet-ft"><button class="btn danger" id="logCancelBtn" hidden onclick="cancelLogRun()">Cancel task</button><button class="btn" id="logContinueBtn" hidden data-tip="Opens Terminal in the task's folder and resumes this chat interactively (claude --resume) — with the full conversation context" onclick="continueLogRun()">Continue with Claude</button><button class="btn" onclick="logSheet.close()">Done</button></div>
+  <div class="sheet-ft"><button class="btn danger" id="logCancelBtn" hidden onclick="cancelLogRun()">Cancel task</button><button class="btn" id="logContinueBtn" hidden data-tip="Opens Terminal in the task's folder and resumes this chat interactively — with the full conversation context" onclick="continueLogRun()">Continue in Chat…</button><button class="btn" onclick="logSheet.close()">Done</button></div>
 </dialog>
 
 <!-- Artifact viewer sheet -->
@@ -437,7 +437,7 @@
   <div class="sheet-hd"><b id="viewerTitle">Artifact</b><div class="spacer" style="flex:1"></div>
     <div id="viewerActions" class="row-actions"></div></div>
   <div class="sheet-bd" id="viewerBody"></div>
-  <div class="sheet-ft"><button class="btn" id="viewerContinueBtn" hidden data-tip="Opens Terminal in the task's folder and resumes the chat that published this artifact (claude --resume) — with the full conversation context" onclick="continueArtifactRun()">Continue with Claude</button><button class="btn" onclick="viewerSheet.close()">Done</button></div>
+  <div class="sheet-ft"><button class="btn" id="viewerContinueBtn" hidden data-tip="Opens Terminal in the task's folder and resumes the chat that published this artifact — with the full conversation context" onclick="continueArtifactRun()">Continue in Chat…</button><button class="btn" onclick="viewerSheet.close()">Done</button></div>
 </dialog>
 
 <!-- Confirm sheet -->
@@ -1383,7 +1383,7 @@ async function loadArtifacts(){
     if(a.task_name && a.run_id){ const s=grow.querySelector('.art-src'); if(s) s.onclick=()=>openArtifactRun(a); }
     const actions=el('div','row-actions');
     // Every artifact opens the viewer — types without a preview get a placeholder
-    // there, and keep the sheet's "Open externally" and "Continue with Claude".
+    // there, and keep the sheet's "Open externally" and "Continue in Chat…".
     const v=el('button','btn small','View'); v.onclick=()=>openViewer(a); actions.append(v);
     const del=el('button','btn small danger','Delete'); del.title='Delete'; del.onclick=()=>deleteArtifact(a); actions.append(del);
     const kind=el('span','art-meta',extLabel(a.file_name,a.content_type));
@@ -1401,7 +1401,7 @@ let viewerGen=0;
 async function openViewer(a){
   const gen=++viewerGen;
   $('#viewerTitle').textContent=a.title;
-  updateViewerContinue(a,gen);   // async: reveals "Continue with Claude" if the producing run can be resumed
+  updateViewerContinue(a,gen);   // async: reveals "Continue in Chat…" if the producing run can be resumed
   const body=$('#viewerBody'); body.innerHTML='';
   const kind=artifactKind(a.content_type);
   const src=contentURL(a,false);
@@ -1437,7 +1437,7 @@ async function openViewer(a){
   $('#viewerSheet').showModal();
   markReadOnOpen(a);   // opening an artifact marks it read
 }
-// "Continue with Claude" resumes the chat that published the artifact, the same
+// "Continue in Chat…" resumes the chat that published the artifact, the same
 // way the log sheet does. Artifacts outlive runs, so the producing run has to be
 // looked up first: it may be gone from history, or not resumable (still running,
 // no session id, no working dir), in which case the button stays hidden.

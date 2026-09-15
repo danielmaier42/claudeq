@@ -520,11 +520,11 @@ func (s *server) cancelRun(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// continueRun opens a Terminal window that resumes the run's Claude session
-// interactively (`claude --resume <session-id>` in the task's working
-// directory), so a finished unattended chat can be picked up by hand with its
-// full context. Only finished runs qualify: a running one still owns its
-// session, and a rate-limited one will be resumed by the queue itself.
+// continueRun opens a Terminal window that resumes the run's session
+// interactively, in the run's provider and in the task's working directory,
+// so a finished unattended chat can be picked up by hand with its full
+// context. Only finished runs qualify: a running one still owns its session,
+// and a rate-limited one will be resumed by the queue itself.
 func (s *server) continueRun(w http.ResponseWriter, r *http.Request) {
 	if s.d.OpenTerminal == nil {
 		writeErr(w, http.StatusServiceUnavailable, errors.New("continue not available"))
@@ -554,7 +554,7 @@ func (s *server) continueRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, errors.New("the run is waiting to resume automatically; continue it after it finishes"))
 		return
 	case run.SessionID == "":
-		writeErr(w, http.StatusConflict, errors.New("no Claude session recorded for this run"))
+		writeErr(w, http.StatusConflict, errors.New("no session recorded for this run"))
 		return
 	case run.Task == nil || run.Task.WorkingDir == "":
 		writeErr(w, http.StatusConflict, errors.New("no working directory recorded for this run"))
