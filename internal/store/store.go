@@ -683,6 +683,9 @@ type Settings struct {
 	// LegacyShowCodexBeta is what that preference was called when it governed
 	// only Codex. Read to migrate old configs (see migrate); never written back.
 	LegacyShowCodexBeta bool `toml:"show_codex_beta,omitempty" json:"-"`
+	// DefaultWorkingDir prefills a new task's working directory. Empty means no
+	// prefill — the field starts blank, as before this setting existed.
+	DefaultWorkingDir string `toml:"default_working_dir,omitempty" json:"default_working_dir"`
 }
 
 // ErrPaused is what a refused run carries while Settings.Paused is on. A pause
