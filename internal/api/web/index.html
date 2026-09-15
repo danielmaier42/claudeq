@@ -1323,6 +1323,30 @@ function appendLogEvent(box, ev){
   if(ev.type==='result'){ box.append(el('div','msg result','<div class="who">Result'+(ev.is_error?' · error':'')+'</div>'+esc(ev.result||'(no text)'))); return 1; }
   if(ev.type==='claudeq_status'){ const kind=ev.status==='note'?'note-msg':'err-msg'; box.append(el('div','msg '+kind,'<div class="who">'+esc((ev.status||'error').replace(/_/g,' '))+'</div>'+esc(ev.message||''))); return 1; }
   if(ev.type==='system' && ev.subtype==='init'){ box.append(el('div','rawline','session started'+(ev.model?' · '+esc(ev.model):''))); return 0; }
+  // opencode's own JSONL shape — its adapter writes these events to the run
+  // log verbatim, they never go through the Claude Code schema above.
+  if(ev.type==='text' && ev.part){ const t=(ev.part.text||'').trim();
+    if(t){ box.append(el('div','msg assistant','<div class="who">opencode</div>'+esc(t))); return 1; } return 0; }
+  if(ev.type==='tool_use' && ev.part){ const st=ev.part.state||{};
+    let body=shortJSON(st.input);
+    if(st.output!=null){ const out=String(st.output); body+='\n\n→ '+(out.length>800?out.slice(0,800)+' …':out); }
+    box.append(toolBlock('🔧 '+esc(ev.part.tool||'tool'), esc(body))); return 1; }
+  if(ev.type==='step_start' || ev.type==='step_finish'){ return 0; }
+  if(ev.type==='error' && ev.error){
+    const msg=(ev.error.data&&ev.error.data.message)||ev.error.name||'';
+    box.append(el('div','msg err-msg','<div class="who">error</div>'+esc(msg))); return 1; }
+  // Codex's own JSONL shape — same situation as opencode above.
+  if(ev.type==='thread.started'){ box.append(el('div','rawline','session started')); return 0; }
+  if(ev.type==='item.started' || ev.type==='turn.started' || ev.type==='turn.completed'){ return 0; }
+  if(ev.type==='item.completed' && ev.item){ const it=ev.item;
+    if(it.type==='agent_message'){ const t=(it.text||'').trim();
+      if(t){ box.append(el('div','msg assistant','<div class="who">Codex</div>'+esc(t))); return 1; } return 0; }
+    if(it.type==='error'){ box.append(el('div','msg err-msg','<div class="who">error</div>'+esc(it.message||''))); return 1; }
+    if(it.type==='command_execution'){ let body=it.command||'';
+      if(it.aggregated_output) body+='\n\n'+it.aggregated_output;
+      box.append(toolBlock('🔧 bash', esc(body.length>800?body.slice(0,800)+' …':body))); return 1; }
+    box.append(toolBlock('🔧 '+esc(it.type||'item'), esc(shortJSON(it)))); return 1; }
+  if(ev.type==='turn.failed'){ box.append(el('div','msg err-msg','<div class="who">error</div>'+esc((ev.error&&ev.error.message)||'turn failed'))); return 1; }
   return 0;
 }
 
