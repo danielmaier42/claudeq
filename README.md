@@ -177,9 +177,10 @@ The nightly cycle looks like this:
   same work would have cost through the API), over the last 14 days.
 - **Full history** — every run is kept with its complete log, viewable as a chat
   transcript or raw output, and can be replayed.
-- **Continue with Claude** — pick up a finished run's conversation interactively:
-  one click opens Terminal in the task's folder and resumes the very same Claude
-  session (`claude --resume`), with the full context of everything the run did.
+- **Continue in Chat…** — pick up a finished run's conversation interactively:
+  one click opens Terminal in the task's folder and resumes the very same
+  session, with the harness that owns it and the full context of everything
+  the run did.
 - **Artifacts** — a task can publish a finished file (report, export, HTML page,
   PDF, …) with `claudeq publish`; it's copied into ClaudeQ and listed in a
   central **Artifacts** view with an unread flag, independent of run history.
@@ -252,7 +253,7 @@ sit at the bottom, out of the way of the work:
   interrupted session is discarded, the run is recorded as `canceled`, and a
   one-shot task leaves the queue instead of starting again (a recurring task
   keeps its schedule and starts fresh at its next occurrence); a finished
-  run offers **Continue with Claude**, which opens Terminal in the task's folder
+  run offers **Continue in Chat…**, which opens Terminal in the task's folder
   and resumes the run's session interactively — with the harness that owns it
   (`claude --resume`, or `codex resume` for a Codex run) and the same permission
   mode the run had (a skip-permissions task resumes with
@@ -268,7 +269,7 @@ sit at the bottom, out of the way of the work:
   inline, anything else (archives, binaries) shows a short note instead of a
   preview. The viewer offers **Open externally**, which hands the file to your
   browser to open or save, and — when the run that published the artifact can
-  still be resumed — **Continue with Claude**, the same interactive resume as in
+  still be resumed — **Continue in Chat…**, the same interactive resume as in
   a run's log. Either way, opening an artifact marks it read automatically; you can
   also mark one or all read by hand, or delete one (which removes the stored copy).
   Clicking the notification of a newly published artifact lands here with that
