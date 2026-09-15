@@ -93,9 +93,9 @@ func TestRegistryLookupByKind(t *testing.T) {
 	if got != Adapter(fake) {
 		t.Fatal("Lookup returned a different adapter")
 	}
-	if _, err := r.Lookup("opencode"); err == nil {
+	if _, err := r.Lookup("gremlin"); err == nil {
 		t.Fatal("an unregistered kind must not resolve")
-	} else if !strings.Contains(err.Error(), "opencode") {
+	} else if !strings.Contains(err.Error(), "gremlin") {
 		t.Fatalf("error %q should name the kind", err)
 	}
 }

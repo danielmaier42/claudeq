@@ -97,7 +97,7 @@ func TestCheckerVerdictsWithoutProbing(t *testing.T) {
 		},
 		{
 			name: "an instance of an unimplemented kind is a configuration problem",
-			inst: enabled("other", "opencode"),
+			inst: enabled("other", "gremlin"),
 			want: HealthInvalidConfiguration,
 		},
 	}

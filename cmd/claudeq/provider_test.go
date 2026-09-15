@@ -239,7 +239,7 @@ func TestCmdProviderRejectsBadInput(t *testing.T) {
 	}{
 		{name: "unknown subcommand", args: []string{"frobnicate"}},
 		{name: "add without a kind", args: []string{"add", "x"}},
-		{name: "add with an unimplemented kind", args: []string{"add", "x", "--kind", "opencode"}},
+		{name: "add with an unimplemented kind", args: []string{"add", "x", "--kind", "gremlin"}},
 		{name: "add with a relative path", args: []string{"add", "x", "--kind", "claude-code", "--path", "bin/x"}},
 		{name: "edit without changes", args: []string{"edit", store.DefaultProviderID}},
 		{name: "edit an unknown id", args: []string{"edit", "nope", "--name", "x"}},

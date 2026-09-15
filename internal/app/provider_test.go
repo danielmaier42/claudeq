@@ -68,7 +68,7 @@ func TestAddEditEnableProvider(t *testing.T) {
 
 func TestAddProviderRejectsAnInvalidConfiguration(t *testing.T) {
 	s := openStore(t)
-	err := AddProvider(s, registry(), provider.Instance{ID: "oc", Kind: "opencode", Enabled: true})
+	err := AddProvider(s, registry(), provider.Instance{ID: "oc", Kind: "gremlin", Enabled: true})
 	if !errors.Is(err, provider.ErrInvalidProvider) {
 		t.Fatalf("err = %v, want ErrInvalidProvider", err)
 	}
