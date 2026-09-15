@@ -712,7 +712,7 @@ async function loadTasks(){
   // whether Run now is offered at all, and both must be right on every poll.
   let tasks, paused=false;
   try{ const [t,s,ps]=await Promise.all([api('GET','/api/tasks'),api('GET','/api/settings'),api('GET','/api/providers')]);
-    tasks=t; paused=!!s.paused; PROVIDERS=ps||[]; SHOW_BETA=!!s.beta_features; setConn(true);
+    tasks=t; paused=!!s.paused; PROVIDERS=ps||[]; SHOW_BETA=!!s.beta_features; DEFAULT_WORKING_DIR=s.default_working_dir||''; setConn(true);
     BETA_PROVIDERS=new Set(PROVIDERS.filter(p=>p.beta).flatMap(p=>p.default?[p.id,'']:[p.id]));
   }catch(e){ setConn(false); return; }
   tasks=tasks||[];
@@ -856,6 +856,7 @@ function openSheet(title,submitLabel){ $('#addErr').textContent=''; $('#f-dir-hi
   taskReview.run(); }   // an imported, edited or replayed prompt is reviewed as it opens; an empty new one costs nothing
 function openAdd(){ taskMode='add'; taskEditId='';
   ['f-name','f-prompt','f-dir','f-at','f-cron'].forEach(x=>$('#'+x).value='');
+  $('#f-dir').value=DEFAULT_WORKING_DIR;
   $('#f-parallel').checked=false; $('#f-skip').checked=false; $('#f-notify').checked=false; $('#f-quiet').checked=false; setSeg('asap');
   fillProviderChoices('','','');
   openSheet('New task','Add task'); }
@@ -1505,6 +1506,14 @@ async function loadSettings(){
           <div class="ai-banner" id="s-sysprompt-review" hidden></div>
         </div>
       </div>
+      <div class="section-label">Default job directory</div>
+      <div class="group">
+        <div style="padding:11px 15px">
+          <div class="title" style="font-weight:500">Prefill new tasks with</div>
+          <div style="color:var(--fg2);font-size:12px;margin:1px 0 8px">A new task's working directory starts here. Still editable per task; empty means the field starts blank, as before.</div>
+          <div class="dir-row"><input type="text" id="s-default-dir" placeholder="No default" readonly><button class="btn" id="s-default-dir-btn" title="Choose folder">📁</button></div>
+        </div>
+      </div>
       <div class="section-label">Prompt review</div>
       <div class="group">
         <div class="row"><div class="grow"><div class="title">Check prompts with Claude</div>
@@ -1619,7 +1628,16 @@ async function loadSettings(){
   $('#s-wh-enabled').checked=!!s.webhook?.enabled; $('#s-wh-url').value=s.webhook?.url||'';
   $('#s-wh-template').value=s.webhook?.template||'';
   $('#s-sysprompt').value=s.system_prompt||'';
+  $('#s-default-dir').value=s.default_working_dir||'';
+  $('#s-default-dir-btn').onclick=async()=>{
+    try{
+      const q=$('#s-default-dir').value?('?path='+encodeURIComponent($('#s-default-dir').value)):'';
+      const r=await api('POST','/api/fs/choose'+q);
+      if(r && typeof r!=='string' && r.path) $('#s-default-dir').value=r.path; // 204/empty => cancelled
+    }catch(e){ toast('Folder dialog unavailable: '+e.message,'err'); }
+  };
   SHOW_BETA=!!s.beta_features;
+  DEFAULT_WORKING_DIR=s.default_working_dir||'';
   $('#s-beta').checked=SHOW_BETA;
   // Revealing beta providers changes what may be added and what a task may be
   // pointed at, so the lists are rebuilt rather than left saying something else.
@@ -1693,6 +1711,10 @@ let PROVIDERS=[], PROVIDER_KINDS=[];
 // block and runs its tasks either way.
 let SHOW_BETA=false;
 function betaAllowed(){ return SHOW_BETA; }
+// DEFAULT_WORKING_DIR prefills a new task's directory field (openAdd). Kept in
+// sync with Settings the same way SHOW_BETA is: every /api/settings fetch below
+// updates it, so it is current by the time "+ New task" is clicked.
+let DEFAULT_WORKING_DIR='';
 async function loadProviders(){
   const box=$('#s-providers');
   try{ PROVIDERS=await api('GET','/api/providers')||[]; }catch(e){
@@ -1871,6 +1893,7 @@ async function saveSettings(){
     idle_timeout_minutes:parseInt($('#s-idle').value||'30',10),
     max_run_history:parseInt($('#s-hist').value||'500',10),
     system_prompt:$('#s-sysprompt').value,
+    default_working_dir:$('#s-default-dir').value.trim(),
     prompt_review_disabled:!$('#s-review').checked,
     prompt_review_provider:$('#s-review-provider').value,
     prompt_review_model:$('#s-review-model').value,

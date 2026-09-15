@@ -71,6 +71,7 @@ type settingsPatch struct {
 	promptReviewProv string
 	feedbackProvider string
 	feedbackModel    string
+	defaultWorkDir   string
 	pushoverOn       bool
 	pushoverToken    string
 	pushoverUser     string
@@ -96,6 +97,7 @@ func (p *settingsPatch) register(fs *flag.FlagSet) {
 	fs.StringVar(&p.promptReviewMdl, "prompt-review-model", "", "model for that check (empty = the provider's default model)")
 	fs.StringVar(&p.feedbackProvider, "feedback-provider", "", "provider the feedback assistant drafts on (empty = the default provider)")
 	fs.StringVar(&p.feedbackModel, "feedback-model", "", "model it drafts with (empty = claudeq's own small, fast choice)")
+	fs.StringVar(&p.defaultWorkDir, "default-working-dir", "", "prefills a new task's working directory (empty = no prefill)")
 	fs.BoolVar(&p.pushoverOn, "pushover", false, "send notifications to Pushover")
 	fs.StringVar(&p.pushoverToken, "pushover-token", "", "Pushover API token")
 	fs.StringVar(&p.pushoverUser, "pushover-user", "", "Pushover user key")
@@ -166,6 +168,9 @@ func (p settingsPatch) apply(s store.Settings) (store.Settings, error) {
 	if p.set["feedback-model"] {
 		s.FeedbackModel = p.feedbackModel
 	}
+	if p.set["default-working-dir"] {
+		s.DefaultWorkingDir = p.defaultWorkDir
+	}
 	if p.set["pushover"] {
 		s.Pushover.Enabled = p.pushoverOn
 	}
@@ -213,6 +218,7 @@ type settingsView struct {
 	PromptReviewModel  string `json:"prompt_review_model"`
 	FeedbackProvider   string `json:"feedback_provider"`
 	FeedbackModel      string `json:"feedback_model"`
+	DefaultWorkingDir  string `json:"default_working_dir"`
 	BetaFeatures       bool   `json:"beta_features"`
 	Paused             bool   `json:"paused"`
 	PushoverEnabled    bool   `json:"pushover_enabled"`
@@ -237,6 +243,7 @@ func newSettingsView(s store.Settings) settingsView {
 		PromptReviewModel:  s.PromptReviewModel,
 		FeedbackProvider:   s.FeedbackProvider,
 		FeedbackModel:      s.FeedbackModel,
+		DefaultWorkingDir:  s.DefaultWorkingDir,
 		BetaFeatures:       s.BetaFeatures,
 		Paused:             s.Paused,
 		PushoverEnabled:    s.Pushover.Enabled,
@@ -262,6 +269,7 @@ func printSettings(s store.Settings) {
 	fmt.Printf("prompt_review_model:       %s\n", orDefault(v.PromptReviewModel, "(the provider's default model)"))
 	fmt.Printf("feedback_provider:         %s\n", orDefault(v.FeedbackProvider, "(the default provider)"))
 	fmt.Printf("feedback_model:            %s\n", orDefault(v.FeedbackModel, "(claudeq's own choice)"))
+	fmt.Printf("default_working_dir:       %s\n", orDefault(v.DefaultWorkingDir, "(none, field starts blank)"))
 	// Shown but not settable here: it decides what the *app* offers, and the CLI
 	// accepts every provider either way. Settings → System owns it.
 	fmt.Printf("beta_features:             %s (app only)\n", boolLabel(v.BetaFeatures))
