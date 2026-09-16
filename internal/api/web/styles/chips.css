@@ -1,0 +1,21 @@
+/* Chips / pills */
+.chip { font-size:11px; font-weight:600; padding:2px 8px; border-radius:20px; background:var(--seg-bg); color:var(--fg2); }
+.hint-time { cursor:help; text-decoration:underline dotted; text-underline-offset:2px; text-decoration-color:var(--fg2); }
+.chip.accent { background:color-mix(in srgb, var(--accent) 18%, transparent); color:var(--accent); }
+.chip.warn { background:color-mix(in srgb, var(--warn) 18%, transparent); color:var(--warn); }
+.chip.danger { background:color-mix(in srgb, var(--danger) 18%, transparent); color:var(--danger); }
+.chip.beta { background:color-mix(in srgb, var(--ai) 18%, transparent); color:var(--ai); }
+.chip.running { background:color-mix(in srgb, var(--accent) 18%, transparent); color:var(--accent); }
+.chip.running::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--accent); margin-right:5px; vertical-align:middle; animation:cqpulse 1.2s ease-in-out infinite; }
+@keyframes cqpulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+.pill { font-size:11px; font-weight:600; padding:3px 9px; border-radius:20px; display:inline-flex; align-items:center; gap:5px; }
+.pill .d { width:6px; height:6px; border-radius:50%; }
+.pill.success{ background:color-mix(in srgb,var(--ok) 16%,transparent); color:var(--ok); }
+.pill.failed,.pill.auth_error{ background:color-mix(in srgb,var(--danger) 16%,transparent); color:var(--danger); }
+.pill.rate_limited_waiting{ background:color-mix(in srgb,var(--warn) 18%,transparent); color:var(--warn); }
+.pill.running{ background:color-mix(in srgb,var(--running) 16%,transparent); color:var(--running); }
+.pill.canceled{ background:color-mix(in srgb,var(--warn) 16%,transparent); color:var(--warn); }
+.pill.success .d{background:var(--ok)} .pill.failed .d,.pill.auth_error .d{background:var(--danger)}
+.pill.rate_limited_waiting .d{background:var(--warn)} .pill.running .d{background:var(--running)}
+.pill.canceled .d{background:var(--warn)}
+.unread-dot { width:8px; height:8px; border-radius:50%; background:var(--accent); flex-shrink:0; }

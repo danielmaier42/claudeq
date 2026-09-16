@@ -1,0 +1,28 @@
+/* Sidebar (source list) */
+.sidebar {
+  width:220px; flex-shrink:0; background:var(--sidebar); backdrop-filter:saturate(180%) blur(20px);
+  -webkit-backdrop-filter:saturate(180%) blur(20px);
+  border-right:.5px solid var(--hairline); padding:14px 10px; display:flex; flex-direction:column;
+}
+.brand { display:flex; align-items:center; gap:9px; padding:4px 6px 14px; }
+.brand .logo { width:32px; height:32px; border-radius:7px; display:block; flex:none; }
+.brand b { font-size:14px; letter-spacing:.2px; }
+.nav { display:flex; flex-direction:column; gap:2px; }
+.nav button {
+  display:flex; align-items:center; gap:9px; width:100%; text-align:left; border:none; cursor:pointer;
+  background:none; color:var(--fg); padding:6px 8px; border-radius:7px; font-size:13px; font-weight:500;
+}
+.nav button:hover { background:rgba(120,120,128,.12); }
+.nav button.active { background:var(--accent); color:#fff; }        /* always white, like macOS */
+.nav button.active svg { stroke:#fff; }
+.nav svg { width:16px; height:16px; stroke:var(--fg2); stroke-width:1.8; fill:none; flex-shrink:0; }
+.nav .count { margin-left:auto; background:var(--danger); color:#fff; font-size:11px; font-weight:600;
+              min-width:18px; height:18px; border-radius:9px; display:grid; place-items:center; padding:0 5px; }
+.nav .count[hidden] { display:none; }
+.nav button.active .count { background:rgba(255,255,255,.3); }
+/* The feedback entry sits at the bottom of the sidebar; it opens a sheet
+   instead of switching tabs, so it lives in its own nav block. */
+.nav-foot { margin-top:auto; }
+.nav-foot + .side-foot { margin-top:0; }
+.side-foot { margin-top:auto; display:flex; align-items:center; gap:7px; padding:8px; color:var(--fg2); font-size:12px; }
+.side-foot .dot { width:8px; height:8px; border-radius:50%; background:var(--ok); }

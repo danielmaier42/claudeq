@@ -1,0 +1,11 @@
+.meter { height:8px; border-radius:6px; background:var(--seg-bg); overflow:hidden; width:100%; margin-top:8px; }
+.meter > span { display:block; height:100%; border-radius:6px; background:var(--accent); transition:width .3s; }
+.usage-num { font-size:30px; font-weight:700; letter-spacing:-.5px; }
+/* Bars and x-labels are two separate grids sharing the same columns, so a bar's
+   height can never shift a label — labels live in their own single row. */
+.chart { padding:16px 16px 12px; }
+.plot { display:grid; align-items:end; gap:3px; height:78px; }
+.plot .bar { width:58%; justify-self:center; border-radius:3px 3px 0 0; background:var(--accent); transition:filter .12s; }
+.plot .bar:hover { filter:brightness(1.15); }
+.xlabels { display:grid; gap:3px; margin-top:8px; }
+.xl { text-align:center; font-size:10px; color:var(--fg2); white-space:nowrap; min-width:0; }

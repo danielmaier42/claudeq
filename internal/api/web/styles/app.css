@@ -1,0 +1,30 @@
+/* The dashboard's stylesheet, assembled from one file per concern: the design
+   tokens and the shared primitives first, then one file per component. A
+   component's rules live next to its code, so swapping how something looks is
+   a matter of opening that component — and swapping the whole design means
+   swapping tokens.css and the primitives, not hunting through one long file.
+   The order below is the cascade: primitives before the components that lean
+   on them. */
+@import "tokens.css";
+@import "base.css";
+@import "../components/sidebar/sidebar.css";
+@import "layout.css";
+@import "buttons.css";
+@import "list.css";
+@import "switch.css";
+@import "segmented.css";
+@import "../components/settings/settings.css";
+@import "chips.css";
+@import "../components/activity/activity.css";
+@import "forms.css";
+@import "banner.css";
+@import "../components/update/update.css";
+@import "empty.css";
+@import "sheet.css";
+@import "../components/artifacts/artifacts.css";
+@import "../components/log-sheet/log-sheet.css";
+@import "../components/task-sheet/task-sheet.css";
+@import "../components/review/review.css";
+@import "toast.css";
+@import "../components/usage/usage.css";
+@import "tooltip.css";

@@ -1226,7 +1226,10 @@ as they happen and capture the session id, token usage, and cost from the final
 result. The daemon also spawns a second, far smaller kind of `claude` call for
 the [prompt review](#the-prompt-review): one turn, no tools, no session. ClaudeQ
 performs **no Git operations** — any branch/commit behavior is driven entirely by
-your prompts and the repo's own configuration. The full design, decisions, and
+your prompts and the repo's own configuration. The dashboard itself is plain ES
+modules with no build step and no framework: design tokens and shared primitives
+under `styles/`, and one directory per component holding its markup, its style
+and its code together. The full design, decisions, and
 verification notes are in [PLAN.md](PLAN.md).
 
 ## Requirements

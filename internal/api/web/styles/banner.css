@@ -1,0 +1,4 @@
+.warnbar { margin-bottom:16px; padding:12px 14px; border-radius:10px; border:.5px solid color-mix(in srgb, var(--warn,#e8a33d) 55%, transparent);
+  background:color-mix(in srgb, var(--warn,#e8a33d) 14%, transparent); color:var(--fg); font-size:13px; line-height:1.5; }
+.warnbar b { display:block; margin-bottom:4px; }
+.warnbar code { display:block; margin-top:8px; padding:8px 10px; border-radius:7px; background:var(--card-2); font-size:12px; white-space:pre-wrap; word-break:break-all; user-select:all; }

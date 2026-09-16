@@ -1,0 +1,6 @@
+/* cursor-following tooltip (native title= tooltips don't render in WKWebView) */
+.tip { position:fixed; z-index:1000; pointer-events:none; background:var(--fg); color:var(--bg);
+       font-size:12px; font-weight:500; padding:5px 9px; border-radius:7px; box-shadow:0 4px 14px rgba(0,0,0,.28);
+       /* popover resets: shown via showPopover() so it paints above modal <dialog>s (top layer) */
+       margin:0; inset:auto; border:0; overflow:visible; width:max-content; max-width:min(340px,calc(100vw - 24px));
+       white-space:pre-line; }

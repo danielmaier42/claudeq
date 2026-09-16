@@ -1,0 +1,7 @@
+/* Sub-tabs inside the Settings pane: a full-width segmented control */
+.subtabs { display:flex; width:100%; margin-bottom:18px; }
+.subtabs button { flex:1; font-size:13px; padding:6px 10px; }
+/* Red dot on the tab that holds an announcement (currently: an update) */
+.subtabs .dot { display:inline-block; width:7px; height:7px; border-radius:50%;
+                background:var(--danger); margin-left:6px; vertical-align:1px; }
+.subtabs .dot[hidden] { display:none; }

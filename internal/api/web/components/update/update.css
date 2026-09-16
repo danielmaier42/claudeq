@@ -1,0 +1,4 @@
+/* Update banner: release notes + action buttons */
+.warnbar .upd-notes { margin-top:8px; max-height:132px; overflow:auto; padding:8px 10px; border-radius:7px;
+  background:var(--card-2); font-size:12px; line-height:1.5; white-space:pre-wrap; word-break:break-word; }
+.warnbar .upd-actions { display:flex; align-items:center; gap:8px; margin-top:12px; flex-wrap:wrap; }

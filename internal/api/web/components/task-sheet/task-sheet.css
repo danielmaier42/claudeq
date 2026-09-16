@@ -1,0 +1,8 @@
+#addSheet { width:720px; }
+#f-prompt { min-height:190px; }
+.hint { font-size:12px; color:var(--fg2); margin-top:6px; }
+.cron-help .mono { font-family:"SF Mono",ui-monospace,Menlo,monospace; }
+input.bad { border-color:var(--danger); }
+.cron-status.bad { color:var(--danger); }
+.cron-help span[data-tip] { font-family:"SF Mono",ui-monospace,Menlo,monospace; cursor:help;
+  text-decoration:underline dotted; text-underline-offset:2px; text-decoration-color:var(--fg2); }
