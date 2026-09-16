@@ -170,9 +170,14 @@
   .act-list { display:flex; flex-direction:column; gap:8px; }
   /* One piece of work, shown as one thing: a fan-out and the join that combines
      it belong together, not scattered among unrelated runs. */
-  .wf-group { display:flex; flex-direction:column; gap:8px; padding:10px 10px 12px;
+  /* The box lines up with an ungrouped run's card (past the dot gutter on the
+     left, the mark-read gutter on the right), so a workflow reads as the same
+     column of work, not as a wider band. Its runs sit inside it with one even
+     inset, which is why their dot and eye move into the card. */
+  .wf-group { display:flex; flex-direction:column; gap:7px; margin:0 32px 0 18px; padding:7px;
               border-radius:11px; background:var(--card-2); box-shadow:var(--shadow); }
-  .wf-head { display:flex; align-items:center; gap:8px; padding:0 2px 2px; }
+  .wf-head { display:flex; align-items:center; gap:8px; padding:2px 3px 1px; }
+  .wf-group .act-card .act-gl { width:8px; }
   .wf-label { font-size:11px; font-weight:600; color:var(--fg2); text-transform:uppercase; letter-spacing:.4px; }
   .act-line { display:flex; align-items:center; gap:8px; }
   .act-gl { width:10px; flex:none; display:flex; justify-content:center; }
@@ -1155,12 +1160,14 @@ function workflowGroup(group){
   head.innerHTML=`<span class="wf-label">Workflow</span><span class="sub">${ordered.length} runs · ${relTime(ordered[ordered.length-1].started_at)}</span>`
     +(unread?`<span class="chip accent">${unread} unread</span>`:'');
   box.append(head);
-  ordered.forEach(r=>box.append(runLine(r)));
+  ordered.forEach(r=>box.append(runLine(r,true)));
   return box;
 }
 
-// runLine renders one run's row.
-function runLine(r){
+// runLine renders one run's row. Inside a workflow box (inset) the unread dot
+// and the mark-read eye move into the card itself, so the box keeps one even
+// inset on every side instead of two gutters of different widths.
+function runLine(r,inset){
   const line=el('div','act-line');
   const gl=el('div','act-gl'); if(r.unread) gl.append(el('div','unread-dot'));
   const card=el('div','act-card');
@@ -1174,7 +1181,8 @@ function runLine(r){
     cx.title='Drop the scheduled resume so this task does not start again'; cx.onclick=()=>cancelResume(r); actions.append(cx); }
   card.append(grow,actions,pill);   // status pill right-aligned (last)
   const gr=el('div','act-gr'); if(r.unread){ const mr=el('button','eye-btn',EYE); mr.title='Mark read'; mr.onclick=()=>readRun(r.run_id); gr.append(mr); }
-  line.append(gl,card,gr);
+  if(inset){ card.prepend(gl); if(r.unread) actions.prepend(gr.firstChild); line.append(card); }
+  else line.append(gl,card,gr);
   return line;
 }
 // runProviderText names the harness a run used, with the model it used there —
@@ -2097,7 +2105,7 @@ function setConn(ok){ CONN_OK=ok; $('#connDot').style.background=ok?'var(--ok)':
 // version once known (falling back to "disconnected" when the dot is red).
 function renderConnText(){
   const t=$('#connText'); if(!t) return;
-  t.textContent = CONN_OK ? (UPDATE&&UPDATE.current?('v'+UPDATE.current):'connected') : 'disconnected';
+  t.textContent = CONN_OK ? (UPDATE&&UPDATE.current?(UPDATE.supported?('v'+UPDATE.current):UPDATE.current):'connected') : 'disconnected';
 }
 
 // Surface a broken scheduled-wake setup so timed runs don't silently miss, and
