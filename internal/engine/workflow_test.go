@@ -122,18 +122,48 @@ func TestJoinRunsEvenWhenAChildFailed(t *testing.T) {
 	}
 }
 
-// TestARateLimitedChildHoldsTheJoin: its session is scheduled to continue, so
-// its answer is still coming and the join has to wait for it.
-func TestARateLimitedChildHoldsTheJoin(t *testing.T) {
+// TestARateLimitedChildReleasesTheJoin: a child's allowance may reopen in
+// minutes, or in days for a weekly usage limit — nothing tells the engine
+// which, so the join must not sit and wait for it to resume. It runs with
+// whatever the child reported, same as an outright failure would. The child
+// and the join sit on different providers, so it is the dependency logic under
+// test, not the rate-limited provider's own gate holding the join back too.
+func TestARateLimitedChildReleasesTheJoin(t *testing.T) {
 	fc := clock.NewFake(time.Date(2026, 9, 14, 3, 0, 0, 0, time.UTC))
-	r := &stub{result: func(req executor.Request, call int) provider.Result {
-		if req.Task.ID == "a" && call == 1 {
+	claude := &healthAdapter{health: provider.Health{State: provider.HealthReady}}
+	codex := &kindAdapter{
+		healthAdapter: &healthAdapter{health: provider.Health{State: provider.HealthReady}},
+		kind:          provider.KindCodex, name: "Codex",
+	}
+	checker := &provider.Checker{Registry: provider.NewRegistry(claude, codex), TTL: time.Nanosecond}
+	r := &stub{result: func(req executor.Request, _ int) provider.Result {
+		if req.Provider.ID == "codex" {
 			return provider.Result{Status: store.StatusRateLimited, SessionID: req.SessionID, RetryAfter: time.Hour}
 		}
-		return provider.Result{Status: store.StatusSuccess, SessionID: req.SessionID, FinalOutput: "eventually"}
+		return provider.Result{Status: store.StatusSuccess, SessionID: req.SessionID, FinalOutput: "ok"}
 	}}
-	e, st := newTestEngine(t, r, fc)
-	saveTasks(t, st, childTask("a"), joinTask("a"))
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	e := New(st, limit.NewGates(fc), r, fc, checker)
+	var runN, sessN int
+	e.newRunID = func() string { runN++; return fmt.Sprintf("run-%d", runN) }
+	e.newSessionID = func() string { sessN++; return fmt.Sprintf("sess-%d", sessN) }
+
+	child := childTask("a")
+	child.Provider = "codex"
+	join := joinTask("a")
+	join.Provider = store.DefaultProviderID
+	if err := st.SaveConfig(store.Config{
+		Providers: []store.Provider{
+			{ID: store.DefaultProviderID, Kind: store.DefaultProviderKind, Name: "Claude", Enabled: true},
+			{ID: "codex", Kind: string(provider.KindCodex), Name: "Codex", Enabled: true},
+		},
+		Tasks: []task.Task{child, join},
+	}); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
 
 	if err := e.Tick(context.Background()); err != nil {
 		t.Fatalf("Tick 1: %v", err)
@@ -144,28 +174,13 @@ func TestARateLimitedChildHoldsTheJoin(t *testing.T) {
 		t.Fatalf("Tick 2: %v", err)
 	}
 	e.WaitIdle()
-	if got := len(r.requests()); got != 1 {
-		t.Fatalf("%d runs, want the join held while the child waits to resume", got)
-	}
-
-	// The gate reopens, the child finishes, and only then does the join go.
-	fc.Advance(2 * time.Hour)
-	if err := e.Tick(context.Background()); err != nil {
-		t.Fatalf("Tick 3: %v", err)
-	}
-	e.WaitIdle()
-	fc.Advance(time.Minute)
-	if err := e.Tick(context.Background()); err != nil {
-		t.Fatalf("Tick 4: %v", err)
-	}
-	e.WaitIdle()
 
 	reqs := r.requests()
-	if len(reqs) != 3 || reqs[2].Task.ID != "join" {
-		t.Fatalf("expected resume then join, got %d runs", len(reqs))
+	if len(reqs) != 2 || reqs[1].Task.ID != "join" {
+		t.Fatalf("the join did not run after a rate-limited child: %d runs", len(reqs))
 	}
-	if !strings.Contains(reqs[2].Task.Prompt, "eventually") {
-		t.Errorf("the join did not get the resumed child's answer:\n%s", reqs[2].Task.Prompt)
+	if !strings.Contains(reqs[1].Task.Prompt, "rate limit") {
+		t.Errorf("the join was not told the child is waiting out a rate limit:\n%s", reqs[1].Task.Prompt)
 	}
 }
 

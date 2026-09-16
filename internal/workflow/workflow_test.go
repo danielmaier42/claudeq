@@ -52,12 +52,13 @@ func TestAFailedDependencyStillReleasesTheJoin(t *testing.T) {
 	}
 }
 
-// TestARateLimitedDependencyIsNotDone: the session is scheduled to continue, so
-// its answer is still coming.
-func TestARateLimitedDependencyIsNotDone(t *testing.T) {
+// TestARateLimitedDependencyReleasesTheJoin: its allowance may reopen in
+// minutes or, for a weekly usage limit, days — a join has no way to tell which,
+// so it must not block on it either way.
+func TestARateLimitedDependencyReleasesTheJoin(t *testing.T) {
 	deps := Resolve(join("a"), nil, []store.Run{run("a", "job", store.StatusRateLimited, "")})
-	if ok, waiting := Ready(deps); ok {
-		t.Fatalf("a job waiting out a rate limit counted as finished (waiting = %v)", waiting)
+	if ok, waiting := Ready(deps); !ok {
+		t.Fatalf("a job waiting out a rate limit kept the join waiting (waiting = %v)", waiting)
 	}
 	if got := deps[0].Status(); !strings.Contains(got, "rate limit") {
 		t.Errorf("status = %q, want it to say what it is waiting for", got)
