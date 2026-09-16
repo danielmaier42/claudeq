@@ -2012,7 +2012,7 @@ async function finishUpdate(){
   if(btn){ btn.disabled=false; btn.textContent='Finish update'; }
 }
 function renderVersionRow(){
-  const v=$('#s-version'); if(v) v.textContent=UPDATE&&UPDATE.current?('v'+UPDATE.current):'';
+  const v=$('#s-version'); if(v) v.textContent=UPDATE&&UPDATE.current?(UPDATE.supported?('v'+UPDATE.current):UPDATE.current):'';
   const sub=$('#s-update-sub');
   if(sub&&UPDATE){
     if(UPDATE.restart_required) sub.textContent='ClaudeQ '+UPDATE.installed+' is installed but not running yet';
