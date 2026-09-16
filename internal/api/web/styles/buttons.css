@@ -1,0 +1,26 @@
+/* Buttons */
+.btn { font:inherit; font-size:13px; border:.5px solid var(--hairline); background:var(--card);
+       color:var(--fg); padding:5px 12px; border-radius:7px; cursor:pointer; box-shadow:0 1px 1px rgba(0,0,0,.04);
+       display:inline-flex; align-items:center; gap:6px; }
+.btn:hover { background:var(--card-2); }
+.btn:active { transform:translateY(.5px); }
+.btn.primary { background:var(--accent); color:#fff; border-color:transparent; }
+.btn.primary:hover { filter:brightness(1.06); }
+.btn.danger { color:var(--danger); }
+/* A control for something claudeq does not consider finished. It gets the
+   suggestion colour and a sparkle, so it never reads as ordinary furniture. */
+.btn.beta { color:var(--ai); font-weight:600; border-color:color-mix(in srgb, var(--ai) 42%, transparent);
+            background:color-mix(in srgb, var(--ai) 8%, var(--card)); }
+.btn.beta:hover { background:color-mix(in srgb, var(--ai) 14%, var(--card)); }
+.btn.beta svg { fill:currentColor; stroke:none; width:15px; height:15px; }
+.btn.small { padding:3px 9px; font-size:12px; }
+.btn:disabled { opacity:.4; cursor:default; }
+.btn[hidden] { display:none; } /* .btn's display would otherwise beat the hidden attribute */
+/* A row that centres one action. Same trap as .btn above: its own display
+   would beat the hidden attribute, so hiding it has to be spelled out. */
+.center-action { display:flex; justify-content:center; margin:16px 0 28px; }
+.center-action[hidden] { display:none; }
+.btn svg { width:14px; height:14px; stroke:currentColor; stroke-width:1.7; fill:none; flex:none; display:block; }
+.btn.iconly { padding:5px 7px; justify-content:center; }
+a.btn { text-decoration:none; }
+.row-actions { display:flex; align-items:center; gap:6px; }

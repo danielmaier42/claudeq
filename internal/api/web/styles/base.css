@@ -1,0 +1,8 @@
+* { box-sizing:border-box; }
+html,body { height:100%; }
+body {
+  margin:0; display:flex; height:100vh; overflow:hidden;
+  font:13px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;
+  color:var(--fg); background:var(--bg);
+  -webkit-font-smoothing:antialiased;
+}

@@ -1,0 +1,13 @@
+/* Claude's suggestions about a prompt (purple, not a warning — nothing is wrong yet) */
+.ai-banner { display:flex; gap:9px; align-items:flex-start; margin-top:9px; padding:10px 12px; border-radius:10px;
+  border:.5px solid color-mix(in srgb, var(--ai) 42%, transparent);
+  background:color-mix(in srgb, var(--ai) 11%, transparent); font-size:12px; line-height:1.5; }
+.ai-banner[hidden] { display:none; }
+.ai-banner .spark { flex:none; line-height:0; margin-top:1px; color:var(--ai); }
+.ai-banner .spark svg { width:15px; height:15px; fill:currentColor; stroke:none; display:block; }
+.ai-banner.busy .spark { animation:cqpulse 1.2s ease-in-out infinite; }
+.ai-banner.busy { color:var(--fg2); }
+.ai-banner .who { font-weight:600; color:var(--ai); }
+.ai-banner .msg { margin-top:2px; white-space:pre-wrap; word-break:break-word; }
+.ai-banner .acts { display:flex; gap:8px; margin-top:9px; }
+.ai-banner .btn.ai { color:var(--ai); font-weight:600; border-color:color-mix(in srgb, var(--ai) 42%, transparent); }

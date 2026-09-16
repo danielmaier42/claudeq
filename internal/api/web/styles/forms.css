@@ -1,0 +1,17 @@
+/* Forms */
+label.fld { display:block; font-size:12px; color:var(--fg2); margin:12px 0 4px; }
+input[type=text], input[type=number], input[type=datetime-local], textarea, select {
+  width:100%; font:inherit; padding:7px 10px; border:.5px solid var(--hairline); border-radius:7px;
+  background:var(--card-2); color:var(--fg); }
+.dir-row { display:flex; gap:8px; align-items:center; }
+.dir-row input { flex:1; }
+.icon-btn { padding:4px 8px; }
+.icon-btn svg { width:15px; height:15px; stroke:currentColor; stroke-width:1.8; fill:none; display:block; }
+/* Selects keep the platform's own control by default, which sits oddly next to
+   the text fields they share a row with. Same box, one chevron drawn in. */
+select { appearance:none; -webkit-appearance:none; padding-right:28px;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%238e8e93' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat:no-repeat; background-position:right 9px center; background-size:12px; }
+input:focus, textarea:focus, select:focus { outline:2px solid color-mix(in srgb,var(--accent) 50%,transparent); outline-offset:-1px; }
+textarea { resize:vertical; }
+.form-row { display:flex; gap:12px; } .form-row > div { flex:1; }

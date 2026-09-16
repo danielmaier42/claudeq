@@ -1,0 +1,17 @@
+/* Grouped inset list */
+.group { background:var(--card); border-radius:11px; box-shadow:var(--shadow); overflow:hidden; margin-bottom:18px; }
+.row { display:flex; align-items:center; gap:12px; padding:11px 15px; border-bottom:.5px solid var(--hairline); }
+.row:last-child { border-bottom:none; }
+.grow { flex:1; min-width:0; }
+.row .title { font-weight:500; }
+/* Queue rows: the name is cut with an ellipsis, the chips keep their width. */
+.row .title.task-title { display:flex; align-items:center; gap:6px; }
+.row .task-title .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:8ch; }
+.row .task-title .chip { flex:none; }
+/* Task flags sit on their own line below the name, so long names keep the width. */
+.row .task-tags { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+.row .sub { color:var(--fg2); font-size:12px; margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* a row whose explanation is worth more than one clamped line */
+.row .sub.multi { overflow:visible; text-overflow:clip; white-space:normal; max-width:62ch; }
+.row .mono { font-family:"SF Mono",ui-monospace,Menlo,monospace; }
+.row .sub .cron[data-tip] { cursor:help; text-decoration:underline dotted; text-underline-offset:2px; text-decoration-color:var(--fg2); }

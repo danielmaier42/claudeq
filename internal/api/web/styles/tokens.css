@@ -1,0 +1,25 @@
+:root {
+  --accent:#007aff;
+  --bg:#f2f2f7; --sidebar:rgba(245,245,247,.8); --card:#ffffff; --card-2:#fbfbfd;
+  --fg:#1d1d1f; --fg2:#6e6e73; --hairline:rgba(0,0,0,.10);
+  --seg-bg:rgba(120,120,128,.12); --seg-active:#fff; --switch-off:rgba(120,120,128,.32);
+  --ok:#34c759; --warn:#ff9f0a; --danger:#ff3b30; --running:#007aff;
+  --ai:#7c3aed;                      /* suggestions come from Claude, so they get their own colour */
+  --shadow:0 1px 3px rgba(0,0,0,.08),0 6px 20px rgba(0,0,0,.06);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent:#0a84ff; --bg:#1c1c1e; --sidebar:rgba(30,30,32,.72); --card:#2c2c2e; --card-2:#252527;
+    --fg:#f5f5f7; --fg2:#98989d; --hairline:rgba(255,255,255,.12);
+    --seg-bg:rgba(120,120,128,.24); --seg-active:#636366; --switch-off:rgba(120,120,128,.5);
+    --ok:#30d158; --warn:#ff9f0a; --danger:#ff453a; --running:#0a84ff;
+    --ai:#bf9dff;
+    --shadow:0 1px 3px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
+  }
+}
+/* Follow the user's macOS accent color when the browser exposes it: WebKit
+   (the app's WKWebView, and Safari) reflects the macOS accent live and
+   instantly, with a blue fallback where the system color is unsupported. */
+@supports (color: AccentColor) {
+  :root { --accent: AccentColor; }
+}

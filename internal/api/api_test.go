@@ -833,8 +833,31 @@ func TestServesDashboard(t *testing.T) {
 	if r.Status != http.StatusOK {
 		t.Fatalf("dashboard status = %d", r.Status)
 	}
-	if !bytes.Contains(r.Body, []byte("claudeq")) {
-		t.Fatal("dashboard HTML should mention claudeq")
+	if !bytes.Contains(r.Body, []byte("ClaudeQ")) {
+		t.Fatal("dashboard HTML should mention ClaudeQ")
+	}
+	// The page is a shell: its stylesheet and its module entry point pull in
+	// everything else, so serving them is what makes it a dashboard.
+	for _, ref := range []string{"/styles/app.css", "/main.js"} {
+		if !bytes.Contains(r.Body, []byte(ref)) {
+			t.Fatalf("dashboard HTML should load %s", ref)
+		}
+	}
+}
+
+// The dashboard is split across a tree of component files. Embedding only the
+// top level would still serve a page — an empty one — so check that a file from
+// each nested directory comes back.
+func TestServesDashboardAssets(t *testing.T) {
+	srv, _ := newServer(t, nil)
+	for _, path := range []string{"/main.js", "/styles/app.css", "/styles/tokens.css", "/core/dom.js", "/components/queue/queue.js", "/components/sidebar/sidebar.css"} {
+		r := do(t, srv, "GET", path, nil)
+		if r.Status != http.StatusOK {
+			t.Fatalf("GET %s = %d, want 200", path, r.Status)
+		}
+		if len(r.Body) == 0 {
+			t.Fatalf("GET %s served an empty file", path)
+		}
 	}
 }
 

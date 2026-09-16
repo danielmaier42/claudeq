@@ -1,0 +1,7 @@
+/* Toasts */
+#toasts { position:fixed; bottom:18px; right:18px; display:flex; flex-direction:column; gap:8px; z-index:50; }
+.toast { background:var(--card); border:.5px solid var(--hairline); box-shadow:var(--shadow); border-radius:10px;
+         padding:10px 14px; font-size:13px; min-width:200px; animation:slidein .18s ease; display:flex; gap:8px; align-items:center; }
+.toast .bar { width:3px; align-self:stretch; border-radius:3px; background:var(--accent); }
+.toast.err .bar { background:var(--danger); } .toast.ok .bar { background:var(--ok); }
+@keyframes slidein { from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none} }
