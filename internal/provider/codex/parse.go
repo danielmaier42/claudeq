@@ -2,7 +2,9 @@ package codex
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/danielmaier42/claudeq/internal/provider"
 )
@@ -129,10 +131,16 @@ func (p *parser) terminalFailure() provider.Event {
 	case isAuthFailure(detail):
 		return provider.Event{Type: provider.EventAuthFailed, Detail: summarize(detail)}
 	case isRateLimit(detail):
-		// The 429 the spike captured carried neither a reset time nor a
-		// Retry-After value, so no timing is reported and the engine falls back
-		// to its own backoff for this provider instance.
-		return provider.Event{Type: provider.EventRateLimited, Detail: summarize(detail)}
+		// A transport 429 carries neither a reset time nor a Retry-After value, so
+		// no timing is reported and the engine falls back to its own backoff for
+		// this provider instance. A ChatGPT-plan usage limit instead spells out
+		// its own reset ("try again at ..."), worth reading rather than retrying
+		// every few minutes against a limit that can be days out.
+		ev := provider.Event{Type: provider.EventRateLimited, Detail: summarize(detail)}
+		if at, ok := parseUsageLimitReset(detail); ok {
+			ev.ResetAt = at
+		}
+		return ev
 	case isModelRejected(detail):
 		return provider.Event{Type: provider.EventModelRejected, Detail: summarize(detail)}
 	default:
@@ -147,7 +155,28 @@ func isAuthFailure(msg string) bool {
 func isRateLimit(msg string) bool {
 	lower := strings.ToLower(msg)
 	return strings.Contains(msg, "429") || strings.Contains(lower, "too many requests") ||
-		strings.Contains(lower, "rate_limit_exceeded")
+		strings.Contains(lower, "rate_limit_exceeded") || strings.Contains(lower, "usage limit")
+}
+
+// usageLimitResetPattern matches the reset Codex names in a usage-limit message,
+// e.g. "...or try again at Sep 19th, 2026 12:25 PM.". The ordinal suffix on the
+// day is stripped before parsing.
+var usageLimitResetPattern = regexp.MustCompile(`try again at ([A-Za-z]{3,9}) (\d{1,2})(?:st|nd|rd|th)?,? (\d{4}) (\d{1,2}:\d{2} [AP]M)`)
+
+// parseUsageLimitReset extracts the reset time a usage-limit message names, in
+// the daemon's local zone — the only zone the message itself works in, since it
+// carries no offset of its own.
+func parseUsageLimitReset(msg string) (time.Time, bool) {
+	m := usageLimitResetPattern.FindStringSubmatch(msg)
+	if m == nil {
+		return time.Time{}, false
+	}
+	text := m[1] + " " + m[2] + " " + m[3] + " " + m[4]
+	at, err := time.ParseInLocation("Jan 2 2006 3:04 PM", text, time.Local)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return at, true
 }
 
 // isModelRejected recognises the shape the spike captured: a terminal 400 whose

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/danielmaier42/claudeq/internal/provider"
 	"github.com/danielmaier42/claudeq/internal/store"
@@ -75,6 +76,10 @@ func TestParseCapturedRuns(t *testing.T) {
 			name: "too many requests", fixture: "rate-limit.jsonl", exitCode: 1,
 			wantStatus: store.StatusRateLimited,
 		},
+		{
+			name: "a ChatGPT-plan usage limit", fixture: "usage-limit.jsonl", exitCode: 1,
+			wantStatus: store.StatusRateLimited,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -115,6 +120,17 @@ func TestRateLimitCarriesNoInventedTiming(t *testing.T) {
 	got := runFixture(t, "rate-limit.jsonl", 1)
 	if got.RetryAfter != 0 || !got.ResetAt.IsZero() {
 		t.Fatalf("timing = %v / %v, want none reported", got.RetryAfter, got.ResetAt)
+	}
+}
+
+// TestUsageLimitReportsItsOwnResetTime: unlike the transport 429, a ChatGPT-plan
+// usage limit names its own reset in the message, and the adapter reads it
+// instead of falling back to a blind backoff that would retry for days.
+func TestUsageLimitReportsItsOwnResetTime(t *testing.T) {
+	got := runFixture(t, "usage-limit.jsonl", 1)
+	want := time.Date(2026, time.September, 19, 12, 25, 0, 0, time.Local)
+	if !got.ResetAt.Equal(want) {
+		t.Fatalf("reset = %v, want %v", got.ResetAt, want)
 	}
 }
 
@@ -190,6 +206,11 @@ func TestFailureClassification(t *testing.T) {
 	}{
 		{name: "unauthorized", message: "unexpected status 401 Unauthorized", want: provider.EventAuthFailed},
 		{name: "too many requests", message: "exceeded retry limit, last status: 429 Too Many Requests", want: provider.EventRateLimited},
+		{
+			name:    "a ChatGPT-plan usage limit",
+			message: "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 12:25 PM.",
+			want:    provider.EventRateLimited,
+		},
 		{
 			name:    "an unsupported model",
 			message: `{"status":400,"error":{"type":"invalid_request_error","message":"The 'x' model is not supported"}}`,

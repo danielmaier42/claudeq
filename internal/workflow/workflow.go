@@ -24,8 +24,11 @@ type Dependency struct {
 	JobID string
 	// Name is what that job was called, for the context block and the queue.
 	Name string
-	// Done reports whether it has reached a terminal result. A job still
-	// running, or paused on a rate limit and scheduled to resume, has not.
+	// Done reports whether a dependent job may stop waiting on this one. That is
+	// a terminal result, but also a job paused on a rate limit: its allowance can
+	// reopen in minutes or, for a weekly usage limit, days, and a join has no way
+	// to tell which — so it must not block on it either way. Only a job still
+	// actually running counts as not done.
 	Done bool
 	// Run is its latest run, when there is one.
 	Run store.Run
@@ -42,10 +45,9 @@ func (d Dependency) Status() string {
 	switch {
 	case d.Missing:
 		return "no result recorded"
+	case d.Run.Status == store.StatusRateLimited:
+		return "waiting to resume after a rate limit"
 	case !d.Done:
-		if d.Run.Status == store.StatusRateLimited {
-			return "waiting to resume after a rate limit"
-		}
 		if d.Run.RunID == "" {
 			return "not started yet"
 		}
@@ -76,7 +78,8 @@ func Resolve(t task.Task, tasks []task.Task, runs []store.Run) []Dependency {
 		queuedTask, stillQueued := queued[id]
 		switch {
 		case ranAtAll:
-			d.Run, d.Name, d.Done = run, run.TaskName, run.Status.Terminal()
+			d.Run, d.Name = run, run.TaskName
+			d.Done = run.Status.Terminal() || run.Status == store.StatusRateLimited
 			if d.Name == "" {
 				d.Name = id
 			}
