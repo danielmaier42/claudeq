@@ -149,7 +149,6 @@ function appendLogEvent(box, ev){
   return 0;
 }
 
-/* ---- Artifacts ---- */
 
 // The sheet that shows one run as a chat or as its raw log.
 const sheetTemplate = `

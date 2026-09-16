@@ -5,6 +5,12 @@ import {$, el, esc} from '../../core/dom.js';
 import {modelOptionsFrom} from '../../core/models.js';
 import {toast} from '../../core/toast.js';
 
+/* ---- Providers ----
+   One card per configured harness. The card is the only place the binary path,
+   the configuration directory and the provider's default model live, so there
+   is exactly one answer to "which claude does ClaudeQ run?". Readiness comes
+   from the daemon, which probes the CLI itself — the card never guesses. */
+
 const PROVIDER_STATE={
   ready:        ['ok',   'Ready'],
   not_installed:['err',  'Not installed'],
@@ -38,7 +44,7 @@ export function betaAllowed(){ return SHOW_BETA; }
 export let DEFAULT_WORKING_DIR='';
 export async function loadProviders(){
   const box=$('#s-providers');
-  try{ PROVIDERS=await api('GET','/api/providers')||[]; }catch(e){
+  try{ setProviderSnapshot({providers:await api('GET','/api/providers')||[]}); }catch(e){
     if(box) box.innerHTML=`<div class="group"><div class="row"><div class="grow"><div class="sub">${esc(e.message)}</div></div></div></div>`;
     return; }
   if(!PROVIDER_KINDS.length){ try{ PROVIDER_KINDS=await api('GET','/api/providers/kinds')||[]; }catch{} }

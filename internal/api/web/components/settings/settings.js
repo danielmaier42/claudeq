@@ -9,6 +9,10 @@ import {SAVE, SPARK} from '../../core/icons.js';
 import {modelOptions, optionsFor} from '../../core/models.js';
 import {toast} from '../../core/toast.js';
 
+// The Settings pane is split into sub-tabs. Every pane is rendered and stays in
+// the DOM — only its visibility is toggled — so Save always sees all fields and
+// the update banner keeps working whichever pane is open.
+
 // The Settings view's review controller lives here, so leaving the tab can stop
 // a review in flight instead of letting the daemon run it out.
 let settingsReview=null;
@@ -213,11 +217,6 @@ function fillAsidePickers(reviewProvider, reviewModel, feedbackProvider, feedbac
   fillAsideChoices($('#s-feedback-provider'), $('#s-feedback-model'), feedbackProvider, feedbackModel,
     'ClaudeQ\u2019s choice (a small, fast model)');
 }
-/* ---- Providers ----
-   One card per configured harness. The card is the only place the binary path,
-   the configuration directory and the provider's default model live, so there
-   is exactly one answer to "which claude does ClaudeQ run?". Readiness comes
-   from the daemon, which probes the CLI itself — the card never guesses. */
 function selectSettingsPane(pane){
   if(!SETTINGS_PANES.some(([id])=>id===pane)) pane='general';
   settingsPane=pane;
@@ -277,8 +276,6 @@ async function saveSettings(){
   else toast('Settings saved','ok');
   if(document.querySelector('#s-providers')) loadProviders();
 }
-
-/* ---- Software updates ---- */
 
 export const view={
   title:'Settings',

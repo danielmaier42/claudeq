@@ -89,5 +89,3 @@ export function initTaskReview(){
   $('#f-prompt').addEventListener('input',()=>taskReview.schedule());
   $('#addSheet').addEventListener('close',()=>taskReview.reset());
 }
-
-/* ---- Sharing tasks as .claudeq files (zip: task.json + prompt.md) ---- */

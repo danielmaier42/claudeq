@@ -10,6 +10,9 @@ import {relTime} from '../../core/format.js';
 // When the global rate-limit gate reopens (a Date), or null while it is open.
 export let LIMITED_UNTIL=null;
 let notifWarnFor=null;
+// macOS can accept every notification ClaudeQ posts and still show none of them:
+// an app whose authorization is denied (or never granted) posts into the void.
+// That is invisible from the app's side, so say it out loud.
 function renderNotifyWarn(status){
   const blocked=status==='denied'||status==='not_determined';
   const bar=$('#notifWarn');
@@ -70,11 +73,6 @@ export async function checkHealth(){
   }
   bar.hidden=false;
 }
-
-/* ---- Feedback: chat with Claude, then file the issue on GitHub yourself ----
-   The app never talks to GitHub and holds no token. Claude drafts the issue
-   locally through the Claude Code CLI, the user edits it here, and the last
-   step just opens GitHub's prefilled "new issue" page in the browser. */
 
 // The banners that speak for the machine rather than for a view: a failed wake,
 // notifications that go nowhere, the rate-limit gate. They sit above whichever

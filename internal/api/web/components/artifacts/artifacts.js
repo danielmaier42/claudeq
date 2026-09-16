@@ -161,11 +161,6 @@ async function readArtifact(id){ try{ await api('POST','/api/artifacts/'+encodeU
 async function markAllArtifactsRead(){ try{ await api('POST','/api/artifacts/read-all'); toast('All marked read','ok'); artifactsSig=''; loadArtifacts();}catch(e){toast(e.message,'err');} }
 async function deleteArtifact(a){ if(await confirmSheetAsk('Delete artifact “'+a.title+'”? This removes the stored copy.')){ try{ await api('DELETE','/api/artifacts/'+encodeURIComponent(a.id)); toast('Deleted','ok'); artifactsSig=''; loadArtifacts();}catch(e){toast(e.message,'err');} } }
 
-/* ---- Settings ---- */
-// The Settings pane is split into sub-tabs. Every pane is rendered and stays in
-// the DOM — only its visibility is toggled — so Save always sees all fields and
-// the update banner keeps working whichever pane is open.
-
 export const view={
   title:'Artifacts',
   toolbar(ta){ const b=el('button','btn',EYE+'<span>Mark all read</span>'); b.onclick=markAllArtifactsRead; ta.append(b); },

@@ -3,6 +3,11 @@ import {api} from '../../core/api.js';
 import {$, el, esc, httpsOnly} from '../../core/dom.js';
 import {toast} from '../../core/toast.js';
 
+/* ---- Feedback: chat with Claude, then file the issue on GitHub yourself ----
+   The app never talks to GitHub and holds no token. Claude drafts the issue
+   locally through the Claude Code CLI, the user edits it here, and the last
+   step just opens GitHub's prefilled "new issue" page in the browser. */
+
 let fbInfo=null, fbSession='', fbMode='chat', fbSaid=[], fbLabels=[], fbBusy=false;
 async function openFeedback(){
   fbSession=''; fbSaid=[]; fbLabels=[];
@@ -77,9 +82,6 @@ async function fbOpenIssue(){
   }catch(e){ $('#fb-err').textContent=e.message; }
   finally{ fbSetBusy(false); }
 }
-
-// Keep the artifact unread badge current on every tab; re-render the list when
-// it's the open tab.
 
 export const view={
   title:'Feedback',

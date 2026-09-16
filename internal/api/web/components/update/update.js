@@ -113,7 +113,3 @@ export async function checkForUpdates(){
     else toast('You’re up to date','ok');
   }
 }
-
-// macOS can accept every notification ClaudeQ posts and still show none of them:
-// an app whose authorization is denied (or never granted) posts into the void.
-// That is invisible from the app's side, so say it out loud.

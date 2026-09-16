@@ -111,6 +111,7 @@ export async function setPaused(on){
   tasksSig=''; if(current==='tasks') loadTasks();
 }
 
+/* ---- Sharing tasks as .claudeq files (zip: task.json + prompt.md) ---- */
 async function exportTask(t,btn){
   btn.disabled=true; // one save panel at a time; the row re-renders on the next change anyway
   try{
@@ -141,8 +142,6 @@ function watchNewRun(id){
 async function toggle(id,on){ try{ await api('POST',`/api/tasks/${id}/${on?'disable':'enable'}`); toast(on?'Paused':'Enabled','ok'); loadTasks();}catch(e){toast(e.message,'err');loadTasks()} }
 async function move(id,to){ try{ await api('POST',`/api/tasks/${id}/move?to=${to}`); loadTasks();}catch(e){toast(e.message,'err')} }
 async function del_(id,name){ if(await confirmSheetAsk('Delete task “'+name+'”?')){ try{await api('DELETE',`/api/tasks/${id}`);toast('Deleted','ok');loadTasks();}catch(e){toast(e.message,'err')} } }
-
-/* ---- Activity ---- */
 
 export const view={
   title:'Queue',
