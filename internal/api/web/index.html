@@ -819,7 +819,8 @@ async function fillProviderChoices(providerID, model, effort){
       PROVIDERS=ps||[]; SHOW_BETA=!!st.beta_features;
     }catch{}
   }
-  const offered=PROVIDERS.filter(p=>p.enabled&&p.health&&p.health.state==='ready'&&(!p.beta||betaAllowed()));
+  const offered=PROVIDERS.filter(p=>p.enabled&&p.health&&p.health.state==='ready'&&(!p.beta||betaAllowed()))
+    .sort((a,b)=>(a.name||a.id).localeCompare(b.name||b.id));
   const current=PROVIDERS.find(p=>p.id===providerID);
   if(providerID && current && !offered.some(p=>p.id===providerID)) offered.push(current);
   const dflt=PROVIDERS.find(p=>p.default);
@@ -1747,14 +1748,14 @@ async function loadProviders(){
   if(!PROVIDER_KINDS.length){ try{ PROVIDER_KINDS=await api('GET','/api/providers/kinds')||[]; }catch{} }
   if(!box) return;
   box.innerHTML='';
-  PROVIDERS.forEach(p=>box.append(providerBlock(p)));
+  [...PROVIDERS].sort((a,b)=>(a.name||a.id).localeCompare(b.name||b.id)).forEach(p=>box.append(providerBlock(p)));
   // Adding a provider is one of the parts claudeq does not consider finished,
   // so the button appears only once the operator has asked for those.
   const add=$('#s-provider-add');
   if(add) add.hidden=!betaAllowed();
 }
-// providerBlock is one provider's settings block: its name and kind above it,
-// the way every other group in Settings is introduced.
+// providerBlock is one provider's settings block: its name above it, the way
+// every other group in Settings is introduced.
 function providerBlock(p){
   const wrap=el('div');
   const detected=p.detected?`Detected: ${p.detected}`:'';
@@ -1762,7 +1763,7 @@ function providerBlock(p){
     +(p.default?'<span class="chip">default</span>':'')
     +(p.beta?'<span class="chip beta">beta</span>':'');
   wrap.innerHTML=`
-    <div class="section-label" style="margin-top:18px">${esc(p.name||p.id)} · ${esc(p.type_name||p.kind)}</div>
+    <div class="section-label" style="margin-top:18px">${esc(p.name||p.id)}</div>
     <div class="group">
       <div class="row"><div class="grow">
           <div class="title">${chips}</div>
