@@ -180,7 +180,7 @@ func cmdRun(args []string) error {
 			SaveFile:     api.OSAScriptSaveFileDialog(system.Real{}),
 			OpenTerminal: api.OSAScriptTerminalOpener(system.Real{}),
 			WakeError:    eng.WakeError, WarmFileAccess: warmFileAccess, Updates: updSvc,
-			LimitedUntil: eng.LimitedUntil,
+			LimitedUntil: eng.LimitedUntil, BlockedProviders: eng.BlockedProviders,
 			NotifyStatus: notify.MacAuthorization,
 			Feedback:     feedback.New(asides), OSVersion: osVersion(system.Real{}),
 			Review:   &review.Reviewer{Ask: asides},

@@ -112,3 +112,19 @@ func (g *Gates) BlockedUntil() time.Time {
 	}
 	return earliest
 }
+
+// Blocked returns the provider instance IDs currently waiting out a rate
+// limit, each with the time its own gate reopens. It answers "who is the
+// queue waiting on?" so a banner naming only "the queue" never leaves the
+// operator guessing which account is blocked.
+func (g *Gates) Blocked() map[string]time.Time {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	out := map[string]time.Time{}
+	for id, gate := range g.by {
+		if until := gate.BlockedUntil(); !until.IsZero() {
+			out[id] = until
+		}
+	}
+	return out
+}
