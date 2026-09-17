@@ -240,10 +240,11 @@ sit at the bottom, out of the way of the work:
   continues, and a task whose provider cannot run it carries a red *blocked*
   badge naming what is wrong. An **export** button on each row saves the task as a `.claudeq`
   file via the native save panel, and **Import…** in the toolbar opens such a
-  file in the task sheet for review. Whenever that sheet is open — new task,
-  edit, replay or import — Claude checks the prompt against this Mac and shows
-  what it found in a purple banner under the prompt box, with **Apply** to take
-  the rewrite; see [The prompt review](#the-prompt-review).
+  file in the task sheet for review. Whenever a prompt is written or changed,
+  Claude checks it against this Mac and shows what it found in a purple banner
+  under the prompt box, with **Apply** to take the rewrite; just opening a sheet
+  again shows the earlier finding and costs nothing.
+  See [The prompt review](#the-prompt-review).
 - **Activity** — every run, newest first, with an unread badge for new results.
   Open a run to see the live/finished log as a chat view or raw output, along
   with the prompt; a running task can be stopped from there with **Cancel task**
@@ -1037,10 +1038,10 @@ in both paths and nothing is added.
 ## The prompt review
 
 A prompt written for one Mac rarely fits the next one unchanged, and a task
-queued for 3 a.m. has nobody around to notice. So while the task sheet is open —
-new task, edit, replay or import — ClaudeQ has Claude read the draft prompt
-against *this* machine and, if something is off, shows it in a purple banner
-under the prompt box:
+queued for 3 a.m. has nobody around to notice. So whenever a draft prompt is
+written or changed — in a new task, an edit, a replay or an import — ClaudeQ has
+Claude read it against *this* machine and, if something is off, shows it in a
+purple banner under the prompt box:
 
 > ✦ **ClaudeQ suggests:** docs/spec.md does not exist here, so the run has
 > nothing to read. Also out/weekly.md would be written into an out/ directory
@@ -1090,11 +1091,12 @@ Practicalities:
   this an *aside* — a question it asks a harness on its own behalf rather than
   to do your work — and a provider has to be able to hold one to be offered for
   it. Claude Code can; Codex cannot yet.
-- It re-runs from scratch on every change to the prompt or the working
-  directory, and cancels the review still in flight — including its Claude
-  process — so only the newest answer is ever shown. An answer is remembered
-  for a few minutes, so reopening the same task's sheet costs nothing; any edit
-  is a real review again.
+- It runs on a change, not on a look. Editing the prompt or the working
+  directory starts a review from scratch and cancels the one still in flight —
+  including its Claude process — so only the newest answer is ever shown.
+  Opening a sheet changes nothing, so it asks nothing: an answer is remembered
+  for a day, and reopening the same task, or the app, shows that finding again
+  for free. Typing the old text back is free too.
 - A task sheet without a working directory yet — an imported task, whose folder
   came from another Mac — waits for you to choose one before reviewing, since
   every relative path would otherwise be unresolvable.

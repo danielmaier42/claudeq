@@ -195,7 +195,7 @@ async function loadSettings(){
   const reviewOn=!s.prompt_review_disabled;
   $('#s-review').checked=reviewOn; $('#s-review-model').disabled=!reviewOn;
   $('#s-review').onchange=e=>{ $('#s-review-model').disabled=!e.target.checked; if(!e.target.checked) sysReview.reset(); };
-  if(reviewOn) sysReview.run();
+  if(reviewOn) sysReview.restore();
   $('#s-check-updates').onclick=checkForUpdates;
   $('#s-notif-settings').onclick=openNotificationSettings;
   $('#s-add-provider').onclick=openAddProvider;

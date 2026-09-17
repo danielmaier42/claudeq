@@ -76,7 +76,7 @@ function openSheet(title,submitLabel){ $('#addErr').textContent=''; $('#f-dir-hi
   $('#f-provider-hint').hidden=true; $('#f-provider-hint').textContent='';
   clearTimeout(cronTimer); cronVerdict.expr=null; showCronStatus(null); cronRecheck();
   $('#addSheetTitle').textContent=title; $('#addSubmitBtn').textContent=submitLabel; $('#addSheet').showModal();
-  taskReview.run(); }   // an imported, edited or replayed prompt is reviewed as it opens; an empty new one costs nothing
+  taskReview.restore(); }   // opening a sheet shows an earlier finding about this prompt; a new review is worth Claude usage only once the prompt changes
 export function openAdd(){ taskMode='add'; taskEditId='';
   ['f-name','f-prompt','f-dir','f-at','f-cron'].forEach(x=>$('#'+x).value='');
   $('#f-dir').value=DEFAULT_WORKING_DIR;
