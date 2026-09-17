@@ -1096,14 +1096,15 @@ Practicalities:
   still in flight — including its Claude process — so only the newest answer is
   ever shown. Opening a sheet changes nothing, so it asks nothing: an answer is
   remembered for a day, and reopening the same task, or the app, shows that
-  finding again for free. Typing the old text back is free too. A finding you
-  **Dismiss** is forgotten rather than hidden, so it does not come back; and a
-  hand-typed working directory clears the banner instead of reviewing every
-  half-typed path — the next edit, or the folder picker, asks again.
+  finding again for free, headed *ClaudeQ suggested earlier* and with a **Check
+  again** button for when the machine has moved on — the missing file exists by
+  now — but the prompt has not. Typing the old text back is free too, and a
+  finding you **Dismiss** is forgotten rather than hidden, so it does not come
+  back.
 - Switching the review off hides the banner everywhere, remembered findings
-  included. A finding is also only reused for the reviewer that produced it, so
-  changing the review provider or model never shows an answer the new one did
-  not give.
+  included. A finding is also only ever reused for the reviewer that produced
+  it, so changing the review provider or model — or the default provider the
+  review follows — never replays an answer the new one did not give.
 - A task sheet without a working directory yet — an imported task, whose folder
   came from another Mac — waits for you to choose one before reviewing, since
   every relative path would otherwise be unresolvable.

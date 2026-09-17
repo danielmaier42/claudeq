@@ -37,15 +37,14 @@ function reviewPersist(){
   const m=reviewStore();
   try{ localStorage.setItem(REVIEW_STORE,JSON.stringify([...m].map(([k,v])=>({k,at:v.at,res:v.res})))); }catch{}
 }
-// reviewSettings asks the daemon who reviews, and whether reviews happen at
-// all. It costs nothing (no model is involved), and a remembered finding must
-// not outlive either answer: switching the review off has to clear the banner,
-// and another reviewer may judge the same prompt differently.
-async function reviewSettings(){
-  try{ const s=await api('GET','/api/settings');
-    return {on:!s.prompt_review_disabled,
-            who:(s.prompt_review_provider||'')+'/'+(s.prompt_review_model||'')}; }
-  catch{ return null; }   // unreadable settings say nothing about the prompt
+// reviewContext asks the daemon whether a review can run at all and who would
+// answer it. It costs nothing — no model is involved — and only the daemon can
+// say: "the default provider" resolves to a different account and model as
+// Settings change, and a provider whose CLI is gone cannot review anything. A
+// remembered finding must outlive neither answer.
+async function reviewContext(){
+  try{ return await api('GET','/api/review/context'); }
+  catch{ return null; }   // an unreachable daemon says nothing about the prompt
 }
 
 // reviewKey hashes the question instead of storing it: prompts are long, and the
@@ -76,8 +75,12 @@ export function makeReview({kind,area,banner,dir}){
     banner.innerHTML=`<span class="spark">${SPARK}</span><div class="grow"><span class="who">${esc(who)}</span></div>`;
     return banner.querySelector('.grow'); }
 
-  function show(res,key){
-    const box=head('','ClaudeQ suggests:');
+  // remembered marks a finding that comes from the cache rather than from a
+  // review just made: it is shown as what it is, and can be re-checked on the
+  // spot, because the prompt may be fine by now without the text having changed
+  // (the missing file was created, the folder exists).
+  function show(res,key,remembered){
+    const box=head('',remembered?'ClaudeQ suggested earlier:':'ClaudeQ suggests:');
     box.append(el('div','msg',esc(res.message)));
     const acts=el('div','acts'); box.append(acts);
     if(res.revised_prompt){
@@ -88,10 +91,16 @@ export function makeReview({kind,area,banner,dir}){
     }
     // Dismissed for good: forgetting the answer stops it from coming back the
     // next time this sheet opens, and re-reviewing is one edit away.
-    const no=el('button','btn small','Dismiss'); no.onclick=()=>{ stop(); hide(); reviewForget(key); }; acts.append(no);
+    const no=el('button','btn small','Dismiss'); no.onclick=()=>{ stop(); hide(); if(key) reviewForget(key); }; acts.append(no);
+    if(remembered){
+      const again=el('button','btn small','Check again');
+      again.dataset.tip='Asks Claude about this prompt again. Costs a little usage.';
+      again.onclick=()=>{ if(key) reviewForget(key); run(); };
+      acts.append(again);
+    }
   }
 
-  function render(res,key){ if(res && res.enabled && !res.ok && res.message) show(res,key); else hide(); }
+  function render(res,key,remembered){ if(res && res.enabled && !res.ok && res.message) show(res,key,remembered); else hide(); }
 
   // run asks Claude about what is in the box now; restore only shows what was
   // already found out about it. Opening a sheet uses restore, so looking at a
@@ -101,11 +110,11 @@ export function makeReview({kind,area,banner,dir}){
     const mine=seq;
     const prompt=area.value, workingDir=dir();
     if(!prompt.trim() || (kind==='task' && !workingDir)){ hide(); return; }
-    const st=await reviewSettings();
+    const ctx=await reviewContext();
     if(mine!==seq) return;
-    if(!st || !st.on){ hide(); return; }
-    const key=reviewKey(kind,prompt,workingDir,st.who);
-    render(reviewCached(key),key);
+    if(!ctx || !ctx.enabled){ hide(); return; }   // no review to remember anything about
+    const key=reviewKey(kind,prompt,workingDir,ctx.reviewer);
+    render(reviewCached(key),key,true);
   }
 
   async function run(){
@@ -117,12 +126,15 @@ export function makeReview({kind,area,banner,dir}){
     // unresolvable and bury the sheet's own "choose a folder" hint under it, so
     // the review waits for the folder — chooseFolder starts it.
     if(!prompt.trim() || (kind==='task' && !workingDir)){ hide(); return; }
-    const st=await reviewSettings();
+    // Who reviews is part of the question, so an answer can be filed under it.
+    // When the daemon cannot say, the review still goes ahead — the endpoint
+    // decides anyway — and its answer is simply not remembered.
+    const ctx=await reviewContext();
     if(mine!==seq) return;
-    if(!st || !st.on){ hide(); return; }
-    const key=reviewKey(kind,prompt,workingDir,st.who);
-    const cached=reviewCached(key);
-    if(cached){ render(cached,key); return; }
+    if(ctx && !ctx.enabled){ hide(); return; }
+    const key=ctx?reviewKey(kind,prompt,workingDir,ctx.reviewer):null;
+    const cached=key?reviewCached(key):null;
+    if(cached){ render(cached,key,true); return; }
     ctrl=new AbortController();
     head('busy','ClaudeQ is checking this prompt…');
     let res;
@@ -133,7 +145,7 @@ export function makeReview({kind,area,banner,dir}){
     catch(e){ if(mine===seq) hide(); return; }
     if(mine!==seq) return;
     ctrl=null;
-    if(res && res.enabled) reviewRemember(key,res);   // a disabled or superseded answer says nothing about this prompt
+    if(key && res && res.enabled) reviewRemember(key,res);   // a disabled or superseded answer says nothing about this prompt
     render(res,key);
   }
 
@@ -145,10 +157,5 @@ export let taskReview=null;
 export function initTaskReview(){
   taskReview=makeReview({kind:'task',area:$('#f-prompt'),banner:$('#f-review'),dir:()=>$('#f-dir').value.trim()});
   $('#f-prompt').addEventListener('input',()=>taskReview.schedule());
-  // A hand-typed folder changes what the prompt's relative paths mean, so a
-  // finding about the old one is retired at once. Reviewing every prefix of a
-  // path being typed would only ask about directories that do not exist yet, so
-  // the new one is reviewed when it is picked, or when the prompt next changes.
-  $('#f-dir').addEventListener('input',()=>taskReview.reset());
   $('#addSheet').addEventListener('close',()=>taskReview.reset());
 }

@@ -316,3 +316,59 @@ func TestReviewFallsBackToTheProvidersDefaultModel(t *testing.T) {
 		t.Fatalf("model = %q, want the provider's default", got)
 	}
 }
+
+func TestReviewContextNamesTheReviewer(t *testing.T) {
+	rv := &fakeReviewer{res: review.Result{OK: true}}
+	srv, _ := newReviewServer(t, rv, store.Settings{}, "/opt/claude", "opus")
+
+	r := do(t, srv, "GET", "/api/review/context", nil)
+	if r.Status != http.StatusOK {
+		t.Fatalf("status %d: %s", r.Status, r.Body)
+	}
+	var got reviewContextResponse
+	r.into(t, &got)
+	if !got.Enabled || got.Reviewer != store.DefaultProviderID+"/opus" {
+		t.Errorf("got %+v, want the resolved provider and model", got)
+	}
+}
+
+func TestReviewContextFollowsTheReviewModel(t *testing.T) {
+	rv := &fakeReviewer{res: review.Result{OK: true}}
+	srv, _ := newReviewServer(t, rv, store.Settings{PromptReviewModel: "haiku"}, "/opt/claude", "opus")
+
+	var got reviewContextResponse
+	do(t, srv, "GET", "/api/review/context", nil).into(t, &got)
+	if got.Reviewer != store.DefaultProviderID+"/haiku" {
+		t.Errorf("reviewer = %q, want the review model to win over the default", got.Reviewer)
+	}
+}
+
+func TestReviewContextWhenNoReviewCanRun(t *testing.T) {
+	rv := &fakeReviewer{res: review.Result{OK: true}}
+	for _, tc := range []struct {
+		name     string
+		settings store.Settings
+		binary   string
+	}{
+		{"switched off", store.Settings{PromptReviewDisabled: true}, "/opt/claude"},
+		{"no claude binary", store.Settings{}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, _ := newReviewServer(t, rv, tc.settings, tc.binary, "")
+			var got reviewContextResponse
+			do(t, srv, "GET", "/api/review/context", nil).into(t, &got)
+			if got.Enabled || got.Reviewer != "" {
+				t.Errorf("got %+v, want no reviewer", got)
+			}
+		})
+	}
+}
+
+func TestReviewContextWithoutAReviewer(t *testing.T) {
+	srv, _ := newReviewServer(t, nil, store.Settings{}, "/opt/claude", "")
+	var got reviewContextResponse
+	do(t, srv, "GET", "/api/review/context", nil).into(t, &got)
+	if got.Enabled {
+		t.Errorf("got %+v, want the review reported as unavailable", got)
+	}
+}

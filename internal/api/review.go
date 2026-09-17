@@ -98,6 +98,36 @@ func (s *server) reviewPrompt(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// reviewContextResponse tells the dashboard whether a prompt review can run at
+// all and, when it can, who would answer it. The dashboard remembers findings
+// between sheet openings, and an answer belongs to the reviewer that gave it:
+// Reviewer changes whenever the provider instance or the resolved model does,
+// so a remembered finding is never replayed for a different one.
+type reviewContextResponse struct {
+	Enabled  bool   `json:"enabled"`
+	Reviewer string `json:"reviewer,omitempty"`
+}
+
+// reviewContext answers that question without costing any model usage: it only
+// reads the configuration and the resolved reviewer.
+func (s *server) reviewContext(w http.ResponseWriter, _ *http.Request) {
+	cfg, err := s.d.Store.LoadConfig()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if s.d.Review == nil || cfg.Settings.PromptReviewDisabled {
+		writeJSON(w, http.StatusOK, reviewContextResponse{})
+		return
+	}
+	inst, model, ok := s.reviewTarget(cfg)
+	if !ok {
+		writeJSON(w, http.StatusOK, reviewContextResponse{})
+		return
+	}
+	writeJSON(w, http.StatusOK, reviewContextResponse{Enabled: true, Reviewer: inst.ID + "/" + model})
+}
+
 // reviewTarget resolves the provider instance and model the prompt review runs
 // with: the one Settings names for it, otherwise the default provider.
 //
