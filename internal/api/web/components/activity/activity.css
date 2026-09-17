@@ -3,11 +3,12 @@
 .act-list { display:flex; flex-direction:column; gap:8px; }
 /* One piece of work, shown as one thing: a fan-out and the join that combines
    it belong together, not scattered among unrelated runs. */
-/* The box lines up with an ungrouped run's card (past the dot gutter on the
-   left, the mark-read gutter on the right), so a workflow reads as the same
-   column of work, not as a wider band. Its runs sit inside it with one even
-   inset, which is why their dot and eye move into the card. */
-.wf-group { display:flex; flex-direction:column; gap:7px; margin:0 32px 0 18px; padding:7px;
+/* The box's own edges line up with an ungrouped run's card (the same dot
+   gutter on the left, the same mark-read gutter on the right — see .act-gl/
+   .act-gr below), so a workflow reads as the same width column of work as
+   Queue/Artifacts/Usage, not a narrower band. Its runs sit inside it with one
+   even inset, which is why their dot and eye move into the card. */
+.wf-group { display:flex; flex-direction:column; gap:7px; margin:0 24px 0 10px; padding:7px;
             border-radius:11px; background:var(--card-2); box-shadow:var(--shadow); }
 .wf-head { display:flex; align-items:center; gap:8px; padding:2px 3px 1px; }
 .wf-group .act-card .act-gl { width:8px; }
