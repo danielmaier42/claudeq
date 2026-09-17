@@ -1091,12 +1091,19 @@ Practicalities:
   this an *aside* — a question it asks a harness on its own behalf rather than
   to do your work — and a provider has to be able to hold one to be offered for
   it. Claude Code can; Codex cannot yet.
-- It runs on a change, not on a look. Editing the prompt or the working
-  directory starts a review from scratch and cancels the one still in flight —
-  including its Claude process — so only the newest answer is ever shown.
-  Opening a sheet changes nothing, so it asks nothing: an answer is remembered
-  for a day, and reopening the same task, or the app, shows that finding again
-  for free. Typing the old text back is free too.
+- It runs on a change, not on a look. Editing the prompt, choosing a working
+  directory or importing a task starts a review from scratch and cancels the one
+  still in flight — including its Claude process — so only the newest answer is
+  ever shown. Opening a sheet changes nothing, so it asks nothing: an answer is
+  remembered for a day, and reopening the same task, or the app, shows that
+  finding again for free. Typing the old text back is free too. A finding you
+  **Dismiss** is forgotten rather than hidden, so it does not come back; and a
+  hand-typed working directory clears the banner instead of reviewing every
+  half-typed path — the next edit, or the folder picker, asks again.
+- Switching the review off hides the banner everywhere, remembered findings
+  included. A finding is also only reused for the reviewer that produced it, so
+  changing the review provider or model never shows an answer the new one did
+  not give.
 - A task sheet without a working directory yet — an imported task, whose folder
   came from another Mac — waits for you to choose one before reviewing, since
   every relative path would otherwise be unresolvable.

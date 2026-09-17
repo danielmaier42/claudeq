@@ -175,6 +175,10 @@ function initImport(){
     let d; try{ d=await api('POST','/api/tasks/import',f); }
     catch(err){ toast('Import failed: '+err.message,'err'); return; }
     taskMode='add'; taskEditId=''; prefillTask(d.task); openSheet('Import task','Add task');
+    // A prompt written on another Mac is new here even though nobody typed it,
+    // so an import is a change and gets a real review — once a folder it can be
+    // resolved against is known (chooseFolder starts it when one is missing).
+    if(!d.missing_working_dir) taskReview.run();
     if(d.missing_working_dir){
       const h=$('#f-dir-hint');
       h.textContent='The file’s working directory ('+d.missing_working_dir+') does not exist on this Mac. Choose a folder.';
