@@ -72,11 +72,13 @@ async function fillTaskModels(providerID, model, effort){
   }
 }
 
-function openSheet(title,submitLabel){ $('#addErr').textContent=''; $('#f-dir-hint').hidden=true; $('#f-dir-hint').textContent='';
+// fresh says the prompt in the sheet is new to this Mac and deserves a real
+// review; without it the sheet only shows what is already known about that text.
+function openSheet(title,submitLabel,fresh){ $('#addErr').textContent=''; $('#f-dir-hint').hidden=true; $('#f-dir-hint').textContent='';
   $('#f-provider-hint').hidden=true; $('#f-provider-hint').textContent='';
   clearTimeout(cronTimer); cronVerdict.expr=null; showCronStatus(null); cronRecheck();
   $('#addSheetTitle').textContent=title; $('#addSubmitBtn').textContent=submitLabel; $('#addSheet').showModal();
-  taskReview.restore(); }   // opening a sheet shows an earlier finding about this prompt; a new review is worth Claude usage only once the prompt changes
+  if(fresh) taskReview.run(); else taskReview.restore(); }   // a new review is worth Claude usage only when the prompt is new or changed
 export function openAdd(){ taskMode='add'; taskEditId='';
   ['f-name','f-prompt','f-dir','f-at','f-cron'].forEach(x=>$('#'+x).value='');
   $('#f-dir').value=DEFAULT_WORKING_DIR;
@@ -174,11 +176,10 @@ function initImport(){
     const f=e.target.files[0]; e.target.value=''; if(!f) return;
     let d; try{ d=await api('POST','/api/tasks/import',f); }
     catch(err){ toast('Import failed: '+err.message,'err'); return; }
-    taskMode='add'; taskEditId=''; prefillTask(d.task); openSheet('Import task','Add task');
     // A prompt written on another Mac is new here even though nobody typed it,
-    // so an import is a change and gets a real review — once a folder it can be
-    // resolved against is known (chooseFolder starts it when one is missing).
-    if(!d.missing_working_dir) taskReview.run();
+    // so an import is reviewed for real — once a folder it can be resolved
+    // against is known (chooseFolder starts it when the file's is missing).
+    taskMode='add'; taskEditId=''; prefillTask(d.task); openSheet('Import task','Add task',!d.missing_working_dir);
     if(d.missing_working_dir){
       const h=$('#f-dir-hint');
       h.textContent='The file’s working directory ('+d.missing_working_dir+') does not exist on this Mac. Choose a folder.';

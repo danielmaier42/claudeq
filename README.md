@@ -1098,9 +1098,10 @@ Practicalities:
   remembered for a day, and reopening the same task, or the app, shows that
   finding again for free, headed *ClaudeQ suggested earlier* and with a **Check
   again** button for when the machine has moved on — the missing file exists by
-  now — but the prompt has not. Typing the old text back is free too, and a
-  finding you **Dismiss** is forgotten rather than hidden, so it does not come
-  back.
+  now — but the prompt has not. Undoing an edit is free too: the finding for the
+  text you are back at is still remembered. **Dismiss** forgets a finding rather
+  than hiding it, so it does not come back by itself; editing the prompt back and
+  forth after that asks once more.
 - Switching the review off hides the banner everywhere, remembered findings
   included. A finding is also only ever reused for the reviewer that produced
   it, so changing the review provider or model — or the default provider the

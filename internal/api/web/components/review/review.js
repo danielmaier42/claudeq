@@ -47,8 +47,10 @@ async function reviewContext(){
   catch{ return null; }   // an unreachable daemon says nothing about the prompt
 }
 
-// reviewKey hashes the question instead of storing it: prompts are long, and the
-// cache only ever has to tell one question apart from another (FNV-1a).
+// reviewKey hashes the question rather than keeping a copy of it: prompts are
+// long, and the cache only ever has to tell one question apart from another
+// (FNV-1a). The answer is stored as it came, rewrite included, because that is
+// what the banner shows.
 function reviewKey(kind,prompt,dir,who){
   const s=JSON.stringify([kind,prompt,dir,who]);
   let h=0x811c9dc5;
