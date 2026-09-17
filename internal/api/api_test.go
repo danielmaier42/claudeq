@@ -359,7 +359,7 @@ func TestHealthReportsWakeError(t *testing.T) {
 	srv := httptest.NewServer(handler(Deps{Store: st, WakeError: func() string { return "pmset: sudo password required" }}))
 	t.Cleanup(srv.Close)
 
-	var got map[string]string
+	var got map[string]any
 	do(t, srv, "GET", "/api/health", nil).into(t, &got)
 	if got["wake_error"] != "pmset: sudo password required" {
 		t.Fatalf("wake_error = %q, want the dep's value", got["wake_error"])
@@ -374,7 +374,7 @@ func TestHealthReportsNotifyStatus(t *testing.T) {
 	srv := httptest.NewServer(handler(Deps{Store: st, NotifyStatus: func() string { return "denied" }}))
 	t.Cleanup(srv.Close)
 
-	var got map[string]string
+	var got map[string]any
 	do(t, srv, "GET", "/api/health", nil).into(t, &got)
 	if got["notify_status"] != "denied" {
 		t.Fatalf("notify_status = %q, want the dep's value", got["notify_status"])
@@ -391,7 +391,7 @@ func TestHealthWithoutNotifyStatusDep(t *testing.T) {
 	srv := httptest.NewServer(handler(Deps{Store: st}))
 	t.Cleanup(srv.Close)
 
-	var got map[string]string
+	var got map[string]any
 	do(t, srv, "GET", "/api/health", nil).into(t, &got)
 	if got["notify_status"] != "" {
 		t.Fatalf("notify_status = %q, want empty", got["notify_status"])
@@ -1059,7 +1059,7 @@ func TestHealthReportsLimitedUntil(t *testing.T) {
 	srv := httptest.NewServer(handler(Deps{Store: st, LimitedUntil: func() time.Time { return blocked }}))
 	t.Cleanup(srv.Close)
 
-	var got map[string]string
+	var got map[string]any
 	do(t, srv, "GET", "/api/health", nil).into(t, &got)
 	if got["limited_until"] != until.Format(time.RFC3339) {
 		t.Fatalf("limited_until = %q, want %q", got["limited_until"], until.Format(time.RFC3339))
@@ -1070,6 +1070,32 @@ func TestHealthReportsLimitedUntil(t *testing.T) {
 	do(t, srv, "GET", "/api/health", nil).into(t, &got)
 	if got["limited_until"] != "" {
 		t.Fatalf("limited_until = %q, want empty while the gate is open", got["limited_until"])
+	}
+}
+
+func TestHealthReportsLimitedProviderNames(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	until := time.Now().Add(time.Hour).Truncate(time.Second)
+	srv := httptest.NewServer(handler(Deps{Store: st, BlockedProviders: func() map[string]time.Time {
+		return map[string]time.Time{store.DefaultProviderID: until}
+	}}))
+	t.Cleanup(srv.Close)
+
+	var got struct {
+		LimitedProviders []struct {
+			Name  string `json:"name"`
+			Until string `json:"until"`
+		} `json:"limited_providers"`
+	}
+	do(t, srv, "GET", "/api/health", nil).into(t, &got)
+	if len(got.LimitedProviders) != 1 || got.LimitedProviders[0].Name != store.DefaultProviderName {
+		t.Fatalf("limited_providers = %+v, want one entry named %q", got.LimitedProviders, store.DefaultProviderName)
+	}
+	if got.LimitedProviders[0].Until != until.Format(time.RFC3339) {
+		t.Fatalf("until = %q, want %q", got.LimitedProviders[0].Until, until.Format(time.RFC3339))
 	}
 }
 

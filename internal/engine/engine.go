@@ -75,6 +75,12 @@ func (e *Engine) WakeError() string {
 // that is waiting (rather than stuck) says so, and names the time it continues.
 func (e *Engine) LimitedUntil() time.Time { return e.gates.BlockedUntil() }
 
+// BlockedProviders returns the provider instance IDs currently waiting out a
+// rate limit, each with the time its own gate reopens. Surfaced in the UI so
+// the waiting banner names which account it is waiting on, not just "the
+// queue".
+func (e *Engine) BlockedProviders() map[string]time.Time { return e.gates.Blocked() }
+
 // Engine orchestrates task execution. Construct it with [New].
 type Engine struct {
 	store *store.Store

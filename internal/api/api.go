@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -64,6 +65,10 @@ type Deps struct {
 	// when it is open), so the dashboard can say the queue is waiting rather
 	// than stuck. Optional (engine.Engine.LimitedUntil).
 	LimitedUntil func() time.Time
+	// BlockedProviders reports the provider instance IDs currently waiting out a
+	// rate limit, each with the time its own gate reopens, so the dashboard can
+	// name which account it is waiting on. Optional (engine.Engine.BlockedProviders).
+	BlockedProviders func() map[string]time.Time
 	// NotifyStatus reports whether macOS will actually show notifications
 	// (notify.MacAuthorization). Optional; empty means "don't know".
 	NotifyStatus func() string
@@ -938,6 +943,13 @@ func (s *server) listModels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, models)
 }
 
+// limitedProvider names one provider instance waiting out a rate limit, for
+// the health response's limited_providers list.
+type limitedProvider struct {
+	Name  string `json:"name"`
+	Until string `json:"until"`
+}
+
 // getHealth reports daemon health the UI can warn about: whether scheduled-wake
 // setup is working, and whether macOS is set to show ClaudeQ's notifications at
 // all (a denied app posts into the void).
@@ -956,10 +968,28 @@ func (s *server) getHealth(w http.ResponseWriter, _ *http.Request) {
 			limitedUntil = until.Format(time.RFC3339)
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]string{
-		"wake_error":    wakeErr,
-		"notify_status": notifyStatus,
-		"limited_until": limitedUntil,
+	limitedProviders := []limitedProvider{}
+	if s.d.BlockedProviders != nil {
+		blocked := s.d.BlockedProviders()
+		if len(blocked) > 0 {
+			// Best-effort labels: a config that fails to load still leaves the
+			// generic limited_until banner working, just without provider names.
+			set, _ := app.Providers(s.d.Store)
+			for id, until := range blocked {
+				name := id
+				if inst, ok := set.Lookup(id); ok {
+					name = inst.Label()
+				}
+				limitedProviders = append(limitedProviders, limitedProvider{Name: name, Until: until.Format(time.RFC3339)})
+			}
+			sort.Slice(limitedProviders, func(i, j int) bool { return limitedProviders[i].Until < limitedProviders[j].Until })
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"wake_error":        wakeErr,
+		"notify_status":     notifyStatus,
+		"limited_until":     limitedUntil,
+		"limited_providers": limitedProviders,
 	})
 }
 

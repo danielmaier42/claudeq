@@ -32,13 +32,17 @@ function renderNotifyWarn(status){
 // The queue standing still on a rate limit is normal, not a fault — say what it
 // is waiting for, and until when, so a paused queue is never mistaken for a
 // stuck one.
-function renderLimitBar(iso){
+function renderLimitBar(iso,providers){
   const prev=LIMITED_UNTIL&&LIMITED_UNTIL.getTime();
   LIMITED_UNTIL = iso?new Date(iso):null;
   const bar=$('#limitBar');
   if(!LIMITED_UNTIL||LIMITED_UNTIL<=new Date()){ LIMITED_UNTIL=null; bar.hidden=true; }
   else{
-    bar.innerHTML='<b>⏸ Rate limit reached — the queue is waiting, not stuck</b>'
+    const names=(providers||[]).map(p=>esc(p.name));
+    const heading=names.length
+      ?'<b>⏸ Rate limit reached — waiting on '+names.join(', ')+'</b>'
+      :'<b>⏸ Rate limit reached — the queue is waiting, not stuck</b>';
+    bar.innerHTML=heading
       +'No task starts before <strong>'+esc(LIMITED_UNTIL.toLocaleString())+'</strong> ('+esc(relTime(LIMITED_UNTIL.toISOString()))+'). '
       +'A run the limit interrupted is marked <strong>rescheduled</strong> in Activity and continues its Claude session then — or drop it there with <strong>Cancel resume</strong>.';
     bar.hidden=false;
@@ -61,7 +65,7 @@ export function renderConnText(){
 export async function checkHealth(){
   let h; try{ h=await api('GET','/api/health'); }catch{ return; }
   renderNotifyWarn(h&&h.notify_status);
-  renderLimitBar(h&&h.limited_until);
+  renderLimitBar(h&&h.limited_until, h&&h.limited_providers);
   const bar=$('#wakeWarn'), err=h&&h.wake_error;
   if(!err){ bar.hidden=true; return; }
   const needsSudoers=/password|sudo|not permitted|permission/i.test(err);
