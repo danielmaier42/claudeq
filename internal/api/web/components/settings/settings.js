@@ -194,8 +194,11 @@ async function loadSettings(){
   $('#s-sysprompt').addEventListener('input',()=>sysReview.schedule());
   const reviewOn=!s.prompt_review_disabled;
   $('#s-review').checked=reviewOn; $('#s-review-model').disabled=!reviewOn;
-  $('#s-review').onchange=e=>{ $('#s-review-model').disabled=!e.target.checked; if(!e.target.checked) sysReview.reset(); };
-  if(reviewOn) sysReview.run();
+  // The toggle only takes effect on Save, so the banner follows the box: off
+  // clears it, on brings back what is known about the text that is there.
+  $('#s-review').onchange=e=>{ $('#s-review-model').disabled=!e.target.checked;
+    if(e.target.checked) sysReview.restore(); else sysReview.reset(); };
+  if(reviewOn) sysReview.restore();
   $('#s-check-updates').onclick=checkForUpdates;
   $('#s-notif-settings').onclick=openNotificationSettings;
   $('#s-add-provider').onclick=openAddProvider;

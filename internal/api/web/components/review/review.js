@@ -4,28 +4,67 @@ import {SPARK} from '../../core/icons.js';
 import {toast} from '../../core/toast.js';
 
 /* ---- Prompt review: Claude checks a draft prompt against this machine ---- */
-// Purely advisory — it never blocks saving. A review runs when a prompt sheet
-// opens and again, from scratch, on every change to the prompt or the working
-// directory, because a finding about the previous text says nothing about the
-// new one. Whatever is in flight is aborted first (which kills the daemon's
-// Claude process too), so only the newest answer can reach the banner.
+// Purely advisory — it never blocks saving. A review costs real Claude usage, so
+// it runs only when the prompt or the working directory actually changes, never
+// merely because a sheet was opened: reopening a task nobody has touched shows
+// the finding from last time, or nothing, and asks Claude for nothing. A change
+// really is analysed from scratch, because a finding about the previous text
+// says nothing about the new one, and whatever is in flight is aborted first
+// (which kills the daemon's Claude process too), so only the newest answer can
+// reach the banner.
 const REVIEW_DELAY=900;   // ms of quiet typing before a review is worth starting
 
 // area is the textarea under review, banner the element to render into, and
 // dir() the working directory to resolve relative paths against ('' for the
 // global system prompt, which has none).
-// Answers are remembered for a few minutes, keyed by exactly what was asked, so
-// reopening the same task's sheet or stepping back into Settings shows the last
-// finding instead of paying for the same review again. Any edit changes the key
-// and really is analysed from scratch.
-const reviewCache=new Map();
-const REVIEW_CACHE_TTL=180000, REVIEW_CACHE_MAX=20;
-function reviewCached(key){ const hit=reviewCache.get(key);
+// Answers are remembered on disk, keyed by a hash of exactly what was asked, so
+// reopening the same task's sheet — or the app itself — shows the last finding
+// instead of paying for the same review again. Entries are dropped after a day
+// because the machine they judge may have moved on since.
+const REVIEW_STORE='cq.prompt-review';
+const REVIEW_CACHE_TTL=86400000, REVIEW_CACHE_MAX=40;
+let reviewCache=null;
+// Storage can be unavailable or hold something else's data; a cache is never
+// worth an exception on the way to writing a task.
+function reviewStore(){
+  if(reviewCache) return reviewCache;
+  reviewCache=new Map();
+  try{ const raw=JSON.parse(localStorage.getItem(REVIEW_STORE)||'[]');
+    if(Array.isArray(raw)) for(const e of raw) if(e&&e.k&&e.at) reviewCache.set(e.k,{at:e.at,res:e.res}); }catch{}
+  return reviewCache;
+}
+function reviewPersist(){
+  const m=reviewStore();
+  try{ localStorage.setItem(REVIEW_STORE,JSON.stringify([...m].map(([k,v])=>({k,at:v.at,res:v.res})))); }catch{}
+}
+// reviewContext asks the daemon whether a review can run at all and who would
+// answer it. It costs nothing — no model is involved — and only the daemon can
+// say: "the default provider" resolves to a different account and model as
+// Settings change, and a provider whose CLI is gone cannot review anything. A
+// remembered finding must outlive neither answer.
+async function reviewContext(){
+  try{ return await api('GET','/api/review/context'); }
+  catch{ return null; }   // an unreachable daemon says nothing about the prompt
+}
+
+// reviewKey hashes the question rather than keeping a copy of it: prompts are
+// long, and the cache only ever has to tell one question apart from another
+// (FNV-1a). The answer is stored as it came, rewrite included, because that is
+// what the banner shows.
+function reviewKey(kind,prompt,dir,who){
+  const s=JSON.stringify([kind,prompt,dir,who]);
+  let h=0x811c9dc5;
+  for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,0x01000193); }
+  return kind+':'+s.length+':'+(h>>>0).toString(36);
+}
+function reviewCached(key){ const m=reviewStore(), hit=m.get(key);
   if(!hit) return null;
-  if(Date.now()-hit.at>REVIEW_CACHE_TTL){ reviewCache.delete(key); return null; }  // the machine may have changed since
+  if(Date.now()-hit.at>REVIEW_CACHE_TTL){ m.delete(key); reviewPersist(); return null; }  // the machine may have changed since
   return hit.res; }
-function reviewRemember(key,res){ reviewCache.set(key,{at:Date.now(),res});
-  while(reviewCache.size>REVIEW_CACHE_MAX) reviewCache.delete(reviewCache.keys().next().value); }
+function reviewForget(key){ const m=reviewStore(); if(m.delete(key)) reviewPersist(); }
+function reviewRemember(key,res){ const m=reviewStore(); m.set(key,{at:Date.now(),res});
+  while(m.size>REVIEW_CACHE_MAX) m.delete(m.keys().next().value);
+  reviewPersist(); }
 
 export function makeReview({kind,area,banner,dir}){
   let timer=null, ctrl=null, seq=0;
@@ -38,8 +77,12 @@ export function makeReview({kind,area,banner,dir}){
     banner.innerHTML=`<span class="spark">${SPARK}</span><div class="grow"><span class="who">${esc(who)}</span></div>`;
     return banner.querySelector('.grow'); }
 
-  function show(res){
-    const box=head('','ClaudeQ suggests:');
+  // remembered marks a finding that comes from the cache rather than from a
+  // review just made: it is shown as what it is, and can be re-checked on the
+  // spot, because the prompt may be fine by now without the text having changed
+  // (the missing file was created, the folder exists).
+  function show(res,key,remembered){
+    const box=head('',remembered?'ClaudeQ suggested earlier:':'ClaudeQ suggests:');
     box.append(el('div','msg',esc(res.message)));
     const acts=el('div','acts'); box.append(acts);
     if(res.revised_prompt){
@@ -48,10 +91,33 @@ export function makeReview({kind,area,banner,dir}){
       ap.onclick=()=>{ area.value=res.revised_prompt; toast('Prompt rewritten','ok'); run(); };
       acts.append(ap);
     }
-    const no=el('button','btn small','Dismiss'); no.onclick=()=>{ stop(); hide(); }; acts.append(no);
+    // Dismissed for good: forgetting the answer stops it from coming back the
+    // next time this sheet opens, and re-reviewing is one edit away.
+    const no=el('button','btn small','Dismiss'); no.onclick=()=>{ stop(); hide(); if(key) reviewForget(key); }; acts.append(no);
+    if(remembered){
+      const again=el('button','btn small','Check again');
+      again.dataset.tip='Asks Claude about this prompt again. Costs a little usage.';
+      again.onclick=()=>{ if(key) reviewForget(key); run(); };
+      acts.append(again);
+    }
   }
 
-  function render(res){ if(res && res.enabled && !res.ok && res.message) show(res); else hide(); }
+  function render(res,key,remembered){ if(res && res.enabled && !res.ok && res.message) show(res,key,remembered); else hide(); }
+
+  // run asks Claude about what is in the box now; restore only shows what was
+  // already found out about it. Opening a sheet uses restore, so looking at a
+  // task twice costs nothing — only editing it asks again.
+  async function restore(){
+    stop();
+    const mine=seq;
+    const prompt=area.value, workingDir=dir();
+    if(!prompt.trim() || (kind==='task' && !workingDir)){ hide(); return; }
+    const ctx=await reviewContext();
+    if(mine!==seq) return;
+    if(!ctx || !ctx.enabled){ hide(); return; }   // no review to remember anything about
+    const key=reviewKey(kind,prompt,workingDir,ctx.reviewer);
+    render(reviewCached(key),key,true);
+  }
 
   async function run(){
     stop();
@@ -62,9 +128,15 @@ export function makeReview({kind,area,banner,dir}){
     // unresolvable and bury the sheet's own "choose a folder" hint under it, so
     // the review waits for the folder — chooseFolder starts it.
     if(!prompt.trim() || (kind==='task' && !workingDir)){ hide(); return; }
-    const key=JSON.stringify([kind,prompt,workingDir]);
-    const cached=reviewCached(key);
-    if(cached){ render(cached); return; }
+    // Who reviews is part of the question, so an answer can be filed under it.
+    // When the daemon cannot say, the review still goes ahead — the endpoint
+    // decides anyway — and its answer is simply not remembered.
+    const ctx=await reviewContext();
+    if(mine!==seq) return;
+    if(ctx && !ctx.enabled){ hide(); return; }
+    const key=ctx?reviewKey(kind,prompt,workingDir,ctx.reviewer):null;
+    const cached=key?reviewCached(key):null;
+    if(cached){ render(cached,key,true); return; }
     ctrl=new AbortController();
     head('busy','ClaudeQ is checking this prompt…');
     let res;
@@ -75,11 +147,11 @@ export function makeReview({kind,area,banner,dir}){
     catch(e){ if(mine===seq) hide(); return; }
     if(mine!==seq) return;
     ctrl=null;
-    if(res && res.enabled) reviewRemember(key,res);   // a disabled or superseded answer says nothing about this prompt
-    render(res);
+    if(key && res && res.enabled) reviewRemember(key,res);   // a disabled or superseded answer says nothing about this prompt
+    render(res,key);
   }
 
-  return { run, stop, reset(){ stop(); hide(); }, schedule(){ stop(); hide(); timer=setTimeout(run,REVIEW_DELAY); } };
+  return { run, restore, stop, reset(){ stop(); hide(); }, schedule(){ stop(); hide(); timer=setTimeout(run,REVIEW_DELAY); } };
 }
 
 // The task sheet's own review controller, bound once the sheet is in the page.
