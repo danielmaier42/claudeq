@@ -2,6 +2,7 @@
 .group { background:var(--card); border-radius:11px; box-shadow:var(--shadow); overflow:hidden; margin-bottom:18px; }
 .row { display:flex; align-items:center; gap:12px; padding:11px 15px; border-bottom:.5px solid var(--hairline); }
 .row:last-child { border-bottom:none; }
+.row[hidden] { display:none; } /* .row's display would otherwise beat the hidden attribute */
 .grow { flex:1; min-width:0; }
 .row .title { font-weight:500; }
 /* Queue rows: the name is cut with an ellipsis, the chips keep their width. */

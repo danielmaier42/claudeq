@@ -38,13 +38,27 @@ function renderLimitBar(iso,providers){
   const bar=$('#limitBar');
   if(!LIMITED_UNTIL||LIMITED_UNTIL<=new Date()){ LIMITED_UNTIL=null; bar.hidden=true; }
   else{
-    const names=(providers||[]).map(p=>esc(p.name));
+    const list=providers||[];
+    const names=list.map(p=>esc(p.name)+(p.fallback?' → '+esc(p.fallback):''));
     const heading=names.length
       ?'<b>⏸ Rate limit reached — waiting on '+names.join(', ')+'</b>'
       :'<b>⏸ Rate limit reached — the queue is waiting, not stuck</b>';
-    bar.innerHTML=heading
-      +'No task starts before <strong>'+esc(LIMITED_UNTIL.toLocaleString())+'</strong> ('+esc(relTime(LIMITED_UNTIL.toISOString()))+'). '
-      +'A run the limit interrupted is marked <strong>rescheduled</strong> in Activity and continues its Claude session then — or drop it there with <strong>Cancel resume</strong>.';
+    // A provider with a fallback is not holding its tasks up: they are running
+    // on the substitute right now. So the banner says what is true for this
+    // set of blocked providers — all of them covered, none, or some.
+    const covered=list.filter(p=>p.fallback).length;
+    const when='<strong>'+esc(LIMITED_UNTIL.toLocaleString())+'</strong> ('+esc(relTime(LIMITED_UNTIL.toISOString()))+')';
+    const body=covered===0
+      ?'No task starts before '+when+'. '
+      :(covered===list.length
+        ?'Tasks keep running on the fallback provider. The blocked one takes them back from '+when+'. '
+        :'Tasks with a fallback keep running; the rest start again from '+when+'. ');
+    // A run a fallback took over is not continued afterwards — it was started
+    // again from the beginning over there, so only the uncovered ones wait.
+    const tail=covered===list.length&&covered>0
+      ?'The run the limit interrupted is not resumed: the fallback did the work from the start.'
+      :'A run the limit interrupted is marked <strong>rescheduled</strong> in Activity and continues its Claude session then — or drop it there with <strong>Cancel resume</strong>.';
+    bar.innerHTML=heading+body+tail;
     bar.hidden=false;
   }
   // Re-render the views that show the resume time when the gate moved.

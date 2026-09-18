@@ -1,4 +1,4 @@
-import {SHOW_BETA, fillAsideChoices, loadProviders, openAddProvider, setProviderSnapshot, submitProvider} from '../providers/providers.js';
+import {PROVIDERS, SHOW_BETA, fillAsideChoices, loadProviders, openAddProvider, setProviderSnapshot, submitProvider} from '../providers/providers.js';
 import {setPaused} from '../queue/queue.js';
 import {makeReview} from '../review/review.js';
 import {setConn} from '../status/status.js';
@@ -244,6 +244,8 @@ function providerEdits(){
       binary_path:w.querySelector('.p-path').value.trim(),
       config_dir:w.querySelector('.p-dir').value.trim(),
       default_model:w.querySelector('.p-model').value,
+      fallback_provider:w.querySelector('.p-fallback').value,
+      fallback_model:w.querySelector('.p-fallback-model').value,
       enabled:w.querySelector('.switch input').checked,
     },
   }));
@@ -271,7 +273,16 @@ async function saveSettings(){
   // terms, so a rejected one is named rather than failing the whole save
   // silently.
   const failed=[];
-  for(const p of providerEdits()){
+  const edits=providerEdits();
+  // The blocks are written one after another, so a Save that swaps two
+  // providers' fallbacks would pass through a state the daemon reads as a
+  // cycle and refuse. Every fallback that changed is therefore cleared first;
+  // the second pass then sets the values the form actually asks for.
+  const moved=edits.filter(p=>(PROVIDERS.find(x=>x.id===p.id)||{}).fallback_provider!==p.body.fallback_provider);
+  for(const p of moved){
+    try{ await api('PUT','/api/providers/'+encodeURIComponent(p.id),{...p.body,fallback_provider:''}); }catch{}
+  }
+  for(const p of edits){
     try{ await api('PUT','/api/providers/'+encodeURIComponent(p.id),p.body); }
     catch(e){ failed.push(`${p.id}: ${e.message}`); }
   }

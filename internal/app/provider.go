@@ -51,6 +51,7 @@ func EnsureRunnable(ctx context.Context, set provider.Set, ch *provider.Checker,
 // configuration must still be valid afterwards.
 func AddProvider(s *store.Store, reg *provider.Registry, inst provider.Instance) error {
 	expandPaths(&inst)
+	normalizeFallback(&inst)
 	if err := provider.Validate(reg, inst); err != nil {
 		return err
 	}
@@ -80,6 +81,7 @@ func EditProvider(s *store.Store, reg *provider.Registry, id string, apply func(
 			return fmt.Errorf("provider id cannot be changed (%q -> %q)", id, edited.ID)
 		}
 		expandPaths(&edited)
+		normalizeFallback(&edited)
 		if err := provider.Validate(reg, edited); err != nil {
 			return err
 		}
@@ -161,6 +163,16 @@ func expandPaths(inst *provider.Instance) {
 	inst.ConfigDir = provider.ExpandHome(inst.ConfigDir)
 }
 
+// normalizeFallback drops a fallback model that has no fallback to run on, so
+// the file never holds a setting that does nothing — and so switching the
+// fallback off and on again does not silently bring back a model chosen for a
+// provider that is no longer the one taking the work.
+func normalizeFallback(inst *provider.Instance) {
+	if inst.FallbackProvider == "" {
+		inst.FallbackModel = ""
+	}
+}
+
 // checkDefaultStaysUsable refuses to switch off the instance that tasks naming
 // no provider run on. Allowing it would block most of the queue behind a switch
 // whose effect is not obvious from where it sits.
@@ -177,6 +189,15 @@ func providerRefs(cfg store.Config, id string) []string {
 	var refs []string
 	if cfg.Settings.DefaultProvider == id {
 		refs = append(refs, "the default provider setting")
+	}
+	var fallbacks []string
+	for _, p := range cfg.Providers {
+		if p.FallbackProvider == id {
+			fallbacks = append(fallbacks, p.ID)
+		}
+	}
+	if len(fallbacks) > 0 {
+		refs = append(refs, "the rate-limit fallback of provider "+strings.Join(fallbacks, ", "))
 	}
 	var tasks []string
 	for _, t := range cfg.Tasks {

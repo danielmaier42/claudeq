@@ -138,6 +138,83 @@ func TestRemoveProviderRefusesWhileItIsUsed(t *testing.T) {
 	}
 }
 
+// TestRemoveProviderRefusesWhileItIsAFallback: the provider list must never
+// hold a fallback that names nothing, so the reference is reported the same way
+// a task's is.
+func TestRemoveProviderRefusesWhileItIsAFallback(t *testing.T) {
+	s := openStore(t)
+	second := provider.Instance{ID: "second", Kind: provider.KindClaudeCode, Name: "second", Enabled: true}
+	if err := AddProvider(s, registry(), second); err != nil {
+		t.Fatalf("AddProvider: %v", err)
+	}
+	if err := EditProvider(s, registry(), provider.DefaultInstanceID, func(inst *provider.Instance) error {
+		inst.FallbackProvider = "second"
+		return nil
+	}); err != nil {
+		t.Fatalf("EditProvider: %v", err)
+	}
+
+	err := RemoveProvider(s, "second")
+	if err == nil || !strings.Contains(err.Error(), "fallback") {
+		t.Fatalf("err = %v, want the fallback reference to be named", err)
+	}
+
+	if err := EditProvider(s, registry(), provider.DefaultInstanceID, func(inst *provider.Instance) error {
+		inst.FallbackProvider = ""
+		return nil
+	}); err != nil {
+		t.Fatalf("EditProvider: %v", err)
+	}
+	if err := RemoveProvider(s, "second"); err != nil {
+		t.Fatalf("RemoveProvider: %v", err)
+	}
+}
+
+// TestClearingTheFallbackDropsItsModel: a model chosen for a provider that no
+// longer takes the work must not come back when a fallback is set again.
+func TestClearingTheFallbackDropsItsModel(t *testing.T) {
+	s := openStore(t)
+	second := provider.Instance{ID: "second", Kind: provider.KindClaudeCode, Name: "second", Enabled: true}
+	if err := AddProvider(s, registry(), second); err != nil {
+		t.Fatalf("AddProvider: %v", err)
+	}
+	set := func(id, model string) {
+		t.Helper()
+		if err := EditProvider(s, registry(), provider.DefaultInstanceID, func(inst *provider.Instance) error {
+			inst.FallbackProvider, inst.FallbackModel = id, model
+			return nil
+		}); err != nil {
+			t.Fatalf("EditProvider: %v", err)
+		}
+	}
+	set("second", "opus")
+	set("", "opus")
+
+	providers, err := Providers(s)
+	if err != nil {
+		t.Fatalf("Providers: %v", err)
+	}
+	inst, _ := providers.Lookup(provider.DefaultInstanceID)
+	if inst.FallbackModel != "" {
+		t.Fatalf("fallback model = %q, want it gone with the fallback", inst.FallbackModel)
+	}
+}
+
+// TestEditProviderRefusesABrokenFallback: a fallback that names nothing, or
+// itself, would be a plan that cannot be carried out.
+func TestEditProviderRefusesABrokenFallback(t *testing.T) {
+	s := openStore(t)
+	for _, id := range []string{"gone", provider.DefaultInstanceID} {
+		err := EditProvider(s, registry(), provider.DefaultInstanceID, func(inst *provider.Instance) error {
+			inst.FallbackProvider = id
+			return nil
+		})
+		if err == nil {
+			t.Fatalf("fallback %q: expected the edit to be refused", id)
+		}
+	}
+}
+
 func TestRemoveTheOnlyProviderIsRefused(t *testing.T) {
 	s := openStore(t)
 	if err := RemoveProvider(s, provider.DefaultInstanceID); err == nil {

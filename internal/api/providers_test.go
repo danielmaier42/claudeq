@@ -1,9 +1,11 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/danielmaier42/claudeq/internal/provider"
 	"github.com/danielmaier42/claudeq/internal/store"
@@ -311,5 +313,100 @@ func TestProviderSurfaceNamesTheHarness(t *testing.T) {
 	// The stored value stays the adapter kind; only what is shown is the name.
 	if kinds[0].Kind != string(provider.KindClaudeCode) {
 		t.Fatalf("kind = %q, want the stored key unchanged", kinds[0].Kind)
+	}
+}
+
+// TestProviderFallbackRoundTrip: the card writes the fallback with the rest of
+// the provider's settings, and a fallback that names nothing is refused rather
+// than stored.
+func TestProviderFallbackRoundTrip(t *testing.T) {
+	srv, _ := newProviderServer(t, provider.Health{State: provider.HealthReady})
+
+	r := do(t, srv, http.MethodPost, "/api/providers", map[string]any{
+		"id": "second", "kind": string(provider.KindClaudeCode), "name": "Second account",
+	})
+	if r.Status != http.StatusCreated {
+		t.Fatalf("add = %d (%s)", r.Status, r.Body)
+	}
+
+	var updated providerView
+	r = do(t, srv, http.MethodPut, "/api/providers/claude", map[string]any{
+		"name": "Claude Code", "fallback_provider": "second", "enabled": true,
+	})
+	if r.Status != http.StatusOK {
+		t.Fatalf("update = %d (%s)", r.Status, r.Body)
+	}
+	r.into(t, &updated)
+	if updated.FallbackProvider != "second" {
+		t.Fatalf("fallback = %q, want %q", updated.FallbackProvider, "second")
+	}
+
+	r = do(t, srv, http.MethodPut, "/api/providers/claude", map[string]any{
+		"name": "Claude Code", "fallback_provider": "nobody", "enabled": true,
+	})
+	if r.Status != http.StatusBadRequest {
+		t.Fatalf("a fallback nothing answers to must be refused, got %d (%s)", r.Status, r.Body)
+	}
+}
+
+// TestFallbackLabelNamesWhoIsActuallyWorking: the banner must say the queue is
+// moving only while some account in the chain really can take the work.
+func TestFallbackLabelNamesWhoIsActuallyWorking(t *testing.T) {
+	reg := provider.NewRegistry(stubAdapter{health: provider.Health{State: provider.HealthReady}})
+	srv := &server{d: Deps{Registry: reg, Providers: provider.NewChecker(reg)}}
+	set, err := provider.NewSet("claude", []provider.Instance{
+		{ID: "claude", Kind: provider.KindClaudeCode, Name: "Claude", FallbackProvider: "spare", Enabled: true},
+		{ID: "spare", Kind: provider.KindClaudeCode, Name: "Spare", FallbackProvider: "third", Enabled: true},
+		{ID: "third", Kind: provider.KindClaudeCode, Name: "Third", Enabled: true},
+		{ID: "lonely", Kind: provider.KindClaudeCode, Name: "Lonely", Enabled: true},
+	})
+	if err != nil {
+		t.Fatalf("NewSet: %v", err)
+	}
+	now := time.Now()
+	tests := []struct {
+		name    string
+		id      string
+		blocked map[string]time.Time
+		want    string
+	}{
+		{name: "the first free one in the chain", id: "claude",
+			blocked: map[string]time.Time{"claude": now}, want: "Spare"},
+		{name: "past a fallback that is blocked too", id: "claude",
+			blocked: map[string]time.Time{"claude": now, "spare": now}, want: "Third"},
+		{name: "nothing when the whole chain waits", id: "claude",
+			blocked: map[string]time.Time{"claude": now, "spare": now, "third": now}, want: ""},
+		{name: "nothing when there is no fallback", id: "lonely",
+			blocked: map[string]time.Time{"lonely": now}, want: ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			inst, _ := set.Lookup(tc.id)
+			if got := srv.fallbackLabel(context.Background(), set, inst, tc.blocked); got != tc.want {
+				t.Fatalf("fallbackLabel = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestFallbackLabelSkipsAProviderThatCannotRun: naming a substitute that is
+// logged out would tell the operator the queue keeps moving while nothing
+// starts.
+func TestFallbackLabelSkipsAProviderThatCannotRun(t *testing.T) {
+	reg := provider.NewRegistry(stubAdapter{health: provider.Health{
+		State: provider.HealthNotAuthenticated, Reason: "not logged in",
+	}})
+	srv := &server{d: Deps{Registry: reg, Providers: provider.NewChecker(reg)}}
+	set, err := provider.NewSet("claude", []provider.Instance{
+		{ID: "claude", Kind: provider.KindClaudeCode, Name: "Claude", FallbackProvider: "spare", Enabled: true},
+		{ID: "spare", Kind: provider.KindClaudeCode, Name: "Spare", Enabled: true},
+	})
+	if err != nil {
+		t.Fatalf("NewSet: %v", err)
+	}
+	inst, _ := set.Lookup("claude")
+	blocked := map[string]time.Time{"claude": time.Now()}
+	if got := srv.fallbackLabel(context.Background(), set, inst, blocked); got != "" {
+		t.Fatalf("fallbackLabel = %q, want nothing for a fallback that cannot run", got)
 	}
 }

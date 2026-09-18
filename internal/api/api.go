@@ -949,12 +949,16 @@ func (s *server) listModels(w http.ResponseWriter, r *http.Request) {
 type limitedProvider struct {
 	Name  string `json:"name"`
 	Until string `json:"until"`
+	// Fallback is the label of the provider that takes this one's tasks in the
+	// meantime, empty when it has none that could. A banner that names it says
+	// the queue is moving; without one the queue really is waiting.
+	Fallback string `json:"fallback,omitempty"`
 }
 
 // getHealth reports daemon health the UI can warn about: whether scheduled-wake
 // setup is working, and whether macOS is set to show ClaudeQ's notifications at
 // all (a denied app posts into the void).
-func (s *server) getHealth(w http.ResponseWriter, _ *http.Request) {
+func (s *server) getHealth(w http.ResponseWriter, r *http.Request) {
 	wakeErr := ""
 	if s.d.WakeError != nil {
 		wakeErr = s.d.WakeError()
@@ -977,11 +981,13 @@ func (s *server) getHealth(w http.ResponseWriter, _ *http.Request) {
 			// generic limited_until banner working, just without provider names.
 			set, _ := app.Providers(s.d.Store)
 			for id, until := range blocked {
-				name := id
+				name, fallback := id, ""
 				if inst, ok := set.Lookup(id); ok {
 					name = inst.Label()
+					fallback = s.fallbackLabel(r.Context(), set, inst, blocked)
 				}
-				limitedProviders = append(limitedProviders, limitedProvider{Name: name, Until: until.Format(time.RFC3339)})
+				limitedProviders = append(limitedProviders,
+					limitedProvider{Name: name, Until: until.Format(time.RFC3339), Fallback: fallback})
 			}
 			sort.Slice(limitedProviders, func(i, j int) bool { return limitedProviders[i].Until < limitedProviders[j].Until })
 		}
@@ -992,6 +998,22 @@ func (s *server) getHealth(w http.ResponseWriter, _ *http.Request) {
 		"limited_until":     limitedUntil,
 		"limited_providers": limitedProviders,
 	})
+}
+
+// fallbackLabel names the provider that is actually taking inst's tasks while
+// its allowance is used up, by asking the same resolver the scheduler asks: the
+// banner says the queue keeps moving only where it really does. Readiness comes
+// from the remembered verdict — this is a banner, not a start, and a probe per
+// poll would spawn a CLI every few seconds.
+func (s *server) fallbackLabel(ctx context.Context, set provider.Set, inst provider.Instance, blocked map[string]time.Time) string {
+	res, err := set.ResolveAvailable(provider.Selection{ProviderID: inst.ID}, provider.Availability{
+		OutOfAllowance: func(id string) bool { _, limited := blocked[id]; return limited },
+		CanTakeWork:    func(i provider.Instance) bool { return !s.d.Providers.Check(ctx, i).KnownUnready() },
+	})
+	if err != nil || !res.Substituted() {
+		return ""
+	}
+	return res.Instance.Label()
 }
 
 func (s *server) chooseFolder(w http.ResponseWriter, r *http.Request) {

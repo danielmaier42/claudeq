@@ -83,6 +83,12 @@ function providerBlock(p){
       <div class="row"><div class="grow"><div class="title">Default model</div>
           <div class="sub">Used for tasks on this provider that name no model</div></div>
         <select class="p-model" style="max-width:230px"></select></div>
+      <div class="row"><div class="grow"><div class="title">When the limit is reached</div>
+          <div class="sub">Where this provider's tasks run while its allowance is used up. Without one they wait for the window to reopen. An interrupted session doesn't travel — the substitute starts fresh.</div></div>
+        <select class="p-fallback" style="max-width:230px"></select></div>
+      <div class="row p-fallback-model-row"><div class="grow"><div class="title">Model there</div>
+          <div class="sub">What those substituted runs are given. <em>Decided by ClaudeQ</em> keeps the task's model between two accounts of the same CLI and takes the other provider's default model otherwise.</div></div>
+        <select class="p-fallback-model" style="max-width:230px"></select></div>
       <div class="row"><div class="grow"><div class="sub">${esc(p.health.binary||'')}</div></div>
         <button class="btn p-default"${p.default||!p.enabled?' disabled':''}>Make default</button>
         <button class="btn p-check">Check again</button>
@@ -92,6 +98,8 @@ function providerBlock(p){
   wrap.querySelector('.p-path').value=p.binary_path||'';
   wrap.querySelector('.p-dir').value=p.config_dir||'';
   fillProviderModels(wrap.querySelector('.p-model'),p);
+  fillFallbackChoices(wrap.querySelector('.p-fallback'),wrap.querySelector('.p-fallback-model'),
+    wrap.querySelector('.p-fallback-model-row'),p);
   // The block is a form like every other group in Settings: Save at the top of
   // the page writes it (see saveSettings). What sits here are actions, not
   // edits — they take effect at once and reload the list.
@@ -181,6 +189,34 @@ async function fillProviderModels(select,p){
   let models=[];
   try{ models=await api('GET','/api/models?provider='+encodeURIComponent(p.id))||[]; }catch{ return; }
   select.innerHTML=modelOptionsFrom(models,p.default_model||'','Provider default');
+}
+// fillFallbackChoices offers every other configured provider as the one that
+// takes over while this one is rate-limited, plus the model it should use
+// there. A stored id that has since gone keeps its place, marked, so saving the
+// card does not quietly drop the fallback the operator chose.
+//
+// The model row belongs to the chosen provider: it is hidden while there is no
+// fallback, and choosing another provider clears it, because a model name means
+// nothing to a different harness.
+function fillFallbackChoices(select,modelSel,modelRow,p){
+  const others=PROVIDERS.filter(x=>x.id!==p.id);
+  const known=others.some(x=>x.id===p.fallback_provider);
+  select.innerHTML='<option value="">Wait for the limit</option>'
+    +others.map(x=>`<option value="${esc(x.id)}"${x.id===p.fallback_provider?' selected':''}>${esc((x.name||x.id)+(x.enabled?'':' (switched off)'))}</option>`).join('')
+    +(p.fallback_provider&&!known?`<option value="${esc(p.fallback_provider)}" selected>${esc(p.fallback_provider)} — unavailable</option>`:'');
+  select.onchange=()=>fillFallbackModels(modelSel,modelRow,select.value,'');
+  fillFallbackModels(modelSel,modelRow,p.fallback_provider,p.fallback_model);
+}
+// fillFallbackModels asks the provider that would take the work what it
+// suggests, the way that provider's own card does. The stored value survives a
+// list that does not contain it: a catalog is a suggestion, never validation.
+async function fillFallbackModels(select,row,providerID,model){
+  row.hidden=!providerID;
+  select.innerHTML=modelOptionsFrom([],model||'','Decided by ClaudeQ');
+  if(!providerID){ select.value=''; return; }
+  let models=[];
+  try{ models=await api('GET','/api/models?provider='+encodeURIComponent(providerID))||[]; }catch{ return; }
+  select.innerHTML=modelOptionsFrom(models,model||'','Decided by ClaudeQ');
 }
 // Show one settings pane. The choice is remembered for the session, so leaving
 // Settings and coming back lands on the pane you were last on.
