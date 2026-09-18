@@ -70,8 +70,11 @@ async function loadArtifacts(){
     const del=el('button','btn small danger','Delete'); del.title='Delete'; del.onclick=()=>deleteArtifact(a); actions.append(del);
     const kind=el('span','art-meta',extLabel(a.file_name,a.content_type));
     card.append(grow,actions,kind);
-    const gr=el('div','act-gr'); if(a.unread){ const mr=el('button','eye-btn',EYE); mr.title='Mark read'; mr.onclick=()=>readArtifact(a.id); gr.append(mr); }
-    line.append(gl,card,gr);
+    // Dot and eye sit inside the card, as in Activity, so an artifact row is
+    // exactly as wide as a Queue group or a Usage card.
+    if(a.unread){ const mr=el('button','eye-btn',EYE); mr.title='Mark read'; mr.onclick=()=>readArtifact(a.id); actions.prepend(mr); }
+    card.prepend(gl);
+    line.append(card);
     list.append(line);
   });
   c.append(list);
