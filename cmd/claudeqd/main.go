@@ -50,7 +50,7 @@ import (
 // LaunchAgent starts the daemon without flags, so this is the address in
 // practice — and the one an old daemon has to release before a new one can
 // take over.
-const defaultAddr = "127.0.0.1:8765"
+const defaultAddr = "127.0.0.1:10765"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {

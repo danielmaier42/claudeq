@@ -286,7 +286,7 @@ sit at the bottom, out of the way of the work:
   an update is available.
 
 The dashboard is also reachable in a normal browser at
-`http://127.0.0.1:8765` while the daemon is running.
+`http://127.0.0.1:10765` while the daemon is running.
 
 ## Settings
 
@@ -489,7 +489,7 @@ version works the same way: the installer closes the open ClaudeQ window first
 version at the end, so an update takes effect without a manual restart.
 
 The installer verifies the hand-over instead of assuming it: it waits until the
-daemon that answers on `127.0.0.1:8765` reports the version it just installed,
+daemon that answers on `127.0.0.1:10765` reports the version it just installed,
 retries once (dropping a stale LaunchAgent that still points at an old copy of
 the app), and reports the install as *failed* if the new daemon never takes
 over — rather than finishing green while the machine keeps running the old
@@ -574,7 +574,7 @@ restart.
 ### `claudeqd` — the daemon
 
 ```
-claudeqd run [--interval 5s] [--no-wake] [--addr 127.0.0.1:8765]
+claudeqd run [--interval 5s] [--no-wake] [--addr 127.0.0.1:10765]
 claudeqd install      # install & start the LaunchAgent (autostart at login)
 claudeqd uninstall    # stop & remove the LaunchAgent
 claudeqd --version

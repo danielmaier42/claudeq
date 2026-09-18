@@ -18,7 +18,12 @@ set -e
 APP="/Applications/ClaudeQ.app"
 DAEMON="$APP/Contents/MacOS/claudeqd"
 LABEL="de.maierdaniel.claudeq"
-PORT=8765
+PORT=10765
+# The port ClaudeQ used before 10765. An old daemon still listens there, and
+# with the dashboard moved it no longer collides with the new one — so nothing
+# would stop the two from running the queue side by side. The takeover sweeps
+# both ports; this line can go once no install older than the switch is left.
+LEGACY_PORT=8765
 
 if [ ! -x "$DAEMON" ]; then
 	echo "claudeq: daemon not found at $DAEMON; skipping autostart setup"
@@ -68,9 +73,10 @@ running_version() {
 stop_daemons() {
 	sig="$1"
 	pkill "$sig" -f 'claudeqd run' 2>/dev/null || true
-	# -a ANDs the filters (lsof ORs them by default): only a *claudeqd* that
-	# listens on our port. An unrelated process holding it is not ours to kill.
-	holders=$(lsof -ti -a -c claudeqd -sTCP:LISTEN -i "tcp:$PORT" 2>/dev/null || true)
+	# -a ANDs the name against the ports (lsof ORs the -i filters with each
+	# other): only a *claudeqd* that listens on one of our ports. An unrelated
+	# process holding one is not ours to kill.
+	holders=$(lsof -ti -a -c claudeqd -sTCP:LISTEN -i "tcp:$PORT" -i "tcp:$LEGACY_PORT" 2>/dev/null || true)
 	if [ -n "$holders" ]; then
 		# shellcheck disable=SC2086 # deliberate word splitting: one pid per line
 		kill $sig $holders 2>/dev/null || true
@@ -125,7 +131,7 @@ if [ -n "$want" ] && ! settled; then
 	echo "claudeq: LaunchAgent plist: ${plist:-<unknown home>}"
 	[ -n "$plist" ] && grep -A1 'ProgramArguments' "$plist" 2>/dev/null || true
 	echo "claudeq: port $PORT is held by:"
-	lsof -i "tcp:$PORT" -sTCP:LISTEN 2>/dev/null || true
+	lsof -i "tcp:$PORT" -i "tcp:$LEGACY_PORT" -sTCP:LISTEN 2>/dev/null || true
 	echo "claudeq: ClaudeQ.app copies on this machine:"
 	as_user mdfind "kMDItemCFBundleIdentifier == '$LABEL'" 2>/dev/null || true
 	exit 1
