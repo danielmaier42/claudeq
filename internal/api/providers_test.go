@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -351,6 +352,8 @@ func TestProviderFallbackRoundTrip(t *testing.T) {
 // TestFallbackLabelNamesWhoIsActuallyWorking: the banner must say the queue is
 // moving only while some account in the chain really can take the work.
 func TestFallbackLabelNamesWhoIsActuallyWorking(t *testing.T) {
+	reg := provider.NewRegistry(stubAdapter{health: provider.Health{State: provider.HealthReady}})
+	srv := &server{d: Deps{Registry: reg, Providers: provider.NewChecker(reg)}}
 	set, err := provider.NewSet("claude", []provider.Instance{
 		{ID: "claude", Kind: provider.KindClaudeCode, Name: "Claude", FallbackProvider: "spare", Enabled: true},
 		{ID: "spare", Kind: provider.KindClaudeCode, Name: "Spare", FallbackProvider: "third", Enabled: true},
@@ -379,9 +382,31 @@ func TestFallbackLabelNamesWhoIsActuallyWorking(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			inst, _ := set.Lookup(tc.id)
-			if got := fallbackLabel(set, inst, tc.blocked); got != tc.want {
+			if got := srv.fallbackLabel(context.Background(), set, inst, tc.blocked); got != tc.want {
 				t.Fatalf("fallbackLabel = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestFallbackLabelSkipsAProviderThatCannotRun: naming a substitute that is
+// logged out would tell the operator the queue keeps moving while nothing
+// starts.
+func TestFallbackLabelSkipsAProviderThatCannotRun(t *testing.T) {
+	reg := provider.NewRegistry(stubAdapter{health: provider.Health{
+		State: provider.HealthNotAuthenticated, Reason: "not logged in",
+	}})
+	srv := &server{d: Deps{Registry: reg, Providers: provider.NewChecker(reg)}}
+	set, err := provider.NewSet("claude", []provider.Instance{
+		{ID: "claude", Kind: provider.KindClaudeCode, Name: "Claude", FallbackProvider: "spare", Enabled: true},
+		{ID: "spare", Kind: provider.KindClaudeCode, Name: "Spare", Enabled: true},
+	})
+	if err != nil {
+		t.Fatalf("NewSet: %v", err)
+	}
+	inst, _ := set.Lookup("claude")
+	blocked := map[string]time.Time{"claude": time.Now()}
+	if got := srv.fallbackLabel(context.Background(), set, inst, blocked); got != "" {
+		t.Fatalf("fallbackLabel = %q, want nothing for a fallback that cannot run", got)
 	}
 }

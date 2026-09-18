@@ -206,6 +206,12 @@ type Request struct {
 	Task task.Task
 	// Provider is the resolved provider instance this run executes on.
 	Provider provider.Instance
+	// InheritProvider is the provider a job queued by this run inherits when it
+	// names none. It is the instance the task was *selected* onto, which is not
+	// the one running it when a rate-limit fallback stepped in: a follow-up must
+	// not be pinned to the substitute long after the limit window reopened.
+	// Empty falls back to the instance the run is on.
+	InheritProvider string
 	// RunID is the id of this run, passed to the run as CLAUDEQ_RUN_ID so an
 	// artifact it publishes is attributed to the run. Empty leaves it unset.
 	RunID string
@@ -288,13 +294,17 @@ func (e *Executor) runEnv(req Request, adapterEnv []string) []string {
 	if e.QueueBin != "" {
 		env = append(env, EnvQueueBin+"="+e.QueueBin)
 	}
-	// The parent handed to a self-queued task names the provider this run is
-	// actually on, even when the task itself names none. A follow-up inherits
-	// the account its parent ran on, rather than following a default that may
-	// have moved by the time it starts.
+	// The parent handed to a self-queued task names the provider this run was
+	// put on, even when the task itself names none. A follow-up inherits the
+	// account its parent was scheduled onto, rather than following a default
+	// that may have moved by the time it starts — and rather than the stand-in
+	// that a rate limit happened to send this one run to.
 	parent := req.Task
 	if parent.Provider == "" {
 		parent.Provider = req.Provider.ID
+		if req.InheritProvider != "" {
+			parent.Provider = req.InheritProvider
+		}
 	}
 	if data, err := json.Marshal(parent); err == nil {
 		env = append(env, EnvParentTask+"="+string(data))

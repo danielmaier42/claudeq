@@ -332,6 +332,16 @@ func (e *Engine) assign(set provider.Set, due []task.Task) []assignment {
 // which for the scheduler means its own rate-limit gate has reopened.
 func (e *Engine) gateOpen(providerID string) bool { return e.gates.For(providerID).Open() }
 
+// inheritedProvider is the instance a job queued by this run should inherit
+// when it names none: the one the task was scheduled onto, not the stand-in a
+// rate limit sent this single run to.
+func inheritedProvider(res provider.Resolved) string {
+	if res.Substituted() {
+		return res.FallbackFrom.ID
+	}
+	return res.Instance.ID
+}
+
 // runNotes are the remarks claudeq writes into a run's own log before the
 // harness says anything: that the run went to a fallback provider, and that a
 // waiting session had to be abandoned. They go where whoever reads the run will
@@ -647,6 +657,7 @@ func (e *Engine) launchTask(t task.Task, settings store.Settings, resolved provi
 		Task:               prompted,
 		WorkflowID:         workflowID,
 		Provider:           resolved.Instance,
+		InheritProvider:    inheritedProvider(resolved),
 		RunID:              runID,
 		SessionID:          sessionID,
 		Resume:             resume,
@@ -841,6 +852,12 @@ func writeNote(log io.Writer, message string) {
 // that on the provider that issued it: a session id means nothing to another
 // harness, and nothing at all to another account. A task moved in the meantime
 // therefore starts fresh rather than handing Codex a Claude conversation.
+//
+// The abandoned session is not kept for later. When the substitute finishes,
+// the task is retired like any other completed run and its pending resume goes
+// with it: the work has been done from the start on the other account, and
+// running it a second time when the first provider's window reopens would be
+// worse than losing the conversation.
 func (e *Engine) sessionFor(t task.Task, st *store.State, providerID string) (sessionID string, resume bool, dropped string) {
 	pending, ok := st.PendingResume(t.ID)
 	switch {

@@ -958,7 +958,7 @@ type limitedProvider struct {
 // getHealth reports daemon health the UI can warn about: whether scheduled-wake
 // setup is working, and whether macOS is set to show ClaudeQ's notifications at
 // all (a denied app posts into the void).
-func (s *server) getHealth(w http.ResponseWriter, _ *http.Request) {
+func (s *server) getHealth(w http.ResponseWriter, r *http.Request) {
 	wakeErr := ""
 	if s.d.WakeError != nil {
 		wakeErr = s.d.WakeError()
@@ -984,7 +984,7 @@ func (s *server) getHealth(w http.ResponseWriter, _ *http.Request) {
 				name, fallback := id, ""
 				if inst, ok := set.Lookup(id); ok {
 					name = inst.Label()
-					fallback = fallbackLabel(set, inst, blocked)
+					fallback = s.fallbackLabel(r.Context(), set, inst, blocked)
 				}
 				limitedProviders = append(limitedProviders,
 					limitedProvider{Name: name, Until: until.Format(time.RFC3339), Fallback: fallback})
@@ -1002,9 +1002,12 @@ func (s *server) getHealth(w http.ResponseWriter, _ *http.Request) {
 
 // fallbackLabel names the provider that is actually taking inst's tasks while
 // its allowance is used up: the first one down its fallback chain that is
-// switched on and not blocked itself. It is the same walk the scheduler makes,
-// so the banner says what is really happening rather than what was configured.
-func fallbackLabel(set provider.Set, inst provider.Instance, blocked map[string]time.Time) string {
+// switched on, not blocked itself, and not known to be unable to run. It is the
+// walk the scheduler makes plus the verdict it would refuse on, so the banner
+// says the queue keeps moving only when it really does. The readiness answer is
+// the cached one — this is a banner, not a start, and a probe per poll would
+// spawn a CLI every few seconds.
+func (s *server) fallbackLabel(ctx context.Context, set provider.Set, inst provider.Instance, blocked map[string]time.Time) string {
 	seen := map[string]struct{}{inst.ID: {}}
 	for cur := inst; cur.FallbackProvider != ""; {
 		next, ok := set.Lookup(cur.FallbackProvider)
@@ -1012,7 +1015,8 @@ func fallbackLabel(set provider.Set, inst provider.Instance, blocked map[string]
 			return ""
 		}
 		seen[next.ID] = struct{}{}
-		if _, limited := blocked[next.ID]; !limited {
+		_, limited := blocked[next.ID]
+		if !limited && !s.d.Providers.Check(ctx, next).KnownUnready() {
 			return next.Label()
 		}
 		cur = next

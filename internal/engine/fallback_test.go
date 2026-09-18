@@ -211,3 +211,65 @@ func TestRunNowUsesTheFallback(t *testing.T) {
 		t.Fatalf("ran on %q, want the fallback", reqs[0].Provider.ID)
 	}
 }
+
+// TestAFinishedFallbackDropsThePausedSession: the substitute did the work from
+// the start, so the session waiting on the blocked account is retired with the
+// task rather than resumed once its window reopens — the job must not run twice.
+func TestAFinishedFallbackDropsThePausedSession(t *testing.T) {
+	fc := clock.NewFake(time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC))
+	r := &stub{result: func(req executor.Request, n int) provider.Result {
+		if n == 1 {
+			return provider.Result{Status: store.StatusRateLimited, SessionID: req.SessionID}
+		}
+		return provider.Result{Status: store.StatusSuccess, SessionID: req.SessionID}
+	}}
+	e, st, ad := newTestEngineWithProvider(t, r, fc)
+	ad.set(provider.Health{State: provider.HealthReady})
+	cron := asapTask("a", false)
+	cron.Trigger, cron.Cron = task.TriggerCron, "* * * * *"
+	if err := st.SaveConfig(fallbackConfig("second", cron)); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	for i := range 3 {
+		fc.Advance(time.Minute)
+		if err := e.Tick(context.Background()); err != nil {
+			t.Fatalf("tick %d: %v", i, err)
+		}
+		e.WaitIdle()
+	}
+
+	state, err := st.LoadState()
+	if err != nil {
+		t.Fatalf("LoadState: %v", err)
+	}
+	if pending, ok := state.PendingResume("a"); ok {
+		t.Fatalf("the paused session should have been dropped, still pending: %+v", pending)
+	}
+}
+
+// TestAFallbackDoesNotPinFollowUpsToTheSubstitute: a job a substituted run
+// queues inherits the account the task was scheduled onto, not the stand-in a
+// rate limit sent that one run to.
+func TestAFallbackDoesNotPinFollowUpsToTheSubstitute(t *testing.T) {
+	fc := clock.NewFake(time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC))
+	r := &stub{}
+	e, st, ad := newTestEngineWithProvider(t, r, fc)
+	ad.set(provider.Health{State: provider.HealthReady})
+	if err := st.SaveConfig(fallbackConfig("second", asapTask("a", false))); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	e.gates.For(store.DefaultProviderID).BlockFor(time.Hour)
+
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	e.WaitIdle()
+
+	reqs := r.requests()
+	if len(reqs) != 1 {
+		t.Fatalf("expected one run, got %d", len(reqs))
+	}
+	if got := reqs[0].InheritProvider; got != store.DefaultProviderID {
+		t.Fatalf("follow-ups would inherit %q, want the provider the task was scheduled onto", got)
+	}
+}

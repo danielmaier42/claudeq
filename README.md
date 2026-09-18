@@ -444,9 +444,12 @@ before.
   too, its own fallback is asked, and so on. When every account in the chain is
   out of allowance, the tasks wait — the queue is honest about being stuck.
 - **The interrupted session does not travel.** A session belongs to the account
-  that issued it, so the substitute starts a fresh one and says so in the run's
-  log, which also names the provider it came from. The paused session stays with
-  the blocked provider and is resumed there when its window reopens.
+  that issued it, so the substitute starts the task again from the beginning and
+  says so in the run's log, which also names the provider it came from. Once
+  that run finishes the paused session is dropped rather than resumed later:
+  the work has been done, and doing it twice is worse than losing a
+  conversation. The paused run stays in Activity as the record of what
+  happened.
 - The model travels only between two accounts of the same harness. A fallback of
   a different type runs its own default model instead of a name it would not
   understand.
@@ -1202,8 +1205,9 @@ that.
   than starting over.
 - **A fallback provider skips the wait.** If the blocked provider names one (see
   [When the limit is reached](#when-the-limit-is-reached)), its tasks run there
-  meanwhile — with a fresh session, since a session belongs to the account that
-  issued it. The paused session still waits for its own provider's reset.
+  meanwhile — from the start, since a session belongs to the account that issued
+  it. The interrupted session is then dropped instead of being resumed after the
+  reset, so the task does not run twice.
 - **A blocked queue says so.** While the gate is closed a banner names the time
   it reopens, the paused run is marked *rescheduled* in Activity with that time,
   and the task carries a *rescheduled* badge in the Queue — a waiting queue is
