@@ -77,11 +77,25 @@ func TestCommandGoldenArguments(t *testing.T) {
 			wantArgs: []string{"exec", "--json", "--skip-git-repo-check", "--sandbox", "danger-full-access", "--cd", "/repo", "-"},
 		},
 		{
+			// `codex exec resume` accepts neither --cd nor --sandbox: it would
+			// refuse the whole invocation. The folder comes from the process's
+			// working directory, the sandbox from the configuration value.
 			name: "a resumed thread",
 			req: provider.Request{
 				Prompt: "carry on", WorkingDir: "/repo", SessionID: "thread-42", Resume: true,
 			},
-			wantArgs: []string{"exec", "resume", "--json", "--skip-git-repo-check", "--cd", "/repo", "thread-42", "-"},
+			wantArgs: []string{"exec", "resume", "--json", "--skip-git-repo-check", "thread-42", "-"},
+		},
+		{
+			name: "a resumed thread with an access mode",
+			req: provider.Request{
+				Prompt: "carry on", WorkingDir: "/repo", SessionID: "thread-42", Resume: true,
+				AccessMode: provider.AccessReadOnly,
+			},
+			wantArgs: []string{
+				"exec", "resume", "--json", "--skip-git-repo-check",
+				"-c", `sandbox_mode="read-only"`, "thread-42", "-",
+			},
 		},
 	}
 	for _, tc := range tests {

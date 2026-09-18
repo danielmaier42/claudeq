@@ -101,6 +101,10 @@ func (a *Adapter) binaryOr(inst provider.Instance) string {
 	return BinaryName
 }
 
+// sandboxModeKey is the configuration key behind Codex's --sandbox flag, used
+// where the flag itself is not accepted (see Command).
+const sandboxModeKey = "sandbox_mode"
+
 // sandboxFor maps claudeq's access intent onto Codex's --sandbox values. The
 // provider default is expressed by passing no flag at all, so the instance's own
 // configuration decides — which is exactly what "provider-default" promises.
@@ -140,10 +144,19 @@ func (a *Adapter) Command(inst provider.Instance, req provider.Request) (provide
 	// by default, even though --cd accepts them. This only disables that preflight
 	// check; it does not alter the task's access mode or sandbox arguments.
 	args = append(args, "--json", "--skip-git-repo-check")
+	// `codex exec resume` takes neither --sandbox nor --cd: both are flags of
+	// `codex exec` itself, and passing them to the subcommand fails the run
+	// before it starts ("unexpected argument"). The sandbox goes in as the
+	// configuration value the flag would set, and the directory needs nothing —
+	// the executor already starts the process in the task's folder.
 	if sandbox, ok := sandboxFor(access); ok {
-		args = append(args, "--sandbox", sandbox)
+		if req.Resume {
+			args = append(args, "-c", sandboxModeKey+"="+tomlString(sandbox))
+		} else {
+			args = append(args, "--sandbox", sandbox)
+		}
 	}
-	if req.WorkingDir != "" {
+	if req.WorkingDir != "" && !req.Resume {
 		args = append(args, "--cd", req.WorkingDir)
 	}
 	if req.Model != "" {
