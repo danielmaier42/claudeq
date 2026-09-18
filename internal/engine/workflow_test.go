@@ -35,6 +35,10 @@ func joinTask(deps ...string) task.Task {
 // TestJoinWaitsForEveryChild: the whole point of a durable fan-out is that the
 // join does not start on the first result, and does not need anything to stay
 // alive in the meantime.
+//
+// It doubles as the guard against a one-shot task running twice: a tick lands
+// here while a child is finishing, so a child that left the running set before
+// its completion was written shows up as a fourth run.
 func TestJoinWaitsForEveryChild(t *testing.T) {
 	fc := clock.NewFake(time.Date(2026, 9, 14, 3, 0, 0, 0, time.UTC))
 	// The first child finishes, the second blocks until the test lets it go.

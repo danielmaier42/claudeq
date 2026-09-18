@@ -893,7 +893,6 @@ func (e *Engine) sessionFor(t task.Task, st *store.State, providerID string) (se
 // provider's gate and no other.
 func (e *Engine) finish(t task.Task, providerID string, rec store.Run, res provider.Result, runErr error) {
 	e.mu.Lock()
-	delete(e.active, t.ID)
 	wasCanceled := e.canceled[rec.RunID]
 	delete(e.canceled, rec.RunID)
 	delete(e.cancels, rec.RunID)
@@ -969,6 +968,15 @@ func (e *Engine) finish(t task.Task, providerID string, rec store.Run, res provi
 	default:
 		e.retire(t.ID, oneShotTrigger(t.Trigger))
 	}
+
+	// Only now does the task leave the running set. What keeps a one-shot from
+	// starting a second time is CompletedOnce, and retire writes that above: a
+	// tick that landed between the two would find the task neither running nor
+	// completed and start it again. The concurrency counters were given back
+	// before the write, so nothing waits on a disk write for its slot.
+	e.mu.Lock()
+	delete(e.active, t.ID)
+	e.mu.Unlock()
 
 	if quietDrop(t, rec.Status) {
 		// A quiet task's routine tick leaves no trace: the run was never
