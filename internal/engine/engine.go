@@ -948,15 +948,22 @@ func clipOutput(s string) (string, bool) {
 }
 
 // quietDrop reports whether a run of a quiet-history task leaves history
-// alone: a success is routine, and a rate-limit pause resolves itself (the
-// daemon resumes the session). Failures, auth problems and cancellations are
+// alone. Only a success does: it is the routine tick the setting exists to
+// silence. Failures, auth problems, cancellations and rate-limit pauses are
 // the outcomes the operator needs to see, so those are recorded like any other
 // run's.
+//
+// A pause is kept even though the daemon resumes it by itself, because it is
+// not a finished run: it closes the provider's gate and holds up every other
+// task on that provider, possibly for days when a weekly allowance is what ran
+// out. Dropping it left the queue stopped with a banner and nothing in
+// Activity to explain it, and with no entry there was nowhere to cancel the
+// resume either.
 func quietDrop(t task.Task, status store.RunStatus) bool {
 	if !t.QuietHistory {
 		return false
 	}
-	return status == store.StatusSuccess || status == store.StatusRateLimited
+	return status == store.StatusSuccess
 }
 
 // notifyOutcome sends a best-effort notification. Failures and auth problems

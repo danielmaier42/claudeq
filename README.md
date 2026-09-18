@@ -941,15 +941,15 @@ the record. Mark such a task **Quiet history** (the switch in the task form, or
 `--quiet-history` on `claudeq add` / `claudeq edit` / `claudeq queue`) and:
 
 - A run that **succeeds leaves no trace**: it is never written to history, and
-  its log is deleted when it finishes. The same goes for a run paused by the
-  rate limit, which the daemon resumes by itself.
-- A run that **fails, hits an auth problem, or is cancelled is recorded** with
-  its log, unread, exactly like an ordinary run, and notifies as usual.
+  its log is deleted when it finishes.
+- A run that **fails, hits an auth problem, is cancelled, or is paused by the
+  rate limit is recorded** with its log, unread, exactly like an ordinary run,
+  and notifies as usual. A pause is kept even though the daemon resumes it by
+  itself: it closes that provider's gate and holds up every other task on it,
+  so it is the answer to "why is nothing running?" — and its Activity entry is
+  where **Cancel resume** lives.
 - While it is running, the Queue shows the task's *running* badge as usual, but
   there is no Activity entry to open (and so no live log or **Cancel task**).
-  Same for a pause on the rate limit: the Queue shows the task's *rescheduled*
-  badge, but with no Activity entry there is no **Cancel resume** — pause or
-  delete the task in the Queue to stop it from continuing.
 
 Everything else — notifications the run sends, artifacts it publishes, tasks it
 queues — is unaffected. A task queued from inside a quiet-history run is **not**
