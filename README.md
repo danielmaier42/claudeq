@@ -441,9 +441,10 @@ before.
 - It applies to the rate limit and to nothing else. A provider that is missing,
   logged out or switched off is still never answered by running the work
   somewhere else; those tasks stay queued and say why.
-- The chain is followed as far as it reaches: if the fallback is rate-limited
-  too, its own fallback is asked, and so on. When every account in the chain is
-  out of allowance, the tasks wait — the queue is honest about being stuck.
+- The chain is followed as far as it reaches. A provider in it that cannot take
+  the work right now — rate-limited itself, switched off, not installed, not
+  logged in — is stepped over and its own fallback is asked. When nothing in the
+  chain can work, the tasks wait: the queue is honest about being stuck.
 - **The interrupted session does not travel.** A session belongs to the account
   that issued it, so the substitute starts the task again from the beginning and
   says so in the run's log, which also names the provider it came from. Once
@@ -459,7 +460,8 @@ before.
   into a circle; removing a provider that is somebody's fallback is refused by
   name, exactly like removing one a task still uses.
 - The waiting banner names both: *Claude → Second account*, and says the queue
-  keeps running rather than that nothing starts.
+  keeps running rather than that nothing starts. With several providers blocked
+  it says which part of the work carries on.
 
 Set it on the provider's block in **Settings → Providers** ("When the limit is
 reached", plus "Model there"), or with

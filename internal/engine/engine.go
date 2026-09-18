@@ -193,7 +193,7 @@ func (e *Engine) Tick(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	assigned := e.assign(providers, due)
+	assigned := e.assign(ctx, providers, due)
 
 	// Their harnesses are then probed *outside* the lock. A readiness check
 	// spawns a CLI and a CLI can hang; holding e.mu across that would stall the
@@ -315,11 +315,11 @@ type assignment struct {
 // holds up only its own work. A task whose provider cannot be resolved at all
 // is kept, carrying the reason: it is reported as blocked further down rather
 // than silently disappearing from the tick.
-func (e *Engine) assign(set provider.Set, due []task.Task) []assignment {
+func (e *Engine) assign(ctx context.Context, set provider.Set, due []task.Task) []assignment {
 	out := make([]assignment, 0, len(due))
 	for _, t := range due {
 		sel := provider.Selection{ProviderID: t.Provider, Model: t.Model}
-		res, err := set.ResolveAvailable(sel, e.gateOpen)
+		res, err := set.ResolveAvailable(sel, e.availability(ctx))
 		if err == nil && !e.gateOpen(res.Instance.ID) {
 			continue
 		}
@@ -328,9 +328,24 @@ func (e *Engine) assign(set provider.Set, due []task.Task) []assignment {
 	return out
 }
 
-// gateOpen reports whether a provider instance may be given work right now,
+// gateOpen reports whether a provider instance has allowance left right now,
 // which for the scheduler means its own rate-limit gate has reopened.
 func (e *Engine) gateOpen(providerID string) bool { return e.gates.For(providerID).Open() }
+
+// availability is what the fallback walk asks about the configured instances:
+// whose allowance ran out, and which of the stand-ins could take the work at
+// all. Readiness is the remembered verdict rather than a fresh probe — the
+// instance that is actually picked is probed straight afterwards, and asking
+// every hop of every chain again would spawn a CLI for providers nothing is
+// about to run on.
+func (e *Engine) availability(ctx context.Context) provider.Availability {
+	return provider.Availability{
+		OutOfAllowance: func(id string) bool { return !e.gateOpen(id) },
+		CanTakeWork: func(inst provider.Instance) bool {
+			return !e.providers.Check(ctx, inst).KnownUnready()
+		},
+	}
+}
 
 // inheritedProvider is the instance a job queued by this run should inherit
 // when it names none: the one the task was scheduled onto, not the stand-in a
@@ -442,7 +457,7 @@ func (h providerHealth) ready(res provider.Resolved) bool {
 // it may run under, or why it may not. It is the single-task form of
 // refreshProviderHealth, for the manual "run now".
 func (e *Engine) resolveRunnable(ctx context.Context, set provider.Set, st *store.State, t task.Task) (provider.Resolved, error) {
-	res, err := set.ResolveAvailable(provider.Selection{ProviderID: t.Provider, Model: t.Model}, e.gateOpen)
+	res, err := set.ResolveAvailable(provider.Selection{ProviderID: t.Provider, Model: t.Model}, e.availability(ctx))
 	if err != nil {
 		return provider.Resolved{}, err
 	}

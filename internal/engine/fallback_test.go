@@ -9,6 +9,7 @@ import (
 
 	"github.com/danielmaier42/claudeq/internal/clock"
 	"github.com/danielmaier42/claudeq/internal/executor"
+	"github.com/danielmaier42/claudeq/internal/limit"
 	"github.com/danielmaier42/claudeq/internal/provider"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
@@ -303,4 +304,59 @@ func TestAFallbackRunsTheModelItWasGiven(t *testing.T) {
 	if got := reqs[0].Model; got != "haiku-fast" {
 		t.Fatalf("model = %q, want the one configured for the fallback", got)
 	}
+}
+
+// TestTheChainStepsOverAProviderThatCannotRun: a hop is not the provider the
+// task named, so one that cannot take the work is stepped over instead of
+// ending the chain — otherwise a logged-out stand-in would stop the queue that
+// the fallback behind it could have kept moving.
+func TestTheChainStepsOverAProviderThatCannotRun(t *testing.T) {
+	fc := clock.NewFake(time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC))
+	r := &stub{}
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	ad := &perProviderHealth{healthy: provider.Health{State: provider.HealthReady}, broken: map[string]provider.Health{
+		"second": {State: provider.HealthNotAuthenticated, Reason: "not logged in"},
+	}}
+	e := New(st, limit.NewGates(fc), r, fc, &provider.Checker{Registry: provider.NewRegistry(ad), TTL: time.Nanosecond})
+
+	cfg := fallbackConfig("second", asapTask("a", false))
+	cfg.Providers[1].FallbackProvider = "third"
+	third := claudeProvider("", "")
+	third.ID, third.Name = "third", "Third account"
+	cfg.Providers = append(cfg.Providers, third)
+	if err := st.SaveConfig(cfg); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	e.gates.For(store.DefaultProviderID).BlockFor(time.Hour)
+
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	e.WaitIdle()
+
+	reqs := r.requests()
+	if len(reqs) != 1 {
+		t.Fatalf("expected the chain to find a working account, got %d runs", len(reqs))
+	}
+	if reqs[0].Provider.ID != "third" {
+		t.Fatalf("ran on %q, want the first account behind the broken one", reqs[0].Provider.ID)
+	}
+}
+
+// perProviderHealth answers differently per instance, which is what a chain
+// with one broken account in it needs.
+type perProviderHealth struct {
+	healthAdapter
+	healthy provider.Health
+	broken  map[string]provider.Health
+}
+
+func (a *perProviderHealth) CheckHealth(_ context.Context, inst provider.Instance, _ provider.Prober) provider.Health {
+	if h, ok := a.broken[inst.ID]; ok {
+		return h
+	}
+	return a.healthy
 }

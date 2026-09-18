@@ -156,41 +156,62 @@ func (s Set) Resolve(sel Selection) (Resolved, error) {
 	return Resolved{Instance: inst, Model: model}, nil
 }
 
+// Availability is what the fallback walk needs to know about the configured
+// instances. Its zero value asks nothing, which makes [Set.ResolveAvailable]
+// exactly [Set.Resolve].
+type Availability struct {
+	// OutOfAllowance reports that an instance is waiting out a rate limit. It is
+	// the one condition that hands an instance's work to a fallback: everything
+	// else about a provider is answered by refusing, never by substituting.
+	OutOfAllowance func(id string) bool
+	// CanTakeWork reports whether an instance could run the work at all — it is
+	// installed, logged in, switched on. It is asked about the *hops* only: a
+	// hop that cannot take the work is stepped over, which substitutes nothing,
+	// because it is not the provider the task named. Nil accepts every hop.
+	CanTakeWork func(inst Instance) bool
+}
+
 // ResolveAvailable resolves a selection and then, when the chosen instance is
 // out of allowance, follows the fallback it was given.
 //
-// available answers "can this instance take work right now" — in the daemon,
-// whether its rate-limit gate is open. A nil available makes this exactly
-// [Set.Resolve]: nothing is ever substituted for a provider that can run.
-//
-// The chain is followed until an available instance is found, and every hop
-// must be configured, switched on and not already visited. A chain that is
-// broken or blocked end to end resolves to the provider the selection named,
-// so the caller still sees the account whose allowance ran out rather than an
-// error about a fallback nobody asked about.
+// The chain is walked until an instance is found that has allowance left and
+// can actually take the work; a hop that is blocked, switched off or unfit is
+// stepped over, and a chain that is broken or blocked end to end resolves to
+// the provider the selection named. The caller still sees the account whose
+// allowance ran out rather than an error about a fallback nobody asked about.
 //
 // This is the one substitution claudeq makes, and only this one: a rate limit
 // is a pause, not a verdict on the work. A provider that is missing, logged
 // out or switched off is still never answered by running somewhere else.
-func (s Set) ResolveAvailable(sel Selection, available func(id string) bool) (Resolved, error) {
+func (s Set) ResolveAvailable(sel Selection, av Availability) (Resolved, error) {
 	res, err := s.Resolve(sel)
-	if err != nil || available == nil || available(res.Instance.ID) {
+	if err != nil || av.OutOfAllowance == nil || !av.OutOfAllowance(res.Instance.ID) {
 		return res, err
 	}
 	origin := res.Instance
 	seen := map[string]struct{}{origin.ID: {}}
 	for cur := origin; cur.FallbackProvider != ""; {
 		next, ok := s.Lookup(cur.FallbackProvider)
-		if _, visited := seen[cur.FallbackProvider]; !ok || visited || !next.Enabled {
+		if _, visited := seen[cur.FallbackProvider]; !ok || visited {
 			break
 		}
 		seen[next.ID] = struct{}{}
-		if available(next.ID) {
+		if av.usable(next) && !av.OutOfAllowance(next.ID) {
 			return Resolved{Instance: next, Model: fallbackModel(origin, cur, next, sel.Model), FallbackFrom: origin}, nil
 		}
 		cur = next
 	}
 	return res, nil
+}
+
+// usable answers CanTakeWork for one hop, with the two things every caller
+// means by it: the instance is switched on, and whatever the caller knows about
+// its readiness says it could run.
+func (a Availability) usable(inst Instance) bool {
+	if !inst.Enabled {
+		return false
+	}
+	return a.CanTakeWork == nil || a.CanTakeWork(inst)
 }
 
 // fallbackModel decides which model the substitute runs. The provider that

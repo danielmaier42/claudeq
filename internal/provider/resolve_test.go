@@ -265,6 +265,16 @@ func fallbackSet(t *testing.T) Set {
 	return s
 }
 
+// limitedIDs is the availability of a set where the named instances are out of
+// allowance and everything else can take work.
+func limitedIDs(blocked map[string]bool) Availability {
+	return Availability{OutOfAllowance: func(id string) bool { return blocked[id] }}
+}
+
+// everythingLimited is the availability of a set where no account has anything
+// left at all.
+var everythingLimited = Availability{OutOfAllowance: func(string) bool { return true }}
+
 // TestResolveAvailableFollowsTheFallbackChain is the rate-limit substitution:
 // the only one claudeq makes, and only as far as the chain actually reaches.
 func TestResolveAvailableFollowsTheFallbackChain(t *testing.T) {
@@ -314,7 +324,7 @@ func TestResolveAvailableFollowsTheFallbackChain(t *testing.T) {
 			for _, id := range tc.blocked {
 				blocked[id] = true
 			}
-			got, err := set.ResolveAvailable(tc.sel, func(id string) bool { return !blocked[id] })
+			got, err := set.ResolveAvailable(tc.sel, limitedIDs(blocked))
 			if err != nil {
 				t.Fatalf("ResolveAvailable: %v", err)
 			}
@@ -334,23 +344,46 @@ func TestResolveAvailableFollowsTheFallbackChain(t *testing.T) {
 	}
 }
 
-// TestResolveAvailableSkipsASwitchedOffFallback: a fallback is a plan, not a
-// promise. An instance that is off cannot take the work, and the walk stops
-// there rather than running on a provider the operator disabled.
-func TestResolveAvailableSkipsASwitchedOffFallback(t *testing.T) {
+// TestResolveAvailableStepsOverAHopThatCannotWork: a hop is not the provider
+// the task named, so one that is switched off or not ready is stepped over
+// rather than ending the chain — nothing is substituted by skipping it.
+func TestResolveAvailableStepsOverAHopThatCannotWork(t *testing.T) {
 	set, err := NewSet("claude", []Instance{
 		{ID: "claude", Kind: KindClaudeCode, FallbackProvider: "off", Enabled: true},
-		{ID: "off", Kind: KindClaudeCode, FallbackProvider: "spare", Enabled: false},
-		{ID: "spare", Kind: KindClaudeCode, Enabled: true},
+		{ID: "off", Kind: KindClaudeCode, FallbackProvider: "loggedout", Enabled: false},
+		{ID: "loggedout", Kind: KindClaudeCode, FallbackProvider: "spare", Enabled: true},
+		{ID: "spare", Kind: KindClaudeCode, Name: "Spare", Enabled: true},
 	})
 	if err != nil {
 		t.Fatalf("NewSet: %v", err)
 	}
-	got, err := set.ResolveAvailable(Selection{ProviderID: "claude"}, func(id string) bool { return id != "claude" })
+	av := limitedIDs(map[string]bool{"claude": true})
+	av.CanTakeWork = func(inst Instance) bool { return inst.ID != "loggedout" }
+	got, err := set.ResolveAvailable(Selection{ProviderID: "claude"}, av)
 	if err != nil {
 		t.Fatalf("ResolveAvailable: %v", err)
 	}
-	if got.Instance.ID != "claude" {
+	if got.Instance.ID != "spare" {
+		t.Fatalf("provider = %q, want the first hop that can actually work", got.Instance.ID)
+	}
+}
+
+// TestResolveAvailableWaitsWhenNoHopCanWork: stepping over hops is not licence
+// to run somewhere nobody named — when the chain ends without a usable account,
+// the work stays with the provider whose allowance ran out.
+func TestResolveAvailableWaitsWhenNoHopCanWork(t *testing.T) {
+	set, err := NewSet("claude", []Instance{
+		{ID: "claude", Kind: KindClaudeCode, FallbackProvider: "off", Enabled: true},
+		{ID: "off", Kind: KindClaudeCode, Enabled: false},
+	})
+	if err != nil {
+		t.Fatalf("NewSet: %v", err)
+	}
+	got, err := set.ResolveAvailable(Selection{ProviderID: "claude"}, limitedIDs(map[string]bool{"claude": true}))
+	if err != nil {
+		t.Fatalf("ResolveAvailable: %v", err)
+	}
+	if got.Substituted() {
 		t.Fatalf("provider = %q, want the original", got.Instance.ID)
 	}
 }
@@ -365,7 +398,7 @@ func TestResolveAvailableSurvivesACycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSet: %v", err)
 	}
-	got, err := set.ResolveAvailable(Selection{ProviderID: "a"}, func(string) bool { return false })
+	got, err := set.ResolveAvailable(Selection{ProviderID: "a"}, everythingLimited)
 	if err != nil {
 		t.Fatalf("ResolveAvailable: %v", err)
 	}
@@ -380,7 +413,7 @@ func TestResolveAvailableSurvivesACycle(t *testing.T) {
 func TestResolveAvailableStillRefusesTheUnresolvable(t *testing.T) {
 	set := fallbackSet(t)
 	for _, id := range []string{"gone", "off"} {
-		if _, err := set.ResolveAvailable(Selection{ProviderID: id}, func(string) bool { return false }); err == nil {
+		if _, err := set.ResolveAvailable(Selection{ProviderID: id}, everythingLimited); err == nil {
 			t.Fatalf("provider %q: expected an error, got a substitute", id)
 		}
 	}
@@ -398,7 +431,7 @@ func TestResolveAvailableFallsBackToTheSubstitutesDefaultModel(t *testing.T) {
 		t.Fatalf("NewSet: %v", err)
 	}
 	got, err := set.ResolveAvailable(Selection{ProviderID: "claude", Model: "opus"},
-		func(id string) bool { return id != "claude" })
+		limitedIDs(map[string]bool{"claude": true}))
 	if err != nil {
 		t.Fatalf("ResolveAvailable: %v", err)
 	}

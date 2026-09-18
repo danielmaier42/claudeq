@@ -44,13 +44,21 @@ function renderLimitBar(iso,providers){
       ?'<b>⏸ Rate limit reached — waiting on '+names.join(', ')+'</b>'
       :'<b>⏸ Rate limit reached — the queue is waiting, not stuck</b>';
     // A provider with a fallback is not holding its tasks up: they are running
-    // on the substitute right now, so the banner must not claim nothing starts.
-    const covered=list.length&&list.every(p=>p.fallback);
-    bar.innerHTML=heading
-      +(covered
-        ?'Tasks keep running on the fallback provider. The blocked one takes them back from <strong>'+esc(LIMITED_UNTIL.toLocaleString())+'</strong> ('+esc(relTime(LIMITED_UNTIL.toISOString()))+'). '
-        :'No task starts before <strong>'+esc(LIMITED_UNTIL.toLocaleString())+'</strong> ('+esc(relTime(LIMITED_UNTIL.toISOString()))+'). ')
-      +'A run the limit interrupted is marked <strong>rescheduled</strong> in Activity and continues its Claude session then — or drop it there with <strong>Cancel resume</strong>.';
+    // on the substitute right now. So the banner says what is true for this
+    // set of blocked providers — all of them covered, none, or some.
+    const covered=list.filter(p=>p.fallback).length;
+    const when='<strong>'+esc(LIMITED_UNTIL.toLocaleString())+'</strong> ('+esc(relTime(LIMITED_UNTIL.toISOString()))+')';
+    const body=covered===0
+      ?'No task starts before '+when+'. '
+      :(covered===list.length
+        ?'Tasks keep running on the fallback provider. The blocked one takes them back from '+when+'. '
+        :'Tasks with a fallback keep running; the rest start again from '+when+'. ');
+    // A run a fallback took over is not continued afterwards — it was started
+    // again from the beginning over there, so only the uncovered ones wait.
+    const tail=covered===list.length&&covered>0
+      ?'The run the limit interrupted is not resumed: the fallback did the work from the start.'
+      :'A run the limit interrupted is marked <strong>rescheduled</strong> in Activity and continues its Claude session then — or drop it there with <strong>Cancel resume</strong>.';
+    bar.innerHTML=heading+body+tail;
     bar.hidden=false;
   }
   // Re-render the views that show the resume time when the gate moved.

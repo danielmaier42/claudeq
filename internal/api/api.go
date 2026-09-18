@@ -1001,27 +1001,19 @@ func (s *server) getHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 // fallbackLabel names the provider that is actually taking inst's tasks while
-// its allowance is used up: the first one down its fallback chain that is
-// switched on, not blocked itself, and not known to be unable to run. It is the
-// walk the scheduler makes plus the verdict it would refuse on, so the banner
-// says the queue keeps moving only when it really does. The readiness answer is
-// the cached one — this is a banner, not a start, and a probe per poll would
-// spawn a CLI every few seconds.
+// its allowance is used up, by asking the same resolver the scheduler asks: the
+// banner says the queue keeps moving only where it really does. Readiness comes
+// from the remembered verdict — this is a banner, not a start, and a probe per
+// poll would spawn a CLI every few seconds.
 func (s *server) fallbackLabel(ctx context.Context, set provider.Set, inst provider.Instance, blocked map[string]time.Time) string {
-	seen := map[string]struct{}{inst.ID: {}}
-	for cur := inst; cur.FallbackProvider != ""; {
-		next, ok := set.Lookup(cur.FallbackProvider)
-		if _, visited := seen[cur.FallbackProvider]; !ok || visited || !next.Enabled {
-			return ""
-		}
-		seen[next.ID] = struct{}{}
-		_, limited := blocked[next.ID]
-		if !limited && !s.d.Providers.Check(ctx, next).KnownUnready() {
-			return next.Label()
-		}
-		cur = next
+	res, err := set.ResolveAvailable(provider.Selection{ProviderID: inst.ID}, provider.Availability{
+		OutOfAllowance: func(id string) bool { _, limited := blocked[id]; return limited },
+		CanTakeWork:    func(i provider.Instance) bool { return !s.d.Providers.Check(ctx, i).KnownUnready() },
+	})
+	if err != nil || !res.Substituted() {
+		return ""
 	}
-	return ""
+	return res.Instance.Label()
 }
 
 func (s *server) chooseFolder(w http.ResponseWriter, r *http.Request) {
