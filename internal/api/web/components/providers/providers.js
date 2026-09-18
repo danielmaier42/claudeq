@@ -83,6 +83,9 @@ function providerBlock(p){
       <div class="row"><div class="grow"><div class="title">Default model</div>
           <div class="sub">Used for tasks on this provider that name no model</div></div>
         <select class="p-model" style="max-width:230px"></select></div>
+      <div class="row"><div class="grow"><div class="title">When the limit is reached</div>
+          <div class="sub">Where this provider's tasks run while its allowance is used up. Without one they wait for the window to reopen. An interrupted session doesn't travel — the substitute starts fresh.</div></div>
+        <select class="p-fallback" style="max-width:230px"></select></div>
       <div class="row"><div class="grow"><div class="sub">${esc(p.health.binary||'')}</div></div>
         <button class="btn p-default"${p.default||!p.enabled?' disabled':''}>Make default</button>
         <button class="btn p-check">Check again</button>
@@ -92,6 +95,7 @@ function providerBlock(p){
   wrap.querySelector('.p-path').value=p.binary_path||'';
   wrap.querySelector('.p-dir').value=p.config_dir||'';
   fillProviderModels(wrap.querySelector('.p-model'),p);
+  fillFallbackChoices(wrap.querySelector('.p-fallback'),p);
   // The block is a form like every other group in Settings: Save at the top of
   // the page writes it (see saveSettings). What sits here are actions, not
   // edits — they take effect at once and reload the list.
@@ -181,6 +185,17 @@ async function fillProviderModels(select,p){
   let models=[];
   try{ models=await api('GET','/api/models?provider='+encodeURIComponent(p.id))||[]; }catch{ return; }
   select.innerHTML=modelOptionsFrom(models,p.default_model||'','Provider default');
+}
+// fillFallbackChoices offers every other configured provider as the one that
+// takes over while this one is rate-limited. A stored id that has since gone
+// keeps its place, marked, so saving the card does not quietly drop the
+// fallback the operator chose.
+function fillFallbackChoices(select,p){
+  const others=PROVIDERS.filter(x=>x.id!==p.id);
+  const known=others.some(x=>x.id===p.fallback_provider);
+  select.innerHTML='<option value="">Wait for the limit</option>'
+    +others.map(x=>`<option value="${esc(x.id)}"${x.id===p.fallback_provider?' selected':''}>${esc((x.name||x.id)+(x.enabled?'':' (switched off)'))}</option>`).join('')
+    +(p.fallback_provider&&!known?`<option value="${esc(p.fallback_provider)}" selected>${esc(p.fallback_provider)} — unavailable</option>`:'');
 }
 // Show one settings pane. The choice is remembered for the session, so leaving
 // Settings and coming back lands on the pane you were last on.

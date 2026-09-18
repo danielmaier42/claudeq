@@ -611,6 +611,22 @@ func TestSaveConfigRejectsBrokenProviderLists(t *testing.T) {
 			name: "default names nothing",
 			cfg:  Config{Settings: Settings{DefaultProvider: "gone"}, Providers: []Provider{{ID: "claude"}}},
 		},
+		{
+			name: "fallback names nothing",
+			cfg:  Config{Providers: []Provider{{ID: "claude", FallbackProvider: "gone"}}},
+		},
+		{
+			name: "fallback points at itself",
+			cfg:  Config{Providers: []Provider{{ID: "claude", FallbackProvider: "claude"}}},
+		},
+		{
+			name: "fallback cycle",
+			cfg: Config{Providers: []Provider{
+				{ID: "a", FallbackProvider: "b"},
+				{ID: "b", FallbackProvider: "c"},
+				{ID: "c", FallbackProvider: "a"},
+			}},
+		},
 	}
 	s := openTemp(t)
 	for _, tc := range tests {
@@ -619,6 +635,27 @@ func TestSaveConfigRejectsBrokenProviderLists(t *testing.T) {
 				t.Fatal("expected SaveConfig to refuse")
 			}
 		})
+	}
+}
+
+// TestSaveConfigKeepsAValidFallbackChain: a chain that ends is exactly what
+// the feature is, so the check must not refuse one.
+func TestSaveConfigKeepsAValidFallbackChain(t *testing.T) {
+	s := openTemp(t)
+	cfg := Config{Providers: []Provider{
+		{ID: "a", Kind: DefaultProviderKind, FallbackProvider: "b", Enabled: true},
+		{ID: "b", Kind: DefaultProviderKind, FallbackProvider: "c", Enabled: true},
+		{ID: "c", Kind: DefaultProviderKind, Enabled: true},
+	}}
+	if err := s.SaveConfig(cfg); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	got, err := s.LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if got.Providers[0].FallbackProvider != "b" {
+		t.Fatalf("fallback = %q, want it to survive the round trip", got.Providers[0].FallbackProvider)
 	}
 }
 

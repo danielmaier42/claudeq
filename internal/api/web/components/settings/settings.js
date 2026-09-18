@@ -244,6 +244,7 @@ function providerEdits(){
       binary_path:w.querySelector('.p-path').value.trim(),
       config_dir:w.querySelector('.p-dir').value.trim(),
       default_model:w.querySelector('.p-model').value,
+      fallback_provider:w.querySelector('.p-fallback').value,
       enabled:w.querySelector('.switch input').checked,
     },
   }));

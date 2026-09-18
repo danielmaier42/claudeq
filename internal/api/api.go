@@ -949,6 +949,10 @@ func (s *server) listModels(w http.ResponseWriter, r *http.Request) {
 type limitedProvider struct {
 	Name  string `json:"name"`
 	Until string `json:"until"`
+	// Fallback is the label of the provider that takes this one's tasks in the
+	// meantime, empty when it has none that could. A banner that names it says
+	// the queue is moving; without one the queue really is waiting.
+	Fallback string `json:"fallback,omitempty"`
 }
 
 // getHealth reports daemon health the UI can warn about: whether scheduled-wake
@@ -977,11 +981,13 @@ func (s *server) getHealth(w http.ResponseWriter, _ *http.Request) {
 			// generic limited_until banner working, just without provider names.
 			set, _ := app.Providers(s.d.Store)
 			for id, until := range blocked {
-				name := id
+				name, fallback := id, ""
 				if inst, ok := set.Lookup(id); ok {
 					name = inst.Label()
+					fallback = fallbackLabel(set, inst, blocked)
 				}
-				limitedProviders = append(limitedProviders, limitedProvider{Name: name, Until: until.Format(time.RFC3339)})
+				limitedProviders = append(limitedProviders,
+					limitedProvider{Name: name, Until: until.Format(time.RFC3339), Fallback: fallback})
 			}
 			sort.Slice(limitedProviders, func(i, j int) bool { return limitedProviders[i].Until < limitedProviders[j].Until })
 		}
@@ -992,6 +998,26 @@ func (s *server) getHealth(w http.ResponseWriter, _ *http.Request) {
 		"limited_until":     limitedUntil,
 		"limited_providers": limitedProviders,
 	})
+}
+
+// fallbackLabel names the provider that is actually taking inst's tasks while
+// its allowance is used up: the first one down its fallback chain that is
+// switched on and not blocked itself. It is the same walk the scheduler makes,
+// so the banner says what is really happening rather than what was configured.
+func fallbackLabel(set provider.Set, inst provider.Instance, blocked map[string]time.Time) string {
+	seen := map[string]struct{}{inst.ID: {}}
+	for cur := inst; cur.FallbackProvider != ""; {
+		next, ok := set.Lookup(cur.FallbackProvider)
+		if _, visited := seen[cur.FallbackProvider]; !ok || visited || !next.Enabled {
+			return ""
+		}
+		seen[next.ID] = struct{}{}
+		if _, limited := blocked[next.ID]; !limited {
+			return next.Label()
+		}
+		cur = next
+	}
+	return ""
 }
 
 func (s *server) chooseFolder(w http.ResponseWriter, r *http.Request) {

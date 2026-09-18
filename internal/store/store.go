@@ -557,6 +557,9 @@ type Provider struct {
 	ConfigDir string `toml:"config_dir" json:"config_dir"`
 	// DefaultModel is used when neither the task nor the caller names a model.
 	DefaultModel string `toml:"default_model" json:"default_model"`
+	// FallbackProvider is the id of the instance that takes over this one's
+	// tasks while its allowance is used up. Empty means the tasks wait instead.
+	FallbackProvider string `toml:"fallback_provider,omitempty" json:"fallback_provider"`
 	// Enabled turns the instance off without removing it.
 	Enabled bool `toml:"enabled" json:"enabled"`
 }
@@ -594,6 +597,36 @@ func (c Config) checkProviders() error {
 	if id := c.Settings.DefaultProvider; id != "" {
 		if _, ok := seen[id]; !ok {
 			return fmt.Errorf("default provider %q is not configured", id)
+		}
+	}
+	return c.checkFallbacks()
+}
+
+// checkFallbacks guards the rate-limit fallback chains: every fallback names
+// another configured instance, and following them always ends. A cycle would
+// be a queue that hands the same work round and round while every account in
+// it is blocked, so the file is not allowed to hold one.
+func (c Config) checkFallbacks() error {
+	next := make(map[string]string, len(c.Providers))
+	for _, p := range c.Providers {
+		next[p.ID] = p.FallbackProvider
+	}
+	for _, p := range c.Providers {
+		if p.FallbackProvider == "" {
+			continue
+		}
+		if p.FallbackProvider == p.ID {
+			return fmt.Errorf("provider %q cannot be its own fallback", p.ID)
+		}
+		if _, ok := next[p.FallbackProvider]; !ok {
+			return fmt.Errorf("fallback %q of provider %q is not configured", p.FallbackProvider, p.ID)
+		}
+		seen := map[string]struct{}{p.ID: {}}
+		for id := next[p.ID]; id != ""; id = next[id] {
+			if _, loop := seen[id]; loop {
+				return fmt.Errorf("provider %q has a fallback cycle", p.ID)
+			}
+			seen[id] = struct{}{}
 		}
 	}
 	return nil

@@ -193,7 +193,7 @@ func (e *Engine) Tick(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	due = e.notRateLimited(providers, due)
+	assigned := e.assign(providers, due)
 
 	// Their harnesses are then probed *outside* the lock. A readiness check
 	// spawns a CLI and a CLI can hang; holding e.mu across that would stall the
@@ -201,7 +201,7 @@ func (e *Engine) Tick(ctx context.Context) error {
 	// Only the providers of tasks that are actually due are asked, and they are
 	// asked without the cache — this is the moment right before a start, which is
 	// exactly when a stale verdict would cost a recorded run.
-	health := e.refreshProviderHealth(ctx, providers, due)
+	health := e.refreshProviderHealth(ctx, providers, assigned)
 
 	// Back under the lock, with the scheduling state read *here*: a run that
 	// finished while the probes were out has already written its completion, and
@@ -222,26 +222,24 @@ func (e *Engine) Tick(ctx context.Context) error {
 	// A task whose harness cannot run it is not started and not retired: it keeps
 	// its place in the queue, takes no concurrency slot, and advances no
 	// one-shot or cron state, so it simply runs once the provider is ready again.
-	runnable := make([]task.Task, 0, len(due))
-	for _, t := range due {
-		stillDue, err := e.isDue(t, st, deps, now)
+	runnable := make([]task.Task, 0, len(assigned))
+	ready := make(map[string]provider.Resolved, len(assigned))
+	for _, a := range assigned {
+		stillDue, err := e.isDue(a.task, st, deps, now)
 		if err != nil {
 			return err
 		}
-		if !stillDue {
+		if !stillDue || a.err != nil || !health.ready(a.resolved) {
 			continue
 		}
-		if _, err := health.resolve(providers, t); err == nil {
-			runnable = append(runnable, t)
-		}
+		runnable = append(runnable, a.task)
+		ready[a.task.ID] = a.resolved
 	}
 
 	selected := schedule.Select(runnable, e.runningState())
 	starts := make([]start, 0, len(selected))
 	for _, t := range selected {
-		if res, err := health.resolve(providers, t); err == nil {
-			starts = append(starts, start{task: t, resolved: res, deps: deps[t.ID]})
-		}
+		starts = append(starts, start{task: t, resolved: ready[t.ID], deps: deps[t.ID]})
 	}
 
 	// Persist scheduling state only when something changed, and via a targeted
@@ -261,7 +259,8 @@ func (e *Engine) Tick(ctx context.Context) error {
 
 	for _, s := range starts {
 		sessionID, resume, dropped := e.sessionFor(s.task, st, s.resolved.Instance.ID)
-		if err := e.launchTask(s.task, cfg.Settings, s.resolved, s.deps, sessionID, resume, dropped, now); err != nil {
+		notes := runNotes(s.resolved, dropped)
+		if err := e.launchTask(s.task, cfg.Settings, s.resolved, s.deps, sessionID, resume, notes, now); err != nil {
 			return err
 		}
 	}
@@ -298,20 +297,56 @@ func (e *Engine) dueTasks(cfg store.Config, deps dependencyState) ([]task.Task, 
 	return due, nil
 }
 
-// notRateLimited drops the tasks whose provider instance is waiting out a rate
-// limit. An allowance belongs to an account, so one provider's pause holds up
-// only its own work.
-func (e *Engine) notRateLimited(set provider.Set, due []task.Task) []task.Task {
-	out := due[:0]
+// assignment is one due task together with the provider instance that would
+// actually run it right now, or the reason it has none.
+type assignment struct {
+	task     task.Task
+	resolved provider.Resolved
+	err      error
+}
+
+// assign works out where each due task would run once the rate-limit fallback
+// has been applied: a task whose provider is waiting out its allowance goes to
+// the provider that one names as its fallback, if that one can take it.
+//
+// Tasks whose provider — and every fallback behind it — is still blocked are
+// dropped here. There is no point probing a harness that is not going to be
+// asked to run, and an allowance belongs to an account, so one provider's pause
+// holds up only its own work. A task whose provider cannot be resolved at all
+// is kept, carrying the reason: it is reported as blocked further down rather
+// than silently disappearing from the tick.
+func (e *Engine) assign(set provider.Set, due []task.Task) []assignment {
+	out := make([]assignment, 0, len(due))
 	for _, t := range due {
-		res, err := set.Resolve(provider.Selection{ProviderID: t.Provider})
-		// An unresolvable provider is not a rate-limit question; it is reported
-		// as a blocked task further down.
-		if err != nil || e.gates.For(res.Instance.ID).Open() {
-			out = append(out, t)
+		sel := provider.Selection{ProviderID: t.Provider, Model: t.Model}
+		res, err := set.ResolveAvailable(sel, e.gateOpen)
+		if err == nil && !e.gateOpen(res.Instance.ID) {
+			continue
 		}
+		out = append(out, assignment{task: t, resolved: res, err: err})
 	}
 	return out
+}
+
+// gateOpen reports whether a provider instance may be given work right now,
+// which for the scheduler means its own rate-limit gate has reopened.
+func (e *Engine) gateOpen(providerID string) bool { return e.gates.For(providerID).Open() }
+
+// runNotes are the remarks claudeq writes into a run's own log before the
+// harness says anything: that the run went to a fallback provider, and that a
+// waiting session had to be abandoned. They go where whoever reads the run will
+// look for them.
+func runNotes(res provider.Resolved, dropped string) []string {
+	var notes []string
+	if res.Substituted() {
+		notes = append(notes, fmt.Sprintf(
+			"%s has used up its allowance, so this run goes to its fallback %s instead",
+			res.FallbackFrom.Label(), res.Instance.Label()))
+	}
+	if dropped != "" {
+		notes = append(notes, dropped)
+	}
+	return notes
 }
 
 // isDue evaluates one task's trigger. The caller holds e.mu, because whether the
@@ -379,33 +414,25 @@ type start struct {
 // the scheduler lock so the decisions under it cost nothing.
 type providerHealth map[string]provider.Health
 
-// resolve turns a task into the execution identity it may run under, or reports
-// why it may not. There is no fallback: a task that names a provider claudeq
-// cannot honour is not moved to another one. The scheduler leaves it queued; a
-// manual run reports the reason to whoever asked for it.
-func (h providerHealth) resolve(set provider.Set, t task.Task) (provider.Resolved, error) {
-	res, err := set.Resolve(provider.Selection{ProviderID: t.Provider, Model: t.Model})
-	if err != nil {
-		return provider.Resolved{}, err
-	}
+// ready reports whether the instance a task was assigned to was found fit to
+// run in this tick's probe. An instance that was not probed at all (the task
+// was enabled moments ago) is not ready: not knowing is no reason to start, so
+// it waits for the next tick, which will know.
+//
+// A provider that cannot run is never answered by moving its tasks elsewhere —
+// the one substitution claudeq makes is the rate-limit fallback, which happened
+// before the probe. The scheduler leaves the rest queued; a manual run reports
+// the reason to whoever asked for it.
+func (h providerHealth) ready(res provider.Resolved) bool {
 	got, ok := h[res.Instance.ID]
-	if !ok {
-		// Not probed this tick (the task was enabled moments ago). Not knowing is
-		// not a reason to start: it waits for the next tick, which will know.
-		return provider.Resolved{}, fmt.Errorf("provider %q has not been checked yet", res.Instance.ID)
-	}
-	if !got.Ready() {
-		return provider.Resolved{}, fmt.Errorf("provider %q is not ready: %s",
-			res.Instance.ID, got.ReasonOr("it cannot run tasks right now"))
-	}
-	return res, nil
+	return ok && got.Ready()
 }
 
 // resolveRunnable probes one task's provider and reports the execution identity
 // it may run under, or why it may not. It is the single-task form of
 // refreshProviderHealth, for the manual "run now".
 func (e *Engine) resolveRunnable(ctx context.Context, set provider.Set, st *store.State, t task.Task) (provider.Resolved, error) {
-	res, err := set.Resolve(provider.Selection{ProviderID: t.Provider, Model: t.Model})
+	res, err := set.ResolveAvailable(provider.Selection{ProviderID: t.Provider, Model: t.Model}, e.gateOpen)
 	if err != nil {
 		return provider.Resolved{}, err
 	}
@@ -423,7 +450,7 @@ func (e *Engine) resolveRunnable(ctx context.Context, set provider.Set, st *stor
 // scheduler lock, and it probes without the cache — a task is due only when it
 // is actually time to run it, so this is the check immediately before a start
 // rather than something the tick does every five seconds.
-func (e *Engine) refreshProviderHealth(ctx context.Context, set provider.Set, due []task.Task) providerHealth {
+func (e *Engine) refreshProviderHealth(ctx context.Context, set provider.Set, due []assignment) providerHealth {
 	out := providerHealth{}
 	known := map[string]bool{}
 	for _, inst := range set.All() {
@@ -433,23 +460,23 @@ func (e *Engine) refreshProviderHealth(ctx context.Context, set provider.Set, du
 	if err != nil {
 		st = nil // the memo falls back to memory; a health check is not worth failing a tick over
 	}
-	for _, t := range due {
-		known[t.Provider] = true // an id no instance answers to is remembered too
-		res, err := set.Resolve(provider.Selection{ProviderID: t.Provider})
-		if err != nil {
+	for _, a := range due {
+		known[a.task.Provider] = true // an id no instance answers to is remembered too
+		if a.err != nil {
 			// The instance is gone from the configuration, or switched off. There
 			// is nothing to probe, so it is reported under the id the task asked
 			// for.
-			e.noteProviderHealth(st, provider.Instance{ID: t.Provider, Name: t.Provider},
-				provider.Health{State: provider.HealthInvalidConfiguration, Reason: err.Error()})
+			e.noteProviderHealth(st, provider.Instance{ID: a.task.Provider, Name: a.task.Provider},
+				provider.Health{State: provider.HealthInvalidConfiguration, Reason: a.err.Error()})
 			continue
 		}
-		if _, done := out[res.Instance.ID]; done {
+		inst := a.resolved.Instance
+		if _, done := out[inst.ID]; done {
 			continue
 		}
-		h := e.providers.CheckFresh(ctx, res.Instance)
-		out[res.Instance.ID] = h
-		e.noteProviderHealth(st, res.Instance, h)
+		h := e.providers.CheckFresh(ctx, inst)
+		out[inst.ID] = h
+		e.noteProviderHealth(st, inst, h)
 	}
 	e.forgetUnknownProviders(known)
 	return out
@@ -544,8 +571,10 @@ func (e *Engine) runningState() schedule.Running {
 
 // launchTask starts a run for t on the already-resolved execution identity. The
 // caller must hold e.mu, have checked that the provider can run, and have
-// persisted the RecordStart. sessionID/resume come from the caller's snapshot.
-func (e *Engine) launchTask(t task.Task, settings store.Settings, resolved provider.Resolved, deps []workflow.Dependency, sessionID string, resume bool, dropped string, started time.Time) error {
+// persisted the RecordStart. sessionID/resume come from the caller's snapshot,
+// notes are the remarks that go into the run's log before the harness starts
+// writing (see runNotes).
+func (e *Engine) launchTask(t task.Task, settings store.Settings, resolved provider.Resolved, deps []workflow.Dependency, sessionID string, resume bool, notes []string, started time.Time) error {
 	runID := e.newRunID()
 
 	logFile, err := os.Create(e.store.LogPath(runID))
@@ -590,12 +619,12 @@ func (e *Engine) launchTask(t task.Task, settings store.Settings, resolved provi
 		}
 	}
 
-	// A session that could not be continued is said so in the run's own log,
-	// where whoever reads the run will look for it. It goes through the same
-	// handle the executor writes to, so it cannot collide with the harness's
-	// first line.
-	if dropped != "" {
-		writeNote(logFile, dropped)
+	// What claudeq itself has to say about this run — a fallback provider, a
+	// session that could not be continued — goes into the run's own log, through
+	// the same handle the executor writes to, so it cannot collide with the
+	// harness's first line.
+	for _, note := range notes {
+		writeNote(logFile, note)
 	}
 
 	e.active[t.ID] = true
@@ -1215,6 +1244,7 @@ func (e *Engine) RunTaskNow(ctx context.Context, taskID string) error {
 		return fmt.Errorf("task %q is already running", taskID)
 	}
 	sessionID, resume, dropped := e.sessionFor(*target, st, resolved.Instance.ID)
+	notes := runNotes(resolved, dropped)
 	now := e.clock.Now()
 	if err := e.store.UpdateState(func(cur *store.State) error {
 		cur.RecordStart(taskID, now)
@@ -1224,7 +1254,7 @@ func (e *Engine) RunTaskNow(ctx context.Context, taskID string) error {
 		e.mu.Unlock()
 		return fmt.Errorf("record run start: %w", err)
 	}
-	startErr := e.launchTask(*target, cfg.Settings, resolved, deps[taskID], sessionID, resume, dropped, now)
+	startErr := e.launchTask(*target, cfg.Settings, resolved, deps[taskID], sessionID, resume, notes, now)
 	e.mu.Unlock()
 
 	e.WaitIdle()

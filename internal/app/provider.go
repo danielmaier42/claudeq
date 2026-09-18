@@ -178,6 +178,15 @@ func providerRefs(cfg store.Config, id string) []string {
 	if cfg.Settings.DefaultProvider == id {
 		refs = append(refs, "the default provider setting")
 	}
+	var fallbacks []string
+	for _, p := range cfg.Providers {
+		if p.FallbackProvider == id {
+			fallbacks = append(fallbacks, p.ID)
+		}
+	}
+	if len(fallbacks) > 0 {
+		refs = append(refs, "the rate-limit fallback of provider "+strings.Join(fallbacks, ", "))
+	}
 	var tasks []string
 	for _, t := range cfg.Tasks {
 		if t.Provider == id {

@@ -38,12 +38,18 @@ function renderLimitBar(iso,providers){
   const bar=$('#limitBar');
   if(!LIMITED_UNTIL||LIMITED_UNTIL<=new Date()){ LIMITED_UNTIL=null; bar.hidden=true; }
   else{
-    const names=(providers||[]).map(p=>esc(p.name));
+    const list=providers||[];
+    const names=list.map(p=>esc(p.name)+(p.fallback?' → '+esc(p.fallback):''));
     const heading=names.length
       ?'<b>⏸ Rate limit reached — waiting on '+names.join(', ')+'</b>'
       :'<b>⏸ Rate limit reached — the queue is waiting, not stuck</b>';
+    // A provider with a fallback is not holding its tasks up: they are running
+    // on the substitute right now, so the banner must not claim nothing starts.
+    const covered=list.length&&list.every(p=>p.fallback);
     bar.innerHTML=heading
-      +'No task starts before <strong>'+esc(LIMITED_UNTIL.toLocaleString())+'</strong> ('+esc(relTime(LIMITED_UNTIL.toISOString()))+'). '
+      +(covered
+        ?'Tasks keep running on the fallback provider. The blocked one takes them back from <strong>'+esc(LIMITED_UNTIL.toLocaleString())+'</strong> ('+esc(relTime(LIMITED_UNTIL.toISOString()))+'). '
+        :'No task starts before <strong>'+esc(LIMITED_UNTIL.toLocaleString())+'</strong> ('+esc(relTime(LIMITED_UNTIL.toISOString()))+'). ')
       +'A run the limit interrupted is marked <strong>rescheduled</strong> in Activity and continues its Claude session then — or drop it there with <strong>Cancel resume</strong>.';
     bar.hidden=false;
   }

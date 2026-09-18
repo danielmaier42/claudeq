@@ -24,8 +24,10 @@ Usage:
   claudeq provider check ID [--json]   (probe it now, ignoring the cached verdict)
   claudeq provider add  ID --kind KIND [--name N] [--path PATH]
                         [--config-dir PATH] [--default-model MODEL]
+                        [--fallback ID]
   claudeq provider edit ID [--name N] [--path PATH]
                         [--config-dir PATH] [--default-model MODEL]
+                        [--fallback ID|none]
   claudeq provider enable ID | claudeq provider disable ID
   claudeq provider default ID          (run tasks that name no provider on it)
   claudeq provider rm ID`
@@ -127,14 +129,15 @@ func cmdProviderList(st *store.Store, args []string) error {
 		return printJSON(views)
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(w, "\tID\tKIND\tNAME\tDEFAULT MODEL\tSTATUS")
+	fmt.Fprintln(w, "\tID\tKIND\tNAME\tDEFAULT MODEL\tFALLBACK\tSTATUS")
 	for _, v := range views {
 		mark := " "
 		if v.Default {
 			mark = "*"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			mark, v.ID, v.Kind, v.Name, orDefault(v.DefaultModel, "(provider default)"), v.Health.State)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			mark, v.ID, v.Kind, v.Name, orDefault(v.DefaultModel, "(provider default)"),
+			orDefault(v.FallbackProvider, "-"), v.Health.State)
 	}
 	if err := w.Flush(); err != nil {
 		return err
@@ -177,6 +180,7 @@ func printProvider(v providerView) {
 	fmt.Printf("binary_path:    %s\n", orDefault(v.BinaryPath, "(auto-detect)"))
 	fmt.Printf("config_dir:     %s\n", orDefault(v.ConfigDir, "(the CLI's own)"))
 	fmt.Printf("default_model:  %s\n", orDefault(v.DefaultModel, "(the provider's own default)"))
+	fmt.Printf("fallback:       %s\n", orDefault(v.FallbackProvider, "(none: its tasks wait for the limit)"))
 	fmt.Printf("status:         %s\n", v.Health.State)
 	if v.Health.Binary != "" {
 		fmt.Printf("resolved:       %s\n", v.Health.Binary)
@@ -199,6 +203,7 @@ type providerPatch struct {
 	path         string
 	configDir    string
 	defaultModel string
+	fallback     string
 }
 
 func (p *providerPatch) register(fs *flag.FlagSet, withKind bool) {
@@ -209,6 +214,7 @@ func (p *providerPatch) register(fs *flag.FlagSet, withKind bool) {
 	fs.StringVar(&p.path, "path", "", "absolute path to the harness CLI (empty = auto-detect)")
 	fs.StringVar(&p.configDir, "config-dir", "", "the CLI's configuration directory, which selects the account (empty = its own default)")
 	fs.StringVar(&p.defaultModel, "default-model", "", "model used when neither the task nor the caller names one")
+	fs.StringVar(&p.fallback, "fallback", "", "provider that takes this one's tasks while its limit is reached (\"none\" clears it)")
 }
 
 func (p providerPatch) apply(inst *provider.Instance) {
@@ -223,6 +229,15 @@ func (p providerPatch) apply(inst *provider.Instance) {
 	}
 	if p.set["default-model"] {
 		inst.DefaultModel = p.defaultModel
+	}
+	if p.set["fallback"] {
+		// "none" is how a flag clears a value that an empty string cannot: an
+		// empty --fallback would be indistinguishable from not passing it at all
+		// in a shell script that builds the arguments up.
+		inst.FallbackProvider = p.fallback
+		if p.fallback == "none" {
+			inst.FallbackProvider = ""
+		}
 	}
 }
 

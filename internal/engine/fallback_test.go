@@ -1,0 +1,213 @@
+package engine
+
+import (
+	"context"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/danielmaier42/claudeq/internal/clock"
+	"github.com/danielmaier42/claudeq/internal/executor"
+	"github.com/danielmaier42/claudeq/internal/provider"
+	"github.com/danielmaier42/claudeq/internal/store"
+	"github.com/danielmaier42/claudeq/internal/task"
+)
+
+// fallbackConfig is the two-account setup the rate-limit fallback exists for:
+// the default instance names the second one as the provider that takes its work
+// while its allowance is used up.
+func fallbackConfig(fallback string, tasks ...task.Task) store.Config {
+	first := claudeProvider("", "sonnet")
+	first.FallbackProvider = fallback
+	second := claudeProvider("", "haiku")
+	second.ID, second.Name = "second", "Second account"
+	return store.Config{
+		Settings:  store.Settings{DefaultProvider: store.DefaultProviderID},
+		Providers: []store.Provider{first, second},
+		Tasks:     tasks,
+	}
+}
+
+// TestALimitedProviderHandsItsTasksToItsFallback is the feature: the queue does
+// not stop for the night when one account's allowance runs out, it carries on
+// through the provider that account names.
+func TestALimitedProviderHandsItsTasksToItsFallback(t *testing.T) {
+	fc := clock.NewFake(time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC))
+	r := &stub{}
+	e, st, ad := newTestEngineWithProvider(t, r, fc)
+	ad.set(provider.Health{State: provider.HealthReady})
+	if err := st.SaveConfig(fallbackConfig("second", asapTask("a", false))); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	e.gates.For(store.DefaultProviderID).BlockFor(time.Hour)
+
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	e.WaitIdle()
+
+	reqs := r.requests()
+	if len(reqs) != 1 {
+		t.Fatalf("expected the fallback to run the task, got %d runs", len(reqs))
+	}
+	if got := reqs[0].Provider.ID; got != "second" {
+		t.Fatalf("ran on %q, want the fallback %q", got, "second")
+	}
+	// The substitute's own default model, not the blocked provider's: a task
+	// that named no model gets the answer of the account that actually runs it.
+	if got := reqs[0].Model; got != "haiku" {
+		t.Fatalf("model = %q, want the fallback's own default", got)
+	}
+	// The run itself says where it went, so the operator reading it is not left
+	// wondering why a Claude task ran on another account.
+	log, err := os.ReadFile(reqs[0].Log.(*os.File).Name())
+	if err != nil {
+		t.Fatalf("read run log: %v", err)
+	}
+	if !strings.Contains(string(log), "Second account") {
+		t.Fatalf("the run log should name the fallback, got %q", log)
+	}
+}
+
+// TestAFallbackCarriesTheModelToTheSameHarness: a second subscription of the
+// same CLI still understands the model the task asked for, so it keeps it.
+func TestAFallbackCarriesTheModelToTheSameHarness(t *testing.T) {
+	fc := clock.NewFake(time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC))
+	r := &stub{}
+	e, st, ad := newTestEngineWithProvider(t, r, fc)
+	ad.set(provider.Health{State: provider.HealthReady})
+	tk := asapTask("a", false)
+	tk.Model = "opus"
+	if err := st.SaveConfig(fallbackConfig("second", tk)); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	e.gates.For(store.DefaultProviderID).BlockFor(time.Hour)
+
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	e.WaitIdle()
+
+	reqs := r.requests()
+	if len(reqs) != 1 {
+		t.Fatalf("expected one run, got %d", len(reqs))
+	}
+	if got := reqs[0].Model; got != "opus" {
+		t.Fatalf("model = %q, want the task's own", got)
+	}
+}
+
+// TestWithoutAFallbackALimitedTaskStillWaits: the fallback is opt-in, and
+// nothing about the old behaviour changes for a provider that has none.
+func TestWithoutAFallbackALimitedTaskStillWaits(t *testing.T) {
+	fc := clock.NewFake(time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC))
+	r := &stub{}
+	e, st, ad := newTestEngineWithProvider(t, r, fc)
+	ad.set(provider.Health{State: provider.HealthReady})
+	if err := st.SaveConfig(fallbackConfig("", asapTask("a", false))); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	e.gates.For(store.DefaultProviderID).BlockFor(time.Hour)
+
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	e.WaitIdle()
+
+	if got := r.requests(); len(got) != 0 {
+		t.Fatalf("a limited provider without a fallback must start nothing, got %+v", got)
+	}
+}
+
+// TestAFallbackThatIsItselfLimitedStartsNothing: substituting is only worth
+// doing while the substitute can actually take the work.
+func TestAFallbackThatIsItselfLimitedStartsNothing(t *testing.T) {
+	fc := clock.NewFake(time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC))
+	r := &stub{}
+	e, st, ad := newTestEngineWithProvider(t, r, fc)
+	ad.set(provider.Health{State: provider.HealthReady})
+	if err := st.SaveConfig(fallbackConfig("second", asapTask("a", false))); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	e.gates.For(store.DefaultProviderID).BlockFor(time.Hour)
+	e.gates.For("second").BlockFor(time.Hour)
+
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	e.WaitIdle()
+
+	if got := r.requests(); len(got) != 0 {
+		t.Fatalf("both accounts are out of allowance, so nothing may start, got %+v", got)
+	}
+}
+
+// TestAFallbackStartsAFreshSession: a session id belongs to the account that
+// issued it. The interrupted conversation stays with the blocked provider and
+// is picked up there when its window reopens.
+func TestAFallbackStartsAFreshSession(t *testing.T) {
+	fc := clock.NewFake(time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC))
+	r := &stub{result: func(req executor.Request, n int) provider.Result {
+		if n == 1 {
+			return provider.Result{Status: store.StatusRateLimited, SessionID: req.SessionID}
+		}
+		return provider.Result{Status: store.StatusSuccess, SessionID: req.SessionID}
+	}}
+	e, st, ad := newTestEngineWithProvider(t, r, fc)
+	ad.set(provider.Health{State: provider.HealthReady})
+	cron := asapTask("a", false)
+	cron.Trigger, cron.Cron = task.TriggerCron, "* * * * *"
+	if err := st.SaveConfig(fallbackConfig("second", cron)); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	// The first tick only anchors the cron task; the second runs it into the
+	// limit, leaving a session waiting on the default provider; by the third its
+	// gate is shut and the fallback takes the next occurrence.
+	for i := range 3 {
+		fc.Advance(time.Minute)
+		if err := e.Tick(context.Background()); err != nil {
+			t.Fatalf("tick %d: %v", i, err)
+		}
+		e.WaitIdle()
+	}
+
+	reqs := r.requests()
+	if len(reqs) != 2 {
+		t.Fatalf("expected the fallback to pick the task up, got %d runs", len(reqs))
+	}
+	if reqs[1].Provider.ID != "second" {
+		t.Fatalf("second run went to %q, want the fallback", reqs[1].Provider.ID)
+	}
+	if reqs[1].Resume {
+		t.Fatal("a session from another account must never be resumed")
+	}
+	if reqs[1].SessionID == reqs[0].SessionID {
+		t.Fatal("the fallback must start its own session")
+	}
+}
+
+// TestRunNowUsesTheFallback: pressing "run now" while the account is out of
+// allowance is exactly the moment the substitute is wanted.
+func TestRunNowUsesTheFallback(t *testing.T) {
+	fc := clock.NewFake(time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC))
+	r := &stub{}
+	e, st, ad := newTestEngineWithProvider(t, r, fc)
+	ad.set(provider.Health{State: provider.HealthReady})
+	if err := st.SaveConfig(fallbackConfig("second", asapTask("a", false))); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	e.gates.For(store.DefaultProviderID).BlockFor(time.Hour)
+
+	if err := e.RunTaskNow(context.Background(), "a"); err != nil {
+		t.Fatalf("RunTaskNow: %v", err)
+	}
+	reqs := r.requests()
+	if len(reqs) != 1 {
+		t.Fatalf("expected one run, got %d", len(reqs))
+	}
+	if reqs[0].Provider.ID != "second" {
+		t.Fatalf("ran on %q, want the fallback", reqs[0].Provider.ID)
+	}
+}

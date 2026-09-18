@@ -43,7 +43,15 @@ type Resolved struct {
 	Instance Instance
 	// Model is the effective model; empty means the harness's own default.
 	Model string
+	// FallbackFrom is the instance the selection actually named, set only when
+	// its allowance was used up and its fallback took the job. It is what the
+	// run's log says happened; an empty value means nothing was substituted.
+	FallbackFrom Instance
 }
+
+// Substituted reports whether the run is going somewhere other than the
+// provider it named.
+func (r Resolved) Substituted() bool { return r.FallbackFrom.ID != "" }
 
 // Set is the configured provider instances plus which of them is the default.
 type Set struct {
@@ -146,4 +154,53 @@ func (s Set) Resolve(sel Selection) (Resolved, error) {
 		model = inst.DefaultModel
 	}
 	return Resolved{Instance: inst, Model: model}, nil
+}
+
+// ResolveAvailable resolves a selection and then, when the chosen instance is
+// out of allowance, follows the fallback it was given.
+//
+// available answers "can this instance take work right now" — in the daemon,
+// whether its rate-limit gate is open. A nil available makes this exactly
+// [Set.Resolve]: nothing is ever substituted for a provider that can run.
+//
+// The chain is followed until an available instance is found, and every hop
+// must be configured, switched on and not already visited. A chain that is
+// broken or blocked end to end resolves to the provider the selection named,
+// so the caller still sees the account whose allowance ran out rather than an
+// error about a fallback nobody asked about.
+//
+// This is the one substitution claudeq makes, and only this one: a rate limit
+// is a pause, not a verdict on the work. A provider that is missing, logged
+// out or switched off is still never answered by running somewhere else.
+func (s Set) ResolveAvailable(sel Selection, available func(id string) bool) (Resolved, error) {
+	res, err := s.Resolve(sel)
+	if err != nil || available == nil || available(res.Instance.ID) {
+		return res, err
+	}
+	origin := res.Instance
+	seen := map[string]struct{}{origin.ID: {}}
+	for cur := origin; cur.FallbackProvider != ""; {
+		next, ok := s.Lookup(cur.FallbackProvider)
+		if _, visited := seen[cur.FallbackProvider]; !ok || visited || !next.Enabled {
+			break
+		}
+		seen[next.ID] = struct{}{}
+		if available(next.ID) {
+			return Resolved{Instance: next, Model: fallbackModel(origin, next, sel.Model), FallbackFrom: origin}, nil
+		}
+		cur = next
+	}
+	return res, nil
+}
+
+// fallbackModel decides which model the substitute runs. A model name means
+// something to one harness only, so it travels to another account of the same
+// kind — a second Claude subscription still runs the Opus the task asked for —
+// and is dropped for a different harness, which falls back to that instance's
+// own default rather than being handed a name it does not know.
+func fallbackModel(origin, next Instance, want string) string {
+	if want != "" && next.Kind == origin.Kind {
+		return want
+	}
+	return next.DefaultModel
 }

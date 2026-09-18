@@ -144,6 +144,10 @@ The nightly cycle looks like this:
   and two accounts of the same harness do not hold up each other. A waiting run says so — *rescheduled*
   with the time it continues — and its resume can be cancelled if you no longer
   want the work.
+- **A fallback for the limit** — a provider can name another one to take its
+  tasks while its allowance is used up, so the night's queue carries on instead
+  of stopping at the limit. It is per provider and off by default. See
+  [Providers](#providers).
 - **Auth-error aware** — a login/authentication failure is detected, surfaced as
   its own outcome, and notified — never silently retried.
 - **Unattended-safe** — kills hung runs (no output for a configurable timeout,
@@ -301,7 +305,7 @@ and the update button live.
 | | | Feedback model | Model it drafts with; left at *ClaudeQ's choice* it uses a small, fast model rather than whatever you picked for real tasks. |
 | | Execution | Pause all runs | Global stop switch: nothing starts while it is on, not even *Run now*; a run already in flight keeps going. Applies immediately, without pressing Save. |
 | | About | Version / Software updates | Current version and a manual "Check for updates" button. |
-| **Providers** | One block per provider | Its settings | Name, status, binary path, configuration directory, default model and an on/off switch — written by the **Save** button at the top of Settings, like every other field here. **Check again**, **Make default** and **Remove** are actions and take effect at once. The block is headed by the provider's name and type. See [Providers](#providers). |
+| **Providers** | One block per provider | Its settings | Name, status, binary path, configuration directory, default model, the provider that takes over when the limit is reached, and an on/off switch — written by the **Save** button at the top of Settings, like every other field here. **Check again**, **Make default** and **Remove** are actions and take effect at once. The block is headed by the provider's name and type. See [Providers](#providers). |
 | | | **Add provider** | Below the blocks, and only with beta features on: opens a sheet asking for an id, a type and optionally a configuration directory. |
 | **Notifications** | macOS | Alerts that wait for you | Opens System Settings → Notifications, where ClaudeQ's alert style lives: *Banners* disappear on their own, *Alerts* stay until you click them. |
 | | Pushover | Send to Pushover | Toggle plus API token and user key for phone push. |
@@ -345,6 +349,7 @@ A provider has:
 Both paths must be absolute; a leading `~` is expanded and stored resolved, so
 the file says what is actually used.
 | Default model | Used for tasks on this provider that name no model of their own. |
+| When the limit is reached | Another provider that takes this one's tasks while its allowance is used up. Empty means they wait for the window to reopen, which is what ClaudeQ did before. |
 | Enabled | Off keeps the provider and its tasks, but runs nothing on it. |
 
 One provider is the **default**: tasks that name none run on it. It cannot be
@@ -425,6 +430,35 @@ What follows from an unready provider:
 A rate limit is not a provider problem: that pauses the run and resumes it, as
 it always did — and it pauses only the provider that hit it. The other providers
 keep working, because the allowance belongs to one account.
+
+### When the limit is reached
+
+A provider can name a **fallback**: the provider its tasks run on while its own
+allowance is used up. Without one — the default — those tasks simply wait, as
+before.
+
+- It applies to the rate limit and to nothing else. A provider that is missing,
+  logged out or switched off is still never answered by running the work
+  somewhere else; those tasks stay queued and say why.
+- The chain is followed as far as it reaches: if the fallback is rate-limited
+  too, its own fallback is asked, and so on. When every account in the chain is
+  out of allowance, the tasks wait — the queue is honest about being stuck.
+- **The interrupted session does not travel.** A session belongs to the account
+  that issued it, so the substitute starts a fresh one and says so in the run's
+  log, which also names the provider it came from. The paused session stays with
+  the blocked provider and is resumed there when its window reopens.
+- The model travels only between two accounts of the same harness. A fallback of
+  a different type runs its own default model instead of a name it would not
+  understand.
+- A fallback must name another configured provider, and the chain may not close
+  into a circle; removing a provider that is somebody's fallback is refused by
+  name, exactly like removing one a task still uses.
+- The waiting banner names both: *Claude → Second account*, and says the queue
+  keeps running rather than that nothing starts.
+
+Set it on the provider's block in **Settings → Providers** ("When the limit is
+reached"), or with `claudeq provider edit ID --fallback OTHER` (`--fallback none`
+clears it).
 
 ### Credentials
 
@@ -577,8 +611,10 @@ claudeq provider show ID [--json]
 claudeq provider check ID [--json]             # probe it now
 claudeq provider add  ID --kind claude-code|codex [--name N] [--path PATH]
                       [--config-dir PATH] [--default-model MODEL]
+                      [--fallback ID]
 claudeq provider edit ID [--name N] [--path PATH]
                       [--config-dir PATH] [--default-model MODEL]
+                      [--fallback ID|none]      # who takes over at the limit
 claudeq provider enable ID | claudeq provider disable ID
 claudeq provider default ID                    # run tasks that name none on it
 claudeq provider rm ID
@@ -1158,10 +1194,16 @@ that.
   are refused, and no task wake is registered (only the heartbeat stays, so the
   daemon notices when you switch it off). Nothing is lost: a task that came due
   while paused is still due afterwards.
-- **The limit gate is global.** When any run reports a rate limit, all new starts
-  pause until the reset. The wait comes from the CLI's `retry_delay_ms` signal
-  (falling back to 15 minutes when none is exposed). At reset the gate reopens and
-  the blocked task **resumes its session** rather than starting over.
+- **The limit gate belongs to the provider.** When a run reports a rate limit,
+  new starts on *that provider* pause until the reset; the other providers carry
+  on. The wait comes from the reset time the CLI reports, then from its
+  `retry_delay_ms` signal, and falls back to 15 minutes when neither is exposed.
+  At reset the gate reopens and the blocked task **resumes its session** rather
+  than starting over.
+- **A fallback provider skips the wait.** If the blocked provider names one (see
+  [When the limit is reached](#when-the-limit-is-reached)), its tasks run there
+  meanwhile — with a fresh session, since a session belongs to the account that
+  issued it. The paused session still waits for its own provider's reset.
 - **A blocked queue says so.** While the gate is closed a banner names the time
   it reopens, the paused run is marked *rescheduled* in Activity with that time,
   and the task carries a *rescheduled* badge in the Queue — a waiting queue is

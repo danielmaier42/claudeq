@@ -247,3 +247,141 @@ func TestLookupAndAllDoNotAliasTheSet(t *testing.T) {
 		t.Fatalf("the set was mutated through All(): %q", again.DefaultModel)
 	}
 }
+
+// fallbackSet is a chain of three instances: claude falls back to spare, spare
+// to codex. The kinds differ on the last hop, which is where a model name stops
+// travelling.
+func fallbackSet(t *testing.T) Set {
+	t.Helper()
+	s, err := NewSet("claude", []Instance{
+		{ID: "claude", Kind: KindClaudeCode, Name: "Claude", DefaultModel: "sonnet", FallbackProvider: "spare", Enabled: true},
+		{ID: "spare", Kind: KindClaudeCode, Name: "Spare", DefaultModel: "haiku", FallbackProvider: "codex", Enabled: true},
+		{ID: "codex", Kind: KindCodex, Name: "Codex", DefaultModel: "gpt", Enabled: true},
+		{ID: "off", Kind: KindClaudeCode, Name: "Off", FallbackProvider: "claude", Enabled: false},
+	})
+	if err != nil {
+		t.Fatalf("NewSet: %v", err)
+	}
+	return s
+}
+
+// TestResolveAvailableFollowsTheFallbackChain is the rate-limit substitution:
+// the only one claudeq makes, and only as far as the chain actually reaches.
+func TestResolveAvailableFollowsTheFallbackChain(t *testing.T) {
+	tests := []struct {
+		name         string
+		sel          Selection
+		blocked      []string
+		wantProvider string
+		wantModel    string
+		wantFrom     string
+	}{
+		{
+			name: "an open provider is never substituted",
+			sel:  Selection{ProviderID: "claude"}, wantProvider: "claude", wantModel: "sonnet",
+		},
+		{
+			name: "a blocked provider hands over to its fallback",
+			sel:  Selection{ProviderID: "claude"}, blocked: []string{"claude"},
+			wantProvider: "spare", wantModel: "haiku", wantFrom: "claude",
+		},
+		{
+			name: "the model travels to another account of the same harness",
+			sel:  Selection{ProviderID: "claude", Model: "opus"}, blocked: []string{"claude"},
+			wantProvider: "spare", wantModel: "opus", wantFrom: "claude",
+		},
+		{
+			name: "a different harness gets its own default model instead",
+			sel:  Selection{ProviderID: "claude", Model: "opus"}, blocked: []string{"claude", "spare"},
+			wantProvider: "codex", wantModel: "gpt", wantFrom: "claude",
+		},
+		{
+			name: "a chain that is blocked end to end stays where it was",
+			sel:  Selection{ProviderID: "claude"}, blocked: []string{"claude", "spare", "codex"},
+			wantProvider: "claude", wantModel: "sonnet",
+		},
+		{
+			name: "a provider without a fallback stays where it was",
+			sel:  Selection{ProviderID: "codex"}, blocked: []string{"codex"},
+			wantProvider: "codex", wantModel: "gpt",
+		},
+	}
+
+	set := fallbackSet(t)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			blocked := map[string]bool{}
+			for _, id := range tc.blocked {
+				blocked[id] = true
+			}
+			got, err := set.ResolveAvailable(tc.sel, func(id string) bool { return !blocked[id] })
+			if err != nil {
+				t.Fatalf("ResolveAvailable: %v", err)
+			}
+			if got.Instance.ID != tc.wantProvider {
+				t.Fatalf("provider = %q, want %q", got.Instance.ID, tc.wantProvider)
+			}
+			if got.Model != tc.wantModel {
+				t.Fatalf("model = %q, want %q", got.Model, tc.wantModel)
+			}
+			if got.FallbackFrom.ID != tc.wantFrom {
+				t.Fatalf("fallback from %q, want %q", got.FallbackFrom.ID, tc.wantFrom)
+			}
+			if got.Substituted() != (tc.wantFrom != "") {
+				t.Fatalf("Substituted() = %t", got.Substituted())
+			}
+		})
+	}
+}
+
+// TestResolveAvailableSkipsASwitchedOffFallback: a fallback is a plan, not a
+// promise. An instance that is off cannot take the work, and the walk stops
+// there rather than running on a provider the operator disabled.
+func TestResolveAvailableSkipsASwitchedOffFallback(t *testing.T) {
+	set, err := NewSet("claude", []Instance{
+		{ID: "claude", Kind: KindClaudeCode, FallbackProvider: "off", Enabled: true},
+		{ID: "off", Kind: KindClaudeCode, FallbackProvider: "spare", Enabled: false},
+		{ID: "spare", Kind: KindClaudeCode, Enabled: true},
+	})
+	if err != nil {
+		t.Fatalf("NewSet: %v", err)
+	}
+	got, err := set.ResolveAvailable(Selection{ProviderID: "claude"}, func(id string) bool { return id != "claude" })
+	if err != nil {
+		t.Fatalf("ResolveAvailable: %v", err)
+	}
+	if got.Instance.ID != "claude" {
+		t.Fatalf("provider = %q, want the original", got.Instance.ID)
+	}
+}
+
+// TestResolveAvailableSurvivesACycle: config.toml refuses to hold one, but a
+// hand-edited file might, and a scheduler tick must not spin on it.
+func TestResolveAvailableSurvivesACycle(t *testing.T) {
+	set, err := NewSet("a", []Instance{
+		{ID: "a", Kind: KindClaudeCode, FallbackProvider: "b", Enabled: true},
+		{ID: "b", Kind: KindClaudeCode, FallbackProvider: "a", Enabled: true},
+	})
+	if err != nil {
+		t.Fatalf("NewSet: %v", err)
+	}
+	got, err := set.ResolveAvailable(Selection{ProviderID: "a"}, func(string) bool { return false })
+	if err != nil {
+		t.Fatalf("ResolveAvailable: %v", err)
+	}
+	if got.Instance.ID != "a" {
+		t.Fatalf("provider = %q, want the original", got.Instance.ID)
+	}
+}
+
+// TestResolveAvailableStillRefusesTheUnresolvable: a rate limit is the only
+// thing a fallback answers. An unknown or switched-off provider is still an
+// error, not a reason to run somewhere else.
+func TestResolveAvailableStillRefusesTheUnresolvable(t *testing.T) {
+	set := fallbackSet(t)
+	for _, id := range []string{"gone", "off"} {
+		if _, err := set.ResolveAvailable(Selection{ProviderID: id}, func(string) bool { return false }); err == nil {
+			t.Fatalf("provider %q: expected an error, got a substitute", id)
+		}
+	}
+}

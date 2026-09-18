@@ -62,6 +62,11 @@ type Instance struct {
 	ConfigDir string `json:"config_dir"`
 	// DefaultModel is used when neither the task nor the caller names a model.
 	DefaultModel string `json:"default_model"`
+	// FallbackProvider is the id of the instance that takes this one's tasks
+	// while its allowance is used up: a rate limit belongs to an account, so
+	// naming a second one here is what keeps the queue moving through the night
+	// instead of waiting for the window to reopen. Empty means its tasks wait.
+	FallbackProvider string `json:"fallback_provider"`
 	// Enabled turns the instance off without removing it.
 	Enabled bool `json:"enabled"`
 }
@@ -69,26 +74,28 @@ type Instance struct {
 // InstanceOf reads a stored provider entry as an instance.
 func InstanceOf(p store.Provider) Instance {
 	return Instance{
-		ID:           p.ID,
-		Kind:         Kind(p.Kind),
-		Name:         p.Name,
-		BinaryPath:   p.BinaryPath,
-		ConfigDir:    p.ConfigDir,
-		DefaultModel: p.DefaultModel,
-		Enabled:      p.Enabled,
+		ID:               p.ID,
+		Kind:             Kind(p.Kind),
+		Name:             p.Name,
+		BinaryPath:       p.BinaryPath,
+		ConfigDir:        p.ConfigDir,
+		DefaultModel:     p.DefaultModel,
+		FallbackProvider: p.FallbackProvider,
+		Enabled:          p.Enabled,
 	}
 }
 
 // Stored returns the instance in the shape config.toml keeps.
 func (i Instance) Stored() store.Provider {
 	return store.Provider{
-		ID:           i.ID,
-		Kind:         string(i.Kind),
-		Name:         i.Name,
-		BinaryPath:   i.BinaryPath,
-		ConfigDir:    i.ConfigDir,
-		DefaultModel: i.DefaultModel,
-		Enabled:      i.Enabled,
+		ID:               i.ID,
+		Kind:             string(i.Kind),
+		Name:             i.Name,
+		BinaryPath:       i.BinaryPath,
+		ConfigDir:        i.ConfigDir,
+		DefaultModel:     i.DefaultModel,
+		FallbackProvider: i.FallbackProvider,
+		Enabled:          i.Enabled,
 	}
 }
 
