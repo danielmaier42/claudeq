@@ -22,7 +22,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/notify"
 )
 
-const dashboardURL = "http://127.0.0.1:8765"
+const dashboardURL = "http://127.0.0.1:10765"
 
 // systemSettingsScheme is the URL scheme that opens a System Settings pane.
 const systemSettingsScheme = "x-apple.systempreferences:"
