@@ -67,6 +67,11 @@ type Instance struct {
 	// naming a second one here is what keeps the queue moving through the night
 	// instead of waiting for the window to reopen. Empty means its tasks wait.
 	FallbackProvider string `json:"fallback_provider"`
+	// FallbackModel is the model the substitute runs those tasks with. Empty
+	// leaves the choice to [Set.ResolveAvailable], which keeps the model between
+	// two accounts of the same harness and takes the substitute's own default
+	// otherwise. It means nothing without a FallbackProvider.
+	FallbackModel string `json:"fallback_model"`
 	// Enabled turns the instance off without removing it.
 	Enabled bool `json:"enabled"`
 }
@@ -81,6 +86,7 @@ func InstanceOf(p store.Provider) Instance {
 		ConfigDir:        p.ConfigDir,
 		DefaultModel:     p.DefaultModel,
 		FallbackProvider: p.FallbackProvider,
+		FallbackModel:    p.FallbackModel,
 		Enabled:          p.Enabled,
 	}
 }
@@ -95,6 +101,7 @@ func (i Instance) Stored() store.Provider {
 		ConfigDir:        i.ConfigDir,
 		DefaultModel:     i.DefaultModel,
 		FallbackProvider: i.FallbackProvider,
+		FallbackModel:    i.FallbackModel,
 		Enabled:          i.Enabled,
 	}
 }

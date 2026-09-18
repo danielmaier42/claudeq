@@ -24,10 +24,10 @@ Usage:
   claudeq provider check ID [--json]   (probe it now, ignoring the cached verdict)
   claudeq provider add  ID --kind KIND [--name N] [--path PATH]
                         [--config-dir PATH] [--default-model MODEL]
-                        [--fallback ID]
+                        [--fallback ID] [--fallback-model MODEL]
   claudeq provider edit ID [--name N] [--path PATH]
                         [--config-dir PATH] [--default-model MODEL]
-                        [--fallback ID|none]
+                        [--fallback ID|none] [--fallback-model MODEL|none]
   claudeq provider enable ID | claudeq provider disable ID
   claudeq provider default ID          (run tasks that name no provider on it)
   claudeq provider rm ID`
@@ -181,6 +181,9 @@ func printProvider(v providerView) {
 	fmt.Printf("config_dir:     %s\n", orDefault(v.ConfigDir, "(the CLI's own)"))
 	fmt.Printf("default_model:  %s\n", orDefault(v.DefaultModel, "(the provider's own default)"))
 	fmt.Printf("fallback:       %s\n", orDefault(v.FallbackProvider, "(none: its tasks wait for the limit)"))
+	if v.FallbackProvider != "" {
+		fmt.Printf("fallback_model: %s\n", orDefault(v.FallbackModel, "(chosen by claudeq)"))
+	}
 	fmt.Printf("status:         %s\n", v.Health.State)
 	if v.Health.Binary != "" {
 		fmt.Printf("resolved:       %s\n", v.Health.Binary)
@@ -197,13 +200,14 @@ func printProvider(v providerView) {
 // values plus which of them the caller passed, so an edit changes only the
 // fields it names.
 type providerPatch struct {
-	set          map[string]bool
-	kind         string
-	name         string
-	path         string
-	configDir    string
-	defaultModel string
-	fallback     string
+	set           map[string]bool
+	kind          string
+	name          string
+	path          string
+	configDir     string
+	defaultModel  string
+	fallback      string
+	fallbackModel string
 }
 
 func (p *providerPatch) register(fs *flag.FlagSet, withKind bool) {
@@ -215,6 +219,7 @@ func (p *providerPatch) register(fs *flag.FlagSet, withKind bool) {
 	fs.StringVar(&p.configDir, "config-dir", "", "the CLI's configuration directory, which selects the account (empty = its own default)")
 	fs.StringVar(&p.defaultModel, "default-model", "", "model used when neither the task nor the caller names one")
 	fs.StringVar(&p.fallback, "fallback", "", "provider that takes this one's tasks while its limit is reached (\"none\" clears it)")
+	fs.StringVar(&p.fallbackModel, "fallback-model", "", "model those substituted runs use (\"none\" lets claudeq choose)")
 }
 
 func (p providerPatch) apply(inst *provider.Instance) {
@@ -234,11 +239,20 @@ func (p providerPatch) apply(inst *provider.Instance) {
 		// "none" is how a flag clears a value that an empty string cannot: an
 		// empty --fallback would be indistinguishable from not passing it at all
 		// in a shell script that builds the arguments up.
-		inst.FallbackProvider = p.fallback
-		if p.fallback == "none" {
-			inst.FallbackProvider = ""
-		}
+		inst.FallbackProvider = clearable(p.fallback)
 	}
+	if p.set["fallback-model"] {
+		inst.FallbackModel = clearable(p.fallbackModel)
+	}
+}
+
+// clearable reads the literal "none" as "unset this", so a flag can take a
+// value away again.
+func clearable(v string) string {
+	if v == "none" {
+		return ""
+	}
+	return v
 }
 
 func cmdProviderAdd(st *store.Store, args []string) error {

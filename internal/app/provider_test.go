@@ -170,6 +170,36 @@ func TestRemoveProviderRefusesWhileItIsAFallback(t *testing.T) {
 	}
 }
 
+// TestClearingTheFallbackDropsItsModel: a model chosen for a provider that no
+// longer takes the work must not come back when a fallback is set again.
+func TestClearingTheFallbackDropsItsModel(t *testing.T) {
+	s := openStore(t)
+	second := provider.Instance{ID: "second", Kind: provider.KindClaudeCode, Name: "second", Enabled: true}
+	if err := AddProvider(s, registry(), second); err != nil {
+		t.Fatalf("AddProvider: %v", err)
+	}
+	set := func(id, model string) {
+		t.Helper()
+		if err := EditProvider(s, registry(), provider.DefaultInstanceID, func(inst *provider.Instance) error {
+			inst.FallbackProvider, inst.FallbackModel = id, model
+			return nil
+		}); err != nil {
+			t.Fatalf("EditProvider: %v", err)
+		}
+	}
+	set("second", "opus")
+	set("", "opus")
+
+	providers, err := Providers(s)
+	if err != nil {
+		t.Fatalf("Providers: %v", err)
+	}
+	inst, _ := providers.Lookup(provider.DefaultInstanceID)
+	if inst.FallbackModel != "" {
+		t.Fatalf("fallback model = %q, want it gone with the fallback", inst.FallbackModel)
+	}
+}
+
 // TestEditProviderRefusesABrokenFallback: a fallback that names nothing, or
 // itself, would be a plan that cannot be carried out.
 func TestEditProviderRefusesABrokenFallback(t *testing.T) {

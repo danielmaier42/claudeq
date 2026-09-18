@@ -273,3 +273,34 @@ func TestAFallbackDoesNotPinFollowUpsToTheSubstitute(t *testing.T) {
 		t.Fatalf("follow-ups would inherit %q, want the provider the task was scheduled onto", got)
 	}
 }
+
+// TestAFallbackRunsTheModelItWasGiven: the provider handing the work over may
+// name the model that should answer on the substitute, and that choice beats
+// both the task's model and the substitute's default.
+func TestAFallbackRunsTheModelItWasGiven(t *testing.T) {
+	fc := clock.NewFake(time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC))
+	r := &stub{}
+	e, st, ad := newTestEngineWithProvider(t, r, fc)
+	ad.set(provider.Health{State: provider.HealthReady})
+	tk := asapTask("a", false)
+	tk.Model = "opus"
+	cfg := fallbackConfig("second", tk)
+	cfg.Providers[0].FallbackModel = "haiku-fast"
+	if err := st.SaveConfig(cfg); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	e.gates.For(store.DefaultProviderID).BlockFor(time.Hour)
+
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	e.WaitIdle()
+
+	reqs := r.requests()
+	if len(reqs) != 1 {
+		t.Fatalf("expected one run, got %d", len(reqs))
+	}
+	if got := reqs[0].Model; got != "haiku-fast" {
+		t.Fatalf("model = %q, want the one configured for the fallback", got)
+	}
+}

@@ -255,7 +255,7 @@ func fallbackSet(t *testing.T) Set {
 	t.Helper()
 	s, err := NewSet("claude", []Instance{
 		{ID: "claude", Kind: KindClaudeCode, Name: "Claude", DefaultModel: "sonnet", FallbackProvider: "spare", Enabled: true},
-		{ID: "spare", Kind: KindClaudeCode, Name: "Spare", DefaultModel: "haiku", FallbackProvider: "codex", Enabled: true},
+		{ID: "spare", Kind: KindClaudeCode, Name: "Spare", DefaultModel: "haiku", FallbackProvider: "codex", FallbackModel: "gpt-high", Enabled: true},
 		{ID: "codex", Kind: KindCodex, Name: "Codex", DefaultModel: "gpt", Enabled: true},
 		{ID: "off", Kind: KindClaudeCode, Name: "Off", FallbackProvider: "claude", Enabled: false},
 	})
@@ -291,9 +291,9 @@ func TestResolveAvailableFollowsTheFallbackChain(t *testing.T) {
 			wantProvider: "spare", wantModel: "opus", wantFrom: "claude",
 		},
 		{
-			name: "a different harness gets its own default model instead",
+			name: "the model the handing-over provider named wins",
 			sel:  Selection{ProviderID: "claude", Model: "opus"}, blocked: []string{"claude", "spare"},
-			wantProvider: "codex", wantModel: "gpt", wantFrom: "claude",
+			wantProvider: "codex", wantModel: "gpt-high", wantFrom: "claude",
 		},
 		{
 			name: "a chain that is blocked end to end stays where it was",
@@ -383,5 +383,26 @@ func TestResolveAvailableStillRefusesTheUnresolvable(t *testing.T) {
 		if _, err := set.ResolveAvailable(Selection{ProviderID: id}, func(string) bool { return false }); err == nil {
 			t.Fatalf("provider %q: expected an error, got a substitute", id)
 		}
+	}
+}
+
+// TestResolveAvailableFallsBackToTheSubstitutesDefaultModel: without a model
+// named for the fallback, a different harness runs its own default rather than
+// a name it would not understand.
+func TestResolveAvailableFallsBackToTheSubstitutesDefaultModel(t *testing.T) {
+	set, err := NewSet("claude", []Instance{
+		{ID: "claude", Kind: KindClaudeCode, DefaultModel: "sonnet", FallbackProvider: "codex", Enabled: true},
+		{ID: "codex", Kind: KindCodex, DefaultModel: "gpt", Enabled: true},
+	})
+	if err != nil {
+		t.Fatalf("NewSet: %v", err)
+	}
+	got, err := set.ResolveAvailable(Selection{ProviderID: "claude", Model: "opus"},
+		func(id string) bool { return id != "claude" })
+	if err != nil {
+		t.Fatalf("ResolveAvailable: %v", err)
+	}
+	if got.Model != "gpt" {
+		t.Fatalf("model = %q, want the substitute's own default", got.Model)
 	}
 }

@@ -305,7 +305,7 @@ and the update button live.
 | | | Feedback model | Model it drafts with; left at *ClaudeQ's choice* it uses a small, fast model rather than whatever you picked for real tasks. |
 | | Execution | Pause all runs | Global stop switch: nothing starts while it is on, not even *Run now*; a run already in flight keeps going. Applies immediately, without pressing Save. |
 | | About | Version / Software updates | Current version and a manual "Check for updates" button. |
-| **Providers** | One block per provider | Its settings | Name, status, binary path, configuration directory, default model, the provider that takes over when the limit is reached, and an on/off switch — written by the **Save** button at the top of Settings, like every other field here. **Check again**, **Make default** and **Remove** are actions and take effect at once. The block is headed by the provider's name and type. See [Providers](#providers). |
+| **Providers** | One block per provider | Its settings | Name, status, binary path, configuration directory, default model, the provider that takes over when the limit is reached (and the model it uses), and an on/off switch — written by the **Save** button at the top of Settings, like every other field here. **Check again**, **Make default** and **Remove** are actions and take effect at once. The block is headed by the provider's name and type. See [Providers](#providers). |
 | | | **Add provider** | Below the blocks, and only with beta features on: opens a sheet asking for an id, a type and optionally a configuration directory. |
 | **Notifications** | macOS | Alerts that wait for you | Opens System Settings → Notifications, where ClaudeQ's alert style lives: *Banners* disappear on their own, *Alerts* stay until you click them. |
 | | Pushover | Send to Pushover | Toggle plus API token and user key for phone push. |
@@ -350,6 +350,7 @@ Both paths must be absolute; a leading `~` is expanded and stored resolved, so
 the file says what is actually used.
 | Default model | Used for tasks on this provider that name no model of their own. |
 | When the limit is reached | Another provider that takes this one's tasks while its allowance is used up. Empty means they wait for the window to reopen, which is what ClaudeQ did before. |
+| Model there | The model those substituted runs are given. Empty (*Decided by ClaudeQ*) keeps the task's own model between two accounts of the same CLI and takes the substitute's default model otherwise. Only shown once a fallback is chosen, and cleared with it. |
 | Enabled | Off keeps the provider and its tasks, but runs nothing on it. |
 
 One provider is the **default**: tasks that name none run on it. It cannot be
@@ -450,9 +451,10 @@ before.
   the work has been done, and doing it twice is worse than losing a
   conversation. The paused run stays in Activity as the record of what
   happened.
-- The model travels only between two accounts of the same harness. A fallback of
-  a different type runs its own default model instead of a name it would not
-  understand.
+- **The model can be chosen with the fallback** ("Model there"). Left open, the
+  task's own model travels only between two accounts of the same harness, and a
+  fallback of a different type runs its own default model instead of a name it
+  would not understand.
 - A fallback must name another configured provider, and the chain may not close
   into a circle; removing a provider that is somebody's fallback is refused by
   name, exactly like removing one a task still uses.
@@ -460,8 +462,9 @@ before.
   keeps running rather than that nothing starts.
 
 Set it on the provider's block in **Settings → Providers** ("When the limit is
-reached"), or with `claudeq provider edit ID --fallback OTHER` (`--fallback none`
-clears it).
+reached", plus "Model there"), or with
+`claudeq provider edit ID --fallback OTHER --fallback-model MODEL`; `none`
+clears either flag.
 
 ### Credentials
 
@@ -614,10 +617,11 @@ claudeq provider show ID [--json]
 claudeq provider check ID [--json]             # probe it now
 claudeq provider add  ID --kind claude-code|codex [--name N] [--path PATH]
                       [--config-dir PATH] [--default-model MODEL]
-                      [--fallback ID]
+                      [--fallback ID] [--fallback-model MODEL]
 claudeq provider edit ID [--name N] [--path PATH]
                       [--config-dir PATH] [--default-model MODEL]
                       [--fallback ID|none]      # who takes over at the limit
+                      [--fallback-model M|none] # what they run it with
 claudeq provider enable ID | claudeq provider disable ID
 claudeq provider default ID                    # run tasks that name none on it
 claudeq provider rm ID

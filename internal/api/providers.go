@@ -154,7 +154,10 @@ type providerInput struct {
 	// FallbackProvider is the instance that takes this one's tasks while its
 	// allowance is used up. An empty string clears it.
 	FallbackProvider string `json:"fallback_provider"`
-	Enabled          *bool  `json:"enabled"`
+	// FallbackModel is the model those substituted runs use. Empty leaves the
+	// choice to claudeq.
+	FallbackModel string `json:"fallback_model"`
+	Enabled       *bool  `json:"enabled"`
 }
 
 func (s *server) addProvider(w http.ResponseWriter, r *http.Request) {
@@ -171,6 +174,7 @@ func (s *server) addProvider(w http.ResponseWriter, r *http.Request) {
 		ConfigDir:        in.ConfigDir,
 		DefaultModel:     in.DefaultModel,
 		FallbackProvider: in.FallbackProvider,
+		FallbackModel:    in.FallbackModel,
 		Enabled:          in.Enabled == nil || *in.Enabled,
 	}
 	if inst.Name == "" {
@@ -205,6 +209,7 @@ func (s *server) updateProvider(w http.ResponseWriter, r *http.Request) {
 		inst.ConfigDir = in.ConfigDir
 		inst.DefaultModel = in.DefaultModel
 		inst.FallbackProvider = in.FallbackProvider
+		inst.FallbackModel = in.FallbackModel
 		if in.Enabled != nil {
 			inst.Enabled = *in.Enabled
 		}

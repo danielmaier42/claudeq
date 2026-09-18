@@ -186,19 +186,27 @@ func (s Set) ResolveAvailable(sel Selection, available func(id string) bool) (Re
 		}
 		seen[next.ID] = struct{}{}
 		if available(next.ID) {
-			return Resolved{Instance: next, Model: fallbackModel(origin, next, sel.Model), FallbackFrom: origin}, nil
+			return Resolved{Instance: next, Model: fallbackModel(origin, cur, next, sel.Model), FallbackFrom: origin}, nil
 		}
 		cur = next
 	}
 	return res, nil
 }
 
-// fallbackModel decides which model the substitute runs. A model name means
-// something to one harness only, so it travels to another account of the same
-// kind — a second Claude subscription still runs the Opus the task asked for —
-// and is dropped for a different harness, which falls back to that instance's
-// own default rather than being handed a name it does not know.
-func fallbackModel(origin, next Instance, want string) string {
+// fallbackModel decides which model the substitute runs. The provider that
+// handed the work over has the first word: whoever configured "when my limit is
+// reached, go to Codex" may well know which model should answer there, and a
+// named one is not second-guessed.
+//
+// Without that, a model name means something to one harness only: it travels to
+// another account of the same kind — a second Claude subscription still runs the
+// Opus the task asked for — and is dropped for a different harness, which falls
+// back to that instance's own default rather than being handed a name it does
+// not know.
+func fallbackModel(origin, from, next Instance, want string) string {
+	if from.FallbackModel != "" {
+		return from.FallbackModel
+	}
 	if want != "" && next.Kind == origin.Kind {
 		return want
 	}

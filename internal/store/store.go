@@ -560,6 +560,10 @@ type Provider struct {
 	// FallbackProvider is the id of the instance that takes over this one's
 	// tasks while its allowance is used up. Empty means the tasks wait instead.
 	FallbackProvider string `toml:"fallback_provider,omitempty" json:"fallback_provider"`
+	// FallbackModel is the model those substituted runs use. Empty lets claudeq
+	// decide (see provider.ResolveAvailable) and is meaningless without a
+	// FallbackProvider.
+	FallbackModel string `toml:"fallback_model,omitempty" json:"fallback_model"`
 	// Enabled turns the instance off without removing it.
 	Enabled bool `toml:"enabled" json:"enabled"`
 }
