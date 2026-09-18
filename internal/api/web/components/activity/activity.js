@@ -85,14 +85,15 @@ function workflowGroup(group){
   head.innerHTML=`<span class="wf-label">Workflow</span><span class="sub">${ordered.length} runs · ${relTime(ordered[ordered.length-1].started_at)}</span>`
     +(unread?`<span class="chip accent">${unread} unread</span>`:'');
   box.append(head);
-  ordered.forEach(r=>box.append(runLine(r,true)));
+  ordered.forEach(r=>box.append(runLine(r)));
   return box;
 }
 
-// runLine renders one run's row. Inside a workflow box (inset) the unread dot
-// and the mark-read eye move into the card itself, so the box keeps one even
-// inset on every side instead of two gutters of different widths.
-function runLine(r,inset){
+// runLine renders one run's row. The unread dot and the mark-read eye sit
+// inside the card, not in gutters beside it, so a row is exactly as wide as a
+// Queue group or a Usage card and the whole dashboard keeps one left and one
+// right edge.
+function runLine(r){
   const line=el('div','act-line');
   const gl=el('div','act-gl'); if(r.unread) gl.append(el('div','unread-dot'));
   const card=el('div','act-card');
@@ -105,9 +106,9 @@ function runLine(r,inset){
   if(r.resume_pending){ const cx=el('button','btn small danger','Cancel resume');
     cx.title='Drop the scheduled resume so this task does not start again'; cx.onclick=()=>cancelResume(r); actions.append(cx); }
   card.append(grow,actions,pill);   // status pill right-aligned (last)
-  const gr=el('div','act-gr'); if(r.unread){ const mr=el('button','eye-btn',EYE); mr.title='Mark read'; mr.onclick=()=>readRun(r.run_id); gr.append(mr); }
-  if(inset){ card.prepend(gl); if(r.unread) actions.prepend(gr.firstChild); line.append(card); }
-  else line.append(gl,card,gr);
+  if(r.unread){ const mr=el('button','eye-btn',EYE); mr.title='Mark read'; mr.onclick=()=>readRun(r.run_id); actions.prepend(mr); }
+  card.prepend(gl);
+  line.append(card);
   return line;
 }
 // runProviderText names the harness a run used, with the model it used there —

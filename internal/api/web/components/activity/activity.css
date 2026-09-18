@@ -1,21 +1,19 @@
 .act-card .resume { color:var(--warn); font-weight:600; }
-/* Activity rows: unread dot in a left gutter, mark-read eye in a right gutter — both outside the card. */
+/* Activity rows: the unread dot and the mark-read eye live inside the card, so
+   a row's outer edges are the dashboard's, the same as a Queue group's. */
 .act-list { display:flex; flex-direction:column; gap:8px; }
 /* One piece of work, shown as one thing: a fan-out and the join that combines
    it belong together, not scattered among unrelated runs. */
-/* The box's own edges line up with an ungrouped run's card (the same dot
-   gutter on the left, the same mark-read gutter on the right — see .act-gl/
-   .act-gr below), so a workflow reads as the same width column of work as
-   Queue/Artifacts/Usage, not a narrower band. Its runs sit inside it with one
-   even inset, which is why their dot and eye move into the card. */
-.wf-group { display:flex; flex-direction:column; gap:7px; margin:0 24px 0 10px; padding:7px;
+/* The box takes the full column width, like every other row on the dashboard,
+   and its runs sit inside it with one even inset. */
+.wf-group { display:flex; flex-direction:column; gap:7px; padding:7px;
             border-radius:11px; background:var(--card-2); box-shadow:var(--shadow); }
 .wf-head { display:flex; align-items:center; gap:8px; padding:2px 3px 1px; }
-.wf-group .act-card .act-gl { width:8px; }
 .wf-label { font-size:11px; font-weight:600; color:var(--fg2); text-transform:uppercase; letter-spacing:.4px; }
 .act-line { display:flex; align-items:center; gap:8px; }
+/* The unread dot's own column, inside the card: an empty one on a read row
+   keeps every title on the same left edge. */
 .act-gl { width:10px; flex:none; display:flex; justify-content:center; }
-.act-gr { width:24px; flex:none; display:flex; justify-content:center; }
 .act-card { flex:1; min-width:0; display:flex; align-items:center; gap:12px;
             background:var(--card); border:.5px solid var(--hairline); border-radius:11px; padding:11px 15px; box-shadow:var(--shadow); }
 .eye-btn { background:none; border:none; padding:2px; cursor:pointer; color:var(--fg2); line-height:0; }
