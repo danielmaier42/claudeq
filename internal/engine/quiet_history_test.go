@@ -41,7 +41,7 @@ func TestQuietTaskLeavesNoTraceUnlessItNeedsAttention(t *testing.T) {
 		kept   bool
 	}{
 		{store.StatusSuccess, false},
-		{store.StatusRateLimited, false}, // resolves itself: the daemon resumes
+		{store.StatusRateLimited, true}, // it holds up the whole provider: show it
 		{store.StatusFailed, true},
 		{store.StatusAuthError, true},
 	}
