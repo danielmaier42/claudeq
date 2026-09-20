@@ -1,29 +1,72 @@
 <div align="center">
   <img src="internal/api/web/logo.svg" width="96" height="96" alt="ClaudeQ">
   <h1>ClaudeQ</h1>
-  <p>Queue Claude Code tasks during the day, run them at night.</p>
+  <p>A queue for unattended coding-agent runs on your Mac.</p>
 </div>
 
-ClaudeQ is a small, local-only macOS app. During the day you add tasks — a prompt
-and a working folder — to a queue. A background daemon runs them with the
-[Claude Code](https://claude.com/claude-code) CLI overnight, when your usage
-allowance has reset, and you review the results in the morning.
+<!-- TODO: screenshot of the Queue view goes here (docs/queue.png, light and dark). -->
 
-Everything stays on your Mac: tasks, settings, and run history live under
-`~/Library/Application Support/claudeq`, and the daemon listens only on loopback.
-Nothing but the `claude` CLI (and, on demand, GitHub's public release API for
-update checks) ever leaves the machine. The one thing you can send out is
-[feedback](#sending-feedback), and only by pressing *Create* on GitHub yourself.
+ClaudeQ takes the work you would otherwise babysit in a terminal and runs it
+while you are away, most usefully overnight, once your usage allowance has
+reset. A task is a prompt plus the folder it runs in, with a time it may start.
+A background daemon runs it headless through
+[Claude Code](https://claude.com/claude-code),
+[Codex](https://learn.chatgpt.com/docs/developer-commands?surface=cli) or
+[opencode](https://opencode.ai), and in the morning the result is waiting: the
+full transcript in **Activity**, any file the run produced in **Artifacts**,
+and a notification on your phone if you asked for one.
+
+It began as a way to spend the nightly Claude Code allowance, and the rate
+limit is still where it does most of its thinking: a run that hits the limit is
+paused, and the same session continues when the window reopens, or another
+provider takes the task over. Around that, the queue has grown into a small
+workflow engine:
+
+- **Several agents, one queue.** Any number of providers and accounts, each with
+  its own allowance. A task names the one it runs on, or is asked of several at
+  once, with a further task that joins the answers.
+- **Tasks that make tasks.** A run can queue follow-up work, publish a report
+  or an export, and send you a message, all through the bundled `claudeq` CLI.
+  A prompt can say *"if you find something worth fixing, queue it instead of
+  doing it now."*
+- **Built for 3 a.m.** Every run is told it is unattended. Prompts are checked
+  against this Mac before they are queued. Hung runs are killed, orphaned runs
+  recovered, and the Mac is woken for timed work and held awake while it runs.
+- **Nothing leaves the machine.** Tasks, settings and history are plain files
+  under `~/Library/Application Support/claudeq`, and the daemon listens on
+  loopback only. The agent CLIs talk to their own services; ClaudeQ itself
+  contacts nothing but GitHub's release API for update checks, and
+  [feedback](#sending-feedback) is filed by you, in your browser.
+
+## What you can do with it
+
+- **Queue the big refactor at lunch**, let it run after midnight on the fresh
+  allowance, and review the branch over coffee.
+- **Run a watcher every fifteen minutes** that checks a feed, a mailbox or a
+  build. Quiet history keeps its successes out of the record; a real change
+  reaches your phone as a push notification.
+- **Ask Claude and Codex the same question**, with a third task that waits for
+  both and merges the answers into one report.
+- **Publish a nightly PDF or HTML report** to Artifacts and open it on your
+  phone straight from the notification.
+- **Turn a backlog into tasks**: one run reads the list and queues one task per
+  item, so each gets its own session, log and outcome.
+- **Hand a task to a colleague** as a `.claudeq` file. They import it, adjust
+  the folder, and get the same job on their Mac.
 
 ## Contents
 
+**Getting started**
+
 - [How it works](#how-it-works)
-- [Features](#features)
-- [The app](#the-app)
-- [Settings](#settings)
-- [Providers](#providers)
 - [Install](#install)
 - [Using it](#using-it)
+- [The app](#the-app)
+- [Settings](#settings)
+
+**Doing more with it**
+
+- [Providers](#providers)
 - [Command-line interface](#command-line-interface)
 - [From another tool or agent](#from-another-tool-or-agent)
 - [What every run is told](#what-every-run-is-told)
@@ -35,6 +78,10 @@ update checks) ever leaves the machine. The one thing you can send out is
 - [Sharing tasks as files](#sharing-tasks-as-files)
 - [The prompt review](#the-prompt-review)
 - [Sending feedback](#sending-feedback)
+
+**Reference**
+
+- [Features](#features)
 - [How scheduling and the limit gate behave](#how-scheduling-and-the-limit-gate-behave)
 - [Data on disk](#data-on-disk)
 - [Uninstall](#uninstall)
@@ -49,7 +96,7 @@ ClaudeQ is two pieces that share a file-based store:
 
 - **A background daemon (`claudeqd`)** installed as a per-user launchd
   LaunchAgent. It starts at login, restarts if it exits, and does all the work:
-  scheduling, running tasks through the Claude Code CLI, tracking the rate
+  scheduling, running tasks through the provider's CLI, tracking the rate
   limit, planning wake-ups, pruning history, sending notifications, and serving
   the dashboard on `127.0.0.1`.
 - **A native app window (`claudeqapp`)** that wraps that dashboard in a macOS
@@ -60,8 +107,9 @@ The nightly cycle looks like this:
 
 1. You queue tasks during the day. Each task is a **prompt** plus the **folder**
    it runs in (its repo/context), with an optional trigger time.
-2. The daemon watches the queue and starts due tasks with the Claude Code CLI in
-   headless mode, one at a time by default.
+2. The daemon watches the queue and starts due tasks headless, through the CLI
+   of the provider each task names (Claude Code by default), one at a time
+   unless a task is marked parallel.
 3. If a run hits the **rate limit**, ClaudeQ pauses the whole queue and, once the
    limit clears, resumes the *same* Claude session — no work is lost. The pause is
    visible while it lasts: a banner names the time the queue continues, the run is
@@ -73,154 +121,168 @@ The nightly cycle looks like this:
 5. Results — success, failure, rate-limit wait, or auth problem — land in
    **Activity** with the full log, optionally with a notification.
 
+## Install
+
+1. Download the latest `claudeq-<version>.pkg` from the
+   [Releases](https://github.com/danielmaier42/claudeq/releases) page.
+2. Open it and follow the installer.
+
+The package installs **ClaudeQ** to `/Applications`, sets up a per-user
+LaunchAgent so the daemon starts at login, and opens **ClaudeQ** when it is
+done, so you can start adding tasks right away. Installing over an existing
+version works the same way: the installer closes the open ClaudeQ window first
+(the daemon and any running task are not interrupted) and reopens the new
+version at the end, so an update takes effect without a manual restart.
+
+The installer verifies the hand-over instead of assuming it: it waits until the
+daemon that answers on `127.0.0.1:10765` reports the version it just installed,
+retries once (dropping a stale LaunchAgent that still points at an old copy of
+the app), and reports the install as *failed* if the new daemon never takes
+over — rather than finishing green while the machine keeps running the old
+version. It also lists any other `ClaudeQ.app` copies it finds, since a second
+copy is the usual reason an update looks like it did nothing.
+
+> The package is not notarized, so on first launch macOS may warn that it is from
+> an unidentified developer. Right-click **ClaudeQ → Open**, then confirm — or
+> allow it under **System Settings → Privacy & Security**.
+
+You'll also see two normal macOS prompts by design: **Allow notifications?** on
+first launch, and **allow access to your Documents?** the first time a task's
+folder is in a protected location (Documents, Desktop, Downloads). Allow both so
+unattended runs aren't blocked.
+
+macOS, not ClaudeQ, decides how long a notification stays on screen. ClaudeQ asks
+for the **Alerts** style, which waits until you click it — but if macOS already
+knows the app (or overrides it), set it under **System Settings → Notifications →
+ClaudeQ → Alerts**. Settings has a button that opens that pane directly.
+
+To run tasks past a scheduled sleep, ClaudeQ schedules wakes with `pmset`, which
+needs one sudoers entry (the daemon prints the exact line on install, and the
+dashboard shows it if a wake ever fails):
+
+```sh
+echo "$USER ALL=(root) NOPASSWD: /usr/bin/pmset" | sudo tee /etc/sudoers.d/claudeq
+```
+
+## Using it
+
+1. **New task** — give it a prompt, pick the working folder (prefilled from
+   **Settings → General → Prefill new tasks with**, if you set one), and choose a trigger
+   (as-soon-as-possible, earliest start, or cron; a cron schedule is validated as
+   you type, with a preview of its next three runs). Optionally pick the provider
+   it runs on (only ones that can actually run are offered), override the model
+   or reasoning effort or permissions, or enable *parallel* / *notify on result*. The folder dialog
+   starts at the folder currently set for the task; if that folder no longer
+   exists it opens at the nearest existing parent, and at your home folder when
+   nothing is set — so a task whose folder was deleted or renamed can always be
+   pointed somewhere new.
+2. Leave it queued. The daemon runs it at the scheduled time (or overnight when
+   the allowance resets).
+3. Check **Activity** for the outcome, open a run to read the full log, or replay
+   it. A finished one-shot task leaves the queue but stays in history; recurring
+   tasks remain queued for their next occurrence.
+4. **Usage** shows your consumption over the last 14 days.
+
 ## Features
+
+The complete list, one line each. Every item links to the section that
+explains it.
 
 **Scheduling**
 
-- **Three trigger modes** per task:
-  - *As soon as possible* — runs once on the next opportunity (typically the
-    nightly window, as soon as the limit allows and a slot is free).
-  - *Earliest start* — a fixed date/time; runs once at or after it. If the limit
-    is blocked at that time, it starts when the gate reopens.
-  - *Cron* — recurring, on a standard 5-field cron schedule (e.g. `0 3 * * *`).
-    If a new occurrence is due while the previous run is still going, it is
-    skipped. The expression is checked while you type it: the task sheet either
-    lists the next three runs or says which of the five fields it rejects, and
-    it refuses to save a schedule that would never run.
-- **Manual priority** — tasks run in list order, top = highest. Reorder them with
-  the up/down controls (or `claudeq move`).
-- **Concurrency control** — one task at a time by default; mark a task *parallel*
-  to let it run alongside other parallel tasks (no fixed upper bound). Priority
-  and timing still apply.
+- **Three triggers per task**: *as soon as possible*, *earliest start* at a
+  fixed date and time, or a 5-field *cron* schedule that is validated as you
+  type, with a preview of its next three runs. See
+  [How scheduling and the limit gate behave](#how-scheduling-and-the-limit-gate-behave).
+- **Priority is list order**, top first. Reorder in the app or with
+  `claudeq move`.
+- **One at a time by default.** A task marked *parallel* runs alongside other
+  parallel tasks.
+- **Pause everything** with one switch in Settings: a run in flight finishes,
+  nothing new starts, and the Mac is not woken.
 
-**Per-task and global controls**
+**Providers**
 
-- **Pause everything** — one global switch in Settings stops the queue: no task
-  starts while it is on, not even a manual *Run now*, and the Mac is no longer
-  woken for scheduled work. A run already in flight keeps going, and a task that
-  came due meanwhile starts as soon as you switch it back off. The Queue view
-  carries a yellow banner while it is on, so an idle queue is never a mystery.
-- **Per-task overrides** — provider, model, reasoning effort (where the harness
-  takes one), permission handling (default vs. "skip permission prompts"),
-  whether to notify on the result, and *quiet history* for frequent jobs —
-  layered over your global defaults.
-- **Built-in run framing** — every run is told up front that it is headless and
-  unattended, so it finishes its work or hands it on instead of ending on
-  *"waiting for the build"*. See [below](#what-every-run-is-told).
-- **Custom system prompt** — standing guidance (conventions, tone, tools to
-  prefer) appended to every run after ClaudeQ's built-in instructions.
-- **Prompt review** — before a task is queued, Claude reads its prompt against
-  *this* Mac and says what would go wrong at 3 a.m.: a path that isn't there, a
-  report to be written into a folder that doesn't exist, a guidelines file it
-  would depend on, a question nobody will be awake to answer. One click applies
-  the rewrite. See [below](#the-prompt-review).
-- **Self-queueing** — a running task can schedule follow-up tasks itself, so a
-  prompt can say things like *"if you find something to optimize, queue it as a
-  separate task instead of doing it now."* See
-  [below](#letting-a-task-queue-follow-up-work).
-- **Quiet history** — a watcher that runs every few minutes can be told to keep
-  its successful runs out of the record, so it neither floods Activity with
-  unread entries nor pushes real work out of the bounded run history. Failures
-  are kept. See [below](#quiet-history-for-frequent-jobs).
+- **Three harnesses, one queue**: Claude Code, and in beta Codex and opencode.
+  Same queue, same history, same limit handling. See [Providers](#providers).
+- **Any number of accounts.** Two providers of the same kind with separate
+  configuration directories are two accounts with two allowances.
+- **Checked before the night.** A provider whose CLI is missing or logged out
+  blocks its tasks with the reason instead of failing them; they start by
+  themselves once it works again. See [Is it ready?](#is-it-ready).
+- **Rate limit per provider.** A run that hits the limit is paused and its
+  session resumed when the limit clears; only that provider's tasks wait, and
+  the pause is visible as *rescheduled* with the time it continues. See
+  [When the limit is reached](#when-the-limit-is-reached).
+- **A fallback for the limit.** A provider can name another one to take its
+  tasks while its allowance is used up, so the night carries on.
+- **Auth errors are their own outcome**, notified, never silently retried.
 
-**Reliability**
+**Tasks that do more**
 
-- **Two harnesses, one queue** — a task runs on Claude Code or, in beta, on
-  Codex. Same queue, same history, same rate-limit handling; each provider keeps
-  its own account, sessions and limit, so one being blocked does not hold up the
-  other. See [Providers](#providers).
-- **Providers that are checked before the night** — the agent harness a task runs
-  on is a configured *provider* with its own binary, account directory and
-  default model. ClaudeQ asks it whether it can actually work — is the CLI
-  installed, is anyone logged in — and a task whose provider cannot run it is
-  never started: it keeps its place in the queue, says *blocked* with the reason,
-  and starts by itself once the provider works again. You hear about it once,
-  when it breaks, not on every check. See [Providers](#providers).
-- **Rate-limit aware, per provider** — a run that hits the limit is paused, the
-  wait is derived from the CLI's retry signal, and the session is resumed
-  automatically once the limit resets (falling back to a fresh restart if resume
-  fails), so a task never gets stuck. The allowance belongs to an account, so
-  only that provider's tasks wait: a blocked Codex does not hold up Claude Code,
-  and two accounts of the same harness do not hold up each other. A waiting run says so — *rescheduled*
-  with the time it continues — and its resume can be cancelled if you no longer
-  want the work.
-- **A fallback for the limit** — a provider can name another one to take its
-  tasks while its allowance is used up, so the night's queue carries on instead
-  of stopping at the limit. It is per provider and off by default. See
-  [Providers](#providers).
-- **Auth-error aware** — a login/authentication failure is detected, surfaced as
-  its own outcome, and notified — never silently retried.
-- **Unattended-safe** — kills hung runs (no output for a configurable timeout,
-  killing the whole process group), recovers orphaned runs after a crash or power
-  loss, holds the Mac awake through a run and is sleep-aware so a run frozen
-  across a long sleep isn't falsely killed, and prunes old history to bound disk
-  use.
-- **Wake from sleep** — schedules `pmset` wakes at each task's time (plus an
-  hourly safety-net heartbeat) so a timed task wakes the Mac, runs, and lets it
-  sleep again. A broken wake setup is surfaced in the dashboard rather than
-  failing silently.
-- **File-access prompts up front** — the daemon reads each task's folder at
-  login and when you add or edit a task, so macOS raises its "allow access to
-  your Documents?" prompt while you're present — not at 3 a.m. mid-run.
+- **Per-task overrides** for provider, model, reasoning effort, permission
+  handling, notification and quiet history, layered over global defaults.
+- **Built-in run framing.** Every run is told it is headless and unattended,
+  so it finishes or hands on instead of waiting for someone. See
+  [What every run is told](#what-every-run-is-told).
+- **Custom system prompt** appended to every run after the built-in one.
+- **Prompt review.** Before a task is queued, Claude reads the prompt against
+  this Mac and names what would go wrong at 3 a.m.; one click applies the
+  rewrite. See [The prompt review](#the-prompt-review).
+- **Self-queueing.** A run schedules follow-up tasks with `claudeq queue`. See
+  [Letting a task queue follow-up work](#letting-a-task-queue-follow-up-work).
+- **Fan-out and join.** One job per provider, and a job that waits for all of
+  them and combines the results. See
+  [Asking several providers at once](#asking-several-providers-at-once).
+- **Artifacts.** A run publishes a file with `claudeq publish`; it lands in the
+  Artifacts view with an in-app viewer for HTML, PDF, images and text. See
+  [Letting a task publish artifacts](#letting-a-task-publish-artifacts).
+- **Own notifications.** A run sends a message with `claudeq notify`,
+  optionally with a link that opens on click. See
+  [Letting a task send a notification](#letting-a-task-send-a-notification).
+- **Quiet history** for frequent watchers: successful runs leave no record,
+  failures do. See [Quiet history for frequent jobs](#quiet-history-for-frequent-jobs).
+- **Share a task** as a `.claudeq` file; the importer adjusts folder and prompt
+  before it is queued. See [Sharing tasks as files](#sharing-tasks-as-files).
 
-**Visibility**
+**Unattended by design**
 
-- **Notifications** — native macOS notifications, plus optional
-  [Pushover](https://pushover.net) push to your phone, an [ntfy](https://ntfy.sh)
-  topic (ntfy.sh or self-hosted), and a generic webhook whose JSON body you
-  template — the one channel that covers anything else with an incoming
-  webhook: Slack, Discord, Home Assistant, n8n. Any number of channels can be on
-  at once. Failures and auth problems always notify; successes notify only if
-  the task opts in. Every published
-  artifact is announced too, and **clicking that notification opens the artifact**
-  right in the window. A task can also **send its own notification** with
-  `claudeq notify` — the way a watcher job reports a change without leaving a
-  file behind — optionally with a link that opens on click. See
-  [below](#letting-a-task-send-a-notification).
-- **Usage insight** — tokens, runs, and API-equivalent cost per day (what the
-  same work would have cost through the API), over the last 14 days.
-- **Full history** — every run is kept with its complete log, viewable as a chat
-  transcript or raw output, and can be replayed.
-- **Continue in Chat…** — pick up a finished run's conversation interactively:
-  one click opens Terminal in the task's folder and resumes the very same
-  session, with the harness that owns it and the full context of everything
-  the run did.
-- **Artifacts** — a task can publish a finished file (report, export, HTML page,
-  PDF, …) with `claudeq publish`; it's copied into ClaudeQ and listed in a
-  central **Artifacts** view with an unread flag, independent of run history.
-  HTML and PDF get an in-app viewer; anything opens externally — and opening one
-  marks it read. Each publish also raises a notification that opens the artifact
-  when clicked. See [below](#letting-a-task-publish-artifacts).
-- **Share a task** — export any task as a `.claudeq` file (a zip holding its
-  settings as JSON and its prompt as Markdown) and hand it to a colleague, who
-  imports it in the app or with `claudeq import`. In the app the file opens in
-  the task sheet first, so the prompt and the working directory — the exporter's
-  path, not yours — are adjusted before the task is queued. See
-  [below](#sharing-tasks-as-files).
+- **Hung runs are killed** after a configurable idle timeout, whole process
+  group included. Orphaned runs are recovered after a crash or power loss.
+- **Wake and stay awake.** `pmset` wakes the Mac at each task's time plus an
+  hourly heartbeat, `caffeinate` holds it through a run, and a run frozen
+  across a long sleep is not mistaken for a hung one. A broken wake setup is
+  shown in the dashboard.
+- **File-access prompts up front.** Task folders are read at login and on
+  edit, so macOS asks for Documents access while you are present.
+- **Bounded history.** Old runs are pruned to a configurable count.
 
-**Platform & distribution**
+**Seeing what happened**
 
-- **Scriptable** — a bundled `claudeq` CLI does everything the window does. It
-  lists and inspects tasks, edits a prompt or any other setting, changes the
-  global settings, triggers a test run, and reads run history, with `--json`
-  output for other tools and agents. See [below](#command-line-interface).
-- **Native macOS** — its own app window, Dock icon, menu bar, About panel, and
-  live system accent color; light/dark aware.
-- **Automatic updates** — checks GitHub for a newer release hourly and flags it
-  in Settings; one click downloads the installer and opens it, and the new
-  version is running again as soon as the installer finishes. Dismiss a version
-  to only hear about the next one. The banner aggregates the notes of every
-  version you skipped. If a version was installed but the background service
-  never switched over to it, Settings says so and a **Finish update** button
-  hands it over.
-- **Feedback that writes itself** — the **Feedback** page, at the bottom of the
-  sidebar, is a short chat. Describe a bug or a wish, Claude asks at most one
-  clarifying question and drafts a GitHub issue, and you edit it before anything
-  is filed. The last step just opens GitHub's prefilled *new issue* page in your
-  browser — ClaudeQ holds no GitHub credentials and files nothing itself. See
-  [below](#sending-feedback).
-- **Local & private** — data is human-readable TOML/JSON under your Library
-  folder; the API is loopback-only.
+- **Notifications** natively on macOS and, optionally, to
+  [Pushover](https://pushover.net), an [ntfy](https://ntfy.sh) topic, or any
+  incoming webhook (Slack, Discord, Home Assistant, n8n) with a JSON body you
+  template. Failures always notify, successes only if the task opts in.
+- **Full history** of every run with its complete log as a chat transcript or
+  raw output, and replay.
+- **Continue in Chat…** opens Terminal in the task's folder and resumes the
+  run's session interactively, with the harness that owns it.
+- **Usage**: tokens, runs and API-equivalent cost per day over the last 14
+  days.
+
+**Platform**
+
+- **Scriptable.** The bundled `claudeq` CLI does everything the window does,
+  with `--json` output for tools and agents. See
+  [Command-line interface](#command-line-interface).
+- **Native macOS**: its own window, Dock icon, menu bar, live accent colour,
+  light and dark.
+- **Automatic updates** from GitHub releases, one click to install. A version
+  whose daemon never took over is flagged with a **Finish update** button.
+- **Feedback that writes itself.** Describe a bug or a wish, Claude drafts the
+  GitHub issue, and you file it yourself. See [Sending feedback](#sending-feedback).
+- **Local and private.** Human-readable TOML/JSON under your Library folder;
+  the API is loopback-only.
 
 ## The app
 
@@ -260,7 +322,8 @@ sit at the bottom, out of the way of the work:
   keeps its schedule and starts fresh at its next occurrence); a finished
   run offers **Continue in Chat…**, which opens Terminal in the task's folder
   and resumes the run's session interactively — with the harness that owns it
-  (`claude --resume`, or `codex resume` for a Codex run) and the same permission
+  (`claude --resume`, `codex resume` for a Codex run, `opencode --session`
+  for an opencode run) and the same permission
   mode the run had (a skip-permissions task resumes with
   `--dangerously-skip-permissions`);
   the button needs the session to still exist — Claude Code prunes old sessions
@@ -298,6 +361,7 @@ and the update button live.
 | Tab | Group | Setting | What it does |
 |-----|-------|---------|--------------|
 | **General** | Defaults for every run | Custom system prompt | Extra instructions appended to every run after the built-in prompt. |
+| | New tasks | Prefill new tasks with | The folder a new task's working directory starts at. Still editable per task; empty leaves the field blank. |
 | | Prompt review | Check prompts with Claude | Whether Claude reviews a prompt against this Mac before the task is queued (on by default). |
 | | | Review provider | Which provider answers the review. Only providers that can hold an *aside* are offered. *Default* follows the global default provider. |
 | | | Review model | Model used for that review; *The provider's default model* falls back to the reviewing provider's own default. |
@@ -314,7 +378,7 @@ and the update button live.
 | **System** | Runs | Stop a run with no output for | Idle-timeout watchdog: kills a hung run (default 30 min; a working run keeps streaming and is unaffected; Off disables it). |
 | | | Keep run history | How many runs (and their logs) to retain before pruning (default 500; Unlimited keeps everything). |
 | | Scheduler | Check for due tasks every | How often the daemon wakes to look for work (15 min – 6 h; also the wake safety-net interval). |
-| | Beta features | Beta features | Reveals the parts of ClaudeQ that are not finished yet — currently **Add provider** and the **Codex** provider. Presentation only: anything already set up keeps working and the CLI accepts it either way. |
+| | Beta features | Beta features | Reveals the parts of ClaudeQ that are not finished yet — currently **Add provider** and the **Codex** and **opencode** providers. Presentation only: anything already set up keeps working and the CLI accepts it either way. |
 
 ## Providers
 
@@ -324,12 +388,13 @@ by. Every installation has one, `claude`, which is the
 migrated into it automatically, keeping the binary path and default model it
 already used.
 
-Two harnesses are supported:
+Three harnesses are supported:
 
 | Type | CLI | Notes |
 |------|-----|-------|
 | Claude (`claude-code`) | [Claude Code](https://claude.com/claude-code) | Reports token counts and cost. Its only authority settings are "ask" and "skip every prompt". |
 | Codex (`codex`) | [Codex](https://learn.chatgpt.com/docs/developer-commands?surface=cli) | **Beta.** Takes a reasoning effort and a real sandbox mode, so read-only and workspace-write actually mean something. Tasks may use a working folder that is not itself a Git repository. Reports tokens but no cost — ClaudeQ never invents one. |
+| opencode (`opencode`) | [opencode](https://opencode.ai) | **Beta.** Runs whatever model opencode is configured for, including local ones (it was brought up against LM Studio). Takes a reasoning effort as opencode's *variant*. Permission handling is all or nothing: the CLI's own prompts, or none. Reports tokens and cost as opencode states them. It cannot answer ClaudeQ's own questions yet, so the prompt review and the feedback assistant are not offered on it, and its errors do not tell a rate limit from any other failure, so a limited run fails instead of pausing. |
 
 You can configure as many instances as you like, including two of the same kind:
 give each its own configuration directory and they are two accounts, with their
@@ -341,10 +406,10 @@ A provider has:
 | Field | What it is |
 |-------|------------|
 | Id | The stable name a task selects it by (`claude`). Fixed once created. |
-| Type | Which harness it runs — Claude or Codex. Fixed once created. The app says *type* and names the harness; the adapter kind it maps to (`claude-code`) is what the file stores. |
+| Type | Which harness it runs — Claude, Codex or opencode. Fixed once created. The app says *type* and names the harness; the adapter kind it maps to (`claude-code`) is what the file stores. |
 | Name | The label shown in the app and in run messages. |
 | Binary | Absolute path to the CLI. The background daemon can't see your shell `PATH`, so a full path is safest; empty auto-detects and the card offers what it found. |
-| Configuration directory | Where that CLI keeps its account and sessions. Empty uses the CLI's own (`~/.claude`, `~/.codex`), which the field shows as its placeholder. Two providers with separate directories are two separate accounts. |
+| Configuration directory | Where that CLI keeps its account and sessions. Empty uses the CLI's own (`~/.claude`, `~/.codex`, `~/.config/opencode`), which the field shows as its placeholder. Two providers with separate directories are two separate accounts. |
 
 Both paths must be absolute; a leading `~` is expanded and stored resolved, so
 the file says what is actually used.
@@ -372,15 +437,15 @@ instance, which names the tasks that have to change first.
 ### Beta features
 
 Two things are behind one switch, **Settings → System → Beta features**: adding
-providers at all, and the Codex provider itself. With it off there is no **Add
-provider** button and no Codex to choose; with it on both appear, the button
-marked as beta, and anything on a beta provider is labelled *beta* wherever it
-shows up. The switch itself does not enumerate what it contains — that is what
+providers at all, and the two beta harnesses, Codex and opencode. With it off
+there is no **Add provider** button and neither is offered; with it on all of
+them appear, the button marked as beta, and anything on a beta provider is
+labelled *beta* wherever it shows up. The switch itself does not enumerate what it contains — that is what
 this section is for.
 
 That switch decides what the app *offers* and nothing else. The adapter is
-always part of the build, the API and `claudeq` always accept Codex, and the
-scheduler never looks at the switch — so a Codex task created from the command
+always part of the build, the API and `claudeq` always accept Codex and
+opencode, and the scheduler never looks at the switch — so a Codex task created from the command
 line runs, and stays visible in Queue and Activity, whatever the app is showing.
 Hiding setup controls never hides actual work.
 
@@ -388,6 +453,12 @@ Codex is beta for one concrete reason: what a real exhausted ChatGPT allowance
 looks like in its output has not been observed yet. A rate-limited Codex run is
 paused and resumed on a fixed delay rather than at the time the provider names,
 because in the controlled test it named none.
+
+opencode is beta because its error reporting is the weakest of the three:
+running it locally, every failure came back in the same generic shape, so
+ClaudeQ cannot tell an exhausted allowance or a logged-out account from any
+other error. A failed opencode run is therefore recorded as failed, not paused
+and resumed, and the readiness check can only confirm that the binary runs.
 
 Editing a task changes its provider only when you say so. Every other edit — the
 prompt, the folder, the schedule — goes through whatever state the current
@@ -474,67 +545,6 @@ ClaudeQ stores no passwords, tokens or API keys. It stores the *path* of a
 CLI's configuration directory; the CLI owns what is inside it. Readiness checks
 read only whether a login exists, never whose it is, and neither the daemon log
 nor the API ever carries account details.
-
-## Install
-
-1. Download the latest `claudeq-<version>.pkg` from the
-   [Releases](https://github.com/danielmaier42/claudeq/releases) page.
-2. Open it and follow the installer.
-
-The package installs **ClaudeQ** to `/Applications`, sets up a per-user
-LaunchAgent so the daemon starts at login, and opens **ClaudeQ** when it is
-done, so you can start adding tasks right away. Installing over an existing
-version works the same way: the installer closes the open ClaudeQ window first
-(the daemon and any running task are not interrupted) and reopens the new
-version at the end, so an update takes effect without a manual restart.
-
-The installer verifies the hand-over instead of assuming it: it waits until the
-daemon that answers on `127.0.0.1:10765` reports the version it just installed,
-retries once (dropping a stale LaunchAgent that still points at an old copy of
-the app), and reports the install as *failed* if the new daemon never takes
-over — rather than finishing green while the machine keeps running the old
-version. It also lists any other `ClaudeQ.app` copies it finds, since a second
-copy is the usual reason an update looks like it did nothing.
-
-> The package is not notarized, so on first launch macOS may warn that it is from
-> an unidentified developer. Right-click **ClaudeQ → Open**, then confirm — or
-> allow it under **System Settings → Privacy & Security**.
-
-You'll also see two normal macOS prompts by design: **Allow notifications?** on
-first launch, and **allow access to your Documents?** the first time a task's
-folder is in a protected location (Documents, Desktop, Downloads). Allow both so
-unattended runs aren't blocked.
-
-macOS, not ClaudeQ, decides how long a notification stays on screen. ClaudeQ asks
-for the **Alerts** style, which waits until you click it — but if macOS already
-knows the app (or overrides it), set it under **System Settings → Notifications →
-ClaudeQ → Alerts**. Settings has a button that opens that pane directly.
-
-To run tasks past a scheduled sleep, ClaudeQ schedules wakes with `pmset`, which
-needs one sudoers entry (the daemon prints the exact line on install, and the
-dashboard shows it if a wake ever fails):
-
-```sh
-echo "$USER ALL=(root) NOPASSWD: /usr/bin/pmset" | sudo tee /etc/sudoers.d/claudeq
-```
-
-## Using it
-
-1. **New task** — give it a prompt, pick the working folder, and choose a trigger
-   (as-soon-as-possible, earliest start, or cron; a cron schedule is validated as
-   you type, with a preview of its next three runs). Optionally pick the provider
-   it runs on (only ones that can actually run are offered), override the model
-   or reasoning effort or permissions, or enable *parallel* / *notify on result*. The folder dialog
-   starts at the folder currently set for the task; if that folder no longer
-   exists it opens at the nearest existing parent, and at your home folder when
-   nothing is set — so a task whose folder was deleted or renamed can always be
-   pointed somewhere new.
-2. Leave it queued. The daemon runs it at the scheduled time (or overnight when
-   the allowance resets).
-3. Check **Activity** for the outcome, open a run to read the full log, or replay
-   it. A finished one-shot task leaves the queue but stays in history; recurring
-   tasks remain queued for their next occurrence.
-4. **Usage** shows your consumption over the last 14 days.
 
 ## Command-line interface
 
@@ -707,6 +717,7 @@ app's [Settings](#settings) view.
 claudeq settings                                        # show everything
 claudeq settings --default-provider claude              # provider for tasks that name none
 claudeq settings --system-prompt-file ./house-style.md   # custom system prompt
+claudeq settings --default-working-dir ~/Code            # a new task's folder starts here
 claudeq settings --idle-timeout-minutes 45 --max-run-history 1000
 claudeq settings --paused=true                          # stop every run
 claudeq settings --paused=false                         # let the queue run again
@@ -740,9 +751,10 @@ claudeq provider edit claude --path /Users/me/.local/bin/claude
 claudeq provider edit claude --default-model opus
 claudeq provider disable claude                         # keep it, run nothing on it
 
-# a second Claude account, and a Codex provider
+# a second Claude account, a Codex provider, and opencode with a local model
 claudeq provider add claude-work --kind claude-code --config-dir ~/.claude-work
 claudeq provider add codex --kind codex --default-model gpt-5.6-sol
+claudeq provider add local --kind opencode
 ```
 
 `provider list --json` gives each instance's enabled state, readiness, the
@@ -1002,6 +1014,7 @@ quiet itself unless the call says `--quiet-history`: follow-up work is real
 work, and you will want to see its run.
 The trade-off: successful quiet runs leave no log to look at afterwards and are
 absent from the Usage statistics.
+
 ## Sharing tasks as files
 
 A task can be handed to a colleague as a single `.claudeq` file. It is a plain
