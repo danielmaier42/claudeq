@@ -405,7 +405,7 @@ func TestCheckHealthUnreadyStates(t *testing.T) {
 			name:   "the binary does not answer --version",
 			inst:   func(*testing.T) provider.Instance { return instance(bin) },
 			prober: &fakeProber{err: map[string]error{"--version": errors.New("exec format error")}},
-			want:   provider.HealthNotInstalled,
+			want:   provider.HealthCheckFailed,
 			reason: "--version",
 		},
 		{

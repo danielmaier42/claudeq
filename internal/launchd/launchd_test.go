@@ -26,6 +26,10 @@ func TestPlistContainsProgramAndFlags(t *testing.T) {
 		// directory) is retried once a minute instead of ten times a minute.
 		"<key>ThrottleInterval</key>",
 		"<integer>60</integer>",
+		// Not "Background": children inherit the job's scheduling policy, and a
+		// throttled harness CLI misses its probe deadline on a busy machine.
+		"<key>ProcessType</key>",
+		"<string>Interactive</string>",
 		"/tmp/out.log",
 	} {
 		if !strings.Contains(p, want) {

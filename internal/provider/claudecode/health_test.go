@@ -127,7 +127,7 @@ func TestCheckHealthUnreadyStates(t *testing.T) {
 				return provider.Instance{ID: "claude", BinaryPath: bin, Enabled: true}
 			},
 			prober: &fakeProber{err: map[string]error{"--version": errors.New("exec format error")}},
-			want:   provider.HealthNotInstalled,
+			want:   provider.HealthCheckFailed,
 			reason: "--version",
 		},
 		{

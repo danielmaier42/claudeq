@@ -193,8 +193,8 @@ func TestCheckHealthVersionProbeFails(t *testing.T) {
 	h := a.CheckHealth(context.Background(), instance(bin), &fakeProber{
 		err: map[string]error{"--version": os.ErrDeadlineExceeded},
 	})
-	if h.State != provider.HealthNotInstalled {
-		t.Fatalf("State = %v, want not_installed when --version cannot be answered", h.State)
+	if h.State != provider.HealthCheckFailed {
+		t.Fatalf("State = %v, want check_failed when --version cannot be answered", h.State)
 	}
 }
 

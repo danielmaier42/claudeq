@@ -52,8 +52,13 @@ var plistTemplate = template.Must(template.New("plist").Parse(`<?xml version="1.
 	     owns the data directory. -->
 	<key>ThrottleInterval</key>
 	<integer>60</integer>
+	<!-- The daemon spawns the harness CLIs, and a child inherits the job's
+	     scheduling policy. Under "Background" every probe and every run is
+	     throttled to the lowest priority, so on a busy Mac a version probe
+	     misses its deadline and the queue reports a working provider as
+	     blocked. "Interactive" keeps the agent at normal priority. -->
 	<key>ProcessType</key>
-	<string>Background</string>
+	<string>Interactive</string>
 {{- if .AssociatedBundleID}}
 	<key>AssociatedBundleIdentifiers</key>
 	<array>
