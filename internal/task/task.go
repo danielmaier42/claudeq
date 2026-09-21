@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/robfig/cron/v3"
 )
@@ -50,6 +52,13 @@ type Task struct {
 	Prompt string `toml:"prompt" json:"prompt"`
 	// WorkingDir is the directory Claude Code runs in (the task's context).
 	WorkingDir string `toml:"working_dir" json:"working_dir"`
+	// Group is the free-text folder the queue shows this task under. Empty means
+	// the task is ungrouped and sits in the plain list. A group exists only as
+	// long as a task names it: there is nothing else to create or delete.
+	// It is always written to JSON, empty included: the API reads an absent
+	// group as "leave it alone" (the task form does not show it), so a client
+	// that marshals a task has to be able to say "no group" as well.
+	Group string `toml:"group,omitempty" json:"group"`
 
 	// Trigger selects how the task becomes eligible.
 	Trigger Trigger `toml:"trigger" json:"trigger"`
@@ -148,6 +157,10 @@ func (t Task) Validate() error {
 		return fmt.Errorf("%w: unknown trigger %q", ErrInvalidTask, t.Trigger)
 	}
 
+	if err := CheckGroup(t.Group); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidTask, err)
+	}
+
 	switch t.Permissions {
 	case PermissionsDefault, PermissionsSkip:
 	default:
@@ -223,6 +236,35 @@ func Slug(name string) string {
 		return "task"
 	}
 	return slug
+}
+
+// MaxGroupLen is the longest group name the queue accepts. A group is a label
+// in a list, not a description, and an unbounded one would push every row's
+// controls off the screen.
+const MaxGroupLen = 60
+
+// ErrInvalidGroup is returned for a group name that cannot be stored.
+var ErrInvalidGroup = errors.New("invalid group")
+
+// CheckGroup reports whether name is usable as a group name. Empty (ungrouped)
+// is always fine; anything else must be a single line of printable text, short
+// enough to render as a header.
+func CheckGroup(name string) error {
+	if name == "" {
+		return nil
+	}
+	if name != strings.TrimSpace(name) {
+		return fmt.Errorf("%w: %q has leading or trailing whitespace", ErrInvalidGroup, name)
+	}
+	if utf8.RuneCountInString(name) > MaxGroupLen {
+		return fmt.Errorf("%w: at most %d characters", ErrInvalidGroup, MaxGroupLen)
+	}
+	for _, r := range name {
+		if r == '\n' || r == '\r' || r == '\t' || unicode.IsControl(r) {
+			return fmt.Errorf("%w: %q contains a control character", ErrInvalidGroup, name)
+		}
+	}
+	return nil
 }
 
 // CheckID reports whether id is usable as a task id: letters, digits, dot,

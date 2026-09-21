@@ -3,6 +3,10 @@ import {esc} from './dom.js';
 
 let MODELS=[];
 export async function loadModels(){ try{ MODELS=await api('GET','/api/models'); }catch{ MODELS=[]; } }
+// modelLabel turns a model id into what the catalog calls it, falling back to
+// the id: a task may name a model discovery never listed, and the queue still
+// has to say which one it runs.
+export function modelLabel(id){ const m=MODELS.find(x=>x.id===id); return m?m.label:(id||''); }
 export function modelOptions(selected,globalLabel){ return modelOptionsFrom(MODELS,selected,globalLabel); }
 // modelOptionsFrom renders a model picker. A stored model the list does not
 // contain is kept and marked custom: a catalog is a suggestion, and a task must

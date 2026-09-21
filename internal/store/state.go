@@ -43,6 +43,11 @@ type State struct {
 	// update prompt. While the latest release equals it, no "update available"
 	// prompt is shown; a newer release supersedes it and prompts again.
 	DismissedUpdateVersion string `json:"dismissed_update_version"`
+	// CollapsedGroups maps a queue group name to true while its section is
+	// folded shut in the dashboard. It lives in the state, not the config: it is
+	// a view preference the app writes, not something to hand-edit — and it has
+	// to outlive a reload, a restart and the window being closed.
+	CollapsedGroups map[string]bool `json:"collapsed_groups,omitempty"`
 	// NotifiedProviderHealth maps a provider id to the health state the operator
 	// was last told about. The scheduler looks at provider health on every tick,
 	// so this is what turns "not installed" into one alert instead of one per
@@ -78,6 +83,9 @@ func (s *State) ensureMaps() {
 	if s.PendingResumes == nil {
 		s.PendingResumes = map[string]PendingResume{}
 	}
+	if s.CollapsedGroups == nil {
+		s.CollapsedGroups = map[string]bool{}
+	}
 	if s.NotifiedProviderHealth == nil {
 		s.NotifiedProviderHealth = map[string]string{}
 	}
@@ -93,6 +101,30 @@ func (s *State) NotifiedProviderState(providerID string) string {
 // provider, so the same unresolved condition is not announced again.
 func (s *State) SetNotifiedProviderState(providerID, state string) {
 	s.NotifiedProviderHealth[providerID] = state
+}
+
+// GroupCollapsed reports whether a group's section is folded shut.
+func (s *State) GroupCollapsed(group string) bool { return s.CollapsedGroups[group] }
+
+// SetGroupCollapsed records whether a group's section is folded shut. An open
+// group is the default, so it is stored by absence rather than as false.
+func (s *State) SetGroupCollapsed(group string, collapsed bool) {
+	if collapsed {
+		s.CollapsedGroups[group] = true
+		return
+	}
+	delete(s.CollapsedGroups, group)
+}
+
+// KeepGroups drops what is remembered about every group not in keep. A group
+// exists only as long as a task names it, so this is what stops the fold state
+// of a long-gone group from coming back when its name is used again.
+func (s *State) KeepGroups(keep map[string]bool) {
+	for g := range s.CollapsedGroups {
+		if !keep[g] {
+			delete(s.CollapsedGroups, g)
+		}
+	}
 }
 
 // ForgetProvider drops what is remembered about a provider id, so an instance

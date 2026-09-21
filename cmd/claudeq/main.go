@@ -221,6 +221,7 @@ func cmdAdd(st *store.Store, args []string) error {
 		ID: *id, Name: *name, Prompt: *prompt, WorkingDir: *dir,
 		Trigger: task.Trigger(*trig), Cron: *cronArg, Enabled: true,
 		Provider: s.provider, Model: s.model, ReasoningEffort: s.reasoning,
+		Group:    strings.TrimSpace(s.group),
 		Parallel: s.parallel, NotifyOnResult: s.notify,
 		QuietHistory: s.quietHistory, Permissions: task.PermissionsFor(s.skipPerms),
 	}

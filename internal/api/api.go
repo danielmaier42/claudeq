@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
@@ -113,6 +114,9 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/tasks/{id}/disable", s.enableTask(false))
 	mux.HandleFunc("POST /api/tasks/{id}/move", s.moveTask)
 	mux.HandleFunc("POST /api/tasks/{id}/run-now", s.runNow)
+	mux.HandleFunc("GET /api/groups", s.listGroups)
+	mux.HandleFunc("POST /api/groups/collapse", s.setGroupCollapsed)
+	mux.HandleFunc("POST /api/groups/move", s.moveGroup)
 	mux.HandleFunc("GET /api/runs", s.listRuns)
 	mux.HandleFunc("GET /api/runs/{id}", s.getRun)
 	mux.HandleFunc("POST /api/runs/read-all", s.readAll)
@@ -430,12 +434,29 @@ func (s *server) warmNow(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *server) updateTask(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
 	var t task.Task
-	if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
+	if err := json.Unmarshal(body, &t); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
 	t.ID = r.PathValue("id") // the id is fixed by the URL
+	// The group is set by dragging the row in the queue, not in the task form,
+	// so a payload that says nothing about it leaves it alone. Without this,
+	// saving the form would quietly take the task out of its group.
+	var sent struct {
+		Group *string `json:"group"`
+	}
+	_ = json.Unmarshal(body, &sent)
+	if sent.Group == nil {
+		if prev, err := s.storedTask(t.ID); err == nil {
+			t.Group = prev.Group
+		}
+	}
 	if t.Permissions == "" {
 		t.Permissions = task.PermissionsDefault
 	}
@@ -457,11 +478,14 @@ func (s *server) updateTask(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	var prevDir string
-	err := s.d.Store.UpdateConfig(func(cfg *store.Config) error {
+	err = s.d.Store.UpdateConfig(func(cfg *store.Config) error {
 		for i := range cfg.Tasks {
 			if cfg.Tasks[i].ID == t.ID {
 				prevDir = cfg.Tasks[i].WorkingDir
 				cfg.Tasks[i] = t
+				// An edit may name another group; the stored order follows the
+				// one the queue renders (see app.GroupedOrder).
+				cfg.Tasks = app.GroupedOrder(cfg.Tasks)
 				return nil
 			}
 		}
@@ -471,6 +495,9 @@ func (s *server) updateTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	// The edit may have taken the last task out of a group; the fold state of a
+	// group that no longer exists goes with it.
+	_ = app.PruneGroups(s.d.Store)
 	// Only warm when the folder actually changed — editing just the prompt/model
 	// keeps the same (already-authorised) directory, so re-probing it is wasted
 	// work. A genuine folder change still provokes the prompt for the new one.
@@ -498,13 +525,96 @@ func (s *server) enableTask(enabled bool) http.HandlerFunc {
 	}
 }
 
+// moveTask reorders a task and, when the request names a group, moves it into
+// that group in the same write — the queue's drag and drop is one gesture, and
+// a half-applied drop would leave a task in a group at the wrong position.
+// An empty 'group' is not the same as none: it means "no group", which is how a
+// task is dragged back out of one.
 func (s *server) moveTask(w http.ResponseWriter, r *http.Request) {
 	to, err := strconv.Atoi(r.URL.Query().Get("to"))
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, errors.New("query param 'to' must be an integer"))
 		return
 	}
-	if err := app.Move(s.d.Store, r.PathValue("id"), to); err != nil {
+	id := r.PathValue("id")
+	if r.URL.Query().Has("group") {
+		err = app.MoveToGroup(s.d.Store, id, r.URL.Query().Get("group"), to)
+	} else {
+		err = app.Move(s.d.Store, id, to)
+	}
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// listGroups answers with the queue's groups in the order they appear, each
+// with how many tasks it holds and whether its section is folded shut. The
+// dashboard needs the fold state on every poll, and a group is nothing but the
+// tasks that name it, so both come from one place.
+func (s *server) listGroups(w http.ResponseWriter, _ *http.Request) {
+	cfg, err := s.d.Store.LoadConfig()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	st, _ := s.d.Store.LoadState() // a missing state file just means nothing is collapsed
+	out := make([]groupView, 0, 4)
+	at := map[string]int{}
+	for _, t := range cfg.Tasks {
+		if t.Group == "" {
+			continue
+		}
+		if i, ok := at[t.Group]; ok {
+			out[i].Count++
+			continue
+		}
+		at[t.Group] = len(out)
+		out = append(out, groupView{Name: t.Group, Count: 1, Collapsed: st != nil && st.GroupCollapsed(t.Group)})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// groupView is one queue group: its name, how many tasks it holds, and whether
+// the dashboard shows it folded shut.
+type groupView struct {
+	Name      string `json:"name"`
+	Count     int    `json:"count"`
+	Collapsed bool   `json:"collapsed"`
+}
+
+// moveGroup puts a whole section in front of another one. "before" is the group
+// to sit in front of — "" is the ungrouped section, and leaving it out moves the
+// group to the end of the queue.
+func (s *server) moveGroup(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name   string  `json:"name"`
+		Before *string `json:"before"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := app.MoveGroup(s.d.Store, in.Name, in.Before); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// setGroupCollapsed remembers a folded or unfolded section. It is a view
+// preference, so it goes to the state file, not the config.
+func (s *server) setGroupCollapsed(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name      string `json:"name"`
+		Collapsed bool   `json:"collapsed"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := app.SetGroupCollapsed(s.d.Store, in.Name, in.Collapsed); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
