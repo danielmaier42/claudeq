@@ -41,3 +41,9 @@
 .grp-hd.drop-below, .grp .group.drop-below { box-shadow:inset 0 -2px 0 var(--accent); }
 /* While a whole group is on the move, the tiles for single tasks stay away. */
 #tasks.dragging-group .dropzone { display:none; }
+
+/* Renaming a group: the one thing on the header that is not a fold or a drag,
+   so it stays out of the way until the header is under the cursor. */
+.grp-hd .grp-rename { margin-left:2px; padding:2px 5px; opacity:0; transition:opacity .12s ease; }
+.grp-hd:hover .grp-rename, .grp-hd .grp-rename:focus-visible { opacity:1; }
+.grp-hd .grp-rename svg { width:13px; height:13px; }

@@ -117,6 +117,7 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/groups", s.listGroups)
 	mux.HandleFunc("POST /api/groups/collapse", s.setGroupCollapsed)
 	mux.HandleFunc("POST /api/groups/move", s.moveGroup)
+	mux.HandleFunc("POST /api/groups/rename", s.renameGroup)
 	mux.HandleFunc("GET /api/runs", s.listRuns)
 	mux.HandleFunc("GET /api/runs/{id}", s.getRun)
 	mux.HandleFunc("POST /api/runs/read-all", s.readAll)
@@ -597,6 +598,25 @@ func (s *server) moveGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := app.MoveGroup(s.d.Store, in.Name, in.Before); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// renameGroup gives a section another name. Renaming onto a name that is
+// already in use merges the two sections, which is what the dashboard warns
+// about before it sends the request.
+func (s *server) renameGroup(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name string `json:"name"`
+		To   string `json:"to"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := app.RenameGroup(s.d.Store, in.Name, in.To); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}

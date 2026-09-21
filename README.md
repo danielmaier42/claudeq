@@ -304,7 +304,8 @@ sit at the bottom, out of the way of the work:
   named as it is created. A group header folds its section shut and says how
   many tasks are inside; whether it is open or folded is remembered across
   restarts. Dragging a header moves the whole section, so the groups can be put
-  in the order the work happens in. Dragging the last task out of a group removes the group, since a
+  in the order the work happens in, and the pencil on a header renames the group
+  — typing the name of a group that already exists merges the two, after asking. Dragging the last task out of a group removes the group, since a
   group is nothing but the tasks that name it. While the global pause switch is on, a yellow banner sits above the
   list (with a **Resume runs** button) and **Run now** is disabled on every
   row. A running one-shot task moves to

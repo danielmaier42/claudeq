@@ -207,3 +207,72 @@ func TestMoveGroupUnknown(t *testing.T) {
 		t.Fatalf("MoveGroup onto itself: %v", err)
 	}
 }
+
+func TestRenameGroup(t *testing.T) {
+	s := openStore(t)
+	for _, id := range []string{"a", "b", "c"} {
+		_ = AddTask(s, mk(id))
+	}
+	_ = MoveToGroup(s, "a", "Nightly", 2)
+	_ = MoveToGroup(s, "b", "Nightly", 2)
+	_ = SetGroupCollapsed(s, "Nightly", true)
+
+	if err := RenameGroup(s, "Nightly", "  Overnight  "); err != nil {
+		t.Fatalf("RenameGroup: %v", err)
+	}
+	if got, want := strings.Join(groups(s, t), ","), "c:,a:Overnight,b:Overnight"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	st, _ := s.LoadState()
+	if !st.GroupCollapsed("Overnight") || st.GroupCollapsed("Nightly") {
+		t.Fatalf("fold state did not travel with the name: %v", st.CollapsedGroups)
+	}
+}
+
+func TestRenameGroupMerges(t *testing.T) {
+	s := openStore(t)
+	for _, id := range []string{"a", "b"} {
+		_ = AddTask(s, mk(id))
+	}
+	_ = MoveToGroup(s, "a", "Nightly", 1)
+	_ = MoveToGroup(s, "b", "Weekly", 1)
+	_ = SetGroupCollapsed(s, "Nightly", true)
+
+	if err := RenameGroup(s, "Nightly", "Weekly"); err != nil {
+		t.Fatalf("RenameGroup: %v", err)
+	}
+	if got, want := strings.Join(groups(s, t), ","), "a:Weekly,b:Weekly"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	// The section that was already there keeps its own open/folded state.
+	st, _ := s.LoadState()
+	if st.GroupCollapsed("Weekly") || len(st.CollapsedGroups) != 0 {
+		t.Fatalf("collapsed groups = %v, want empty", st.CollapsedGroups)
+	}
+}
+
+func TestRenameGroupRejects(t *testing.T) {
+	s := openStore(t)
+	_ = AddTask(s, mk("a"))
+	_ = MoveToGroup(s, "a", "Nightly", 0)
+	for _, tc := range []struct{ name, from, to string }{
+		{"unknown group", "Weekly", "Overnight"},
+		{"no name", "", "Overnight"},
+		{"no new name", "Nightly", "   "},
+		{"invalid new name", "Nightly", "two\nlines"},
+		{"too long", "Nightly", strings.Repeat("x", task.MaxGroupLen+1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := RenameGroup(s, tc.from, tc.to); err == nil {
+				t.Fatal("expected an error")
+			}
+		})
+	}
+	// Renaming to the same name is a no-op, not an error.
+	if err := RenameGroup(s, "Nightly", "Nightly"); err != nil {
+		t.Fatalf("RenameGroup onto itself: %v", err)
+	}
+	if got := groups(s, t); got[0] != "a:Nightly" {
+		t.Fatalf("got %v, want a:Nightly", got)
+	}
+}

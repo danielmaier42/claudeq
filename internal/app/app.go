@@ -231,6 +231,55 @@ func GroupedOrder(tasks []task.Task) []task.Task {
 	return out
 }
 
+// RenameGroup gives a group another name, in one write: every task in it moves
+// over, and the fold state moves with it. Renaming onto a group that already
+// exists merges the two — the tasks join that section, keeping their order.
+func RenameGroup(s *store.Store, from, to string) error {
+	from, to = strings.TrimSpace(from), strings.TrimSpace(to)
+	if from == "" {
+		return errors.New("group name is required")
+	}
+	if to == "" {
+		return errors.New("new group name is required")
+	}
+	if err := task.CheckGroup(to); err != nil {
+		return err
+	}
+	if from == to {
+		return nil
+	}
+	merged := false
+	err := s.UpdateConfig(func(cfg *store.Config) error {
+		found := false
+		for i := range cfg.Tasks {
+			switch cfg.Tasks[i].Group {
+			case from:
+				cfg.Tasks[i].Group = to
+				found = true
+			case to:
+				merged = true
+			}
+		}
+		if !found {
+			return fmt.Errorf("group %q not found", from)
+		}
+		cfg.Tasks = GroupedOrder(cfg.Tasks)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	// The old name is gone; its fold state goes to the new one, unless that
+	// section already existed and has a state of its own.
+	return s.UpdateState(func(st *store.State) error {
+		if was := st.GroupCollapsed(from); was && !merged {
+			st.SetGroupCollapsed(to, true)
+		}
+		st.SetGroupCollapsed(from, false)
+		return nil
+	})
+}
+
 // MoveGroup puts a whole group in front of another one, so the sections can be
 // put in the order the work happens in. before names the group to sit in front
 // of ("" is the ungrouped section); a nil before moves the group to the end.
