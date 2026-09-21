@@ -36,6 +36,8 @@ const (
 	daemonProbeAttempts = 3
 	daemonProbeTimeout  = 2 * time.Second
 	daemonProbePause    = 250 * time.Millisecond
+	// daemonStartWait bounds how long the app waits for a daemon it just started.
+	daemonStartWait = 5 * time.Second
 )
 
 // systemSettingsScheme is the URL scheme that opens a System Settings pane.
@@ -163,13 +165,26 @@ func ensureDaemon() {
 		}
 	}
 	cmd := exec.Command(bin, "run")
+	// Its own words matter: a daemon that refuses because another one already owns
+	// the store says so on stderr, and that line is the whole explanation.
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintln(os.Stderr, "claudeqapp: could not start claudeqd:", err)
 		return
 	}
-	// Wait briefly for it to come up.
-	for i := 0; i < 50; i++ {
-		if daemonUp() {
+	// Reap it: it may exit right away (another daemon owns the store) and must not
+	// be left as a zombie for the lifetime of the window.
+	go func() { _ = cmd.Wait() }()
+	// Wait briefly for it to come up. Short probes, because all this waits for is
+	// the port to open — a long per-probe timeout here would keep the window from
+	// opening at all.
+	deadline := time.Now().Add(daemonStartWait)
+	for {
+		if answersOKWithin(tasksURL, 300*time.Millisecond) {
+			return
+		}
+		if time.Now().After(deadline) {
+			fmt.Fprintln(os.Stderr, "claudeqapp: claudeqd did not come up; the window will be empty")
 			return
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -208,10 +223,10 @@ func reachable(url string, attempts int) bool {
 	return false
 }
 
-func daemonUp() bool { return answersOK(tasksURL) }
+func answersOK(url string) bool { return answersOKWithin(url, daemonProbeTimeout) }
 
-func answersOK(url string) bool {
-	c := http.Client{Timeout: daemonProbeTimeout}
+func answersOKWithin(url string, timeout time.Duration) bool {
+	c := http.Client{Timeout: timeout}
 	resp, err := c.Get(url)
 	if err != nil {
 		return false

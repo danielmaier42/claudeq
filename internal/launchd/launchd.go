@@ -46,6 +46,12 @@ var plistTemplate = template.Must(template.New("plist").Parse(`<?xml version="1.
 	<true/>
 	<key>KeepAlive</key>
 	<true/>
+	<!-- Minimum seconds between starts. Applies to a start attempt inside the
+	     interval only, so a daemon that ran for a while and died is restarted at
+	     once; what it bounds is a loop, e.g. a daemon exiting because another one
+	     owns the data directory. -->
+	<key>ThrottleInterval</key>
+	<integer>60</integer>
 	<key>ProcessType</key>
 	<string>Background</string>
 {{- if .AssociatedBundleID}}

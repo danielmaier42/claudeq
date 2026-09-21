@@ -22,6 +22,10 @@ func TestPlistContainsProgramAndFlags(t *testing.T) {
 		"<string>run</string>",
 		"<key>RunAtLoad</key>",
 		"<key>KeepAlive</key>",
+		// Throttled, so a daemon that exits immediately (another one owns the data
+		// directory) is retried once a minute instead of ten times a minute.
+		"<key>ThrottleInterval</key>",
+		"<integer>60</integer>",
 		"/tmp/out.log",
 	} {
 		if !strings.Contains(p, want) {

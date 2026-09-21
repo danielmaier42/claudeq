@@ -54,9 +54,11 @@ const defaultAddr = "127.0.0.1:10765"
 
 // daemonLockWait is how long a starting daemon waits for a predecessor to let go
 // of the data directory. It covers the hand-over during an update, where the new
-// daemon is bootstrapped while the old one is still shutting down, and is short
-// enough that a duplicate start fails fast instead of hanging.
-const daemonLockWait = 15 * time.Second
+// daemon is bootstrapped while the old one is still shutting down, so it has to
+// outlast that shutdown: the outgoing daemon lets in-flight runs finish for up
+// to engine.ShutdownGrace, then closes the HTTP server, and releases the lock
+// last of all.
+const daemonLockWait = engine.ShutdownGrace + 20*time.Second
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
