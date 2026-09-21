@@ -7,6 +7,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/danielmaier42/claudeq/internal/store"
@@ -218,14 +219,7 @@ func moveTask(s *store.Store, id string, group *string, to int) error {
 // so do the tasks inside each one. That is what makes the stored list read like
 // the queue looks — the file is the priority order, groups and all.
 func GroupedOrder(tasks []task.Task) []task.Task {
-	order := make([]string, 0, len(tasks))
-	seen := map[string]bool{}
-	for _, t := range tasks {
-		if !seen[t.Group] {
-			seen[t.Group] = true
-			order = append(order, t.Group)
-		}
-	}
+	order := blockOrder(tasks)
 	out := make([]task.Task, 0, len(tasks))
 	for _, g := range order {
 		for _, t := range tasks {
@@ -237,17 +231,75 @@ func GroupedOrder(tasks []task.Task) []task.Task {
 	return out
 }
 
+// MoveGroup puts a whole group in front of another one, so the sections can be
+// put in the order the work happens in. before names the group to sit in front
+// of ("" is the ungrouped section); a nil before moves the group to the end.
+// The tasks keep their order inside each group — only the blocks move.
+func MoveGroup(s *store.Store, name string, before *string) error {
+	if name == "" {
+		return errors.New("group name is required")
+	}
+	if before != nil && *before == name {
+		return nil // dropped on itself
+	}
+	return s.UpdateConfig(func(cfg *store.Config) error {
+		order := blockOrder(cfg.Tasks)
+		if !slices.Contains(order, name) {
+			return fmt.Errorf("group %q not found", name)
+		}
+		if before != nil && !slices.Contains(order, *before) {
+			return fmt.Errorf("group %q not found", *before)
+		}
+		order = slices.DeleteFunc(order, func(g string) bool { return g == name })
+		at := len(order)
+		if before != nil {
+			at = slices.Index(order, *before)
+		}
+		order = slices.Insert(order, at, name)
+		out := make([]task.Task, 0, len(cfg.Tasks))
+		for _, g := range order {
+			for _, t := range cfg.Tasks {
+				if t.Group == g {
+					out = append(out, t)
+				}
+			}
+		}
+		cfg.Tasks = out
+		return nil
+	})
+}
+
+// blockOrder lists the groups in the order they first appear, the ungrouped
+// section ("") among them.
+func blockOrder(tasks []task.Task) []string {
+	order, seen := make([]string, 0, 4), map[string]bool{}
+	for _, t := range tasks {
+		if !seen[t.Group] {
+			seen[t.Group] = true
+			order = append(order, t.Group)
+		}
+	}
+	return order
+}
+
 // SetGroupCollapsed remembers whether a group's section is folded shut in the
 // dashboard.
 func SetGroupCollapsed(s *store.Store, group string, collapsed bool) error {
 	if group == "" {
 		return errors.New("group name is required")
 	}
+	if err := task.CheckGroup(group); err != nil {
+		return err
+	}
 	return s.UpdateState(func(st *store.State) error {
 		st.SetGroupCollapsed(group, collapsed)
 		return nil
 	})
 }
+
+// PruneGroups forgets every group no task names any more. Callers that change a
+// task's group outside MoveToGroup (an edit, a delete) call it themselves.
+func PruneGroups(s *store.Store) error { return pruneGroupState(s) }
 
 // pruneGroupState forgets every group no task names any more.
 func pruneGroupState(s *store.Store) error {

@@ -32,3 +32,12 @@
   border-radius:11px; color:var(--fg2); font-size:13px; text-align:center; }
 #tasks.dragging .dropzone { display:block; }
 .dropzone.drop-into { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 8%,transparent); }
+
+/* A dragged section: its header travels, the blocks it passes show where it
+   would land. */
+.grp-hd[draggable=true] { cursor:grab; }
+.grp-hd.dragging { opacity:.4; }
+.grp-hd.drop-above, .grp .group.drop-above { box-shadow:inset 0 2px 0 var(--accent); }
+.grp-hd.drop-below, .grp .group.drop-below { box-shadow:inset 0 -2px 0 var(--accent); }
+/* While a whole group is on the move, the tiles for single tasks stay away. */
+#tasks.dragging-group .dropzone { display:none; }

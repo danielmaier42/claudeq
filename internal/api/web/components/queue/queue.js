@@ -50,7 +50,7 @@ export function invalidateTasks(){ tasksSig=''; }
 export async function loadTasks(){
   // A rebuild in the middle of a drag would pull the row out from under the
   // cursor, so the poll waits until the drop has been written.
-  if(dragging) return;
+  if(dragging||draggingGroup) return;
   // The pause state rides along with the queue: it decides the banner and
   // whether Run now is offered at all, and both must be right on every poll.
   let tasks, paused=false;
@@ -76,6 +76,7 @@ export async function loadTasks(){
   shown.forEach(t=>{ const g=t.group||'';
     if(at[g]===undefined){ at[g]=blocks.length; blocks.push({group:g,tasks:[]}); }
     blocks[at[g]].tasks.push(t); });
+  BLOCK_ORDER=blocks.map(b=>b.group);
   blocks.forEach(b=>c.append(groupBlock(b,tasks,paused)));
   // Dragging a task onto these makes it leave its group, or puts it in one that
   // did not exist a moment ago. They only take up room while a drag is on.
@@ -93,16 +94,31 @@ function groupBlock(b,tasks,paused){
     const hd=el('div','grp-hd'+(collapsed?' collapsed':''));
     hd.innerHTML=`<span class="grp-chevron">▸</span><span class="grp-name">${esc(b.group)}</span>`
       +`<span class="chip">${b.tasks.length}</span>`;
-    hd.title=(collapsed?'Show':'Hide')+' the tasks in “'+b.group+'”';
+    hd.title=(collapsed?'Show':'Hide')+' the tasks in “'+b.group+'” — or drag the header to move the whole group';
     hd.onclick=()=>setCollapsed(b.group,!collapsed);
-    // A group takes a task dropped anywhere on its header, folded or not.
-    dropTarget(hd,()=>({group:b.group,into:true,after:b.tasks[b.tasks.length-1].id}));
+    // The header drags the section itself, so the groups can be put in the
+    // order the work happens in.
+    groupDragSource(hd,b.group);
+    // A group takes a task dropped anywhere on its header, folded or not. The
+    // task lands at the end of the group — behind its last row, which is not
+    // the dragged one when that row is already in this group.
+    dropTarget(hd,()=>({group:b.group,into:true,after:lastOther(b,dragging)}),
+      ()=>!dragging||!lastOther(b,dragging));   // its own one-task group: nothing to do
+    groupDropTarget(hd,b.group);
     wrap.append(hd);
   }
   const g=el('div','group'+(collapsed?' folded':''));
   b.tasks.forEach((t,i)=>g.append(taskRow(t,i,b,tasks,paused)));
+  if(!b.group) groupDropTarget(g,'');   // a section can also be dropped around the ungrouped rows
   wrap.append(g);
   return wrap;
+}
+
+// lastOther names the last task of a block that is not the one being dragged —
+// the row a dropped task goes behind.
+function lastOther(block,t){
+  for(let i=block.tasks.length-1;i>=0;i--){ if(!t||block.tasks[i].id!==t.id) return block.tasks[i].id; }
+  return null;
 }
 
 function taskRow(t,i,block,tasks,paused){
@@ -130,7 +146,8 @@ function taskRow(t,i,block,tasks,paused){
     <div class="sub">${esc(runsOn(t))} · ${esc(t.trigger)} · ${when}</div>`
     + (tags.length?`<div class="task-tags">${tags.join('')}</div>`:'');
   row.append(grip,grow);
-  const up=el('button','btn small iconly','↑'); up.disabled=i===0; up.title='Move up';
+  const up=el('button','btn small iconly','↑'); up.disabled=i===0;
+  up.title=i===0?'Already first in its group — drag it to move it elsewhere':'Move up';
   up.onclick=()=>move(t.id,tasks.indexOf(block.tasks[i-1]));
   const run=el('button','btn small','Run now'); run.disabled=!!t.running||paused;
   run.title=t.running?'Already running':(paused?'All runs are paused':'Run now'); run.onclick=()=>runNow(t.id);
@@ -156,7 +173,11 @@ function taskRow(t,i,block,tasks,paused){
    index the move endpoint wants: the index in the list with the dragged task
    already taken out. */
 
-let dragging=null;   // the task being dragged, or null
+let dragging=null;        // the task being dragged, or null
+let draggingGroup=null;   // the group whose header is being dragged, or null
+// BLOCK_ORDER is the order the sections are rendered in ('' is the ungrouped
+// one), which is what "put this group in front of that one" is expressed in.
+let BLOCK_ORDER=[];
 
 function dragSource(handle,row,t){
   handle.draggable=true;
@@ -172,8 +193,56 @@ function dragSource(handle,row,t){
   handle.addEventListener('dragend',()=>{
     dragging=null; row.classList.remove('dragging');
     $('#tasks').classList.remove('dragging');
-    document.querySelectorAll('.drop-into,.drop-above,.drop-below').forEach(x=>x.classList.remove('drop-into','drop-above','drop-below'));
+    clearMarks();
   });
+}
+
+function groupDragSource(hd,group){
+  hd.draggable=true;
+  hd.addEventListener('dragstart',e=>{
+    draggingGroup=group;
+    e.dataTransfer.effectAllowed='move';
+    e.dataTransfer.setData('text/plain',group);
+    hd.classList.add('dragging');
+    $('#tasks').classList.add('dragging-group');
+  });
+  hd.addEventListener('dragend',()=>{
+    draggingGroup=null; hd.classList.remove('dragging');
+    $('#tasks').classList.remove('dragging-group');
+    clearMarks();
+  });
+}
+
+// groupDropTarget takes a dragged section: the upper half of a block puts the
+// dragged group in front of it, the lower half behind it.
+function groupDropTarget(elm,key){
+  const where=e=>{
+    const r=elm.getBoundingClientRect();
+    if(e.clientY<r.top+r.height/2) return key;           // in front of this block
+    const next=BLOCK_ORDER[BLOCK_ORDER.indexOf(key)+1];  // behind it = in front of the next
+    return next===undefined?null:next;
+  };
+  elm.addEventListener('dragover',e=>{
+    if(!draggingGroup||draggingGroup===key) return;
+    e.preventDefault(); e.dataTransfer.dropEffect='move';
+    const r=elm.getBoundingClientRect();
+    elm.classList.remove('drop-above','drop-below');
+    elm.classList.add(e.clientY<r.top+r.height/2?'drop-above':'drop-below');
+  });
+  elm.addEventListener('dragleave',()=>elm.classList.remove('drop-above','drop-below'));
+  elm.addEventListener('drop',async e=>{
+    if(!draggingGroup||draggingGroup===key) return;
+    e.preventDefault(); e.stopPropagation();
+    const name=draggingGroup, before=where(e);
+    clearMarks();
+    try{ await api('POST','/api/groups/move',before===null?{name}:{name,before}); }
+    catch(err){ toast(err.message,'err'); }
+    invalidateTasks(); loadTasks();
+  });
+}
+
+function clearMarks(){
+  document.querySelectorAll('.drop-into,.drop-above,.drop-below').forEach(x=>x.classList.remove('drop-into','drop-above','drop-below'));
 }
 
 // dropTarget wires an element to accept a dragged task. where(e) says where the
@@ -211,8 +280,8 @@ function dropZone(label,onDrop){
 // the position in the list once the dragged task has been removed from it.
 function indexFor(t,w){
   const rest=ROW_ORDER.filter(id=>id!==t.id);
-  if(w.before){ const i=rest.indexOf(w.before); return i<0?rest.length:i; }
-  if(w.after){ const i=rest.indexOf(w.after); return i<0?rest.length:i+1; }
+  if(w.before&&w.before!==t.id){ const i=rest.indexOf(w.before); return i<0?rest.length:i; }
+  if(w.after&&w.after!==t.id){ const i=rest.indexOf(w.after); return i<0?rest.length:i+1; }
   return rest.length;
 }
 // ROW_ORDER is the full task order the list was built from — the unfiltered

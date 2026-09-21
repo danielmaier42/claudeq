@@ -55,7 +55,10 @@ type Task struct {
 	// Group is the free-text folder the queue shows this task under. Empty means
 	// the task is ungrouped and sits in the plain list. A group exists only as
 	// long as a task names it: there is nothing else to create or delete.
-	Group string `toml:"group,omitempty" json:"group,omitempty"`
+	// It is always written to JSON, empty included: the API reads an absent
+	// group as "leave it alone" (the task form does not show it), so a client
+	// that marshals a task has to be able to say "no group" as well.
+	Group string `toml:"group,omitempty" json:"group"`
 
 	// Trigger selects how the task becomes eligible.
 	Trigger Trigger `toml:"trigger" json:"trigger"`

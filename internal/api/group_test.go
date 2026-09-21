@@ -84,15 +84,16 @@ func TestGroupsListAndCollapse(t *testing.T) {
 }
 
 // The task form does not show the group — it is set by dragging the row — so a
-// PUT that says nothing about it must not quietly take the task out.
-func TestUpdateTaskKeepsTheGroup(t *testing.T) {
+// PUT that says nothing about it must not quietly take the task out. A payload
+// that does name one (an empty name included) has its say.
+func TestUpdateTaskKeepsTheGroupUnlessTold(t *testing.T) {
 	srv, st := newServer(t, nil)
 	do(t, srv, "POST", "/api/tasks", sampleTask("a"))
 	do(t, srv, "POST", "/api/tasks/a/move?to=0&group=Nightly", nil)
+	form := map[string]any{"name": "renamed", "prompt": "p", "working_dir": "/r",
+		"trigger": "asap", "enabled": true, "permissions": "default"}
 
-	upd := sampleTask("a")
-	upd.Name = "renamed"
-	if r := do(t, srv, "PUT", "/api/tasks/a", upd); r.Status != http.StatusOK {
+	if r := do(t, srv, "PUT", "/api/tasks/a", form); r.Status != http.StatusOK {
 		t.Fatalf("update status = %d (%s)", r.Status, r.Body)
 	}
 	cfg, _ := st.LoadConfig()
@@ -100,15 +101,61 @@ func TestUpdateTaskKeepsTheGroup(t *testing.T) {
 		t.Fatalf("got %+v, want the rename with the group kept", cfg.Tasks[0])
 	}
 
-	// A payload that does name a group re-files the task.
-	if r := do(t, srv, "PUT", "/api/tasks/a", map[string]any{
-		"name": "renamed", "prompt": "p", "working_dir": "/r", "trigger": "asap",
-		"enabled": true, "permissions": "default", "group": "",
-	}); r.Status != http.StatusOK {
+	form["group"] = ""
+	if r := do(t, srv, "PUT", "/api/tasks/a", form); r.Status != http.StatusOK {
 		t.Fatalf("ungroup status = %d (%s)", r.Status, r.Body)
 	}
 	cfg, _ = st.LoadConfig()
 	if cfg.Tasks[0].Group != "" {
 		t.Fatalf("group = %q, want it cleared", cfg.Tasks[0].Group)
+	}
+	// The group is empty now, so nothing may be left remembering it.
+	state, _ := st.LoadState()
+	if state.GroupCollapsed("Nightly") || len(state.CollapsedGroups) != 0 {
+		t.Fatalf("collapsed groups = %v, want empty", state.CollapsedGroups)
+	}
+}
+
+func TestMoveGroup(t *testing.T) {
+	srv, st := newServer(t, nil)
+	for _, id := range []string{"a", "b", "c"} {
+		do(t, srv, "POST", "/api/tasks", sampleTask(id))
+	}
+	do(t, srv, "POST", "/api/tasks/b/move?to=2&group=Nightly", nil)
+	do(t, srv, "POST", "/api/tasks/c/move?to=2&group=Weekly", nil)
+	order := func() string {
+		cfg, _ := st.LoadConfig()
+		out := make([]string, len(cfg.Tasks))
+		for i, tk := range cfg.Tasks {
+			out[i] = tk.ID + ":" + tk.Group
+		}
+		return strings.Join(out, ",")
+	}
+	if got, want := order(), "a:,b:Nightly,c:Weekly"; got != want {
+		t.Fatalf("setup order %q, want %q", got, want)
+	}
+
+	// Weekly in front of Nightly.
+	if r := do(t, srv, "POST", "/api/groups/move", map[string]any{"name": "Weekly", "before": "Nightly"}); r.Status != http.StatusNoContent {
+		t.Fatalf("status = %d (%s)", r.Status, r.Body)
+	}
+	if got, want := order(), "a:,c:Weekly,b:Nightly"; got != want {
+		t.Fatalf("order %q, want %q", got, want)
+	}
+
+	// In front of the ungrouped section.
+	do(t, srv, "POST", "/api/groups/move", map[string]any{"name": "Nightly", "before": ""})
+	if got, want := order(), "b:Nightly,a:,c:Weekly"; got != want {
+		t.Fatalf("order %q, want %q", got, want)
+	}
+
+	// No "before" at all means the end of the queue.
+	do(t, srv, "POST", "/api/groups/move", map[string]any{"name": "Nightly"})
+	if got, want := order(), "a:,c:Weekly,b:Nightly"; got != want {
+		t.Fatalf("order %q, want %q", got, want)
+	}
+
+	if r := do(t, srv, "POST", "/api/groups/move", map[string]any{"name": "Nope", "before": "Weekly"}); r.Status != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 for an unknown group", r.Status)
 	}
 }

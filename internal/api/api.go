@@ -116,6 +116,7 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/tasks/{id}/run-now", s.runNow)
 	mux.HandleFunc("GET /api/groups", s.listGroups)
 	mux.HandleFunc("POST /api/groups/collapse", s.setGroupCollapsed)
+	mux.HandleFunc("POST /api/groups/move", s.moveGroup)
 	mux.HandleFunc("GET /api/runs", s.listRuns)
 	mux.HandleFunc("GET /api/runs/{id}", s.getRun)
 	mux.HandleFunc("POST /api/runs/read-all", s.readAll)
@@ -494,6 +495,9 @@ func (s *server) updateTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	// The edit may have taken the last task out of a group; the fold state of a
+	// group that no longer exists goes with it.
+	_ = app.PruneGroups(s.d.Store)
 	// Only warm when the folder actually changed — editing just the prompt/model
 	// keeps the same (already-authorised) directory, so re-probing it is wasted
 	// work. A genuine folder change still provokes the prompt for the new one.
@@ -578,6 +582,25 @@ type groupView struct {
 	Name      string `json:"name"`
 	Count     int    `json:"count"`
 	Collapsed bool   `json:"collapsed"`
+}
+
+// moveGroup puts a whole section in front of another one. "before" is the group
+// to sit in front of — "" is the ungrouped section, and leaving it out moves the
+// group to the end of the queue.
+func (s *server) moveGroup(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name   string  `json:"name"`
+		Before *string `json:"before"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := app.MoveGroup(s.d.Store, in.Name, in.Before); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // setGroupCollapsed remembers a folded or unfolded section. It is a view

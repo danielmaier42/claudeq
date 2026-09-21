@@ -179,3 +179,31 @@ func TestEditTaskRefilesIntoGroup(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
+
+func TestSetGroupCollapsedRejectsBadName(t *testing.T) {
+	s := openStore(t)
+	if err := SetGroupCollapsed(s, strings.Repeat("x", task.MaxGroupLen+1), true); err == nil {
+		t.Fatal("expected an invalid-group error")
+	}
+	if err := SetGroupCollapsed(s, "two\nlines", true); err == nil {
+		t.Fatal("expected an invalid-group error")
+	}
+}
+
+func TestMoveGroupUnknown(t *testing.T) {
+	s := openStore(t)
+	_ = AddTask(s, mk("a"))
+	_ = MoveToGroup(s, "a", "G", 0)
+	before := "H"
+	if err := MoveGroup(s, "G", &before); err == nil {
+		t.Fatal("expected an error for an unknown target group")
+	}
+	if err := MoveGroup(s, "", nil); err == nil {
+		t.Fatal("expected an error for an empty group name")
+	}
+	// Dropped on itself: nothing to do, and nothing to complain about.
+	self := "G"
+	if err := MoveGroup(s, "G", &self); err != nil {
+		t.Fatalf("MoveGroup onto itself: %v", err)
+	}
+}
