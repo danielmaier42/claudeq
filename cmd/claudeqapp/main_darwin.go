@@ -24,6 +24,20 @@ import (
 
 const dashboardURL = "http://127.0.0.1:10765"
 
+// tasksURL is the endpoint the daemon probe asks: cheap, and it only answers 200
+// once the daemon is actually serving.
+const tasksURL = dashboardURL + "/api/tasks"
+
+// How the app decides whether a daemon is already there. Several attempts with a
+// generous timeout, because the cost of a false "no" is a second daemon on the
+// same store while the cost of asking again is a few hundred milliseconds at
+// startup.
+const (
+	daemonProbeAttempts = 3
+	daemonProbeTimeout  = 2 * time.Second
+	daemonProbePause    = 250 * time.Millisecond
+)
+
 // systemSettingsScheme is the URL scheme that opens a System Settings pane.
 const systemSettingsScheme = "x-apple.systempreferences:"
 
@@ -139,7 +153,7 @@ func applyAccent(w webview.WebView) {
 
 // ensureDaemon starts claudeqd if the dashboard isn't already responding.
 func ensureDaemon() {
-	if daemonUp() {
+	if daemonReachable() {
 		return
 	}
 	bin := "claudeqd"
@@ -173,9 +187,32 @@ func requestWarm() {
 	_ = resp.Body.Close()
 }
 
-func daemonUp() bool {
-	c := http.Client{Timeout: 400 * time.Millisecond}
-	resp, err := c.Get(dashboardURL + "/api/tasks")
+// daemonReachable reports whether a daemon already serves the dashboard. It asks
+// several times: a single 400 ms probe was too tight, and a daemon busy with a
+// tick (a provider check, a run starting) that missed it had the app start a
+// second daemon against the same store. Nothing is lost on the answer "no" — the
+// port is then refused right away rather than timing out, so an actually absent
+// daemon is still detected in milliseconds.
+func daemonReachable() bool { return reachable(tasksURL, daemonProbeAttempts) }
+
+// reachable polls url until it answers 200 or the attempts run out.
+func reachable(url string, attempts int) bool {
+	for i := 0; i < attempts; i++ {
+		if i > 0 {
+			time.Sleep(daemonProbePause)
+		}
+		if answersOK(url) {
+			return true
+		}
+	}
+	return false
+}
+
+func daemonUp() bool { return answersOK(tasksURL) }
+
+func answersOK(url string) bool {
+	c := http.Client{Timeout: daemonProbeTimeout}
+	resp, err := c.Get(url)
 	if err != nil {
 		return false
 	}
