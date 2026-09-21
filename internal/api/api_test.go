@@ -470,6 +470,70 @@ func TestRunsAndReadAll(t *testing.T) {
 	}
 }
 
+// The run list is polled by several views every few seconds, so it carries no
+// prompts: they are the bulk of a long history and no row shows them.
+func TestListRunsOmitsPromptButKeepsTheTaskSnapshot(t *testing.T) {
+	srv, st := newServer(t, nil)
+	snap := sampleTask("a")
+	snap.Prompt = "the whole job, in full"
+	_ = st.AppendRun(store.Run{RunID: "r1", TaskID: "a", TaskName: "a", StartedAt: time.Now(),
+		Status: store.StatusSuccess, Task: &snap})
+
+	var views []runView
+	do(t, srv, "GET", "/api/runs", nil).into(t, &views)
+	if len(views) != 1 || views[0].Task == nil {
+		t.Fatalf("expected one run with its task snapshot, got %+v", views)
+	}
+	if views[0].Task.Prompt != "" {
+		t.Fatalf("the list carries the prompt: %q", views[0].Task.Prompt)
+	}
+	if views[0].Task.WorkingDir != "/r" {
+		t.Fatalf("working dir = %q, want the snapshot's — the list still needs it", views[0].Task.WorkingDir)
+	}
+	if strings.Contains(string(do(t, srv, "GET", "/api/runs", nil).Body), "the whole job") {
+		t.Fatal("the prompt text is in the list response")
+	}
+}
+
+// Replay and the log sheet need the prompt, so one run can be asked for in full.
+func TestGetRunCarriesThePrompt(t *testing.T) {
+	srv, st := newServer(t, nil)
+	snap := sampleTask("a")
+	snap.Prompt = "the whole job, in full"
+	_ = st.AppendRun(store.Run{RunID: "r1", TaskID: "a", TaskName: "a", StartedAt: time.Now(),
+		Status: store.StatusSuccess, Task: &snap})
+
+	var view runView
+	r := do(t, srv, "GET", "/api/runs/r1", nil)
+	if r.Status != http.StatusOK {
+		t.Fatalf("status = %d (%s)", r.Status, r.Body)
+	}
+	r.into(t, &view)
+	if view.Task == nil || view.Task.Prompt != "the whole job, in full" {
+		t.Fatalf("run %+v does not carry its prompt", view)
+	}
+	if view.RunID != "r1" || !view.Unread {
+		t.Fatalf("run = %+v, want r1 and unread", view)
+	}
+}
+
+func TestGetRunNotFound(t *testing.T) {
+	srv, _ := newServer(t, nil)
+	if r := do(t, srv, "GET", "/api/runs/nope", nil); r.Status != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", r.Status)
+	}
+}
+
+// The app window asks /api/ping before it decides to start a daemon, so it
+// answers without a store, a provider or a dependency of any kind.
+func TestPingAnswersWithoutDependencies(t *testing.T) {
+	srv := httptest.NewServer(handler(Deps{}))
+	t.Cleanup(srv.Close)
+	if r := do(t, srv, "GET", "/api/ping", nil); r.Status != http.StatusNoContent {
+		t.Fatalf("ping status = %d (%s)", r.Status, r.Body)
+	}
+}
+
 func TestRunLogNotFound(t *testing.T) {
 	srv, _ := newServer(t, nil)
 	if r := do(t, srv, "GET", "/api/runs/nope/log", nil); r.Status != http.StatusNotFound {

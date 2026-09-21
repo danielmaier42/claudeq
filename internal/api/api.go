@@ -114,6 +114,7 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/tasks/{id}/move", s.moveTask)
 	mux.HandleFunc("POST /api/tasks/{id}/run-now", s.runNow)
 	mux.HandleFunc("GET /api/runs", s.listRuns)
+	mux.HandleFunc("GET /api/runs/{id}", s.getRun)
 	mux.HandleFunc("POST /api/runs/read-all", s.readAll)
 	mux.HandleFunc("POST /api/runs/{id}/read", s.readRun)
 	mux.HandleFunc("POST /api/runs/{id}/cancel", s.cancelRun)
@@ -144,6 +145,7 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/fs/warm", s.warmNow)
 	mux.HandleFunc("GET /api/stats", s.getStats)
 	mux.HandleFunc("GET /api/health", s.getHealth)
+	mux.HandleFunc("GET /api/ping", s.getPing)
 	mux.HandleFunc("GET /api/update", s.getUpdate)
 	mux.HandleFunc("POST /api/update/check", s.checkUpdate)
 	mux.HandleFunc("POST /api/update/dismiss", s.dismissUpdate)
@@ -292,20 +294,39 @@ func (s *server) blockedReasons(ctx context.Context, cfg store.Config) map[strin
 		return nil
 	}
 	out := map[string]string{}
+	// One question per *instance*, not per field: twenty tasks naming the same
+	// harness — some by its id, some by leaving the field empty for the default
+	// — are one harness to ask.
+	insts := []provider.Instance{}
+	fields := map[string][]string{} // instance id -> the task fields that resolve to it
+	asked := map[string]bool{}
 	for _, t := range cfg.Tasks {
-		if _, seen := out[t.Provider]; seen {
+		if asked[t.Provider] {
 			continue
 		}
+		asked[t.Provider] = true
 		resolved, err := set.Resolve(provider.Selection{ProviderID: t.Provider})
 		if err != nil {
 			out[t.Provider] = err.Error()
 			continue
 		}
-		if h := s.d.Providers.Check(ctx, resolved.Instance); !h.Ready() {
-			out[t.Provider] = h.Reason
-			if h.Reason == "" {
-				out[t.Provider] = resolved.Instance.Label() + " cannot run tasks right now."
-			}
+		id := resolved.Instance.ID
+		if _, seen := fields[id]; !seen {
+			insts = append(insts, resolved.Instance)
+		}
+		fields[id] = append(fields[id], t.Provider)
+	}
+	// And they are asked together: when the verdicts have gone stale — which is
+	// exactly the state the app finds them in after a while with no window open
+	// — each one spawns a CLI, and the queue is the first thing the dashboard
+	// asks for.
+	for i, h := range s.d.Providers.CheckEach(ctx, insts) {
+		if h.Ready() {
+			continue
+		}
+		reason := h.ReasonOr(insts[i].Label() + " cannot run tasks right now.")
+		for _, field := range fields[insts[i].ID] {
+			out[field] = reason
 		}
 	}
 	return out
@@ -658,7 +679,10 @@ type runView struct {
 	// the list carries hundreds of runs, so it is not sent with the list. What
 	// the run said is read from its log.
 	FinalOutput string `json:"final_output,omitempty"`
-	Unread      bool   `json:"unread"`
+	// Task shadows the run record's own snapshot so the list can send it
+	// without the prompt — see listRuns.
+	Task   *task.Task `json:"task,omitempty"`
+	Unread bool       `json:"unread"`
 	// ResumePending marks a rate-limited run whose session the daemon is still
 	// going to pick up once the gate reopens. It is what separates a run that is
 	// merely waiting from one whose pause is history (already resumed, canceled,
@@ -666,6 +690,13 @@ type runView struct {
 	ResumePending bool `json:"resume_pending,omitempty"`
 }
 
+// listRuns answers with the whole history, newest first — the dashboard filters
+// and pages it, and counts the unread across all of it.
+//
+// What it leaves out is the prompt of each run's task snapshot. The list is
+// polled every few seconds by several views at once, and the prompts are the
+// bulk of it (on a year-old queue, 85% of a 3 MB answer) for text no list row
+// shows. Whoever needs it — replay, the log sheet — asks for that one run.
 func (s *server) listRuns(w http.ResponseWriter, _ *http.Request) {
 	runs, err := s.d.Store.Runs()
 	if err != nil {
@@ -681,14 +712,58 @@ func (s *server) listRuns(w http.ResponseWriter, _ *http.Request) {
 	views := make([]runView, 0, len(runs))
 	// Newest first for the dashboard.
 	for i := len(runs) - 1; i >= 0; i-- {
-		r := runs[i]
-		views = append(views, runView{
-			Run:           r,
-			Unread:        !st.IsRead(r.RunID),
-			ResumePending: resumePending(r, st, active),
-		})
+		v := s.runView(runs[i], st, active)
+		v.Task = withoutPrompt(runs[i].Task)
+		views = append(views, v)
 	}
 	writeJSON(w, http.StatusOK, views)
+}
+
+// getRun answers with one run, prompt and all: the whole record the list sends
+// a lighter version of.
+func (s *server) getRun(w http.ResponseWriter, r *http.Request) {
+	runs, err := s.d.Store.Runs()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	st, err := s.d.Store.LoadState()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	id := r.PathValue("id")
+	for i := len(runs) - 1; i >= 0; i-- {
+		if runs[i].RunID != id {
+			continue
+		}
+		v := s.runView(runs[i], st, s.activeTasks())
+		v.Task = runs[i].Task
+		writeJSON(w, http.StatusOK, v)
+		return
+	}
+	writeErr(w, http.StatusNotFound, fmt.Errorf("no run %q", id))
+}
+
+// runView builds the view of one run, minus its task snapshot — which the list
+// and the single-run endpoint fill in differently.
+func (s *server) runView(r store.Run, st *store.State, active map[string]bool) runView {
+	return runView{
+		Run:           r,
+		Unread:        !st.IsRead(r.RunID),
+		ResumePending: resumePending(r, st, active),
+	}
+}
+
+// withoutPrompt copies a task snapshot with its prompt left out, so sending it
+// does not send the text of the job as well.
+func withoutPrompt(t *task.Task) *task.Task {
+	if t == nil {
+		return nil
+	}
+	light := *t
+	light.Prompt = ""
+	return &light
 }
 
 // resumePending reports whether a rate-limited run's session is still queued to
@@ -942,6 +1017,14 @@ func (s *server) listModels(w http.ResponseWriter, r *http.Request) {
 		models = []provider.Model{}
 	}
 	writeJSON(w, http.StatusOK, models)
+}
+
+// getPing answers "is a daemon serving here?" and nothing else: no store, no
+// provider check, no lock. The app window asks it before deciding to start a
+// daemon of its own, and that question must not be answered by whatever the
+// daemon happens to be busy with.
+func (s *server) getPing(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // limitedProvider names one provider instance waiting out a rate limit, for

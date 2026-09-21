@@ -101,7 +101,7 @@ function runLine(r){
   const grow=el('div','grow'); grow.innerHTML=`<div class="title">${esc(r.task_name)}</div><div class="sub"><span class="hint-time" data-tip="${esc(runTimeTitle(r))}">${relTime(r.started_at)}</span>${dir?' · <span class="mono">'+esc(dir)+'</span>':''}${runProviderText(r)}${r.resume_pending?' · <span class="resume">'+esc(resumeText(r))+'</span>':''}</div>`;
   const pill=el('span','pill '+r.status); pill.innerHTML=`<span class="d"></span>${esc(statusLabel(r))}`;
   const actions=el('div','row-actions');
-  if(r.task){ const rp=el('button','btn small iconly',REPLAY); rp.title='Re-run this task'; rp.onclick=()=>openReplay(r.task); actions.append(rp); }
+  if(r.task){ const rp=el('button','btn small iconly',REPLAY); rp.title='Re-run this task'; rp.onclick=()=>replay(r); actions.append(rp); }
   const log=el('button','btn small','Log'); log.onclick=()=>showLog(r); actions.append(log);
   if(r.resume_pending){ const cx=el('button','btn small danger','Cancel resume');
     cx.title='Drop the scheduled resume so this task does not start again'; cx.onclick=()=>cancelResume(r); actions.append(cx); }
@@ -111,6 +111,17 @@ function runLine(r){
   line.append(card);
   return line;
 }
+// Replaying a run needs its prompt, which the list does not carry (it is the
+// bulk of it, and no row shows it), so the one run is fetched for it. An
+// unanswered fetch says so instead of opening a sheet that looks complete and
+// has no prompt in it.
+async function replay(r){
+  let full;
+  try{ full=await api('GET',`/api/runs/${r.run_id}`); }
+  catch(e){ toast('Could not read this run: '+e.message,'err'); return; }
+  openReplay((full&&full.task)||r.task);
+}
+
 // runProviderText names the harness a run used, with the model it used there —
 // what the run recorded, not what the task says today.
 //

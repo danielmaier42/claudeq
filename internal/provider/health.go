@@ -268,16 +268,37 @@ func (c *Checker) CheckMaybeFresh(ctx context.Context, inst Instance, fresh bool
 	return c.Check(ctx, inst)
 }
 
-// Statuses checks every instance in set, in configuration order.
+// Statuses checks every instance in set, and answers in configuration order.
 func (c *Checker) Statuses(ctx context.Context, set Set) []Status {
 	insts := set.All()
+	health := c.CheckEach(ctx, insts)
 	out := make([]Status, len(insts))
 	for i, inst := range insts {
 		out[i] = Status{
 			Instance: inst,
-			Health:   c.Check(ctx, inst),
+			Health:   health[i],
 			Default:  inst.ID == set.DefaultID(),
 		}
 	}
+	return out
+}
+
+// CheckEach returns the verdict for every instance in insts, positionally.
+//
+// The instances are checked at the same time, because a check that is not
+// cached spawns a CLI and waits for it: asking four harnesses one after the
+// other makes whoever is waiting — the dashboard's first request, the daemon's
+// own startup report — wait for the sum instead of the slowest.
+func (c *Checker) CheckEach(ctx context.Context, insts []Instance) []Health {
+	out := make([]Health, len(insts))
+	var wg sync.WaitGroup
+	for i, inst := range insts {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			out[i] = c.Check(ctx, inst)
+		}()
+	}
+	wg.Wait()
 	return out
 }
