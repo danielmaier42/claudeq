@@ -85,6 +85,7 @@ func printTask(t task.Task) {
 	fmt.Printf("enabled:           %t\n", t.Enabled)
 	fmt.Printf("trigger:           %s\n", strings.TrimSpace(string(t.Trigger)+" "+triggerWhen(t)))
 	fmt.Printf("working_dir:       %s\n", t.WorkingDir)
+	fmt.Printf("group:             %s\n", orDefault(t.Group, "(ungrouped)"))
 	fmt.Printf("parallel:          %t\n", t.Parallel)
 	fmt.Printf("provider:          %s\n", orDefault(t.Provider, "(the default provider)"))
 	fmt.Printf("model:             %s\n", model)
@@ -146,6 +147,7 @@ func cmdEdit(st *store.Store, args []string) error {
 // (see passedFlags), so an explicit --parallel=false still overrides an
 // existing or inherited true.
 type taskSettings struct {
+	group        string
 	provider     string
 	model        string
 	reasoning    string
@@ -158,6 +160,7 @@ type taskSettings struct {
 // register declares the setting flags on fs. dflt names what applies when a
 // flag is left out, e.g. "inherited" for queue; it is appended to each help.
 func (s *taskSettings) register(fs *flag.FlagSet, dflt string) {
+	fs.StringVar(&s.group, "group", "", "queue group to file the task under; empty = ungrouped (default: "+dflt+")")
 	fs.StringVar(&s.provider, "provider", "", "provider instance to run on; empty = the default provider (default: "+dflt+")")
 	fs.StringVar(&s.model, "model", "", "model override; empty = the provider's default model (default: "+dflt+")")
 	fs.StringVar(&s.reasoning, "reasoning-effort", "", "how hard the model should think, for providers that take it (default: "+dflt+")")
@@ -181,6 +184,9 @@ func (s taskSettings) apply(t *task.Task, has func(string) bool) {
 	}
 	if has("model") {
 		t.Model = s.model
+	}
+	if has("group") {
+		t.Group = strings.TrimSpace(s.group)
 	}
 	if has("reasoning-effort") {
 		t.ReasoningEffort = s.reasoning
@@ -341,6 +347,7 @@ type taskDoc struct {
 	Name            string `toml:"name"`
 	Enabled         bool   `toml:"enabled"`
 	WorkingDir      string `toml:"working_dir"`
+	Group           string `toml:"group"`
 	Trigger         string `toml:"trigger"`
 	FixedAt         string `toml:"fixed_at"`
 	Cron            string `toml:"cron"`
@@ -358,6 +365,7 @@ const taskDocHeader = `# claudeq task — edit, save, and close this file to app
 # Leaving it unchanged (or emptying it) cancels the edit.
 #
 #   id                 read-only; changing it is rejected
+#   group              queue group; empty means the task is ungrouped
 #   trigger            asap | fixed | cron
 #   fixed_at           RFC3339 start time, for trigger = "fixed"
 #   cron               5-field crontab expression, for trigger = "cron"
@@ -370,7 +378,7 @@ const taskDocHeader = `# claudeq task — edit, save, and close this file to app
 
 func encodeTaskDoc(t task.Task) ([]byte, error) {
 	d := taskDoc{
-		ID: t.ID, Name: t.Name, Enabled: t.Enabled, WorkingDir: t.WorkingDir,
+		ID: t.ID, Name: t.Name, Enabled: t.Enabled, WorkingDir: t.WorkingDir, Group: t.Group,
 		Trigger: string(t.Trigger), Cron: t.Cron, Parallel: t.Parallel,
 		Provider: t.Provider, Model: t.Model, ReasoningEffort: t.ReasoningEffort,
 		Permissions:    string(t.Permissions),
@@ -402,6 +410,7 @@ func decodeTaskDoc(data []byte, orig task.Task) (task.Task, error) {
 	}
 	t := task.Task{
 		ID: d.ID, Name: d.Name, Prompt: d.Prompt, WorkingDir: d.WorkingDir,
+		Group:   strings.TrimSpace(d.Group),
 		Trigger: task.Trigger(d.Trigger), Cron: d.Cron, Parallel: d.Parallel,
 		Enabled: d.Enabled, Provider: d.Provider, Model: d.Model, ReasoningEffort: d.ReasoningEffort,
 		Permissions: task.Permissions(d.Permissions), NotifyOnResult: d.NotifyOnResult,

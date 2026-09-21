@@ -293,10 +293,18 @@ the top of the sidebar; **Settings** and **Feedback** ([below](#sending-feedback
 sit at the bottom, out of the way of the work:
 
 - **Queue** — the pending tasks in priority order. Add, edit, delete, enable/pause,
-  reorder, or **run now** (a manual test run, independent of the trigger). The
+  reorder, or **run now** (a manual test run, independent of the trigger). Each
+  row carries its task's name, what it runs on (the provider and the model that
+  provider will use for it), its trigger and when it is next due. The
   **All / Active** switch in the toolbar hides the paused tasks; moving a task
   up then puts it above the next visible one, skipping the hidden tasks in
-  between. While the global pause switch is on, a yellow banner sits above the
+  between. Tasks can be filed into **groups**: grab a row by its handle and drag
+  it onto a group's header to move it there, between two rows to reorder it, or
+  onto **Drop here to start a new group** to make a group on the spot — it is
+  named as it is created. A group header folds its section shut and says how
+  many tasks are inside; whether it is open or folded is remembered across
+  restarts. Dragging the last task out of a group removes the group, since a
+  group is nothing but the tasks that name it. While the global pause switch is on, a yellow banner sits above the
   list (with a **Resume runs** button) and **Run now** is disabled on every
   row. A running one-shot task moves to
   Activity; a recurring task stays here with a *running* badge; hovering its
@@ -599,18 +607,19 @@ The installer runs `install` for you; you rarely need these directly.
 ```
 claudeq list [--json]                          # show the queue
 claudeq show   ID [--json]                     # one task in full, prompt included
-claudeq add    --id ID --prompt P --dir DIR [--name N]
+claudeq add    --id ID --prompt P --dir DIR [--name N] [--group G]
                [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR]
                [--provider ID] [--model M] [--reasoning-effort E] [--parallel]
                [--skip-permissions] [--notify] [--quiet-history]
 claudeq edit   ID                              # open the whole task in $EDITOR
 claudeq edit   ID [--name N] [--prompt P | --prompt-file PATH] [--dir DIR]
+               [--group G]                     # "" takes it out of its group
                [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR]
                [--provider ID] [--model M] [--reasoning-effort E]
                [--parallel=BOOL] [--enabled=BOOL]
                [--skip-permissions=BOOL] [--notify=BOOL] [--quiet-history=BOOL]
 claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [--name N]
-               [--provider ID] [--model M] [--reasoning-effort E]
+               [--group G] [--provider ID] [--model M] [--reasoning-effort E]
                [--parallel=BOOL] [--skip-permissions=BOOL]
                [--notify=BOOL] [--quiet-history=BOOL]
                [--depends-on JOBID]...            # wait for these jobs to finish
@@ -680,6 +689,8 @@ claudeq edit nightly-sweep --model opus --notify=true     # per-task overrides
 claudeq edit nightly-sweep --provider claude             # run it on another provider
 claudeq edit review-branch --provider codex --reasoning-effort xhigh
 claudeq edit prod-watch --quiet-history=true              # drop its successful runs
+claudeq edit nightly-sweep --group "Nightly"              # file it under a queue group
+claudeq edit nightly-sweep --group ""                     # and take it back out
 claudeq edit nightly-sweep --enabled=false                # pause it
 ```
 
@@ -1254,13 +1265,13 @@ Everything lives under `~/Library/Application Support/claudeq` (override with th
 
 | Path | Contents |
 |------|----------|
-| `config.toml` | Global settings, the configured [providers](#providers), and the ordered task list (human-readable, versionable). No credentials: a provider entry holds its CLI's path and configuration directory, never what is inside them. |
+| `config.toml` | Global settings, the configured [providers](#providers), and the ordered task list — the order is the priority, and tasks of one group sit together in it (human-readable, versionable). No credentials: a provider entry holds its CLI's path and configuration directory, never what is inside them. |
 | `history.jsonl` | Append-only index of every run (except a quiet-history task's successful ones, which are never written). |
 | `runs/<run-id>.log` | Full log for each run. |
 | `artifacts.json` | Index of published artifacts (title, source task/run, file name, size, type). |
 | `artifacts/<id>/<file>` | The published files themselves (snapshots copied at publish time). |
 | `notifications.json` | Outbox of notifications sent with `claudeq notify`, waiting for the daemon to deliver them (normally empty). |
-| `state.json` | Machine bookkeeping: read/unread flags (runs and artifacts), which artifacts have been notified about, cron anchors, pending-resume sessions, the provider health you were last told about, dismissed update version. |
+| `state.json` | Machine bookkeeping: read/unread flags (runs and artifacts), which artifacts have been notified about, cron anchors, pending-resume sessions, the provider health you were last told about, which queue groups are folded shut, dismissed update version. |
 | `claudeqd.out.log` / `claudeqd.err.log` | Daemon stdout/stderr. |
 | `.lock` / `.daemon.lock` | Lock files, both empty of interest. `.lock` serializes config/state writes between the daemon and a `claudeq` command; `.daemon.lock` holds the running daemon's pid and is what makes a second daemon on the same store refuse to start. Both are released when the holding process exits, so neither needs clearing by hand. |
 

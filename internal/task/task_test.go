@@ -2,6 +2,7 @@ package task
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -115,5 +116,41 @@ func TestPermissionsFor(t *testing.T) {
 	}
 	if got := PermissionsFor(false); got != PermissionsDefault {
 		t.Fatalf("PermissionsFor(false) = %q, want default", got)
+	}
+}
+
+func TestCheckGroup(t *testing.T) {
+	tests := []struct {
+		name  string
+		group string
+		ok    bool
+	}{
+		{"ungrouped", "", true},
+		{"plain name", "Nightly sweeps", true},
+		{"emoji and punctuation", "🌙 nightly / weekly", true},
+		{"at the length limit", strings.Repeat("x", MaxGroupLen), true},
+		{"over the length limit", strings.Repeat("x", MaxGroupLen+1), false},
+		{"untrimmed", " Nightly ", false},
+		{"newline", "Night\nly", false},
+		{"tab", "Night\tly", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := CheckGroup(tc.group)
+			if tc.ok && err != nil {
+				t.Fatalf("CheckGroup(%q) = %v, want nil", tc.group, err)
+			}
+			if !tc.ok && err == nil {
+				t.Fatalf("CheckGroup(%q) = nil, want an error", tc.group)
+			}
+		})
+	}
+}
+
+func TestValidateRejectsBadGroup(t *testing.T) {
+	tk := Task{ID: "a", Name: "a", Prompt: "p", WorkingDir: "/r", Trigger: TriggerASAP, Permissions: PermissionsDefault}
+	tk.Group = "two\nlines"
+	if err := tk.Validate(); err == nil {
+		t.Fatal("expected a validation error for a multi-line group")
 	}
 }

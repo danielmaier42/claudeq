@@ -7,6 +7,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
@@ -22,6 +23,10 @@ func AddTask(s *store.Store, t task.Task) error {
 			return fmt.Errorf("task %q already exists", t.ID)
 		}
 		cfg.Tasks = append(cfg.Tasks, t)
+		// A task that names a group joins that group's block rather than sitting
+		// alone at the end of the file: the stored order stays the order the
+		// queue shows.
+		cfg.Tasks = GroupedOrder(cfg.Tasks)
 		return nil
 	})
 }
@@ -95,7 +100,10 @@ func RemoveTask(s *store.Store, id string) error {
 	if err != nil {
 		return err
 	}
-	return forgetTaskState(s, id)
+	if err := forgetTaskState(s, id); err != nil {
+		return err
+	}
+	return pruneGroupState(s)
 }
 
 // forgetTaskState clears the scheduling bookkeeping kept for a task id.
@@ -110,7 +118,7 @@ func forgetTaskState(s *store.Store, id string) error {
 // inside the store's atomic update, so a concurrent edit from the app or another
 // CLI call is never clobbered. The task id is fixed: apply must not change it.
 func EditTask(s *store.Store, id string, apply func(*task.Task) error) error {
-	return s.UpdateConfig(func(cfg *store.Config) error {
+	err := s.UpdateConfig(func(cfg *store.Config) error {
 		idx := indexOf(cfg.Tasks, id)
 		if idx < 0 {
 			return fmt.Errorf("task %q not found", id)
@@ -123,8 +131,15 @@ func EditTask(s *store.Store, id string, apply func(*task.Task) error) error {
 			return fmt.Errorf("task id cannot be changed (%q -> %q)", id, edited.ID)
 		}
 		cfg.Tasks[idx] = edited
+		// An edit may have moved the task to another group; keep the file in the
+		// order the queue renders.
+		cfg.Tasks = GroupedOrder(cfg.Tasks)
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	return pruneGroupState(s)
 }
 
 // SetEnabled activates or pauses a task without deleting it (FA-17).
@@ -152,10 +167,35 @@ func SetPaused(s *store.Store, paused bool) error {
 // Move changes a task's position in the list, which is its priority: index 0 is
 // highest (FA-11). The target index is clamped to the valid range.
 func Move(s *store.Store, id string, to int) error {
+	return moveTask(s, id, nil, to)
+}
+
+// MoveToGroup puts a task in a group (empty means ungrouped) and places it at
+// index to, both in one write: dragging a row across the queue is one gesture
+// and must not be able to half-apply. The group needs no creating — it exists
+// as long as a task names it, and disappears with the last one.
+func MoveToGroup(s *store.Store, id, group string, to int) error {
+	group = strings.TrimSpace(group)
+	if err := task.CheckGroup(group); err != nil {
+		return err
+	}
+	if err := moveTask(s, id, &group, to); err != nil {
+		return err
+	}
+	// The group the task just left may have been its last member. Dropping the
+	// fold state of a group that no longer exists keeps a name that is used
+	// again later from coming back collapsed for no reason.
+	return pruneGroupState(s)
+}
+
+func moveTask(s *store.Store, id string, group *string, to int) error {
 	return s.UpdateConfig(func(cfg *store.Config) error {
 		from := indexOf(cfg.Tasks, id)
 		if from < 0 {
 			return fmt.Errorf("task %q not found", id)
+		}
+		if group != nil {
+			cfg.Tasks[from].Group = *group
 		}
 		if to < 0 {
 			to = 0
@@ -168,6 +208,61 @@ func Move(s *store.Store, id string, to int) error {
 		cfg.Tasks = append(cfg.Tasks, task.Task{})
 		copy(cfg.Tasks[to+1:], cfg.Tasks[to:])
 		cfg.Tasks[to] = moved
+		cfg.Tasks = GroupedOrder(cfg.Tasks)
+		return nil
+	})
+}
+
+// GroupedOrder puts the tasks of one group together without reordering them
+// among themselves: the groups keep the order in which they first appear, and
+// so do the tasks inside each one. That is what makes the stored list read like
+// the queue looks — the file is the priority order, groups and all.
+func GroupedOrder(tasks []task.Task) []task.Task {
+	order := make([]string, 0, len(tasks))
+	seen := map[string]bool{}
+	for _, t := range tasks {
+		if !seen[t.Group] {
+			seen[t.Group] = true
+			order = append(order, t.Group)
+		}
+	}
+	out := make([]task.Task, 0, len(tasks))
+	for _, g := range order {
+		for _, t := range tasks {
+			if t.Group == g {
+				out = append(out, t)
+			}
+		}
+	}
+	return out
+}
+
+// SetGroupCollapsed remembers whether a group's section is folded shut in the
+// dashboard.
+func SetGroupCollapsed(s *store.Store, group string, collapsed bool) error {
+	if group == "" {
+		return errors.New("group name is required")
+	}
+	return s.UpdateState(func(st *store.State) error {
+		st.SetGroupCollapsed(group, collapsed)
+		return nil
+	})
+}
+
+// pruneGroupState forgets every group no task names any more.
+func pruneGroupState(s *store.Store) error {
+	cfg, err := s.LoadConfig()
+	if err != nil {
+		return err
+	}
+	live := map[string]bool{}
+	for _, t := range cfg.Tasks {
+		if t.Group != "" {
+			live[t.Group] = true
+		}
+	}
+	return s.UpdateState(func(st *store.State) error {
+		st.KeepGroups(live)
 		return nil
 	})
 }

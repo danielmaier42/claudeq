@@ -19,7 +19,7 @@ func baseTask() task.Task {
 	return task.Task{
 		ID: "nightly", Name: "Nightly sweep", Prompt: "old prompt",
 		WorkingDir: "/repo", Trigger: task.TriggerCron, Cron: "0 3 * * *",
-		Enabled: true, Permissions: task.PermissionsDefault,
+		Enabled: true, Permissions: task.PermissionsDefault, Group: "Sweeps",
 	}
 }
 
@@ -37,6 +37,16 @@ func TestTaskPatchApply(t *testing.T) {
 			name: "prompt only leaves the schedule alone",
 			args: []string{"--prompt", "new prompt"},
 			want: func(t task.Task) task.Task { t.Prompt = "new prompt"; return t },
+		},
+		{
+			name: "group re-files the task",
+			args: []string{"--group", "  Nightly  "},
+			want: func(t task.Task) task.Task { t.Group = "Nightly"; return t },
+		},
+		{
+			name: "empty group takes it out again",
+			args: []string{"--group", ""},
+			want: func(t task.Task) task.Task { t.Group = ""; return t },
 		},
 		{
 			name: "cron implies the cron trigger",
@@ -218,7 +228,8 @@ func TestTaskDocRoundTrip(t *testing.T) {
 	}
 	// The document is meant to be edited by hand: every setting must be visible.
 	for _, field := range []string{"id", "name", "enabled", "working_dir", "trigger",
-		"fixed_at", "cron", "parallel", "model", "permissions", "notify_on_result", "quiet_history", "prompt"} {
+		"fixed_at", "cron", "parallel", "model", "permissions", "notify_on_result", "quiet_history",
+		"group", "prompt"} {
 		if !strings.Contains(string(data), "\n"+field+" ") {
 			t.Errorf("document is missing the %q field:\n%s", field, data)
 		}
