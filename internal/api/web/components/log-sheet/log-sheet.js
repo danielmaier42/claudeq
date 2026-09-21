@@ -8,12 +8,23 @@ import {toast} from '../../core/toast.js';
 let logRaw='', logMode='chat', logRunId='', logTimer=null, logPrev=null, logPrompt='', logTaskName='';
 let logRun=null, logCancelMode='', logCanceled=false;
 let logOpenTools=new Set(), logToolIdx=0; // remember expanded tool blocks across live re-renders
-export async function showLog(run){ logRunId=run.run_id; logPrompt=(run.task&&run.task.prompt)||''; logTaskName=run.task_name; $('#logTitle').textContent='Log · '+run.task_name;
+export async function showLog(run){ logRunId=run.run_id; logTaskName=run.task_name; $('#logTitle').textContent='Log · '+run.task_name;
   logOpenTools=new Set(); logRun=run; logCanceled=false;
   setLogCancel(run);
   setLogContinueVisible(canContinue(run));
+  const prompt=await runPrompt(run);
+  if(logRunId!==run.run_id) return;   // another run was opened while this one was being fetched
+  logPrompt=prompt;
   logPrev=null; await refreshLog(true); $('#logSheet').showModal(); startLogPolling();
   readRun(run.run_id); }  // opening a run's log marks it read
+// The prompt is the one thing the run list leaves out — it is the bulk of that
+// list and no row shows it — so the sheet asks for the single run it opens.
+async function runPrompt(run){
+  if(run.task && run.task.prompt) return run.task.prompt;
+  try{ const full=await api('GET',`/api/runs/${run.run_id}`); return (full&&full.task&&full.task.prompt)||''; }
+  catch(e){ return ''; }
+}
+
 // The footer's cancel button covers both ways a run can be called off: killing
 // the process of a running one, and dropping the scheduled resume of one that
 // is only waiting for the rate limit.

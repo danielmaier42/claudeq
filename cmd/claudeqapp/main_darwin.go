@@ -24,9 +24,11 @@ import (
 
 const dashboardURL = "http://127.0.0.1:10765"
 
-// tasksURL is the endpoint the daemon probe asks: cheap, and it only answers 200
-// once the daemon is actually serving.
-const tasksURL = dashboardURL + "/api/tasks"
+// pingURL is the endpoint the daemon probe asks. It is answered without reading
+// the store, checking a provider or taking a lock, so a daemon in the middle of
+// a tick answers it as fast as an idle one — unlike listing the queue, which
+// the probe used to ask and which re-checks every configured harness.
+const pingURL = dashboardURL + "/api/ping"
 
 // How the app decides whether a daemon is already there. Several attempts with a
 // generous timeout, because the cost of a false "no" is a second daemon on the
@@ -180,7 +182,7 @@ func ensureDaemon() {
 	// opening at all.
 	deadline := time.Now().Add(daemonStartWait)
 	for {
-		if answersOKWithin(tasksURL, 300*time.Millisecond) {
+		if answersWithin(pingURL, 300*time.Millisecond) {
 			return
 		}
 		if time.Now().After(deadline) {
@@ -208,31 +210,34 @@ func requestWarm() {
 // second daemon against the same store. Nothing is lost on the answer "no" — the
 // port is then refused right away rather than timing out, so an actually absent
 // daemon is still detected in milliseconds.
-func daemonReachable() bool { return reachable(tasksURL, daemonProbeAttempts) }
+func daemonReachable() bool { return reachable(pingURL, daemonProbeAttempts) }
 
-// reachable polls url until it answers 200 or the attempts run out.
+// reachable polls url until something answers or the attempts run out.
 func reachable(url string, attempts int) bool {
 	for i := 0; i < attempts; i++ {
 		if i > 0 {
 			time.Sleep(daemonProbePause)
 		}
-		if answersOK(url) {
+		if answers(url) {
 			return true
 		}
 	}
 	return false
 }
 
-func answersOK(url string) bool { return answersOKWithin(url, daemonProbeTimeout) }
+func answers(url string) bool { return answersWithin(url, daemonProbeTimeout) }
 
-func answersOKWithin(url string, timeout time.Duration) bool {
+// answersWithin reports whether anything answered within timeout. Any status
+// counts, including the 404 of a daemon too old to know /api/ping: the question
+// is whether a daemon is there at all, not what it makes of the request.
+func answersWithin(url string, timeout time.Duration) bool {
 	c := http.Client{Timeout: timeout}
 	resp, err := c.Get(url)
 	if err != nil {
 		return false
 	}
 	_ = resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+	return true
 }
 
 func fileExists(p string) bool {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -408,5 +409,55 @@ func TestFallbackLabelSkipsAProviderThatCannotRun(t *testing.T) {
 	blocked := map[string]time.Time{"claude": time.Now()}
 	if got := srv.fallbackLabel(context.Background(), set, inst, blocked); got != "" {
 		t.Fatalf("fallbackLabel = %q, want nothing for a fallback that cannot run", got)
+	}
+}
+
+// countingStub reports readiness like stubAdapter and remembers how often it
+// was asked, which is how a test sees a harness being probed twice.
+type countingStub struct {
+	stubAdapter
+	mu     sync.Mutex
+	checks int
+}
+
+func (c *countingStub) CheckHealth(ctx context.Context, inst provider.Instance, p provider.Prober) provider.Health {
+	c.mu.Lock()
+	c.checks++
+	c.mu.Unlock()
+	return c.stubAdapter.CheckHealth(ctx, inst, p)
+}
+
+func (c *countingStub) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.checks
+}
+
+// The queue's blocked markers ask one question per harness, not one per way a
+// task names it: a task that leaves the provider field empty and a task that
+// names the default by its id mean the same CLI, and probing it twice is two
+// processes for one answer — and they now run at the same time, so the cache
+// cannot absorb the second one.
+func TestBlockedReasonsAsksEachHarnessOnce(t *testing.T) {
+	ad := &countingStub{stubAdapter: stubAdapter{health: provider.Health{
+		State: provider.HealthNotAuthenticated, Reason: "not logged in",
+	}}}
+	reg := provider.NewRegistry(ad)
+	srv := &server{d: Deps{Registry: reg, Providers: provider.NewChecker(reg)}}
+	cfg := store.Config{
+		Providers: []store.Provider{{ID: "claude", Kind: "claude-code", Name: "Claude", Enabled: true}},
+		Tasks: []task.Task{
+			{ID: "a", Name: "a", Provider: ""},       // whatever the default is
+			{ID: "b", Name: "b", Provider: "claude"}, // the same one, by name
+		},
+	}
+	cfg.Settings.DefaultProvider = "claude"
+
+	got := srv.blockedReasons(context.Background(), cfg)
+	if ad.count() != 1 {
+		t.Fatalf("the harness was probed %d times, want once for both tasks", ad.count())
+	}
+	if got[""] != "not logged in" || got["claude"] != "not logged in" {
+		t.Fatalf("blocked = %+v, want both ways of naming the provider marked", got)
 	}
 }

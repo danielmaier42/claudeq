@@ -2,20 +2,31 @@ package provider
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 )
 
 // countingAdapter records how often it was asked, which is how the cache tests
-// tell a reused verdict from a fresh probe.
+// tell a reused verdict from a fresh probe. The count is guarded because a set
+// of instances is now checked concurrently.
 type countingAdapter struct {
 	*fakeAdapter
+	mu     sync.Mutex
 	checks int
 }
 
 func (c *countingAdapter) CheckHealth(_ context.Context, _ Instance, _ Prober) Health {
+	c.mu.Lock()
 	c.checks++
+	c.mu.Unlock()
 	return c.health
+}
+
+func (c *countingAdapter) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.checks
 }
 
 func newCountingChecker(t *testing.T, kind Kind) (*Checker, *countingAdapter, *time.Time) {
@@ -42,14 +53,14 @@ func TestCheckerReusesARecentVerdict(t *testing.T) {
 		t.Fatalf("health = %+v, want ready", h)
 	}
 	ch.Check(context.Background(), inst)
-	if ad.checks != 1 {
-		t.Fatalf("adapter probed %d times, want the second answer to come from the cache", ad.checks)
+	if ad.count() != 1 {
+		t.Fatalf("adapter probed %d times, want the second answer to come from the cache", ad.count())
 	}
 
 	*now = now.Add(31 * time.Second)
 	ch.Check(context.Background(), inst)
-	if ad.checks != 2 {
-		t.Fatalf("adapter probed %d times, want a re-probe once the verdict aged out", ad.checks)
+	if ad.count() != 2 {
+		t.Fatalf("adapter probed %d times, want a re-probe once the verdict aged out", ad.count())
 	}
 }
 
@@ -59,8 +70,8 @@ func TestCheckFreshIgnoresTheCache(t *testing.T) {
 
 	ch.Check(context.Background(), inst)
 	ch.CheckFresh(context.Background(), inst)
-	if ad.checks != 2 {
-		t.Fatalf("adapter probed %d times, want CheckFresh to probe again", ad.checks)
+	if ad.count() != 2 {
+		t.Fatalf("adapter probed %d times, want CheckFresh to probe again", ad.count())
 	}
 }
 
@@ -73,14 +84,14 @@ func TestCheckerInvalidatesOnAConfigurationChange(t *testing.T) {
 	ch.Check(context.Background(), inst)
 	inst.BinaryPath = "/somewhere/else"
 	ch.Check(context.Background(), inst)
-	if ad.checks != 2 {
-		t.Fatalf("adapter probed %d times, want a changed binary path to invalidate the verdict", ad.checks)
+	if ad.count() != 2 {
+		t.Fatalf("adapter probed %d times, want a changed binary path to invalidate the verdict", ad.count())
 	}
 
 	ch.Forget(inst.ID)
 	ch.Check(context.Background(), inst)
-	if ad.checks != 3 {
-		t.Fatalf("adapter probed %d times, want Forget to drop the verdict", ad.checks)
+	if ad.count() != 3 {
+		t.Fatalf("adapter probed %d times, want Forget to drop the verdict", ad.count())
 	}
 }
 
@@ -111,10 +122,64 @@ func TestCheckerVerdictsWithoutProbing(t *testing.T) {
 			if h.Reason == "" {
 				t.Fatal("an unready verdict must say what is wrong")
 			}
-			if ad.checks != 0 {
-				t.Fatalf("adapter probed %d times, want no CLI call at all", ad.checks)
+			if ad.count() != 0 {
+				t.Fatalf("adapter probed %d times, want no CLI call at all", ad.count())
 			}
 		})
+	}
+}
+
+// blockingAdapter holds every check open until it is released, so a test can
+// see how many of them are in flight at once.
+type blockingAdapter struct {
+	*fakeAdapter
+	started chan Instance
+	release chan struct{}
+}
+
+func (b *blockingAdapter) CheckHealth(_ context.Context, inst Instance, _ Prober) Health {
+	b.started <- inst
+	<-b.release
+	return Health{State: HealthReady, Detail: inst.ID}
+}
+
+// TestCheckEachProbesTheInstancesAtTheSameTime pins what makes a cold answer
+// affordable: a check that is not cached spawns a CLI, so four configured
+// harnesses have to cost the slowest of them, not the sum. The test would
+// simply never see the fourth probe start if they ran one after the other.
+func TestCheckEachProbesTheInstancesAtTheSameTime(t *testing.T) {
+	insts := []Instance{enabled("a", "fake"), enabled("b", "fake"), enabled("c", "fake"), enabled("d", "fake")}
+	ad := &blockingAdapter{
+		fakeAdapter: newFakeAdapter("fake"),
+		started:     make(chan Instance, len(insts)),
+		release:     make(chan struct{}),
+	}
+	ch := &Checker{Registry: NewRegistry(ad)}
+
+	done := make(chan []Health, 1)
+	go func() { done <- ch.CheckEach(context.Background(), insts) }()
+
+	for i := range insts {
+		select {
+		case <-ad.started:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("only %d of %d probes had started: they are being run one after the other", i, len(insts))
+		}
+	}
+	close(ad.release)
+
+	got := <-done
+	if len(got) != len(insts) {
+		t.Fatalf("got %d verdicts, want one per instance", len(got))
+	}
+	// Answers stay in the caller's order, which is what its callers index by.
+	for i, h := range got {
+		if h.Detail != insts[i].ID {
+			t.Fatalf("verdict %d belongs to %q, want %q", i, h.Detail, insts[i].ID)
+		}
+		if h.CheckedAt.IsZero() {
+			t.Fatalf("verdict %d has no timestamp: %+v", i, h)
+		}
 	}
 }
 
@@ -180,12 +245,12 @@ func TestCheckMaybeFreshProbesExactlyOnce(t *testing.T) {
 	ch, ad, _ := newCountingChecker(t, "fake")
 	inst := enabled("fake", "fake")
 	ch.CheckMaybeFresh(context.Background(), inst, true)
-	if ad.checks != 1 {
-		t.Fatalf("adapter probed %d times, want one", ad.checks)
+	if ad.count() != 1 {
+		t.Fatalf("adapter probed %d times, want one", ad.count())
 	}
 	ch.CheckMaybeFresh(context.Background(), inst, false)
-	if ad.checks != 1 {
-		t.Fatalf("adapter probed %d times, want the cached verdict", ad.checks)
+	if ad.count() != 1 {
+		t.Fatalf("adapter probed %d times, want the cached verdict", ad.count())
 	}
 }
 

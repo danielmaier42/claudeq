@@ -157,11 +157,6 @@ func cmdRun(args []string) error {
 	registry := adapters.Default()
 	checker := provider.NewChecker(registry)
 
-	// Report every configured provider's state at startup: an unattended queue
-	// that starts nothing all night looks broken otherwise, and the daemon log
-	// is the only place to look.
-	reportProviderHealth(st, checker)
-
 	c := clock.Real{}
 	eng := engine.New(st, limit.NewGates(c), &executor.Executor{
 		Registry: registry,
@@ -218,6 +213,12 @@ func cmdRun(args []string) error {
 			fmt.Fprintln(os.Stderr, "claudeqd: http server:", err)
 		}
 	}()
+	// Report every configured provider's state: an unattended queue that starts
+	// nothing all night looks broken otherwise, and the daemon log is the only
+	// place to look. It happens *after* the dashboard is being served, because
+	// every verdict here spawns a CLI — and the app window waits for the daemon
+	// to answer before it opens, not for the harnesses to introduce themselves.
+	go reportProviderHealth(st, checker)
 	defer func() {
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
