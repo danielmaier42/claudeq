@@ -159,3 +159,27 @@ func TestMoveGroup(t *testing.T) {
 		t.Fatalf("status = %d, want 400 for an unknown group", r.Status)
 	}
 }
+
+func TestRenameGroupEndpoint(t *testing.T) {
+	srv, st := newServer(t, nil)
+	do(t, srv, "POST", "/api/tasks", sampleTask("a"))
+	do(t, srv, "POST", "/api/tasks/a/move?to=0&group=Nightly", nil)
+	do(t, srv, "POST", "/api/groups/collapse", map[string]any{"name": "Nightly", "collapsed": true})
+
+	if r := do(t, srv, "POST", "/api/groups/rename", map[string]any{"name": "Nightly", "to": "Overnight"}); r.Status != http.StatusNoContent {
+		t.Fatalf("status = %d (%s)", r.Status, r.Body)
+	}
+	var groups []groupView
+	do(t, srv, "GET", "/api/groups", nil).into(t, &groups)
+	if len(groups) != 1 || groups[0].Name != "Overnight" || !groups[0].Collapsed {
+		t.Fatalf("groups = %+v, want one folded Overnight", groups)
+	}
+	cfg, _ := st.LoadConfig()
+	if cfg.Tasks[0].Group != "Overnight" {
+		t.Fatalf("task group = %q, want Overnight", cfg.Tasks[0].Group)
+	}
+
+	if r := do(t, srv, "POST", "/api/groups/rename", map[string]any{"name": "Nope", "to": "X"}); r.Status != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 for an unknown group", r.Status)
+	}
+}

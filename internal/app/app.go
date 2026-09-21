@@ -231,6 +231,89 @@ func GroupedOrder(tasks []task.Task) []task.Task {
 	return out
 }
 
+// RenameGroup gives a group another name, in one write: every task in it moves
+// over, and the fold state moves with it. Renaming onto a group that already
+// exists merges the two — the tasks join that section, keeping their order.
+func RenameGroup(s *store.Store, from, to string) error {
+	from, to = strings.TrimSpace(from), strings.TrimSpace(to)
+	if from == "" {
+		return errors.New("group name is required")
+	}
+	if to == "" {
+		return errors.New("new group name is required")
+	}
+	if err := task.CheckGroup(to); err != nil {
+		return err
+	}
+	if from == to {
+		return nil
+	}
+	merged := false
+	err := s.UpdateConfig(func(cfg *store.Config) error {
+		order := blockOrder(cfg.Tasks)
+		if !slices.Contains(order, from) {
+			return fmt.Errorf("group %q not found", from)
+		}
+		merged = slices.Contains(order, to)
+		// A merge moves tasks into a section that is already somewhere in the
+		// queue, so that section keeps its place — priority is the order of this
+		// list, and a rename must not quietly promote the tasks that were
+		// already there. A plain rename keeps the renamed group's own place.
+		joined := make([]task.Task, 0, len(cfg.Tasks))
+		for _, t := range cfg.Tasks {
+			if t.Group == to {
+				joined = append(joined, t)
+			}
+		}
+		for i := range cfg.Tasks {
+			if cfg.Tasks[i].Group == from {
+				cfg.Tasks[i].Group = to
+				if merged {
+					joined = append(joined, cfg.Tasks[i])
+				}
+			}
+		}
+		if merged {
+			order = slices.DeleteFunc(order, func(g string) bool { return g == from })
+		}
+		out := make([]task.Task, 0, len(cfg.Tasks))
+		for _, g := range order {
+			if g == from || g == to {
+				if g == from {
+					g = to // the renamed section now answers to the new name
+				}
+				if merged {
+					out = append(out, joined...)
+					continue
+				}
+			}
+			for _, t := range cfg.Tasks {
+				if t.Group == g {
+					out = append(out, t)
+				}
+			}
+		}
+		cfg.Tasks = out
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	// The old name is gone; its fold state goes to the new one, unless that
+	// section already existed and has a state of its own. The rename itself is
+	// already written, so a failure here says exactly that much.
+	if err := s.UpdateState(func(st *store.State) error {
+		if was := st.GroupCollapsed(from); was && !merged {
+			st.SetGroupCollapsed(to, true)
+		}
+		st.SetGroupCollapsed(from, false)
+		return nil
+	}); err != nil {
+		return fmt.Errorf("group renamed to %q, but its open/folded state could not be saved: %w", to, err)
+	}
+	return nil
+}
+
 // MoveGroup puts a whole group in front of another one, so the sections can be
 // put in the order the work happens in. before names the group to sit in front
 // of ("" is the ungrouped section); a nil before moves the group to the end.

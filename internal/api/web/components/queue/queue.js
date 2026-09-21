@@ -96,6 +96,10 @@ function groupBlock(b,tasks,paused){
       +`<span class="chip">${b.tasks.length}</span>`;
     hd.title=(collapsed?'Show':'Hide')+' the tasks in “'+b.group+'” — or drag the header to move the whole group';
     hd.onclick=()=>setCollapsed(b.group,!collapsed);
+    const ren=el('button','btn small iconly grp-rename',PENCIL);
+    ren.title='Rename this group';
+    ren.onclick=e=>{ e.stopPropagation(); renameGroup(b.group); };   // not a fold
+    hd.append(ren);
     // The header drags the section itself, so the groups can be put in the
     // order the work happens in.
     groupDragSource(hd,b.group);
@@ -300,6 +304,19 @@ async function newGroupWith(t){
   const name=await promptSheetAsk('Name the new group',{placeholder:'e.g. Nightly sweeps',maxLength:60});
   if(!name) return;
   drop(t,name,ROW_ORDER.length-1);
+}
+
+// Renaming is the one thing about a group that is not a drag: the tasks stay
+// where they are, only the name changes. Typing a name that is already in use
+// merges the two sections, so that is asked about first.
+async function renameGroup(group){
+  const to=await promptSheetAsk('Rename the group “'+group+'”',{value:group,okLabel:'Rename',maxLength:60});
+  if(!to||to===group) return;
+  if(Object.prototype.hasOwnProperty.call(GROUPS,to)
+     && !await confirmSheetAsk('“'+to+'” already exists. Move the tasks of “'+group+'” into it?','Merge','Cancel')) return;
+  try{ await api('POST','/api/groups/rename',{name:group,to}); }
+  catch(e){ toast(e.message,'err'); }
+  invalidateTasks(); loadTasks();
 }
 
 async function setCollapsed(group,collapsed){
