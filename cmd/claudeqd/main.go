@@ -52,6 +52,14 @@ import (
 // take over.
 const defaultAddr = "127.0.0.1:10765"
 
+// daemonLockWait is how long a starting daemon waits for a predecessor to let go
+// of the data directory. It covers the hand-over during an update, where the new
+// daemon is bootstrapped while the old one is still shutting down, so it has to
+// outlast that shutdown: the outgoing daemon lets in-flight runs finish for up
+// to engine.ShutdownGrace, then closes the HTTP server, and releases the lock
+// last of all.
+const daemonLockWait = engine.ShutdownGrace + 20*time.Second
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "claudeqd:", err)
@@ -97,6 +105,23 @@ func cmdRun(args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// One daemon per data directory, and this is where that is enforced — before
+	// anything is written. Both launchd and the app window start a daemon, and
+	// the window used to add one whenever its probe of the running daemon timed
+	// out; the extra process lost the dashboard port but kept scheduling, so
+	// every due task ran twice and each start wrote off the other's in-flight
+	// run as interrupted.
+	lock, err := st.LockDaemon(daemonLockWait)
+	if err != nil {
+		var running *store.ErrDaemonRunning
+		if errors.As(err, &running) {
+			return fmt.Errorf("%w; not starting a second daemon on the same store "+
+				"(stop the running one, or set CLAUDEQ_HOME to another directory)", running)
+		}
+		return err
+	}
+	defer func() { _ = lock.Close() }()
 
 	// A fresh process means nothing is actually running: mark any run left as
 	// "running" (from a crash/power loss) as interrupted, and prune old history.

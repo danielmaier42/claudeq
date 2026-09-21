@@ -98,7 +98,9 @@ ClaudeQ is two pieces that share a file-based store:
   LaunchAgent. It starts at login, restarts if it exits, and does all the work:
   scheduling, running tasks through the provider's CLI, tracking the rate
   limit, planning wake-ups, pruning history, sending notifications, and serving
-  the dashboard on `127.0.0.1`.
+  the dashboard on `127.0.0.1`. Exactly one daemon owns a data directory: a
+  second one started against the same store says so and exits, so a queue is
+  never scheduled twice.
 - **A native app window (`claudeqapp`)** that wraps that dashboard in a macOS
   WKWebView window. The app is just the UI — closing it never stops scheduling,
   and the daemon keeps running with the window shut.
@@ -1260,6 +1262,7 @@ Everything lives under `~/Library/Application Support/claudeq` (override with th
 | `notifications.json` | Outbox of notifications sent with `claudeq notify`, waiting for the daemon to deliver them (normally empty). |
 | `state.json` | Machine bookkeeping: read/unread flags (runs and artifacts), which artifacts have been notified about, cron anchors, pending-resume sessions, the provider health you were last told about, dismissed update version. |
 | `claudeqd.out.log` / `claudeqd.err.log` | Daemon stdout/stderr. |
+| `.lock` / `.daemon.lock` | Lock files, both empty of interest. `.lock` serializes config/state writes between the daemon and a `claudeq` command; `.daemon.lock` holds the running daemon's pid and is what makes a second daemon on the same store refuse to start. Both are released when the holding process exits, so neither needs clearing by hand. |
 
 The LaunchAgent itself is at
 `~/Library/LaunchAgents/de.maierdaniel.claudeq.plist`.

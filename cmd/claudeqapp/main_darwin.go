@@ -24,6 +24,22 @@ import (
 
 const dashboardURL = "http://127.0.0.1:10765"
 
+// tasksURL is the endpoint the daemon probe asks: cheap, and it only answers 200
+// once the daemon is actually serving.
+const tasksURL = dashboardURL + "/api/tasks"
+
+// How the app decides whether a daemon is already there. Several attempts with a
+// generous timeout, because the cost of a false "no" is a second daemon on the
+// same store while the cost of asking again is a few hundred milliseconds at
+// startup.
+const (
+	daemonProbeAttempts = 3
+	daemonProbeTimeout  = 2 * time.Second
+	daemonProbePause    = 250 * time.Millisecond
+	// daemonStartWait bounds how long the app waits for a daemon it just started.
+	daemonStartWait = 5 * time.Second
+)
+
 // systemSettingsScheme is the URL scheme that opens a System Settings pane.
 const systemSettingsScheme = "x-apple.systempreferences:"
 
@@ -139,7 +155,7 @@ func applyAccent(w webview.WebView) {
 
 // ensureDaemon starts claudeqd if the dashboard isn't already responding.
 func ensureDaemon() {
-	if daemonUp() {
+	if daemonReachable() {
 		return
 	}
 	bin := "claudeqd"
@@ -149,13 +165,26 @@ func ensureDaemon() {
 		}
 	}
 	cmd := exec.Command(bin, "run")
+	// Its own words matter: a daemon that refuses because another one already owns
+	// the store says so on stderr, and that line is the whole explanation.
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintln(os.Stderr, "claudeqapp: could not start claudeqd:", err)
 		return
 	}
-	// Wait briefly for it to come up.
-	for i := 0; i < 50; i++ {
-		if daemonUp() {
+	// Reap it: it may exit right away (another daemon owns the store) and must not
+	// be left as a zombie for the lifetime of the window.
+	go func() { _ = cmd.Wait() }()
+	// Wait briefly for it to come up. Short probes, because all this waits for is
+	// the port to open — a long per-probe timeout here would keep the window from
+	// opening at all.
+	deadline := time.Now().Add(daemonStartWait)
+	for {
+		if answersOKWithin(tasksURL, 300*time.Millisecond) {
+			return
+		}
+		if time.Now().After(deadline) {
+			fmt.Fprintln(os.Stderr, "claudeqapp: claudeqd did not come up; the window will be empty")
 			return
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -173,9 +202,32 @@ func requestWarm() {
 	_ = resp.Body.Close()
 }
 
-func daemonUp() bool {
-	c := http.Client{Timeout: 400 * time.Millisecond}
-	resp, err := c.Get(dashboardURL + "/api/tasks")
+// daemonReachable reports whether a daemon already serves the dashboard. It asks
+// several times: a single 400 ms probe was too tight, and a daemon busy with a
+// tick (a provider check, a run starting) that missed it had the app start a
+// second daemon against the same store. Nothing is lost on the answer "no" — the
+// port is then refused right away rather than timing out, so an actually absent
+// daemon is still detected in milliseconds.
+func daemonReachable() bool { return reachable(tasksURL, daemonProbeAttempts) }
+
+// reachable polls url until it answers 200 or the attempts run out.
+func reachable(url string, attempts int) bool {
+	for i := 0; i < attempts; i++ {
+		if i > 0 {
+			time.Sleep(daemonProbePause)
+		}
+		if answersOK(url) {
+			return true
+		}
+	}
+	return false
+}
+
+func answersOK(url string) bool { return answersOKWithin(url, daemonProbeTimeout) }
+
+func answersOKWithin(url string, timeout time.Duration) bool {
+	c := http.Client{Timeout: timeout}
+	resp, err := c.Get(url)
 	if err != nil {
 		return false
 	}
