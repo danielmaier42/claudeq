@@ -241,7 +241,9 @@ func TestRenameGroupMerges(t *testing.T) {
 	if err := RenameGroup(s, "Nightly", "Weekly"); err != nil {
 		t.Fatalf("RenameGroup: %v", err)
 	}
-	if got, want := strings.Join(groups(s, t), ","), "a:Weekly,b:Weekly"; got != want {
+	// The tasks join the section that was already there: it keeps its place in
+	// the queue, and its own task stays ahead of the one that moved in.
+	if got, want := strings.Join(groups(s, t), ","), "b:Weekly,a:Weekly"; got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 	// The section that was already there keeps its own open/folded state.
@@ -274,5 +276,26 @@ func TestRenameGroupRejects(t *testing.T) {
 	}
 	if got := groups(s, t); got[0] != "a:Nightly" {
 		t.Fatalf("got %v, want a:Nightly", got)
+	}
+}
+
+// A merge must not promote the section it merges into: priority is the order of
+// the list, and everything between the two groups keeps its place.
+func TestRenameGroupMergeKeepsPriority(t *testing.T) {
+	s := openStore(t)
+	for _, id := range []string{"a", "b", "c"} {
+		_ = AddTask(s, mk(id))
+	}
+	_ = MoveToGroup(s, "a", "Nightly", 0)
+	_ = MoveToGroup(s, "b", "Other", 2)
+	_ = MoveToGroup(s, "c", "Weekly", 2)
+	if got, want := strings.Join(groups(s, t), ","), "a:Nightly,b:Other,c:Weekly"; got != want {
+		t.Fatalf("setup %q, want %q", got, want)
+	}
+	if err := RenameGroup(s, "Nightly", "Weekly"); err != nil {
+		t.Fatalf("RenameGroup: %v", err)
+	}
+	if got, want := strings.Join(groups(s, t), ","), "b:Other,c:Weekly,a:Weekly"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }
