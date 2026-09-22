@@ -22,6 +22,15 @@ document.addEventListener('click',e=>{
 export const esc=s=>(s??'').toString().replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 // Only allow http(s) URLs through to an href, so a non-web scheme can never be injected.
 export const httpsOnly=u=>/^https?:\/\//i.test(u||'')?u:'';
+// The from-to day filter the lists share: two date fields with a dash between
+// them, each reporting its new value as it changes.
+export function dateRange(from,to,onFrom,onTo){
+  const mk=(val,title,on)=>{ const i=el('input','date-in'); i.type='date'; if(val)i.value=val; i.title=title;
+    i.onchange=e=>on(e.target.value); return i; };
+  const r=el('div','date-range');
+  r.append(mk(from,'From date',onFrom), el('span','date-sep','–'), mk(to,'To date',onTo));
+  return r;
+}
 // The same "nothing here yet" panel for every list that can be empty.
 export function emptyState(big,sub){ const d=el('div','empty'); d.innerHTML=`<div class="big">${esc(big)}</div><div>${esc(sub)}</div>`; return d; }
 

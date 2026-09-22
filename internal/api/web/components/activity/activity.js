@@ -6,14 +6,12 @@ import {LIMITED_UNTIL, setConn} from '../status/status.js';
 import {openReplay} from '../task-sheet/task-sheet.js';
 import {api} from '../../core/api.js';
 import {confirmSheetAsk} from '../../core/confirm.js';
-import {$, el, emptyState, esc} from '../../core/dom.js';
-import {baseName, pad2, relTime, resumeText, runTimeTitle} from '../../core/format.js';
+import {$, dateRange, el, emptyState, esc} from '../../core/dom.js';
+import {baseName, inDateRange, relTime, resumeText, runTimeTitle} from '../../core/format.js';
 import {EYE, REPLAY} from '../../core/icons.js';
 import {toast} from '../../core/toast.js';
 
 let runsSig='', actFrom='', actTo='', actPage=0; const ACT_PAGE=25;
-function actLocalDate(iso){ const d=new Date(iso); return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
-function actInRange(iso){ const d=actLocalDate(iso); if(actFrom && d<actFrom) return false; if(actTo && d>actTo) return false; return true; }
 // The next poll re-renders instead of matching its signature and skipping the
 // work — what a caller means when it changed a run behind the list's back.
 export function invalidateRuns(){ runsSig=''; }
@@ -27,7 +25,7 @@ export async function loadRuns(){
     runs=rs; if(ps) setProviderSnapshot({providers:ps}); setConn(true);
   }catch(e){ setConn(false); return; }
   const unread=runs.filter(r=>r.unread).length; const badge=$('#unreadCount'); badge.hidden=unread===0; badge.textContent=unread;
-  const filtered=runs.filter(r=>actInRange(r.started_at));
+  const filtered=runs.filter(r=>inDateRange(r.started_at,actFrom,actTo));
   const pages=Math.max(1,Math.ceil(filtered.length/ACT_PAGE));
   if(actPage>pages-1) actPage=pages-1; if(actPage<0) actPage=0;
   const pageRuns=filtered.slice(actPage*ACT_PAGE, actPage*ACT_PAGE+ACT_PAGE);
@@ -164,10 +162,9 @@ async function markAllRead(){ try{await api('POST','/api/runs/read-all');toast('
 export const view={
   title:'Activity',
   toolbar(ta){
-    const mkDate=(val,on)=>{ const i=el('input','date-in'); i.type='date'; if(val)i.value=val; i.onchange=on; return i; };
-    const from=mkDate(actFrom,e=>{actFrom=e.target.value;actPage=0;runsSig='';loadRuns();}); from.title='From date';
-    const to=mkDate(actTo,e=>{actTo=e.target.value;actPage=0;runsSig='';loadRuns();}); to.title='To date';
-    const range=el('div','date-range'); range.append(from, el('span','date-sep','–'), to); ta.append(range);
+    ta.append(dateRange(actFrom,actTo,
+      v=>{actFrom=v;actPage=0;runsSig='';loadRuns();},
+      v=>{actTo=v;actPage=0;runsSig='';loadRuns();}));
     const b=el('button','btn',EYE+'<span>Mark all read</span>'); b.onclick=markAllRead; ta.append(b);
   },
   enter(){ loadRuns(); },

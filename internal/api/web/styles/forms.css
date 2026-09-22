@@ -18,3 +18,8 @@ textarea { resize:vertical; }
 /* A row is laid out as a flexbox, which outranks the browser's own rule for
    [hidden] — without this, hiding one does nothing. */
 .form-row[hidden] { display:none; }
+/* The from-to day filter in the Activity and Artifacts toolbars. */
+.date-in { font:inherit; font-size:12px; padding:4px 8px; border:.5px solid var(--hairline); border-radius:7px;
+  background:var(--card-2); color:var(--fg); }
+.date-sep { color:var(--fg2); font-size:12px; padding:0 1px; }
+.date-range { display:flex; align-items:center; gap:6px; }

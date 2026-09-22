@@ -3,12 +3,12 @@ import {canContinue, showLog} from '../log-sheet/log-sheet.js';
 import {setConn} from '../status/status.js';
 import {api} from '../../core/api.js';
 import {confirmSheetAsk} from '../../core/confirm.js';
-import {$, el, emptyState, esc} from '../../core/dom.js';
-import {exactTime, relTime} from '../../core/format.js';
+import {$, dateRange, el, emptyState, esc} from '../../core/dom.js';
+import {exactTime, inDateRange, relTime} from '../../core/format.js';
 import {EYE} from '../../core/icons.js';
 import {toast} from '../../core/toast.js';
 
-let artifactsSig='';
+let artifactsSig='', artFrom='', artTo='', artPage=0; const ART_PAGE=25;
 const fmtBytes=n=>{ n=n||0; if(n<1024)return n+' B'; if(n<1048576)return (n/1024).toFixed(1)+' KB'; if(n<1073741824)return (n/1048576).toFixed(1)+' MB'; return (n/1073741824).toFixed(1)+' GB'; };
 function artifactKind(ct){ ct=(ct||'').toLowerCase();
   if(ct.includes('pdf'))return 'pdf';
@@ -37,17 +37,28 @@ async function openArtifactRun(a){
   showLog(run);
 }
 
+// loadsGen makes the newest load the one that renders: a notification click
+// alone starts three (the view switch, the jump to the artifact's page, the
+// mark-read), and an earlier fetch answering last would paint the artifact
+// unread again over the newer answer.
+let loadsGen=0;
 async function loadArtifacts(){
+  const gen=++loadsGen;
   let arts; try{ arts=await api('GET','/api/artifacts'); setConn(true);}catch(e){ setConn(false); return; }
+  if(gen!==loadsGen) return;   // a newer load superseded us
   const unread=arts.filter(a=>a.unread).length; const badge=$('#artifactCount'); badge.hidden=unread===0; badge.textContent=unread;
-  const sig=JSON.stringify(arts.map(a=>[a.id,a.unread,a.title]));
+  const filtered=arts.filter(a=>inDateRange(a.published_at,artFrom,artTo));
+  const pages=Math.max(1,Math.ceil(filtered.length/ART_PAGE));
+  if(artPage>pages-1) artPage=pages-1; if(artPage<0) artPage=0;
+  const pageArts=filtered.slice(artPage*ART_PAGE, artPage*ART_PAGE+ART_PAGE);
+  const sig=JSON.stringify([artFrom,artTo,artPage,arts.length,filtered.length,pageArts.map(a=>[a.id,a.unread,a.title])]);
   if(sig===artifactsSig && $('#artifacts').childElementCount) return;   // avoid flicker on poll
   artifactsSig=sig;
   const c=$('#artifacts'); c.innerHTML='';
   if(!arts.length){ c.append(emptyState('No artifacts yet','Files your tasks publish with “claudeq publish” appear here — reports, exports, HTML pages, PDFs.')); return; }
-  const label=el('div','section-label',arts.length+' artifact'+(arts.length!==1?'s':'')); c.append(label);
+  if(!filtered.length){ c.append(emptyState('No artifacts in this range','Adjust the date filter to see artifacts.')); return; }
   const list=el('div','act-list');
-  arts.forEach(a=>{
+  pageArts.forEach(a=>{
     const line=el('div','act-line');
     const gl=el('div','act-gl'); if(a.unread) gl.append(el('div','unread-dot'));
     const card=el('div','act-card');
@@ -78,6 +89,17 @@ async function loadArtifacts(){
     list.append(line);
   });
   c.append(list);
+
+  // Footer: count + pager, as in Activity (newest first, so "Newer" goes to
+  // lower page indices).
+  const inRange=(artFrom||artTo)?' in range':'';
+  const foot=el('div','act-foot');
+  foot.append(el('span','sub',`${filtered.length} artifact${filtered.length!==1?'s':''}${inRange} · page ${artPage+1} of ${pages}`));
+  const pager=el('div','pager');
+  const prev=el('button','btn small','‹ Newer'); prev.disabled=artPage<=0; prev.onclick=()=>{artPage--;artifactsSig='';loadArtifacts();};
+  const next=el('button','btn small','Older ›'); next.disabled=artPage>=pages-1; next.onclick=()=>{artPage++;artifactsSig='';loadArtifacts();};
+  pager.append(prev,next); foot.append(pager);
+  c.append(foot);
 }
 // viewerGen tags each open so that async work (a text fetch) and the close
 // handler never clobber a viewer that was opened after them — the most recent
@@ -149,6 +171,11 @@ export function initViewer(){
   $('#viewerContinueBtn').onclick=continueArtifactRun;
   $('#viewerDoneBtn').onclick=()=>$('#viewerSheet').close();
 }
+// Drop the day filter, in the state and in the two date fields the toolbar
+// shows: the toolbar is built once per view switch, so clearing the state alone
+// would leave the old dates standing in it.
+function clearDateFilter(){ artFrom=''; artTo='';
+  document.querySelectorAll('#toolbarActions .date-in').forEach(i=>i.value=''); }
 // Open one artifact by id. This is what a click on a "new artifact"
 // notification ends up calling (the app window pushes the id in from
 // cqOpenPendingArtifact): show the Artifacts view, then open the artifact in
@@ -158,6 +185,12 @@ window.cqOpenArtifact=async function(id){
   let arts; try{ arts=await api('GET','/api/artifacts'); }catch(e){ toast(e.message,'err'); return; }
   const a=arts.find(x=>x.id===id);
   if(!a){ toast('That artifact is no longer available','err'); return; }
+  // Land on the artifact, so closing the viewer leaves it in the list instead
+  // of on a page it is not on: a date filter that hides it is dropped, and the
+  // list moves to the page that holds it.
+  if(!inDateRange(a.published_at,artFrom,artTo)) clearDateFilter();
+  artPage=Math.floor(arts.filter(x=>inDateRange(x.published_at,artFrom,artTo)).indexOf(a)/ART_PAGE);
+  artifactsSig=''; loadArtifacts();
   openViewer(a);
 };
 async function readArtifact(id){ try{ await api('POST','/api/artifacts/'+encodeURIComponent(id)+'/read'); }catch{} artifactsSig=''; loadArtifacts(); }
@@ -166,7 +199,12 @@ async function deleteArtifact(a){ if(await confirmSheetAsk('Delete artifact “'
 
 export const view={
   title:'Artifacts',
-  toolbar(ta){ const b=el('button','btn',EYE+'<span>Mark all read</span>'); b.onclick=markAllArtifactsRead; ta.append(b); },
+  toolbar(ta){
+    ta.append(dateRange(artFrom,artTo,
+      v=>{artFrom=v;artPage=0;artifactsSig='';loadArtifacts();},
+      v=>{artTo=v;artPage=0;artifactsSig='';loadArtifacts();}));
+    const b=el('button','btn',EYE+'<span>Mark all read</span>'); b.onclick=markAllArtifactsRead; ta.append(b);
+  },
   enter(){ loadArtifacts(); },
 };
 
