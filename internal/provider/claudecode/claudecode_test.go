@@ -286,6 +286,30 @@ func TestParseTranslatesStreamJSON(t *testing.T) {
 			want: []provider.Event{{Type: provider.EventAuthFailed}},
 		},
 		{
+			name: "an organisation that disabled subscription access is a limit, not an auth error",
+			line: `{"type":"assistant","session_id":"sid","error":"oauth_org_not_allowed","is_api_error_message":true,"api_error_code":"oauth_not_allowed_for_organization"}`,
+			want: []provider.Event{
+				{Type: provider.EventSessionStarted, SessionID: "sid"},
+				{Type: provider.EventRateLimited, RetryAfter: OrgBlockedRetryAfter, Detail: orgBlockedDetail},
+			},
+		},
+		{
+			name: "the result envelope of an organisation block pauses the provider too",
+			line: `{"type":"result","is_error":true,"api_error_status":403,"api_error_code":"oauth_not_allowed_for_organization","result":"Your organization has disabled Claude subscription access for Claude Code"}`,
+			want: []provider.Event{
+				{Type: provider.EventRateLimited, RetryAfter: OrgBlockedRetryAfter, Detail: orgBlockedDetail},
+				{Type: provider.EventCompleted, IsError: true, FinalOutput: "Your organization has disabled Claude subscription access for Claude Code", Metrics: &provider.Metrics{}},
+			},
+		},
+		{
+			name: "an organisation block refused as a 401 is still a limit, not a login problem",
+			line: `{"type":"result","is_error":true,"api_error_status":401,"api_error_code":"oauth_not_allowed_for_organization"}`,
+			want: []provider.Event{
+				{Type: provider.EventRateLimited, RetryAfter: OrgBlockedRetryAfter, Detail: orgBlockedDetail},
+				{Type: provider.EventCompleted, IsError: true, Metrics: &provider.Metrics{}},
+			},
+		},
+		{
 			name: "a rate-limited final result reports both",
 			line: `{"type":"result","is_error":true,"api_error_status":429,"result":"You've hit your session limit"}`,
 			want: []provider.Event{
@@ -373,5 +397,52 @@ func TestParserRepeatedTimingDoesNotRestateTheLimit(t *testing.T) {
 	p.Parse([]byte(`{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1784655600}}`))
 	if got := p.Parse([]byte(`{"type":"assistant","rate_limit_info":{"status":"allowed","resetsAt":1784655600}}`)); got != nil {
 		t.Fatalf("got %+v, want nothing for an unchanged window", got)
+	}
+}
+
+func TestParserKeepsAReportedWindowOverTheOrgBlockFallback(t *testing.T) {
+	// An organisation block names no window, so claudeq waits a fixed hour. A
+	// real rate limit that arrived first does name one, and that is the better
+	// answer: the fallback must not overwrite it.
+	p := New().NewParser()
+	p.Parse([]byte(`{"type":"system","subtype":"api_retry","error_status":429,"error":"rate_limit","retry_delay_ms":5000}`))
+	got := p.Parse([]byte(`{"type":"result","is_error":true,"api_error_status":403,"api_error_code":"oauth_not_allowed_for_organization"}`))
+	if len(got) != 2 || got[0].Type != provider.EventRateLimited {
+		t.Fatalf("got %+v, want a rate limit and the result", got)
+	}
+	if got[0].RetryAfter != 5*time.Second {
+		t.Fatalf("RetryAfter = %v, want the 5s the CLI reported", got[0].RetryAfter)
+	}
+}
+
+func TestParserDoesNotShortenTheOrgBlockWithAnUnrelatedBackoff(t *testing.T) {
+	// A transient API error carries its own retry delay. It says nothing about
+	// an allowance, so the organisation block must still pause for its full
+	// hour — a one-second pause would have the queue burning runs in a loop.
+	p := New().NewParser()
+	if got := p.Parse([]byte(`{"type":"system","subtype":"api_retry","error_status":529,"retry_delay_ms":1000}`)); got != nil {
+		t.Fatalf("got %+v, want nothing for a retry that reported no limit", got)
+	}
+	got := p.Parse([]byte(`{"type":"result","is_error":true,"api_error_status":403,"api_error_code":"oauth_not_allowed_for_organization"}`))
+	if len(got) != 2 || got[0].Type != provider.EventRateLimited {
+		t.Fatalf("got %+v, want a pause and the result", got)
+	}
+	if got[0].RetryAfter != OrgBlockedRetryAfter || !got[0].ResetAt.IsZero() {
+		t.Fatalf("pause = %+v, want the full %v and no window", got[0], OrgBlockedRetryAfter)
+	}
+}
+
+func TestParserIgnoresAnApproachingWindowForAnOrgBlock(t *testing.T) {
+	// The reset time of an allowance the run never exhausted is not when the
+	// organisation block lifts, and the engine prefers an absolute time over a
+	// delay — so carrying it over would reopen the provider far too early.
+	p := New().NewParser()
+	p.Parse([]byte(`{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1784655600}}`))
+	got := p.Parse([]byte(`{"type":"assistant","error":"oauth_org_not_allowed"}`))
+	if len(got) != 1 || got[0].Type != provider.EventRateLimited {
+		t.Fatalf("got %+v, want the organisation block as a pause", got)
+	}
+	if !got[0].ResetAt.IsZero() || got[0].RetryAfter != OrgBlockedRetryAfter {
+		t.Fatalf("pause = %+v, want the fixed hour and no window", got[0])
 	}
 }

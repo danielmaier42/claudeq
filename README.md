@@ -1332,6 +1332,13 @@ that.
   `retry_delay_ms` signal, and falls back to 15 minutes when neither is exposed.
   At reset the gate reopens and the blocked task **resumes its session** rather
   than starting over.
+- **An account that may not run at all counts as a limit.** When Claude Code
+  answers that the organisation has disabled Claude subscription access, the
+  account has no allowance rather than a used-up one, so the provider pauses
+  exactly as it does on a limit — and its fallback takes the work. The pause is
+  an hour, because that block lifts through an admin or a billing change, never
+  by waiting a few minutes. The run says so instead of reading as a plain
+  failure.
 - **A fallback provider skips the wait.** If the blocked provider names one (see
   [When the limit is reached](#when-the-limit-is-reached)), its tasks run there
   meanwhile — from the start, since a session belongs to the account that issued

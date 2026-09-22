@@ -25,6 +25,7 @@ type Collector struct {
 	modelReject  bool
 	failed       bool
 	detail       string
+	limitDetail  string // why the pause happened, when it was more than "limit reached"
 	retryAfter   time.Duration
 	resetAt      time.Time
 }
@@ -52,6 +53,9 @@ func (c *Collector) Add(ev Event) {
 		}
 	case EventRateLimited:
 		c.rateLimited = true
+		if ev.Detail != "" && c.limitDetail == "" {
+			c.limitDetail = ev.Detail
+		}
 		if ev.RetryAfter > 0 {
 			c.retryAfter = ev.RetryAfter
 		}
@@ -114,7 +118,7 @@ func (c *Collector) Result(exitCode int) Result {
 		res.Message = c.detailOr(fmt.Sprintf("%s rejected the selected model", c.label()))
 	case c.rateLimited && (!c.completed || c.completedErr):
 		res.Status = store.StatusRateLimited
-		res.Message = "rate limit hit; waiting for reset"
+		res.Message = c.limitDetailOr("rate limit hit; waiting for reset")
 	case c.completed && !c.completedErr && exitCode == 0:
 		res.Status = store.StatusSuccess
 	case c.failed:
@@ -130,6 +134,16 @@ func (c *Collector) Result(exitCode int) Result {
 		res.Message = fmt.Sprintf("run failed (exit %d)", exitCode)
 	}
 	return res
+}
+
+// limitDetailOr is the reason the limit event gave for the pause, or fallback
+// when it gave none. It is kept apart from detail so a pause never borrows the
+// wording of an unrelated failure, and the other way round.
+func (c *Collector) limitDetailOr(fallback string) string {
+	if c.limitDetail != "" {
+		return c.limitDetail
+	}
+	return fallback
 }
 
 func (c *Collector) detailOr(fallback string) string {

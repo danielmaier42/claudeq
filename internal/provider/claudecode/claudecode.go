@@ -143,10 +143,32 @@ func (a *Adapter) NewParser() provider.Parser { return &parser{} }
 // details. The parser therefore remembers the timing it has seen and, once a
 // rate limit is known, re-reports it whenever a later line refines it.
 type parser struct {
-	retryAfter   time.Duration
-	resetAt      time.Time
-	sawRateLimit bool
+	retryAfter time.Duration
+	resetAt    time.Time
+	sawPause   bool // a pause of some kind was reported, so refined timing is news
+	sawLimit   bool // the CLI reported a limit of its own, so its timing is about one
+	orgBlocked bool
 }
+
+// The CLI's own names for the organisation block: the account is logged in, but
+// its organisation does not allow a Claude subscription to drive Claude Code, so
+// every request is refused (as a 401 or a 403) before any work happens. The
+// error field carries the first name, the result envelope the second.
+const (
+	orgBlockedError = "oauth_org_not_allowed"
+	orgBlockedCode  = "oauth_not_allowed_for_organization"
+)
+
+// OrgBlockedRetryAfter is how long an organisation block pauses the instance.
+// The refusal names no window of its own, and the block lifts when an admin or
+// a billing change lifts it — never on its own in the next few minutes — so the
+// usual blind backoff would only burn a run every quarter of an hour.
+const OrgBlockedRetryAfter = time.Hour
+
+// orgBlockedDetail is what the run says happened, in place of the generic rate
+// limit message: the account is not out of allowance, it has none.
+const orgBlockedDetail = "this organisation has disabled Claude subscription access for Claude Code; " +
+	"the provider is paused like a rate limit until an admin enables it"
 
 // streamEvent covers the fields claudeq reads from the CLI's stream-json lines:
 // the final `result` envelope, intermediate `api_retry` system events, and
@@ -155,6 +177,7 @@ type streamEvent struct {
 	Type           string         `json:"type"`
 	IsError        bool           `json:"is_error"`
 	APIErrorStatus *int           `json:"api_error_status"`
+	APIErrorCode   string         `json:"api_error_code"`
 	ErrorStatus    *int           `json:"error_status"`
 	Error          string         `json:"error"`
 	RetryDelayMS   *int           `json:"retry_delay_ms"`
@@ -204,7 +227,13 @@ func (p *parser) Parse(line []byte) []provider.Event {
 	}
 	limited := p.isRateLimited(ev)
 	if limited {
-		p.sawRateLimit = true
+		p.sawLimit = true
+	}
+	if p.isOrgBlocked(ev) {
+		limited, p.orgBlocked = true, true
+	}
+	if limited {
+		p.sawPause = true
 	}
 
 	var out []provider.Event
@@ -218,12 +247,24 @@ func (p *parser) Parse(line []byte) []provider.Event {
 	// line names the window of a limit already reported — otherwise a reset time
 	// that arrives after the rejection would be lost and the engine would fall
 	// back to a blind backoff.
-	if limited || (newTiming && p.sawRateLimit) {
-		out = append(out, provider.Event{
+	if limited || (newTiming && p.sawPause) {
+		pause := provider.Event{
 			Type:       provider.EventRateLimited,
 			RetryAfter: p.retryAfter,
 			ResetAt:    p.resetAt,
-		})
+		}
+		if p.orgBlocked {
+			pause.Detail = orgBlockedDetail
+			// The block names no window of its own, and the timing the CLI
+			// mentions describes the allowance window — the right thing to wait
+			// for only when it actually reported a limit. Otherwise the fixed
+			// hour stands, so a one-second backoff from some transient API error
+			// cannot turn this pause into a retry loop.
+			if !p.sawLimit {
+				pause.RetryAfter, pause.ResetAt = OrgBlockedRetryAfter, time.Time{}
+			}
+		}
+		out = append(out, pause)
 	}
 	if ev.Type == "result" {
 		m := &provider.Metrics{CostUSD: ev.TotalCostUSD, NumTurns: ev.NumTurns, DurationMS: ev.DurationMS}
@@ -253,7 +294,24 @@ func (p *parser) isRateLimited(ev streamEvent) bool {
 	return ev.RateLimitInfo != nil && ev.RateLimitInfo.Status == "rejected"
 }
 
+// isOrgBlocked reports the organisation block. It is deliberately not an
+// authentication failure: nobody can log in differently to fix it, and failing
+// the task would waste the night on a queue whose account simply has no
+// allowance to spend. Treating it as a limit is what pauses this provider and
+// hands its work to the fallback, which is exactly the right answer.
+func (p *parser) isOrgBlocked(ev streamEvent) bool {
+	return ev.APIErrorCode == orgBlockedCode || ev.Error == orgBlockedError
+}
+
 func (p *parser) isAuthFailure(ev streamEvent) bool {
+	// The organisation block arrives as a 401 or a 403, depending on how the CLI
+	// got the refusal, and it is not a login problem: the credentials are fine,
+	// the organisation is not. Reading it as one would outrank the pause in the
+	// collector — retiring the task, skipping the fallback, and telling the
+	// operator to log in again for something no login can fix.
+	if p.isOrgBlocked(ev) {
+		return false
+	}
 	if ev.Error == "authentication_failed" {
 		return true
 	}
