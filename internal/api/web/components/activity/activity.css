@@ -19,9 +19,5 @@
 .eye-btn { background:none; border:none; padding:2px; cursor:pointer; color:var(--fg2); line-height:0; }
 .eye-btn:hover { color:var(--accent); }
 .eye-btn svg { width:18px; height:18px; stroke:currentColor; stroke-width:1.7; fill:none; }
-.date-in { font:inherit; font-size:12px; padding:4px 8px; border:.5px solid var(--hairline); border-radius:7px;
-  background:var(--card-2); color:var(--fg); }
-.date-sep { color:var(--fg2); font-size:12px; padding:0 1px; }
-.date-range { display:flex; align-items:center; gap:6px; }
 .act-foot { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 4px 2px; }
 .act-foot .pager { display:flex; gap:6px; }

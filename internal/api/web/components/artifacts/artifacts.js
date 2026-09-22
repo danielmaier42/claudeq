@@ -3,12 +3,12 @@ import {canContinue, showLog} from '../log-sheet/log-sheet.js';
 import {setConn} from '../status/status.js';
 import {api} from '../../core/api.js';
 import {confirmSheetAsk} from '../../core/confirm.js';
-import {$, el, emptyState, esc} from '../../core/dom.js';
-import {exactTime, relTime} from '../../core/format.js';
+import {$, dateRange, el, emptyState, esc} from '../../core/dom.js';
+import {exactTime, inDateRange, relTime} from '../../core/format.js';
 import {EYE} from '../../core/icons.js';
 import {toast} from '../../core/toast.js';
 
-let artifactsSig='', artPage=0; const ART_PAGE=25;
+let artifactsSig='', artFrom='', artTo='', artPage=0; const ART_PAGE=25;
 const fmtBytes=n=>{ n=n||0; if(n<1024)return n+' B'; if(n<1048576)return (n/1024).toFixed(1)+' KB'; if(n<1073741824)return (n/1048576).toFixed(1)+' MB'; return (n/1073741824).toFixed(1)+' GB'; };
 function artifactKind(ct){ ct=(ct||'').toLowerCase();
   if(ct.includes('pdf'))return 'pdf';
@@ -40,14 +40,16 @@ async function openArtifactRun(a){
 async function loadArtifacts(){
   let arts; try{ arts=await api('GET','/api/artifacts'); setConn(true);}catch(e){ setConn(false); return; }
   const unread=arts.filter(a=>a.unread).length; const badge=$('#artifactCount'); badge.hidden=unread===0; badge.textContent=unread;
-  const pages=Math.max(1,Math.ceil(arts.length/ART_PAGE));
+  const filtered=arts.filter(a=>inDateRange(a.published_at,artFrom,artTo));
+  const pages=Math.max(1,Math.ceil(filtered.length/ART_PAGE));
   if(artPage>pages-1) artPage=pages-1; if(artPage<0) artPage=0;
-  const pageArts=arts.slice(artPage*ART_PAGE, artPage*ART_PAGE+ART_PAGE);
-  const sig=JSON.stringify([artPage,arts.length,pageArts.map(a=>[a.id,a.unread,a.title])]);
+  const pageArts=filtered.slice(artPage*ART_PAGE, artPage*ART_PAGE+ART_PAGE);
+  const sig=JSON.stringify([artFrom,artTo,artPage,filtered.length,pageArts.map(a=>[a.id,a.unread,a.title])]);
   if(sig===artifactsSig && $('#artifacts').childElementCount) return;   // avoid flicker on poll
   artifactsSig=sig;
   const c=$('#artifacts'); c.innerHTML='';
   if(!arts.length){ c.append(emptyState('No artifacts yet','Files your tasks publish with “claudeq publish” appear here — reports, exports, HTML pages, PDFs.')); return; }
+  if(!filtered.length){ c.append(emptyState('No artifacts in this range','Adjust the date filter to see artifacts.')); return; }
   const list=el('div','act-list');
   pageArts.forEach(a=>{
     const line=el('div','act-line');
@@ -83,8 +85,9 @@ async function loadArtifacts(){
 
   // Footer: count + pager, as in Activity (newest first, so "Newer" goes to
   // lower page indices).
+  const inRange=(artFrom||artTo)?' in range':'';
   const foot=el('div','act-foot');
-  foot.append(el('span','sub',`${arts.length} artifact${arts.length!==1?'s':''} · page ${artPage+1} of ${pages}`));
+  foot.append(el('span','sub',`${filtered.length} artifact${filtered.length!==1?'s':''}${inRange} · page ${artPage+1} of ${pages}`));
   const pager=el('div','pager');
   const prev=el('button','btn small','‹ Newer'); prev.disabled=artPage<=0; prev.onclick=()=>{artPage--;artifactsSig='';loadArtifacts();};
   const next=el('button','btn small','Older ›'); next.disabled=artPage>=pages-1; next.onclick=()=>{artPage++;artifactsSig='';loadArtifacts();};
@@ -161,6 +164,11 @@ export function initViewer(){
   $('#viewerContinueBtn').onclick=continueArtifactRun;
   $('#viewerDoneBtn').onclick=()=>$('#viewerSheet').close();
 }
+// Drop the day filter, in the state and in the two date fields the toolbar
+// shows: the toolbar is built once per view switch, so clearing the state alone
+// would leave the old dates standing in it.
+function clearDateFilter(){ artFrom=''; artTo='';
+  document.querySelectorAll('#toolbarActions .date-in').forEach(i=>i.value=''); }
 // Open one artifact by id. This is what a click on a "new artifact"
 // notification ends up calling (the app window pushes the id in from
 // cqOpenPendingArtifact): show the Artifacts view, then open the artifact in
@@ -168,13 +176,15 @@ export function initViewer(){
 window.cqOpenArtifact=async function(id){
   select('artifacts');
   let arts; try{ arts=await api('GET','/api/artifacts'); }catch(e){ toast(e.message,'err'); return; }
-  const i=arts.findIndex(x=>x.id===id);
-  if(i<0){ toast('That artifact is no longer available','err'); return; }
-  // Land on the page that holds it, so closing the viewer leaves the artifact
-  // in the list instead of on a page it is not on.
-  const page=Math.floor(i/ART_PAGE);
-  if(page!==artPage){ artPage=page; artifactsSig=''; loadArtifacts(); }
-  openViewer(arts[i]);
+  const a=arts.find(x=>x.id===id);
+  if(!a){ toast('That artifact is no longer available','err'); return; }
+  // Land on the artifact, so closing the viewer leaves it in the list instead
+  // of on a page it is not on: a date filter that hides it is dropped, and the
+  // list moves to the page that holds it.
+  if(!inDateRange(a.published_at,artFrom,artTo)) clearDateFilter();
+  artPage=Math.floor(arts.filter(x=>inDateRange(x.published_at,artFrom,artTo)).indexOf(a)/ART_PAGE);
+  artifactsSig=''; loadArtifacts();
+  openViewer(a);
 };
 async function readArtifact(id){ try{ await api('POST','/api/artifacts/'+encodeURIComponent(id)+'/read'); }catch{} artifactsSig=''; loadArtifacts(); }
 async function markAllArtifactsRead(){ try{ await api('POST','/api/artifacts/read-all'); toast('All marked read','ok'); artifactsSig=''; loadArtifacts();}catch(e){toast(e.message,'err');} }
@@ -182,7 +192,12 @@ async function deleteArtifact(a){ if(await confirmSheetAsk('Delete artifact “'
 
 export const view={
   title:'Artifacts',
-  toolbar(ta){ const b=el('button','btn',EYE+'<span>Mark all read</span>'); b.onclick=markAllArtifactsRead; ta.append(b); },
+  toolbar(ta){
+    ta.append(dateRange(artFrom,artTo,
+      v=>{artFrom=v;artPage=0;artifactsSig='';loadArtifacts();},
+      v=>{artTo=v;artPage=0;artifactsSig='';loadArtifacts();}));
+    const b=el('button','btn',EYE+'<span>Mark all read</span>'); b.onclick=markAllArtifactsRead; ta.append(b);
+  },
   enter(){ loadArtifacts(); },
 };
 

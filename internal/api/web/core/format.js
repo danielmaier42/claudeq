@@ -2,6 +2,12 @@ import {LIMITED_UNTIL} from '../components/status/status.js';
 import {$} from './dom.js';
 
 export function pad2(n){ return String(n).padStart(2,'0'); }
+// The local calendar day of a timestamp, in the form an <input type=date>
+// carries — the value a from–to day filter compares against.
+export function localDate(iso){ const d=new Date(iso); return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
+// Whether a timestamp falls inside a from–to day filter; an empty end is open.
+export function inDateRange(iso,from,to){ const d=localDate(iso);
+  if(from && d<from) return false; if(to && d>to) return false; return true; }
 export function baseName(p){ const parts=String(p).replace(/\/+$/,'').split('/').filter(Boolean); return parts.length?parts[parts.length-1]:p; }
 export function relTime(iso){ const d=new Date(iso), s=(Date.now()-d)/1000, a=Math.abs(s), fut=s<0;
   const f=(n,u)=> fut ? ('in '+n+' '+u) : (n+' '+u+' ago');
