@@ -13,6 +13,7 @@ let taskMode='add', taskEditId='';
 function toLocalDT(iso){ const d=new Date(iso); return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate())+'T'+pad2(d.getHours())+':'+pad2(d.getMinutes()); }
 function prefillTask(t){
   $('#f-name').value=t.name||''; $('#f-prompt').value=t.prompt||''; $('#f-dir').value=t.working_dir||'';
+  setKind(t.kind||'agent');
   $('#f-parallel').checked=!!t.parallel; $('#f-skip').checked=(t.permissions==='skip'); $('#f-notify').checked=!!t.notify_on_result;
   $('#f-quiet').checked=!!t.quiet_history;
   fillProviderChoices(t.provider||'', t.model||'', t.reasoning_effort||'');
@@ -78,11 +79,12 @@ function openSheet(title,submitLabel,fresh){ $('#addErr').textContent=''; $('#f-
   $('#f-provider-hint').hidden=true; $('#f-provider-hint').textContent='';
   clearTimeout(cronTimer); cronVerdict.expr=null; showCronStatus(null); cronRecheck();
   $('#addSheetTitle').textContent=title; $('#addSubmitBtn').textContent=submitLabel; $('#addSheet').showModal();
-  if(fresh) taskReview.run(); else taskReview.restore(); }   // a new review is worth Claude usage only when the prompt is new or changed
+  if(scriptMode()) taskReview.reset(); else if(fresh) taskReview.run(); else taskReview.restore(); }   // a new review is worth Claude usage only when the prompt is new or changed
 export function openAdd(){ taskMode='add'; taskEditId='';
   ['f-name','f-prompt','f-dir','f-at','f-cron'].forEach(x=>$('#'+x).value='');
   $('#f-dir').value=DEFAULT_WORKING_DIR;
   $('#f-parallel').checked=false; $('#f-skip').checked=false; $('#f-notify').checked=false; $('#f-quiet').checked=false; setSeg('asap');
+  setKind('agent');
   fillProviderChoices('','','');
   openSheet('New task','Add task'); }
 export async function openEdit(t){ taskMode='edit'; taskEditId=t.id;
@@ -93,6 +95,26 @@ export async function openEdit(t){ taskMode='edit'; taskEditId=t.id;
   try{ const all=await api('GET','/api/tasks'); const fresh=(all||[]).find(x=>x.id===t.id); if(fresh) t=fresh; }catch(e){}
   prefillTask(t); openSheet('Edit task','Save changes'); }
 export function openReplay(t){ if(!t){ toast('No saved definition to replay','err'); return; } taskMode='add'; taskEditId=''; prefillTask(t); openSheet('Replay task','Schedule again'); }
+// setKind switches the sheet between the two job types. A script job has no
+// provider, model, reasoning effort or permission grant — showing those fields
+// would offer settings that are refused on save — and its text is a program, so
+// the prompt review has nothing to say about it.
+function setKind(v){
+  const kind=v==='script'?'script':'agent', script=kind==='script';
+  $('#f-kind').querySelectorAll('button').forEach(b=>b.classList.toggle('active',b.dataset.v===kind));
+  $('#f-kind').dataset.value=kind;
+  $('#f-kind-hint').hidden=!script;
+  $('#f-prompt-label').textContent=script?'Script':'Prompt';
+  $('#f-prompt').placeholder=script?'#!/bin/zsh\n\ncurl -s …':'What should Claude do?';
+  $('#f-provider-row').hidden=script;
+  $('#f-skip-row').hidden=script;
+  // reset(), not merely hiding the banner: a review armed by the last keystroke
+  // would otherwise still fire and spend usage on a script.
+  if(script){ $('#f-skip').checked=false; if(taskReview) taskReview.reset(); }
+}
+// scriptMode reports what the sheet is currently editing.
+function scriptMode(){ return $('#f-kind').dataset.value==='script'; }
+
 function setSeg(v){ $('#f-trigger').querySelectorAll('button').forEach(b=>b.classList.toggle('active',b.dataset.v===v));
   $('#f-trigger').dataset.value=v; $('#f-at-wrap').hidden=v!=='fixed'; $('#f-cron-wrap').hidden=v!=='cron';
   if(v==='cron') cronRecheck(); }
@@ -136,14 +158,19 @@ async function cronRecheck(){
 async function submitTask(){
   $('#addErr').textContent='';
   const trig=$('#f-trigger').dataset.value||'asap';
-  const t={name:$('#f-name').value.trim(),prompt:$('#f-prompt').value,
+  const script=scriptMode();
+  const t={name:$('#f-name').value.trim(),kind:script?'script':undefined,prompt:$('#f-prompt').value,
     working_dir:$('#f-dir').value.trim(),trigger:trig,
     fixed_at: trig==='fixed'&&$('#f-at').value?new Date($('#f-at').value).toISOString():undefined,
-    cron: trig==='cron'?$('#f-cron').value.trim():undefined, model:$('#f-model').value||undefined,
-    parallel:$('#f-parallel').checked, enabled:true, permissions:$('#f-skip').checked?'skip':'default',
+    cron: trig==='cron'?$('#f-cron').value.trim():undefined,
+    parallel:$('#f-parallel').checked, enabled:true,
     notify_on_result:$('#f-notify').checked, quiet_history:$('#f-quiet').checked,
-    provider:$('#f-provider').value||undefined,
-    reasoning_effort:$('#f-reasoning-wrap').hidden?undefined:($('#f-reasoning').value||undefined)};
+    // What only an agent job has is left off entirely for a script, rather than
+    // sent empty: the daemon refuses a script that names any of it.
+    model:script?undefined:($('#f-model').value||undefined),
+    permissions:script?'default':($('#f-skip').checked?'skip':'default'),
+    provider:script?undefined:($('#f-provider').value||undefined),
+    reasoning_effort:(script||$('#f-reasoning-wrap').hidden)?undefined:($('#f-reasoning').value||undefined)};
   if(!t.working_dir){ $('#addErr').textContent='Please choose a working directory.'; return; }
   if(trig==='cron'){
     // The reason stays on the field itself — repeating it at the footer would say
@@ -198,6 +225,7 @@ function initImport(){
 
 export function initTaskSheet(){
   $('#f-trigger').querySelectorAll('button').forEach(b=>b.onclick=()=>setSeg(b.dataset.v));
+  $('#f-kind').querySelectorAll('button').forEach(b=>b.onclick=()=>{ setKind(b.dataset.v); if(!scriptMode()) taskReview.restore(); });
   $('#f-cron').oninput=()=>{ clearTimeout(cronTimer); cronTimer=setTimeout(cronRecheck,250); };
   $('#f-dir-btn').onclick=chooseFolder;
   $('#addCancelBtn').onclick=()=>$('#addSheet').close();
@@ -211,7 +239,13 @@ const sheetTemplate = `
   <div class="sheet-hd"><b id="addSheetTitle">New task</b></div>
   <div class="sheet-bd">
     <label class="fld">Name</label><input type="text" id="f-name" placeholder="Nightly build">
-    <label class="fld">Prompt</label><textarea id="f-prompt" rows="10" placeholder="What should Claude do?"></textarea>
+    <label class="fld">Job type</label>
+    <div class="seg" id="f-kind">
+      <button data-v="agent" class="active">Agent</button>
+      <button data-v="script">Script</button>
+    </div>
+    <div class="hint" id="f-kind-hint" hidden>Runs without a model: no provider, no usage, and a rate limit never holds it up. Start it with a shebang (<span class="mono">#!/bin/zsh</span>, <span class="mono">#!/usr/bin/env python3</span>) to pick the interpreter, or leave it out for <span class="mono">/bin/sh</span>. It runs in the working directory below and can queue agent jobs with <span class="mono">"$CLAUDEQ_BIN" queue --prompt …</span>.</div>
+    <label class="fld" id="f-prompt-label">Prompt</label><textarea id="f-prompt" rows="10" placeholder="What should Claude do?"></textarea>
     <div class="ai-banner" id="f-review" hidden></div>
     <label class="fld">Working directory</label>
     <div class="dir-row"><input type="text" id="f-dir" placeholder="Choose a folder…" readonly>
@@ -234,7 +268,7 @@ const sheetTemplate = `
         <span data-tip="Day of the week (0–6, Sunday = 0). '*' = any day, '1-5' = Mon–Fri, '0,6' = weekends.">weekday</span>
         — <span class="mono">0 20 * * *</span> = daily at 20:00. Hover a field for details.</div>
     </div>
-    <div class="form-row">
+    <div class="form-row" id="f-provider-row">
       <div><label class="fld">Provider</label><select id="f-provider"></select>
         <div class="hint" id="f-provider-hint" hidden style="color:var(--danger)"></div></div>
       <div><label class="fld">Model</label><select id="f-model"></select></div>
@@ -243,7 +277,7 @@ const sheetTemplate = `
     <div class="group" style="margin-top:14px">
       <div class="row"><div class="grow"><div class="title">Run in parallel</div><div class="sub">May run alongside other parallel tasks</div></div>
         <label class="switch"><input type="checkbox" id="f-parallel"><span class="sl"></span></label></div>
-      <div class="row"><div class="grow"><div class="title">Skip permission prompts</div><div class="sub">Needed for unattended writes</div></div>
+      <div class="row" id="f-skip-row"><div class="grow"><div class="title">Skip permission prompts</div><div class="sub">Needed for unattended writes</div></div>
         <label class="switch"><input type="checkbox" id="f-skip"><span class="sl"></span></label></div>
       <div class="row"><div class="grow"><div class="title">Notify me with the result</div><div class="sub">Send outcome + last message when it finishes</div></div>
         <label class="switch"><input type="checkbox" id="f-notify"><span class="sl"></span></label></div>

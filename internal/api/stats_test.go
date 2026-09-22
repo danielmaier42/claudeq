@@ -106,3 +106,28 @@ func TestStatsKeepRunsFromBeforeProvidersWereRecorded(t *testing.T) {
 		t.Fatalf("buckets = %+v, want the unrecorded run's cost kept", s.ByProvider)
 	}
 }
+
+func TestStatsLeaveScriptRunsOutOfTheProviderSplit(t *testing.T) {
+	now := time.Date(2026, 9, 22, 12, 0, 0, 0, time.UTC)
+	runs := []store.Run{
+		{RunID: "1", Status: store.StatusSuccess, StartedAt: now,
+			Provider: store.RunProvider{ID: "claude", Name: "Claude Code"}},
+		{RunID: "2", Status: store.StatusSuccess, StartedAt: now,
+			Provider: store.RunProvider{ID: "codex", Name: "Codex"}},
+		// A script run spends no allowance, so it belongs to no account.
+		{RunID: "3", Status: store.StatusSuccess, StartedAt: now,
+			Provider: store.RunProvider{Kind: store.ScriptRunKind, Name: "Script"}},
+	}
+	s := computeStats(runs, now)
+	if s.Totals.Runs != 3 {
+		t.Fatalf("total runs = %d, want every run counted", s.Totals.Runs)
+	}
+	if len(s.ByProvider) != 2 {
+		t.Fatalf("by-provider rows = %+v, want only the two accounts", s.ByProvider)
+	}
+	for _, b := range s.ByProvider {
+		if b.Name == "Script" {
+			t.Fatal("a script run must not appear as a provider")
+		}
+	}
+}

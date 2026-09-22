@@ -82,18 +82,36 @@ func printTask(t task.Task) {
 	}
 	fmt.Printf("id:                %s\n", t.ID)
 	fmt.Printf("name:              %s\n", t.Name)
+	fmt.Printf("kind:              %s\n", kindOf(t))
 	fmt.Printf("enabled:           %t\n", t.Enabled)
 	fmt.Printf("trigger:           %s\n", strings.TrimSpace(string(t.Trigger)+" "+triggerWhen(t)))
 	fmt.Printf("working_dir:       %s\n", t.WorkingDir)
 	fmt.Printf("group:             %s\n", orDefault(t.Group, "(ungrouped)"))
 	fmt.Printf("parallel:          %t\n", t.Parallel)
-	fmt.Printf("provider:          %s\n", orDefault(t.Provider, "(the default provider)"))
-	fmt.Printf("model:             %s\n", model)
-	fmt.Printf("reasoning_effort:  %s\n", orDefault(t.ReasoningEffort, "(the provider's own)"))
-	fmt.Printf("permissions:       %s\n", t.Permissions)
+	// A script job has none of these, and printing them as "(the default
+	// provider)" would suggest it runs on one.
+	if !t.IsScript() {
+		fmt.Printf("provider:          %s\n", orDefault(t.Provider, "(the default provider)"))
+		fmt.Printf("model:             %s\n", model)
+		fmt.Printf("reasoning_effort:  %s\n", orDefault(t.ReasoningEffort, "(the provider's own)"))
+		fmt.Printf("permissions:       %s\n", t.Permissions)
+	}
 	fmt.Printf("notify_on_result:  %t\n", t.NotifyOnResult)
 	fmt.Printf("quiet_history:     %t\n", t.QuietHistory)
-	fmt.Printf("\nprompt:\n%s\n", t.Prompt)
+	body := "prompt"
+	if t.IsScript() {
+		body = "script"
+	}
+	fmt.Printf("\n%s:\n%s\n", body, t.Prompt)
+}
+
+// kindOf names a task's kind for display, spelling out the default that an
+// empty value stands for.
+func kindOf(t task.Task) string {
+	if t.IsScript() {
+		return string(task.KindScript)
+	}
+	return string(task.KindAgent)
 }
 
 func printJSON(v any) error {
@@ -119,10 +137,17 @@ func cmdEdit(st *store.Store, args []string) error {
 	}
 	// Only a move to another provider is checked; every other edit goes through
 	// whatever state the current provider is in, because that edit may be how the
-	// operator is fixing it.
+	// operator is fixing it. A job that is (or becomes) a script has no provider
+	// to check — the edit is refused by validation instead.
 	if patch.has("provider") {
-		if err := ensureRunnable(st, patch.provider); err != nil {
+		cur, err := findTask(st, id)
+		if err != nil {
 			return err
+		}
+		if patch.targetKind(cur.Kind) != task.KindScript {
+			if err := ensureRunnable(st, patch.provider); err != nil {
+				return err
+			}
 		}
 	}
 	if err := app.EditTask(st, id, func(t *task.Task) error {
@@ -147,6 +172,7 @@ func cmdEdit(st *store.Store, args []string) error {
 // (see passedFlags), so an explicit --parallel=false still overrides an
 // existing or inherited true.
 type taskSettings struct {
+	kind         string
 	group        string
 	provider     string
 	model        string
@@ -160,6 +186,7 @@ type taskSettings struct {
 // register declares the setting flags on fs. dflt names what applies when a
 // flag is left out, e.g. "inherited" for queue; it is appended to each help.
 func (s *taskSettings) register(fs *flag.FlagSet, dflt string) {
+	fs.StringVar(&s.kind, "kind", "", "agent (a prompt for a model) or script (a program, run without a model) (default: "+dflt+")")
 	fs.StringVar(&s.group, "group", "", "queue group to file the task under; empty = ungrouped (default: "+dflt+")")
 	fs.StringVar(&s.provider, "provider", "", "provider instance to run on; empty = the default provider (default: "+dflt+")")
 	fs.StringVar(&s.model, "model", "", "model override; empty = the provider's default model (default: "+dflt+")")
@@ -172,6 +199,19 @@ func (s *taskSettings) register(fs *flag.FlagSet, dflt string) {
 
 // apply copies onto t every setting whose flag was passed, per has.
 func (s taskSettings) apply(t *task.Task, has func(string) bool) {
+	// Turning a job into a script drops what only a model has. The alternative
+	// is refusing the edit over a provider the job no longer uses, which would
+	// make `--kind script` fail on every task that ever named one.
+	if has("kind") {
+		t.Kind = task.Kind(s.kind)
+		if t.Kind == task.KindAgent {
+			t.Kind = "" // the default is stored as absent
+		}
+		if t.IsScript() {
+			t.Provider, t.Model, t.ReasoningEffort = "", "", ""
+			t.Permissions = task.PermissionsDefault
+		}
+	}
 	// Changing the provider without naming a model drops the old provider's
 	// model, so the new provider's own default applies (the resolution table in
 	// internal/provider). Carrying a Claude model into another harness would
@@ -237,6 +277,15 @@ type taskPatch struct {
 }
 
 func (p taskPatch) has(name string) bool { return p.set[name] }
+
+// targetKind is the kind the task has once the patch is applied: the one the
+// patch names, or the one it already had.
+func (p taskPatch) targetKind(current task.Kind) task.Kind {
+	if p.has("kind") {
+		return task.Kind(p.kind)
+	}
+	return current
+}
 
 // parseTaskPatch parses the edit flags. readFile resolves --prompt-file; it is
 // injected so the parsing stays testable without touching the filesystem.
@@ -345,6 +394,7 @@ func readPromptFile(path string) ([]byte, error) {
 type taskDoc struct {
 	ID              string `toml:"id"`
 	Name            string `toml:"name"`
+	Kind            string `toml:"kind"`
 	Enabled         bool   `toml:"enabled"`
 	WorkingDir      string `toml:"working_dir"`
 	Group           string `toml:"group"`
@@ -365,6 +415,9 @@ const taskDocHeader = `# claudeq task — edit, save, and close this file to app
 # Leaving it unchanged (or emptying it) cancels the edit.
 #
 #   id                 read-only; changing it is rejected
+#   kind               agent (a prompt for a model) | script (a program, no model)
+#                      a script job has no provider, model, reasoning_effort or
+#                      permissions: leave them empty
 #   group              queue group; empty means the task is ungrouped
 #   trigger            asap | fixed | cron
 #   fixed_at           RFC3339 start time, for trigger = "fixed"
@@ -378,7 +431,7 @@ const taskDocHeader = `# claudeq task — edit, save, and close this file to app
 
 func encodeTaskDoc(t task.Task) ([]byte, error) {
 	d := taskDoc{
-		ID: t.ID, Name: t.Name, Enabled: t.Enabled, WorkingDir: t.WorkingDir, Group: t.Group,
+		ID: t.ID, Name: t.Name, Kind: kindOf(t), Enabled: t.Enabled, WorkingDir: t.WorkingDir, Group: t.Group,
 		Trigger: string(t.Trigger), Cron: t.Cron, Parallel: t.Parallel,
 		Provider: t.Provider, Model: t.Model, ReasoningEffort: t.ReasoningEffort,
 		Permissions:    string(t.Permissions),
@@ -409,7 +462,7 @@ func decodeTaskDoc(data []byte, orig task.Task) (task.Task, error) {
 		return task.Task{}, fmt.Errorf("task id cannot be changed (%q -> %q)", orig.ID, d.ID)
 	}
 	t := task.Task{
-		ID: d.ID, Name: d.Name, Prompt: d.Prompt, WorkingDir: d.WorkingDir,
+		ID: d.ID, Name: d.Name, Kind: task.Kind(d.Kind), Prompt: d.Prompt, WorkingDir: d.WorkingDir,
 		Group:   strings.TrimSpace(d.Group),
 		Trigger: task.Trigger(d.Trigger), Cron: d.Cron, Parallel: d.Parallel,
 		Enabled: d.Enabled, Provider: d.Provider, Model: d.Model, ReasoningEffort: d.ReasoningEffort,
@@ -418,6 +471,9 @@ func decodeTaskDoc(data []byte, orig task.Task) (task.Task, error) {
 	}
 	if t.Permissions == "" {
 		t.Permissions = task.PermissionsDefault
+	}
+	if t.Kind == task.KindAgent {
+		t.Kind = "" // the default is stored as absent, so the file stays as it was
 	}
 	if t.Name == "" {
 		t.Name = t.ID

@@ -158,6 +158,10 @@ export function makeReview({kind,area,banner,dir}){
 export let taskReview=null;
 export function initTaskReview(){
   taskReview=makeReview({kind:'task',area:$('#f-prompt'),banner:$('#f-review'),dir:()=>$('#f-dir').value.trim()});
-  $('#f-prompt').addEventListener('input',()=>taskReview.schedule());
+  // A script job's text is a program, not a prompt: there is nothing for a model
+  // to judge, and asking would spend usage on the one kind of job that
+  // deliberately spends none. The sheet says which kind is being written.
+  const script=()=>{ const seg=$('#f-kind'); return !!seg && seg.dataset.value==='script'; };
+  $('#f-prompt').addEventListener('input',()=>{ if(script()){ taskReview.reset(); return; } taskReview.schedule(); });
   $('#addSheet').addEventListener('close',()=>taskReview.reset());
 }

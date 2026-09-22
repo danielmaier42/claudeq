@@ -129,7 +129,10 @@ async function replay(r){
 // be noise, and the answer to "which one?" is already "the only one".
 function runProviderText(r){
   const p=r.provider;
-  if(!p||!p.name||PROVIDERS.length<2) return '';
+  if(!p||!p.name) return '';
+  // A script run always says so: that it ran without a model is the one thing
+  // that sets it apart from the agent runs around it.
+  if(p.kind!=='script'&&PROVIDERS.length<2) return '';
   return ' · '+esc(p.name)+(p.model?' <span class="mono">'+esc(p.model)+'</span>':'');
 }
 

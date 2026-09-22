@@ -73,18 +73,22 @@ func computeStats(runs []store.Run, now time.Time) Stats {
 	var order []string
 	for _, r := range runs {
 		add(&s.Totals, r)
-		b, ok := byProvider[r.Provider.ID]
-		if !ok {
-			b = &ProviderBucket{ID: r.Provider.ID, Name: r.Provider.Name}
-			byProvider[r.Provider.ID] = b
-			order = append(order, r.Provider.ID)
+		// A script run went to no account and spent no allowance, so it has no
+		// place in a split that answers "which account did the month go on".
+		if !r.Provider.IsScript() {
+			b, ok := byProvider[r.Provider.ID]
+			if !ok {
+				b = &ProviderBucket{ID: r.Provider.ID, Name: r.Provider.Name}
+				byProvider[r.Provider.ID] = b
+				order = append(order, r.Provider.ID)
+			}
+			// The newest run's name wins, so a renamed provider reads as it is
+			// called now while its id keeps the history together.
+			if r.Provider.Name != "" {
+				b.Name = r.Provider.Name
+			}
+			add(&b.Bucket, r)
 		}
-		// The newest run's name wins, so a renamed provider reads as it is called
-		// now while its id keeps the history together.
-		if r.Provider.Name != "" {
-			b.Name = r.Provider.Name
-		}
-		add(&b.Bucket, r)
 		if !r.StartedAt.Before(weekAgo) {
 			add(&s.Last7d, r)
 		}

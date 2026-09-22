@@ -229,7 +229,7 @@ func (e *Engine) Tick(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if !stillDue || a.err != nil || !health.ready(a.resolved) {
+		if !stillDue || a.err != nil || (!a.task.IsScript() && !health.ready(a.resolved)) {
 			continue
 		}
 		runnable = append(runnable, a.task)
@@ -318,6 +318,14 @@ type assignment struct {
 func (e *Engine) assign(ctx context.Context, set provider.Set, due []task.Task) []assignment {
 	out := make([]assignment, 0, len(due))
 	for _, t := range due {
+		// A script job runs no harness, so there is nothing to resolve and no
+		// allowance it could be waiting for: it goes through even while every
+		// provider sits out a rate limit. That is what lets a watcher keep
+		// watching and file the work for when the limit reopens.
+		if t.IsScript() {
+			out = append(out, assignment{task: t})
+			continue
+		}
 		sel := provider.Selection{ProviderID: t.Provider, Model: t.Model}
 		res, err := set.ResolveAvailable(sel, e.availability(ctx))
 		if err == nil && !e.gateOpen(res.Instance.ID) {
@@ -486,6 +494,9 @@ func (e *Engine) refreshProviderHealth(ctx context.Context, set provider.Set, du
 		st = nil // the memo falls back to memory; a health check is not worth failing a tick over
 	}
 	for _, a := range due {
+		if a.task.IsScript() {
+			continue // no harness behind it, so nothing to probe
+		}
 		known[a.task.Provider] = true // an id no instance answers to is remembered too
 		if a.err != nil {
 			// The instance is gone from the configuration, or switched off. There
@@ -624,14 +635,7 @@ func (e *Engine) launchTask(t task.Task, settings store.Settings, resolved provi
 		ParentRunID: t.ParentRun,
 		// The identity is written down now, while it is true. A provider renamed
 		// or removed tomorrow must not change what this run says it ran on.
-		Provider: store.RunProvider{
-			ID:              resolved.Instance.ID,
-			Kind:            string(resolved.Instance.Kind),
-			Name:            resolved.Instance.Label(),
-			Model:           resolved.Model,
-			ReasoningEffort: t.ReasoningEffort,
-			AccessMode:      string(accessMode(t.Permissions)),
-		},
+		Provider: runProvider(t, resolved),
 	}
 	// Record the start before marking the task active, so a failure here leaves
 	// no task stuck in the running set (which would block the scheduler). A
@@ -662,14 +666,21 @@ func (e *Engine) launchTask(t task.Task, settings store.Settings, resolved provi
 
 	// What the jobs it waited for answered goes in front of its own prompt,
 	// fenced and labelled as data. The task itself is left alone: history keeps
-	// the prompt the operator wrote, not one with a digest baked into it.
-	prompted := t
+	// the prompt the operator wrote, not one with a digest baked into it. A
+	// script is a program, not prose — prepending anything to it would break it,
+	// so the same digest reaches it on standard input instead.
+	prompted, stdin := t, ""
 	if t.IncludeResults && len(deps) > 0 {
-		prompted.Prompt = workflow.Context(deps) + "\n" + t.Prompt
+		if t.IsScript() {
+			stdin = workflow.Context(deps)
+		} else {
+			prompted.Prompt = workflow.Context(deps) + "\n" + t.Prompt
+		}
 	}
 
 	req := executor.Request{
 		Task:               prompted,
+		Stdin:              stdin,
 		WorkflowID:         workflowID,
 		Provider:           resolved.Instance,
 		InheritProvider:    inheritedProvider(resolved),
@@ -697,6 +708,23 @@ func (e *Engine) launchTask(t task.Task, settings store.Settings, resolved provi
 		e.finish(t, resolved.Instance.ID, rec, res, runErr)
 	}()
 	return nil
+}
+
+// runProvider is the execution identity a run records. A script job has none —
+// no account, no model, no authority a harness would ask about — so it records
+// what it was instead, which is what the app shows where the provider goes.
+func runProvider(t task.Task, resolved provider.Resolved) store.RunProvider {
+	if t.IsScript() {
+		return store.RunProvider{Kind: store.ScriptRunKind, Name: "Script"}
+	}
+	return store.RunProvider{
+		ID:              resolved.Instance.ID,
+		Kind:            string(resolved.Instance.Kind),
+		Name:            resolved.Instance.Label(),
+		Model:           resolved.Model,
+		ReasoningEffort: t.ReasoningEffort,
+		AccessMode:      string(accessMode(t.Permissions)),
+	}
 }
 
 // runGuarded runs the request and turns a panic into a failed result instead of
@@ -874,6 +902,11 @@ func writeNote(log io.Writer, message string) {
 // running it a second time when the first provider's window reopens would be
 // worse than losing the conversation.
 func (e *Engine) sessionFor(t task.Task, st *store.State, providerID string) (sessionID string, resume bool, dropped string) {
+	// A script keeps no conversation: there is no session to hand it and none it
+	// could ever be waiting to resume.
+	if t.IsScript() {
+		return "", false, ""
+	}
 	pending, ok := st.PendingResume(t.ID)
 	switch {
 	case !ok:
@@ -1262,10 +1295,14 @@ func (e *Engine) RunTaskNow(ctx context.Context, taskID string) error {
 	}
 	// Probed before the lock, like the scheduler's pass: a manual run reports the
 	// problem to whoever pressed the button instead of filing a failed run, and a
-	// hung CLI must not stall everything else in the meantime.
-	resolved, err := e.resolveRunnable(ctx, providers, st, *target)
-	if err != nil {
-		return err
+	// hung CLI must not stall everything else in the meantime. A script job has
+	// no harness to probe and runs whatever the providers are doing.
+	var resolved provider.Resolved
+	if !target.IsScript() {
+		resolved, err = e.resolveRunnable(ctx, providers, st, *target)
+		if err != nil {
+			return err
+		}
 	}
 
 	// A manual run is the operator overriding the schedule, so it does not wait

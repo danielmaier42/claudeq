@@ -54,6 +54,16 @@ type RunProvider struct {
 	AccessMode string `json:"access_mode,omitempty"`
 }
 
+// ScriptRunKind is what RunProvider.Kind says for the run of a script job: it
+// ran no harness on no account, so there is no provider identity to record —
+// only the fact that it was a script.
+const ScriptRunKind = "script"
+
+// IsScript reports whether the run executed a script rather than an agent
+// harness. Such a run belongs to no provider and spends no allowance, so it is
+// left out of anything that splits work per account.
+func (p RunProvider) IsScript() bool { return p.Kind == ScriptRunKind }
+
 // MaxFinalOutput bounds the answer kept on a run record. History is read whole
 // on every load, so an answer that runs to megabytes would be paid for by every
 // list of runs; past this the text is cut and said to be cut.

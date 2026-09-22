@@ -154,3 +154,76 @@ func TestValidateRejectsBadGroup(t *testing.T) {
 		t.Fatal("expected a validation error for a multi-line group")
 	}
 }
+
+func TestValidateScriptJobs(t *testing.T) {
+	script := func() Task {
+		s := valid()
+		s.Kind = KindScript
+		s.Prompt = "#!/bin/sh\necho hi"
+		return s
+	}
+	t.Run("accepted", func(t *testing.T) {
+		for name, mod := range map[string]func(Task) Task{
+			"plain":   func(s Task) Task { return s },
+			"cron":    func(s Task) Task { s.Trigger = TriggerCron; s.Cron = "*/5 * * * *"; return s },
+			"quiet":   func(s Task) Task { s.QuietHistory = true; return s },
+			"depends": func(s Task) Task { s.DependsOn = []string{"other"}; return s },
+			"results": func(s Task) Task { s.DependsOn = []string{"other"}; s.IncludeResults = true; return s },
+			"explicit kind": func(s Task) Task {
+				s.Kind = KindAgent
+				s.Provider = "claude"
+				return s
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				if err := mod(script()).Validate(); err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			})
+		}
+	})
+
+	// Everything a script job cannot have is refused rather than stored and
+	// silently ignored, so the queue never shows a model on a job that runs none.
+	for name, mod := range map[string]func(Task) Task{
+		"provider":     func(s Task) Task { s.Provider = "claude"; return s },
+		"model":        func(s Task) Task { s.Model = "opus"; return s },
+		"reasoning":    func(s Task) Task { s.ReasoningEffort = "high"; return s },
+		"skip perms":   func(s Task) Task { s.Permissions = PermissionsSkip; return s },
+		"unknown kind": func(s Task) Task { s.Kind = "wizard"; return s },
+		"no script":    func(s Task) Task { s.Prompt = ""; return s },
+	} {
+		t.Run("rejected/"+name, func(t *testing.T) {
+			err := mod(script()).Validate()
+			if !errors.Is(err, ErrInvalidTask) {
+				t.Fatalf("error = %v, want an invalid-task error", err)
+			}
+		})
+	}
+}
+
+func TestScriptJobMissingScriptSaysSo(t *testing.T) {
+	s := valid()
+	s.Kind = KindScript
+	s.Prompt = ""
+	err := s.Validate()
+	if err == nil || !strings.Contains(err.Error(), "missing script") {
+		t.Fatalf("error = %v, want it to name the missing script", err)
+	}
+}
+
+func TestIsScript(t *testing.T) {
+	if valid().IsScript() {
+		t.Fatal("a task without a kind is an agent job")
+	}
+	agent := valid()
+	agent.Kind = KindAgent
+	if agent.IsScript() {
+		t.Fatal("an explicit agent job is not a script")
+	}
+	s := valid()
+	s.Kind = KindScript
+	if !s.IsScript() {
+		t.Fatal("a script job must say so")
+	}
+}

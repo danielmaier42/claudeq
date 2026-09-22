@@ -34,24 +34,30 @@ const usage = `claudeq - control the Claude Code task queue
 Usage:
   claudeq list [--json]
   claudeq show   ID [--json]       (one task in full, prompt included)
-  claudeq add    --id ID --prompt P --dir DIR [--name N] [--trigger asap|fixed|cron]
+  claudeq add    --id ID --prompt P --dir DIR [--name N] [--kind agent|script]
+                 [--trigger asap|fixed|cron]
                  [--at RFC3339] [--cron EXPR] [--provider ID] [--model M]
                  [--reasoning-effort E] [--parallel] [--skip-permissions]
                  [--notify] [--quiet-history]
+                 (--kind script runs --prompt as a program instead of sending it to a
+                 model: no provider, no model, no allowance, never held up by a limit)
   claudeq edit   ID                (open the whole task in $EDITOR)
   claudeq edit   ID [--name N] [--prompt P | --prompt-file PATH] [--dir DIR]
+                 [--kind agent|script]
                  [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR]
                  [--provider ID] [--model M] [--reasoning-effort E]
                  [--parallel=BOOL] [--enabled=BOOL] [--skip-permissions=BOOL]
                  [--notify=BOOL] [--quiet-history=BOOL]  (only the flags you pass are changed)
   claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [--name N]
-                 [--provider ID] [--model M] [--reasoning-effort E]
+                 [--kind agent|script] [--provider ID] [--model M] [--reasoning-effort E]
                  [--parallel=BOOL] [--skip-permissions=BOOL]
                  [--notify=BOOL] [--quiet-history=BOOL]
                  [--depends-on JOBID]... [--include-results] [--json]
                  (queue a follow-up task; settings you do not pass are inherited from
-                 the calling task. --depends-on waits for jobs that already exist,
-                 --include-results puts their answers in front of the prompt)
+                 the calling task, except the kind: a queued job is an agent job
+                 unless --kind script says otherwise. --depends-on waits for jobs that
+                 already exist, --include-results puts their answers in front of the
+                 prompt — or on a script's standard input)
   claudeq publish --file PATH [--title T] [--description D]
                  (publish a file as an artifact; shows up in the Artifacts view)
   claudeq notify --title T --message M [--url U]
@@ -181,10 +187,10 @@ func cmdList(st *store.Store, args []string) error {
 		return nil
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(w, "#\tID\tNAME\tTRIGGER\tWHEN\tPARALLEL\tENABLED")
+	fmt.Fprintln(w, "#\tID\tNAME\tKIND\tTRIGGER\tWHEN\tPARALLEL\tENABLED")
 	for i, t := range cfg.Tasks {
-		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%t\t%t\n",
-			i, t.ID, listName(t.Name), t.Trigger, triggerWhen(t), t.Parallel, t.Enabled)
+		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%t\t%t\n",
+			i, t.ID, listName(t.Name), kindOf(t), t.Trigger, triggerWhen(t), t.Parallel, t.Enabled)
 	}
 	return w.Flush()
 }
@@ -218,7 +224,7 @@ func cmdAdd(st *store.Store, args []string) error {
 	}
 
 	t := task.Task{
-		ID: *id, Name: *name, Prompt: *prompt, WorkingDir: *dir,
+		ID: *id, Name: *name, Kind: task.Kind(s.kind), Prompt: *prompt, WorkingDir: *dir,
 		Trigger: task.Trigger(*trig), Cron: *cronArg, Enabled: true,
 		Provider: s.provider, Model: s.model, ReasoningEffort: s.reasoning,
 		Group:    strings.TrimSpace(s.group),
@@ -241,8 +247,12 @@ func cmdAdd(st *store.Store, args []string) error {
 	if err := t.Validate(); err != nil {
 		return err
 	}
-	if err := ensureRunnable(st, t.Provider); err != nil {
-		return err
+	// A script job runs no harness, so nothing about the providers can stop it
+	// from being filed — which is half the point of having one.
+	if !t.IsScript() {
+		if err := ensureRunnable(st, t.Provider); err != nil {
+			return err
+		}
 	}
 	if err := app.AddTask(st, t); err != nil {
 		return err
@@ -358,8 +368,10 @@ func cmdQueue(st *store.Store, args []string) error {
 		if attempt == 0 {
 			// Checked once per call, not once per id retry: the provider does not
 			// become ready between two attempts a microsecond apart.
-			if err := ensureRunnable(st, t.Provider); err != nil {
-				return err
+			if !t.IsScript() {
+				if err := ensureRunnable(st, t.Provider); err != nil {
+					return err
+				}
 			}
 		}
 		if err := app.AddTask(st, t); err != nil {
@@ -426,6 +438,10 @@ func buildQueuedTask(parentJSON, id string, o queueOpts, now time.Time) (task.Ta
 	t.Prompt = o.prompt
 	t.Name = o.name
 	t.Enabled = true
+	// The kind is not inherited: a script job queues follow-up work precisely
+	// because that work needs a model. `--kind script` still asks for another
+	// script explicitly.
+	t.Kind = ""
 	t.FixedAt = time.Time{}
 	t.Cron = ""
 	t.QuietHistory = false
