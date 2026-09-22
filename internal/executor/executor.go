@@ -86,6 +86,7 @@ The new task inherits this task's provider, model, permissions, parallelism and 
   --skip-permissions=true|false    bypass permission prompts; grant this only when the queued work cannot be done without it
   --notify=true|false              send a notification with the outcome when it finishes
   --quiet-history=true|false       keep its successful runs out of history (off by default, even when this task is quiet)
+  --kind script                    queue a program instead of a prompt: --prompt is then the script itself, run without any model (no provider, no usage, never held up by a rate limit). Use it only for work that is pure plumbing — polling, diffing, shelling out — and never to avoid thinking about something.
 
 Only queue a task when the work genuinely belongs in a separate run; if something should simply be done now, just do it yourself.
 
@@ -234,6 +235,10 @@ type Request struct {
 	// CustomSystemPrompt is the operator's optional system prompt (Settings.
 	// SystemPrompt). It is appended after the built-in prompt; blank means none.
 	CustomSystemPrompt string
+	// Stdin is what a script job reads on standard input — the answers of the
+	// jobs it waited for, when it asked for them. An agent job takes its prompt
+	// from the adapter's invocation instead, and ignores this.
+	Stdin string
 	// IdleTimeout kills the run if it produces no output for this long — a
 	// hung/deadlocked process. Zero disables the watchdog.
 	IdleTimeout time.Duration
@@ -326,6 +331,11 @@ func (e *Executor) runEnv(req Request, adapterEnv []string) []string {
 // harness at all (as opposed to the harness reporting a task failure, which is
 // a Result).
 func (e *Executor) Run(ctx context.Context, req Request) (provider.Result, error) {
+	// A script job has no harness to resolve, no session and no output to
+	// classify — it runs as a program and answers with its exit code.
+	if req.Task.IsScript() {
+		return e.runScript(ctx, req)
+	}
 	ad, err := e.adapterFor(req)
 	if err != nil {
 		return provider.Result{}, err

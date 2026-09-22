@@ -24,6 +24,20 @@ const (
 	TriggerCron Trigger = "cron"
 )
 
+// Kind is what a queued job actually runs.
+type Kind string
+
+const (
+	// KindAgent runs the prompt through an agent harness on a provider. It is
+	// the default: a task that names no kind — every task written before there
+	// was a choice — is an agent job.
+	KindAgent Kind = "agent"
+	// KindScript runs the prompt as a script, deterministically and without any
+	// model. No provider is chosen, no allowance is spent, and a rate limit
+	// never holds it up.
+	KindScript Kind = "script"
+)
+
 // Permissions selects how Claude Code's permission prompts are handled.
 type Permissions string
 
@@ -48,7 +62,12 @@ type Task struct {
 	ID string `toml:"id" json:"id"`
 	// Name is a human-readable label.
 	Name string `toml:"name" json:"name"`
-	// Prompt is the instruction sent to Claude Code.
+	// Kind is what the job runs: an agent harness (the default, and what an
+	// empty value means) or a script. It decides how Prompt is read.
+	Kind Kind `toml:"kind,omitempty" json:"kind,omitempty"`
+	// Prompt is the instruction sent to Claude Code — or, for a script job, the
+	// script itself. One field, because it is the same thing from the queue's
+	// point of view: the text that says what this job does.
 	Prompt string `toml:"prompt" json:"prompt"`
 	// WorkingDir is the directory Claude Code runs in (the task's context).
 	WorkingDir string `toml:"working_dir" json:"working_dir"`
@@ -127,6 +146,10 @@ func PermissionsFor(skip bool) Permissions {
 	return PermissionsDefault
 }
 
+// IsScript reports whether the job runs its prompt as a script instead of
+// handing it to an agent harness.
+func (t Task) IsScript() bool { return t.Kind == KindScript }
+
 // ErrInvalidTask is the base error for validation failures.
 var ErrInvalidTask = errors.New("invalid task")
 
@@ -136,10 +159,18 @@ func (t Task) Validate() error {
 		return fmt.Errorf("%w: missing id", ErrInvalidTask)
 	}
 	if t.Prompt == "" {
-		return fmt.Errorf("%w: missing prompt", ErrInvalidTask)
+		what := "prompt"
+		if t.IsScript() {
+			what = "script"
+		}
+		return fmt.Errorf("%w: missing %s", ErrInvalidTask, what)
 	}
 	if t.WorkingDir == "" {
 		return fmt.Errorf("%w: missing working_dir", ErrInvalidTask)
+	}
+
+	if err := t.checkKind(); err != nil {
+		return err
 	}
 
 	switch t.Trigger {
@@ -182,6 +213,33 @@ func (t Task) Validate() error {
 		}
 	}
 
+	return nil
+}
+
+// checkKind validates the job kind and the settings that only one of the two
+// kinds has. A script runs no model, so anything that picks or steers one — a
+// provider, a model, a reasoning effort, a permission grant a harness would ask
+// for — is refused rather than stored and quietly ignored.
+func (t Task) checkKind() error {
+	switch t.Kind {
+	case "", KindAgent:
+		return nil
+	case KindScript:
+	default:
+		return fmt.Errorf("%w: unknown kind %q", ErrInvalidTask, t.Kind)
+	}
+	for _, f := range []struct{ name, value string }{
+		{"provider", t.Provider},
+		{"model", t.Model},
+		{"reasoning_effort", t.ReasoningEffort},
+	} {
+		if f.value != "" {
+			return fmt.Errorf("%w: a script job runs no model, so it cannot set %s", ErrInvalidTask, f.name)
+		}
+	}
+	if t.Permissions == PermissionsSkip {
+		return fmt.Errorf("%w: a script job runs no model, so it cannot skip permission prompts", ErrInvalidTask)
+	}
 	return nil
 }
 

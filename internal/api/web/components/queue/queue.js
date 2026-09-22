@@ -23,6 +23,7 @@ function cronTip(t){ const l=[];
 // one) and the model that provider will use for it. The task's own id used to
 // stand here, which nobody needs — the row is the task.
 function runsOn(t){
+  if(t.kind==='script') return 'Script';
   const p=PROVIDERS.find(x=>x.id===(t.provider||''))||PROVIDERS.find(x=>x.default);
   const who=p?(p.name||p.id):(t.provider||'default provider');
   const model=modelLabel(t.model||(p&&p.default_model)||'');
@@ -61,7 +62,7 @@ export async function loadTasks(){
   }catch(e){ setConn(false); return; }
   tasks=tasks||[];
   const shown=tasksOnlyActive?tasks.filter(t=>t.enabled):tasks;
-  const sig=JSON.stringify([paused,tasksOnlyActive,tasks.length,LIMITED_UNTIL&&LIMITED_UNTIL.toISOString(),GROUPS,shown.map(t=>[t.id,t.name,t.trigger,t.enabled,t.parallel,t.permissions,t.notify_on_result,t.quiet_history,t.fixed_at,t.cron,t.next_run,t.last_run,t.running,t.waiting_for_limit,t.blocked_reason,t.provider,t.model,t.group||'',(t.waiting_for||[]).join(',')])]);
+  const sig=JSON.stringify([paused,tasksOnlyActive,tasks.length,LIMITED_UNTIL&&LIMITED_UNTIL.toISOString(),GROUPS,shown.map(t=>[t.id,t.name,t.kind||'',t.trigger,t.enabled,t.parallel,t.permissions,t.notify_on_result,t.quiet_history,t.fixed_at,t.cron,t.next_run,t.last_run,t.running,t.waiting_for_limit,t.blocked_reason,t.provider,t.model,t.group||'',(t.waiting_for||[]).join(',')])]);
   if(sig===tasksSig && $('#tasks').childElementCount) return;   // avoid flicker on poll
   tasksSig=sig;
   const c=$('#tasks'); c.innerHTML='';
@@ -133,6 +134,7 @@ function taskRow(t,i,block,tasks,paused){
   const row=el('div','row');
   row.dataset.id=t.id; row.dataset.group=t.group||'';
   const tags=[];
+  if(t.kind==='script') tags.push('<span class="chip" title="Runs as a program, without a model: no provider, no usage, and a rate limit never holds it up">script</span>');
   if(BETA_PROVIDERS.has(t.provider||'')) tags.push('<span class="chip beta" title="This task runs on a provider that is still in beta">beta</span>');
   if(t.blocked_reason) tags.push(`<span class="chip danger" title="${esc(t.blocked_reason+' The task keeps its place and starts by itself once the provider works again.')}">blocked</span>`);
   if(t.waiting_for_limit) tags.push(`<span class="chip warn" title="${esc('The rate limit interrupted this task. Its Claude session '+resumeTimeText(LIMITED_UNTIL)+' — drop the resume in Activity with “Cancel resume”.')}">rescheduled</span>`);

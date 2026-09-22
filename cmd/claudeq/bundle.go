@@ -69,6 +69,12 @@ func exportPath(out, defaultName string) string {
 // may be the wrong employer's. The command says what the file wants and how to
 // answer it, rather than queueing something that cannot run as intended.
 func applyImportProvider(st *store.Store, t *task.Task, hint bundle.ProviderHint, providerOverride, modelOverride string) error {
+	if t.IsScript() {
+		if providerOverride != "" || modelOverride != "" {
+			return fmt.Errorf("this file holds a script job: it runs no model, so --provider and --model do not apply")
+		}
+		return nil
+	}
 	switch {
 	case providerOverride != "":
 		t.Provider = providerOverride
@@ -127,8 +133,10 @@ func cmdImport(st *store.Store, args []string) error {
 		return err
 	}
 	// Whatever the task ended up pointing at still has to be able to run it.
-	if err := ensureRunnable(st, t.Provider); err != nil {
-		return err
+	if !t.IsScript() {
+		if err := ensureRunnable(st, t.Provider); err != nil {
+			return err
+		}
 	}
 	t, err = app.ImportTask(st, t)
 	if err != nil {

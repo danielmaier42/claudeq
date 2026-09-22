@@ -1251,3 +1251,69 @@ func TestContinueRunRefusesAHarnessThatCannot(t *testing.T) {
 		t.Fatalf("continue = %d (%s), want it refused", r.Status, r.Body)
 	}
 }
+
+// scriptTask is a job the daemon runs as a program, with no provider behind it.
+func scriptTask(id string) task.Task {
+	t := sampleTask(id)
+	t.Kind = task.KindScript
+	t.Prompt = "echo hi"
+	return t
+}
+
+func TestScriptTaskIsFiledWithoutAReadyProvider(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	// No harness on this machine: an agent job is refused here, a script job is
+	// not — it needs none.
+	reg := provider.NewRegistry(stubAdapter{health: provider.Health{
+		State: provider.HealthNotInstalled, Reason: "no CLI here",
+	}})
+	srv := httptest.NewServer(Handler(Deps{Store: st, Registry: reg, Providers: provider.NewChecker(reg)}))
+	t.Cleanup(srv.Close)
+
+	if r := do(t, srv, "POST", "/api/tasks", sampleTask("agent")); r.Status != http.StatusBadRequest {
+		t.Fatalf("agent job status = %d, want 400 while the harness is missing", r.Status)
+	}
+	if r := do(t, srv, "POST", "/api/tasks", scriptTask("watch")); r.Status != http.StatusCreated {
+		t.Fatalf("script job status = %d (%s), want 201", r.Status, r.Body)
+	}
+
+	// And it is not reported as blocked by a provider it does not use.
+	var listed []taskView
+	do(t, srv, "GET", "/api/tasks", nil).into(t, &listed)
+	if len(listed) != 1 {
+		t.Fatalf("expected the script job in the queue, got %+v", listed)
+	}
+	if listed[0].BlockedReason != "" {
+		t.Fatalf("blocked reason = %q, want none for a script job", listed[0].BlockedReason)
+	}
+	if !listed[0].IsScript() {
+		t.Fatal("the stored job lost its kind")
+	}
+}
+
+func TestScriptTaskCannotNameAProvider(t *testing.T) {
+	srv, _ := newServer(t, nil)
+	bad := scriptTask("watch")
+	bad.Provider = "claude"
+	if r := do(t, srv, "POST", "/api/tasks", bad); r.Status != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 for a script job with a provider", r.Status)
+	}
+}
+
+func TestTaskBecomesAScriptOnEdit(t *testing.T) {
+	srv, st := newServer(t, nil)
+	if r := do(t, srv, "POST", "/api/tasks", sampleTask("a")); r.Status != http.StatusCreated {
+		t.Fatalf("add status = %d", r.Status)
+	}
+	edited := scriptTask("a")
+	if r := do(t, srv, "PUT", "/api/tasks/a", edited); r.Status != http.StatusOK {
+		t.Fatalf("edit status = %d (%s)", r.Status, r.Body)
+	}
+	cfg, _ := st.LoadConfig()
+	if len(cfg.Tasks) != 1 || !cfg.Tasks[0].IsScript() {
+		t.Fatalf("stored task = %+v, want a script job", cfg.Tasks)
+	}
+}

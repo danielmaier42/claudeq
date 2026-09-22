@@ -43,7 +43,9 @@ workflow engine:
 - **Queue the big refactor at lunch**, let it run after midnight on the fresh
   allowance, and review the branch over coffee.
 - **Run a watcher every fifteen minutes** that checks a feed, a mailbox or a
-  build. Quiet history keeps its successes out of the record; a real change
+  build. Write it as a *script job* and it costs no usage at all, keeps running
+  while the allowance is gone, and queues a real agent job the moment it finds
+  something. Quiet history keeps its successes out of the record; a real change
   reaches your phone as a push notification.
 - **Ask Claude and Codex the same question**, with a third task that waits for
   both and merges the answers into one report.
@@ -74,6 +76,7 @@ workflow engine:
 - [Asking several providers at once](#asking-several-providers-at-once)
 - [Letting a task publish artifacts](#letting-a-task-publish-artifacts)
 - [Letting a task send a notification](#letting-a-task-send-a-notification)
+- [Script jobs](#script-jobs)
 - [Quiet history for frequent jobs](#quiet-history-for-frequent-jobs)
 - [Sharing tasks as files](#sharing-tasks-as-files)
 - [The prompt review](#the-prompt-review)
@@ -108,10 +111,13 @@ ClaudeQ is two pieces that share a file-based store:
 The nightly cycle looks like this:
 
 1. You queue tasks during the day. Each task is a **prompt** plus the **folder**
-   it runs in (its repo/context), with an optional trigger time.
+   it runs in (its repo/context), with an optional trigger time. A task can also
+   be a **script job**, where that text is a program instead of a prompt — see
+   [Script jobs](#script-jobs).
 2. The daemon watches the queue and starts due tasks headless, through the CLI
    of the provider each task names (Claude Code by default), one at a time
-   unless a task is marked parallel.
+   unless a task is marked parallel. A script job is started the same way, but
+   as a program: no provider, no model, no allowance spent.
 3. If a run hits the **rate limit**, ClaudeQ pauses the whole queue and, once the
    limit clears, resumes the *same* Claude session — no work is lost. The pause is
    visible while it lasts: a banner names the time the queue continues, the run is
@@ -168,7 +174,8 @@ echo "$USER ALL=(root) NOPASSWD: /usr/bin/pmset" | sudo tee /etc/sudoers.d/claud
 
 ## Using it
 
-1. **New task** — give it a prompt, pick the working folder (prefilled from
+1. **New task** — give it a prompt, choose the **job type** (*Agent*, the
+   default, or *Script* — see [Script jobs](#script-jobs)), pick the working folder (prefilled from
    **Settings → General → Prefill new tasks with**, if you set one), and choose a trigger
    (as-soon-as-possible, earliest start, or cron; a cron schedule is validated as
    you type, with a preview of its next three runs). Optionally pick the provider
@@ -222,6 +229,9 @@ explains it.
 
 **Tasks that do more**
 
+- **Two kinds of job.** An *agent job* sends its prompt to a model; a *script
+  job* runs it as a program — deterministic, free, and never held up by a rate
+  limit. See [Script jobs](#script-jobs).
 - **Per-task overrides** for provider, model, reasoning effort, permission
   handling, notification and quiet history, layered over global defaults.
 - **Built-in run framing.** Every run is told it is headless and unattended,
@@ -311,9 +321,10 @@ sit at the bottom, out of the way of the work:
   row. A running one-shot task moves to
   Activity; a recurring task stays here with a *running* badge; hovering its
   cron expression shows the next occurrence and when it last ran. Underneath
-  each task sits a badge for every option it has switched on: *parallel*,
-  *granted* (orange, the task skips permission prompts), *notifies* (blue), and
-  *silent* (quiet history). A task the rate limit interrupted carries a
+  each task sits a badge for every option it has switched on: *script* (it runs
+  as a program, without a model), *parallel*, *granted* (orange, the task skips
+  permission prompts), *notifies* (blue), and *silent* (quiet history). A script
+  job says **Script** where the others name their provider and model. A task the rate limit interrupted carries a
   *rescheduled* badge (orange) whose tooltip names when its interrupted session
   continues, and a task whose provider cannot run it carries a red *blocked*
   badge naming what is wrong. An **export** button on each row saves the task as a `.claudeq`
@@ -321,7 +332,9 @@ sit at the bottom, out of the way of the work:
   file in the task sheet for review. Whenever a prompt is written or changed,
   Claude checks it against this Mac and shows what it found in a purple banner
   under the prompt box, with **Apply** to take the rewrite; just opening a sheet
-  again shows the earlier finding and costs nothing.
+  again shows the earlier finding and costs nothing. A [script job](#script-jobs)
+  is never reviewed — its text is a program, and the sheet hides the provider,
+  model and permission settings it cannot have.
   See [The prompt review](#the-prompt-review).
 - **Activity** — every run, newest first, with an unread badge for new results.
   Open a run to see the live/finished log as a chat view or raw output, along
@@ -610,22 +623,26 @@ The installer runs `install` for you; you rarely need these directly.
 claudeq list [--json]                          # show the queue
 claudeq show   ID [--json]                     # one task in full, prompt included
 claudeq add    --id ID --prompt P --dir DIR [--name N] [--group G]
+               [--kind agent|script]           # script = a program, no model
                [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR]
                [--provider ID] [--model M] [--reasoning-effort E] [--parallel]
                [--skip-permissions] [--notify] [--quiet-history]
 claudeq edit   ID                              # open the whole task in $EDITOR
 claudeq edit   ID [--name N] [--prompt P | --prompt-file PATH] [--dir DIR]
                [--group G]                     # "" takes it out of its group
+               [--kind agent|script]           # switching to script drops the model settings
                [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR]
                [--provider ID] [--model M] [--reasoning-effort E]
                [--parallel=BOOL] [--enabled=BOOL]
                [--skip-permissions=BOOL] [--notify=BOOL] [--quiet-history=BOOL]
 claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [--name N]
-               [--group G] [--provider ID] [--model M] [--reasoning-effort E]
+               [--group G] [--kind agent|script]   # a queued job is an agent job unless told
+               [--provider ID] [--model M] [--reasoning-effort E]
                [--parallel=BOOL] [--skip-permissions=BOOL]
                [--notify=BOOL] [--quiet-history=BOOL]
                [--depends-on JOBID]...            # wait for these jobs to finish
                [--include-results]                # and put their answers in the prompt
+                                                  # (a script reads them on stdin)
                [--json]                           # print the new job, id included
 claudeq publish --file PATH [--title T] [--description D]   # publish a file as an artifact
 claudeq notify --title T --message M [--url U]  # send a notification, no artifact
@@ -666,14 +683,16 @@ claudeq --version
 `claudeq list` prints one line per task in priority order, index 0 first:
 
 ```
-#  ID              NAME            TRIGGER  WHEN         PARALLEL  ENABLED
-0  nightly-sweep   Nightly sweep   cron     0 3 * * *    false     true
+#  ID              NAME            KIND    TRIGGER  WHEN         PARALLEL  ENABLED
+0  nightly-sweep   Nightly sweep   agent   cron     0 3 * * *    false     true
+1  needs-review    Needs review    script  cron     */5 * * * *  true      true
 ```
 
 Prompts are often pages long, so that table leaves them out, and a name longer
 than 40 characters is cut with an ellipsis so the columns stay readable.
 `claudeq show ID` prints every setting of one task, its full name and then its
-complete prompt. Add `--json` to either command for the same data as JSON,
+complete prompt — or, for a script job, its script; the settings only an agent
+job has are left out. Add `--json` to either command for the same data as JSON,
 prompts and full names included.
 
 ### Editing a task
@@ -694,6 +713,7 @@ claudeq edit prod-watch --quiet-history=true              # drop its successful 
 claudeq edit nightly-sweep --group "Nightly"              # file it under a queue group
 claudeq edit nightly-sweep --group ""                     # and take it back out
 claudeq edit nightly-sweep --enabled=false                # pause it
+claudeq edit prod-watch --kind script --prompt-file ./watch.sh   # make it a script job
 ```
 
 - `--prompt-file` reads the prompt from a file, or from stdin when you pass `-`.
@@ -710,7 +730,12 @@ claudeq edit nightly-sweep --enabled=false                # pause it
   new provider's own default applies — one harness's model is never carried into
   another. Pass both to keep an explicit model across the change.
 - A task is refused if the provider it names is unknown or cannot run right now;
-  the error says which and why (see [Providers](#providers)).
+  the error says which and why (see [Providers](#providers)). A
+  [script job](#script-jobs) is never refused for that reason: it runs no
+  harness, so no provider can be in its way.
+- `--kind script` turns a task into a script job and clears the provider, model,
+  reasoning effort and permission bypass it no longer uses. `--kind agent` turns
+  it back.
 - Every edit is validated before it is written. An invalid cron, an unparseable
   time, or an empty prompt fails with a message and leaves the task as it was.
 
@@ -829,7 +854,8 @@ ends with a question — all of which die with the run. So the prompt tells it t
 - name anything unfinished concretely — pull request, build, run ids and links —
   in the last message, because that message is what reaches your phone.
 
-You don't need to repeat any of this in a task's prompt.
+You don't need to repeat any of this in a task's prompt. None of it applies to
+a [script job](#script-jobs): there is no model to tell anything to.
 
 ## Letting a task queue follow-up work
 
@@ -1003,6 +1029,71 @@ silent.
 - A notification that waited more than 24 hours — the daemon was not running —
   is dropped with a log line rather than delivered as if it were current.
 - It also works outside a run, from a shell: then it is sent without attribution.
+
+## Script jobs
+
+A job is one of two kinds, and the task form's **Job type** switch (or `--kind`
+on `claudeq add` / `edit` / `queue`) decides which:
+
+- an **agent job** — the default — sends its prompt to a model through a
+  provider's CLI, and
+- a **script job** runs that same text as a **program**. No model is involved,
+  no provider is chosen, nothing is spent, and nothing about it is guessed at.
+
+Everything else is shared: the same queue, the same triggers and priority, the
+same groups, the same run log in Activity, the same notifications, the same
+quiet history, the same dependencies.
+
+**What it runs.** The script is written to a temporary file and executed. Begin
+it with a shebang to choose the interpreter — `#!/bin/zsh`,
+`#!/usr/bin/env python3`, `#!/usr/bin/env node` — or leave it out and it runs
+under `/bin/sh`. It starts in the task's **working directory**, and it inherits
+the daemon's environment plus the variables every run gets: `CLAUDEQ_BIN`,
+`CLAUDEQ_HOME`, `CLAUDEQ_RUN_ID`, `CLAUDEQ_TASK_ID`, `CLAUDEQ_WORKFLOW_ID` and
+`CLAUDEQ_PARENT_TASK`.
+
+**What counts as the outcome.** Exit code `0` is a success, anything else a
+failure — that is the whole classification; nothing reads the output looking for
+trouble. Standard output *and* standard error go to the run log, and standard
+output alone is kept as the job's **answer**: the text a notification quotes and
+a dependent job consolidates. A hung script is killed by the same idle timeout
+as an agent run, and **Cancel task** stops it and its whole process tree.
+
+**What it cannot have.** A provider, a model, a reasoning effort, or the
+permission-prompt bypass. Those all steer a model, and a job that runs none is
+refused rather than quietly ignoring them. Switching an existing task to
+*Script* drops them for you.
+
+**Why it exists: watchers.** The classic frequent job — poll a query, diff it
+against a seen-list, and act on what is new — spends a model's allowance on work
+that is pure plumbing. As a script job it spends nothing, and it keeps running
+when every provider is out of allowance, because the rate-limit gate belongs to
+an account and a script job has none. What it finds, it hands to a real agent
+job:
+
+```sh
+#!/bin/zsh
+set -euo pipefail
+new=$(./bin/poll-needs-review --since-file .agents/seen.json)
+[[ -z "$new" ]] && exit 0            # nothing changed: say nothing, spend nothing
+
+while IFS= read -r id; do
+  "${CLAUDEQ_BIN:-claudeq}" queue --model opus \
+    --name "Review $id" --prompt "Run the review for work item $id."
+done <<< "$new"
+
+"${CLAUDEQ_BIN:-claudeq}" notify --title "Needs review" --message "$(wc -l <<< "$new") new item(s)"
+```
+
+A job queued from a script is an **agent job** — that is the point of the split,
+so the kind is never inherited. A script that genuinely wants to queue another
+script says `--kind script`.
+
+**Dependencies.** A script job can wait for other jobs with `--depends-on` like
+any other. With `--include-results` their answers arrive on the script's
+**standard input** rather than in front of its text, because a program cannot
+have a digest pasted on top of it. Without dependencies, standard input is
+closed immediately — an unattended run never waits for input nobody will type.
 
 ## Quiet history for frequent jobs
 

@@ -15,3 +15,6 @@ select { appearance:none; -webkit-appearance:none; padding-right:28px;
 input:focus, textarea:focus, select:focus { outline:2px solid color-mix(in srgb,var(--accent) 50%,transparent); outline-offset:-1px; }
 textarea { resize:vertical; }
 .form-row { display:flex; gap:12px; } .form-row > div { flex:1; }
+/* A row is laid out as a flexbox, which outranks the browser's own rule for
+   [hidden] — without this, hiding one does nothing. */
+.form-row[hidden] { display:none; }

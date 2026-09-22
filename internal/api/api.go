@@ -217,7 +217,12 @@ func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
 		if active[t.ID] && t.Trigger != task.TriggerCron {
 			continue
 		}
-		v := taskView{Task: t, Running: active[t.ID], BlockedReason: blocked[t.Provider], WaitingFor: waiting[t.ID]}
+		v := taskView{Task: t, Running: active[t.ID], WaitingFor: waiting[t.ID]}
+		// A script job runs on no provider, so a provider that cannot run is
+		// not what is holding it up — nothing is.
+		if !t.IsScript() {
+			v.BlockedReason = blocked[t.Provider]
+		}
 		// A task whose session is waiting for the rate limit is not idle: say so
 		// in the queue, so it does not look like a job that simply hangs.
 		if !active[t.ID] && st != nil && hasPendingResume(st, t.ID) {
@@ -363,9 +368,13 @@ func (s *server) addTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := s.ensureRunnable(r.Context(), t.Provider); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
+	// A script job needs no harness, so it is filed whatever state the
+	// providers are in — that is half the point of having one.
+	if !t.IsScript() {
+		if err := s.ensureRunnable(r.Context(), t.Provider); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
 	}
 	if err := app.AddTask(s.d.Store, t); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
@@ -472,7 +481,7 @@ func (s *server) updateTask(w http.ResponseWriter, r *http.Request) {
 	// one it has, and an unready provider must not stand in the way of editing
 	// the prompt, the folder or the schedule — that edit may well be how the
 	// operator is fixing it.
-	if prev, err := s.storedTask(t.ID); err == nil && prev.Provider != t.Provider {
+	if prev, err := s.storedTask(t.ID); err == nil && prev.Provider != t.Provider && !t.IsScript() {
 		if err := s.ensureRunnable(r.Context(), t.Provider); err != nil {
 			writeErr(w, http.StatusBadRequest, err)
 			return

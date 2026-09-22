@@ -42,6 +42,11 @@ func ExportTask(s *store.Store, id string, w io.Writer, now time.Time) (task.Tas
 // exportHint describes what the task runs on here, in terms another machine can
 // use. A configuration it cannot resolve yields no hint rather than a guess.
 func exportHint(cfg store.Config, t task.Task) bundle.ProviderHint {
+	// A script job runs on no harness, so there is nothing to tell the other
+	// machine about — and a hint would make it import as an agent job's.
+	if t.IsScript() {
+		return bundle.ProviderHint{}
+	}
 	set, err := provider.FromConfig(cfg)
 	if err != nil {
 		return bundle.ProviderHint{}
@@ -126,8 +131,9 @@ func ReadImport(s *store.Store, t task.Task, hint bundle.ProviderHint) (ImportDr
 	}
 	// A file with no hint was written before providers existed, or by a claudeq
 	// that had nothing to say about them. It keeps the task exactly as it is and
-	// runs on the default provider, which is what such a file always did.
-	if hint.Kind == "" {
+	// runs on the default provider, which is what such a file always did. A
+	// script job has no provider to resolve at all.
+	if hint.Kind == "" || t.IsScript() {
 		return d, nil
 	}
 	if match, ok := ResolveHint(s, hint); ok {
