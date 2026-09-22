@@ -143,16 +143,17 @@ func (a *Adapter) NewParser() provider.Parser { return &parser{} }
 // details. The parser therefore remembers the timing it has seen and, once a
 // rate limit is known, re-reports it whenever a later line refines it.
 type parser struct {
-	retryAfter   time.Duration
-	resetAt      time.Time
-	sawRateLimit bool
-	orgBlocked   bool
+	retryAfter time.Duration
+	resetAt    time.Time
+	sawPause   bool // a pause of some kind was reported, so refined timing is news
+	sawLimit   bool // the CLI reported a limit of its own, so its timing is about one
+	orgBlocked bool
 }
 
 // The CLI's own names for the organisation block: the account is logged in, but
 // its organisation does not allow a Claude subscription to drive Claude Code, so
-// every request is refused with a 403 before any work happens. The error field
-// carries the first name, the result envelope the second.
+// every request is refused (as a 401 or a 403) before any work happens. The
+// error field carries the first name, the result envelope the second.
 const (
 	orgBlockedError = "oauth_org_not_allowed"
 	orgBlockedCode  = "oauth_not_allowed_for_organization"
@@ -225,14 +226,14 @@ func (p *parser) Parse(line []byte) []provider.Event {
 		}
 	}
 	limited := p.isRateLimited(ev)
+	if limited {
+		p.sawLimit = true
+	}
 	if p.isOrgBlocked(ev) {
 		limited, p.orgBlocked = true, true
-		if p.retryAfter == 0 {
-			p.retryAfter = OrgBlockedRetryAfter
-		}
 	}
 	if limited {
-		p.sawRateLimit = true
+		p.sawPause = true
 	}
 
 	var out []provider.Event
@@ -246,7 +247,7 @@ func (p *parser) Parse(line []byte) []provider.Event {
 	// line names the window of a limit already reported — otherwise a reset time
 	// that arrives after the rejection would be lost and the engine would fall
 	// back to a blind backoff.
-	if limited || (newTiming && p.sawRateLimit) {
+	if limited || (newTiming && p.sawPause) {
 		pause := provider.Event{
 			Type:       provider.EventRateLimited,
 			RetryAfter: p.retryAfter,
@@ -254,6 +255,14 @@ func (p *parser) Parse(line []byte) []provider.Event {
 		}
 		if p.orgBlocked {
 			pause.Detail = orgBlockedDetail
+			// The block names no window of its own, and the timing the CLI
+			// mentions describes the allowance window — the right thing to wait
+			// for only when it actually reported a limit. Otherwise the fixed
+			// hour stands, so a one-second backoff from some transient API error
+			// cannot turn this pause into a retry loop.
+			if !p.sawLimit {
+				pause.RetryAfter, pause.ResetAt = OrgBlockedRetryAfter, time.Time{}
+			}
 		}
 		out = append(out, pause)
 	}
@@ -295,6 +304,14 @@ func (p *parser) isOrgBlocked(ev streamEvent) bool {
 }
 
 func (p *parser) isAuthFailure(ev streamEvent) bool {
+	// The organisation block arrives as a 401 or a 403, depending on how the CLI
+	// got the refusal, and it is not a login problem: the credentials are fine,
+	// the organisation is not. Reading it as one would outrank the pause in the
+	// collector — retiring the task, skipping the fallback, and telling the
+	// operator to log in again for something no login can fix.
+	if p.isOrgBlocked(ev) {
+		return false
+	}
 	if ev.Error == "authentication_failed" {
 		return true
 	}

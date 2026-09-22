@@ -429,6 +429,28 @@ func TestRunRateLimitEventCarriesResetTime(t *testing.T) {
 	}
 }
 
+func TestRunOrgBlockedPausesLikeALimit(t *testing.T) {
+	// The real output of an account whose organisation has switched Claude
+	// subscription access off: the CLI answers in under a second, with a 403 and
+	// its own error code. It must not come back as a failed run — the account
+	// cannot spend anything, which is what the provider's pause and its fallback
+	// are for.
+	out := strings.Join([]string{
+		`{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text","text":"Your organization has disabled Claude subscription access for Claude Code"}]},"session_id":"real-sid","error":"oauth_org_not_allowed","is_api_error_message":true,"api_error_code":"oauth_not_allowed_for_organization"}`,
+		`{"type":"result","subtype":"success","is_error":true,"api_error_status":403,"api_error_code":"oauth_not_allowed_for_organization","result":"Your organization has disabled Claude subscription access for Claude Code","session_id":"real-sid","num_turns":1,"duration_ms":426}`,
+	}, "\n")
+	res := runFake(t, out, 1)
+	if res.Status != store.StatusRateLimited {
+		t.Fatalf("status = %q, want rate_limited_waiting", res.Status)
+	}
+	if res.RetryAfter != time.Hour {
+		t.Fatalf("retry after = %v, want an hour", res.RetryAfter)
+	}
+	if !strings.Contains(res.Message, "disabled Claude subscription access") {
+		t.Fatalf("message = %q, want it to name the organisation block", res.Message)
+	}
+}
+
 func TestRunAuthError(t *testing.T) {
 	out := `{"type":"result","subtype":"error","is_error":true,"error":"authentication_failed"}`
 	res := runFake(t, out, 1)
