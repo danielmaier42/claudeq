@@ -365,8 +365,10 @@ sit at the bottom, out of the way of the work:
   still be resumed — **Continue in Chat…**, the same interactive resume as in
   a run's log. Either way, opening an artifact marks it read automatically; you can
   also mark one or all read by hand, or delete one (which removes the stored copy).
+  The list pages 25 artifacts at a time, like Activity, with the total count and
+  the page next to the pager below it.
   Clicking the notification of a newly published artifact lands here with that
-  artifact already open.
+  artifact already open — on the page that holds it.
 - **Usage** — a per-day bar chart of runs, tokens, and cost for the last 14 days,
   plus totals and a 7-day summary.
 - **Settings** — global defaults and integrations (below). The custom system
