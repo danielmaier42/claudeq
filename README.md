@@ -1056,7 +1056,8 @@ the daemon's environment plus the variables every run gets: `CLAUDEQ_BIN`,
 failure — that is the whole classification; nothing reads the output looking for
 trouble. Standard output *and* standard error go to the run log, and standard
 output alone is kept as the job's **answer**: the text a notification quotes and
-a dependent job consolidates. A hung script is killed by the same idle timeout
+a dependent job consolidates. More output than a run record may carry keeps the
+**end** — a script says what matters last — with a line in front saying so. A hung script is killed by the same idle timeout
 as an agent run, and **Cancel task** stops it and its whole process tree.
 
 **What it cannot have.** A provider, a model, a reasoning effort, or the

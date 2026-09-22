@@ -166,6 +166,22 @@ func TestScriptAnswerKeepsTheEnd(t *testing.T) {
 	if strings.Contains(out, "line0\n") {
 		t.Fatal("final output kept the start, want the end")
 	}
+	// And it says so: the record's own truncation flag describes a text cut at
+	// the other end, so it cannot report this one.
+	if !strings.HasPrefix(out, scriptOutputCut) {
+		t.Fatalf("final output starts with %q, want it to say only the end was kept", out[:60])
+	}
+	if strings.Contains(strings.TrimPrefix(out, scriptOutputCut), scriptOutputCut) {
+		t.Fatal("the note was added twice")
+	}
+}
+
+func TestScriptAnswerThatFitsSaysNothingAboutCutting(t *testing.T) {
+	e := &Executor{}
+	out, _, _, _ := runScriptTask(t, e, Request{Task: scriptTask("echo short")})
+	if strings.Contains(out, "output is kept") {
+		t.Fatalf("final output = %q, want no truncation note on a short answer", out)
+	}
 }
 
 func TestScriptStoppedWhenItProducesNothing(t *testing.T) {

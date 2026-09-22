@@ -108,7 +108,9 @@ function setKind(v){
   $('#f-prompt').placeholder=script?'#!/bin/zsh\n\ncurl -s …':'What should Claude do?';
   $('#f-provider-row').hidden=script;
   $('#f-skip-row').hidden=script;
-  if(script){ $('#f-skip').checked=false; $('#f-review').hidden=true; }
+  // reset(), not merely hiding the banner: a review armed by the last keystroke
+  // would otherwise still fire and spend usage on a script.
+  if(script){ $('#f-skip').checked=false; if(taskReview) taskReview.reset(); }
 }
 // scriptMode reports what the sheet is currently editing.
 function scriptMode(){ return $('#f-kind').dataset.value==='script'; }

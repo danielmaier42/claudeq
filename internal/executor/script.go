@@ -69,7 +69,7 @@ func (e *Executor) runScript(ctx context.Context, req Request) (provider.Result,
 	// Both streams go to the run log; only stdout is kept as the job's answer,
 	// so a script that logs its progress to stderr does not turn it into the
 	// result a notification quotes or a dependent job consolidates.
-	answer := &tailBuffer{max: store.MaxFinalOutput}
+	answer := &tailBuffer{max: store.MaxFinalOutput - len(scriptOutputCut)}
 	cmd.Stdout = io.MultiWriter(live, answer)
 	cmd.Stderr = live
 
@@ -96,7 +96,7 @@ func (e *Executor) runScript(ctx context.Context, req Request) (provider.Result,
 		}, nil
 	}
 
-	res := provider.Result{Status: store.StatusSuccess, ExitCode: exitCode, FinalOutput: answer.String()}
+	res := provider.Result{Status: store.StatusSuccess, ExitCode: exitCode, FinalOutput: answer.answer()}
 	if exitCode != 0 {
 		res.Status = store.StatusFailed
 		res.Message = fmt.Sprintf("the script exited with code %d", exitCode)
@@ -134,20 +134,43 @@ func (a *activityWriter) Write(p []byte) (int, error) {
 	return a.w.Write(p)
 }
 
+// scriptOutputCut opens a script's answer when there was more output than a run
+// record may carry. Whoever reads the answer — a notification, a dependent job's
+// context block — has to be told that what they see is the end of it and not all
+// of it; the record's own truncation flag cannot say that, because it describes
+// a text cut at the other end.
+const scriptOutputCut = "[only the end of this script's output is kept; the complete output is in the run's log]\n"
+
 // tailBuffer keeps the last max bytes written to it. A script's answer is what
 // it says last — a summary line, a count, an id — so when the output is longer
 // than a run record may carry, the end is the part worth keeping.
 type tailBuffer struct {
 	max int
 	buf []byte
+	cut bool // something was dropped off the front
 }
 
 func (t *tailBuffer) Write(p []byte) (int, error) {
 	t.buf = append(t.buf, p...)
 	if len(t.buf) > t.max {
 		t.buf = t.buf[len(t.buf)-t.max:]
+		t.cut = true
 	}
 	return len(p), nil
+}
+
+// answer is what the run reports as the job's result: the kept output, said to
+// be only the end of it when it is.
+func (t *tailBuffer) answer() string {
+	if !t.cut {
+		return t.String()
+	}
+	kept := t.String()
+	// Start at a line boundary, so the answer does not open mid-word.
+	if _, rest, ok := strings.Cut(kept, "\n"); ok {
+		kept = rest
+	}
+	return scriptOutputCut + kept
 }
 
 // String is the kept output, with a half character at the cut dropped so the
