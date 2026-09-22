@@ -61,6 +61,16 @@ func TestCollectorClassifiesEveryOutcome(t *testing.T) {
 			wantStatus: store.StatusRateLimited,
 		},
 		{
+			name: "a pause that named its reason says that instead of the generic limit",
+			events: []Event{
+				{Type: EventRateLimited, RetryAfter: time.Hour, Detail: "subscription access is switched off for this organisation"},
+				{Type: EventCompleted, IsError: true},
+			},
+			exitCode:    1,
+			wantStatus:  store.StatusRateLimited,
+			wantMessage: "subscription access is switched off for this organisation",
+		},
+		{
 			name: "a warning that did not stop the run keeps the success",
 			events: []Event{
 				{Type: EventCompleted, FinalOutput: "OK"},
