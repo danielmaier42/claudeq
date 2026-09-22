@@ -37,14 +37,21 @@ async function openArtifactRun(a){
   showLog(run);
 }
 
+// loadsGen makes the newest load the one that renders: a notification click
+// alone starts three (the view switch, the jump to the artifact's page, the
+// mark-read), and an earlier fetch answering last would paint the artifact
+// unread again over the newer answer.
+let loadsGen=0;
 async function loadArtifacts(){
+  const gen=++loadsGen;
   let arts; try{ arts=await api('GET','/api/artifacts'); setConn(true);}catch(e){ setConn(false); return; }
+  if(gen!==loadsGen) return;   // a newer load superseded us
   const unread=arts.filter(a=>a.unread).length; const badge=$('#artifactCount'); badge.hidden=unread===0; badge.textContent=unread;
   const filtered=arts.filter(a=>inDateRange(a.published_at,artFrom,artTo));
   const pages=Math.max(1,Math.ceil(filtered.length/ART_PAGE));
   if(artPage>pages-1) artPage=pages-1; if(artPage<0) artPage=0;
   const pageArts=filtered.slice(artPage*ART_PAGE, artPage*ART_PAGE+ART_PAGE);
-  const sig=JSON.stringify([artFrom,artTo,artPage,filtered.length,pageArts.map(a=>[a.id,a.unread,a.title])]);
+  const sig=JSON.stringify([artFrom,artTo,artPage,arts.length,filtered.length,pageArts.map(a=>[a.id,a.unread,a.title])]);
   if(sig===artifactsSig && $('#artifacts').childElementCount) return;   // avoid flicker on poll
   artifactsSig=sig;
   const c=$('#artifacts'); c.innerHTML='';
