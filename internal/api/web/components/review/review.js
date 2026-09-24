@@ -16,7 +16,9 @@ const REVIEW_DELAY=900;   // ms of quiet typing before a review is worth startin
 
 // area is the textarea under review, banner the element to render into, and
 // dir() the working directory to resolve relative paths against ('' for the
-// global system prompt, which has none).
+// global system prompt, which has none). kind is 'task', 'system' or 'script',
+// or a function returning one when the same box can hold either a prompt or a
+// script.
 // Answers are remembered on disk, keyed by a hash of exactly what was asked, so
 // reopening the same task's sheet — or the app itself — shows the last finding
 // instead of paying for the same review again. Entries are dropped after a day
@@ -68,6 +70,7 @@ function reviewRemember(key,res){ const m=reviewStore(); m.set(key,{at:Date.now(
 
 export function makeReview({kind,area,banner,dir}){
   let timer=null, ctrl=null, seq=0;
+  const kindNow=typeof kind==='function'?kind:()=>kind;
 
   // stop() retires whatever is pending or in flight: the bumped sequence number
   // makes any answer still on its way arrive too late to be rendered.
@@ -81,14 +84,14 @@ export function makeReview({kind,area,banner,dir}){
   // review just made: it is shown as what it is, and can be re-checked on the
   // spot, because the prompt may be fine by now without the text having changed
   // (the missing file was created, the folder exists).
-  function show(res,key,remembered){
+  function show(res,key,remembered,noun){
     const box=head('',remembered?'ClaudeQ suggested earlier:':'ClaudeQ suggests:');
     box.append(el('div','msg',esc(res.message)));
     const acts=el('div','acts'); box.append(acts);
     if(res.revised_prompt){
       const ap=el('button','btn small ai','Apply');
-      ap.dataset.tip='Rewrites the prompt as suggested. The result lands in the box above, where you can still change it.';
-      ap.onclick=()=>{ area.value=res.revised_prompt; toast('Prompt rewritten','ok'); run(); };
+      ap.dataset.tip='Rewrites the '+noun+' as suggested. The result lands in the box above, where you can still change it.';
+      ap.onclick=()=>{ area.value=res.revised_prompt; toast((noun==='script'?'Script':'Prompt')+' rewritten','ok'); run(); };
       acts.append(ap);
     }
     // Dismissed for good: forgetting the answer stops it from coming back the
@@ -96,13 +99,13 @@ export function makeReview({kind,area,banner,dir}){
     const no=el('button','btn small','Dismiss'); no.onclick=()=>{ stop(); hide(); if(key) reviewForget(key); }; acts.append(no);
     if(remembered){
       const again=el('button','btn small','Check again');
-      again.dataset.tip='Asks Claude about this prompt again. Costs a little usage.';
+      again.dataset.tip='Asks Claude about this '+noun+' again. Costs a little usage.';
       again.onclick=()=>{ if(key) reviewForget(key); run(); };
       acts.append(again);
     }
   }
 
-  function render(res,key,remembered){ if(res && res.enabled && !res.ok && res.message) show(res,key,remembered); else hide(); }
+  function render(res,key,remembered,noun){ if(res && res.enabled && !res.ok && res.message) show(res,key,remembered,noun); else hide(); }
 
   // run asks Claude about what is in the box now; restore only shows what was
   // already found out about it. Opening a sheet uses restore, so looking at a
@@ -110,45 +113,45 @@ export function makeReview({kind,area,banner,dir}){
   async function restore(){
     stop();
     const mine=seq;
-    const prompt=area.value, workingDir=dir();
-    if(!prompt.trim() || (kind==='task' && !workingDir)){ hide(); return; }
+    const prompt=area.value, workingDir=dir(), k=kindNow(), noun=k==='script'?'script':'prompt';
+    if(!prompt.trim() || (k!=='system' && !workingDir)){ hide(); return; }
     const ctx=await reviewContext();
     if(mine!==seq) return;
     if(!ctx || !ctx.enabled){ hide(); return; }   // no review to remember anything about
-    const key=reviewKey(kind,prompt,workingDir,ctx.reviewer);
-    render(reviewCached(key),key,true);
+    const key=reviewKey(k,prompt,workingDir,ctx.reviewer);
+    render(reviewCached(key),key,true,noun);
   }
 
   async function run(){
     stop();
     const mine=seq;
-    const prompt=area.value, workingDir=dir();
+    const prompt=area.value, workingDir=dir(), k=kindNow(), noun=k==='script'?'script':'prompt';
     // An imported task lands here with its folder dropped, because the exporter's
     // path is not on this Mac. Reviewing then would call every relative path
     // unresolvable and bury the sheet's own "choose a folder" hint under it, so
     // the review waits for the folder — chooseFolder starts it.
-    if(!prompt.trim() || (kind==='task' && !workingDir)){ hide(); return; }
+    if(!prompt.trim() || (k!=='system' && !workingDir)){ hide(); return; }
     // Who reviews is part of the question, so an answer can be filed under it.
     // When the daemon cannot say, the review still goes ahead — the endpoint
     // decides anyway — and its answer is simply not remembered.
     const ctx=await reviewContext();
     if(mine!==seq) return;
     if(ctx && !ctx.enabled){ hide(); return; }
-    const key=ctx?reviewKey(kind,prompt,workingDir,ctx.reviewer):null;
+    const key=ctx?reviewKey(k,prompt,workingDir,ctx.reviewer):null;
     const cached=key?reviewCached(key):null;
-    if(cached){ render(cached,key,true); return; }
+    if(cached){ render(cached,key,true,noun); return; }
     ctrl=new AbortController();
-    head('busy','ClaudeQ is checking this prompt…');
+    head('busy','ClaudeQ is checking this '+noun+'…');
     let res;
     // A review that is aborted, unreachable or fails is silently dropped: it is
     // an extra pair of eyes, and a broken one must never get in the way of
     // writing a task.
-    try{ res=await api('POST','/api/review/prompt',{kind,prompt,working_dir:workingDir},ctrl.signal); }
+    try{ res=await api('POST','/api/review/prompt',{kind:k,prompt,working_dir:workingDir},ctrl.signal); }
     catch(e){ if(mine===seq) hide(); return; }
     if(mine!==seq) return;
     ctrl=null;
     if(key && res && res.enabled) reviewRemember(key,res);   // a disabled or superseded answer says nothing about this prompt
-    render(res,key);
+    render(res,key,false,noun);
   }
 
   return { run, restore, stop, reset(){ stop(); hide(); }, schedule(){ stop(); hide(); timer=setTimeout(run,REVIEW_DELAY); } };
@@ -157,11 +160,10 @@ export function makeReview({kind,area,banner,dir}){
 // The task sheet's own review controller, bound once the sheet is in the page.
 export let taskReview=null;
 export function initTaskReview(){
-  taskReview=makeReview({kind:'task',area:$('#f-prompt'),banner:$('#f-review'),dir:()=>$('#f-dir').value.trim()});
-  // A script job's text is a program, not a prompt: there is nothing for a model
-  // to judge, and asking would spend usage on the one kind of job that
-  // deliberately spends none. The sheet says which kind is being written.
-  const script=()=>{ const seg=$('#f-kind'); return !!seg && seg.dataset.value==='script'; };
-  $('#f-prompt').addEventListener('input',()=>{ if(script()){ taskReview.reset(); return; } taskReview.schedule(); });
+  // A script job is reviewed as what it is — a program run under the daemon's
+  // environment — so the kind is read when the review starts, not fixed here.
+  const kind=()=>{ const seg=$('#f-kind'); return seg && seg.dataset.value==='script'?'script':'task'; };
+  taskReview=makeReview({kind,area:$('#f-prompt'),banner:$('#f-review'),dir:()=>$('#f-dir').value.trim()});
+  $('#f-prompt').addEventListener('input',()=>taskReview.schedule());
   $('#addSheet').addEventListener('close',()=>taskReview.reset());
 }

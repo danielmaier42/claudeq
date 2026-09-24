@@ -87,6 +87,9 @@ const trailingPunct = ".,;:!?"
 func ExtractPaths(prompt string) []string {
 	var out []string
 	seen := map[string]bool{}
+	// "${HOME}" is split apart by the brace separators; written as "$HOME" it
+	// survives as one token that resolvePath knows.
+	prompt = strings.ReplaceAll(prompt, "${HOME}", "$HOME")
 	for _, tok := range strings.FieldsFunc(prompt, func(r rune) bool {
 		return strings.ContainsRune(tokenSeparators, r)
 	}) {
@@ -110,6 +113,8 @@ var lineSuffixRe = regexp.MustCompile(`:\d+(:\d+)?$`)
 // cleanToken strips the punctuation a path picks up from the prose around it.
 func cleanToken(tok string) string {
 	tok = strings.Trim(tok, "“”‘’…")
+	// A shebang's interpreter is a path the script cannot run without.
+	tok = strings.TrimPrefix(tok, "#!")
 	// A trailing "." is sentence punctuation unless the whole token is "." or
 	// "..", which are directories in their own right.
 	for len(tok) > 0 && strings.ContainsRune(trailingPunct, rune(tok[len(tok)-1])) {
@@ -128,14 +133,15 @@ func looksLikePath(p string) bool {
 	}
 	// URLs, scp-style remotes and shell/template placeholders are not local
 	// paths. A colon survives only in those forms here: a "file.go:42" location
-	// suffix has already been cut by cleanToken.
-	if strings.ContainsAny(p, ":$@") {
+	// suffix has already been cut by cleanToken. "$HOME/" is the one variable
+	// whose value claudeq knows, so a path under it is checked like "~/".
+	if strings.ContainsAny(strings.TrimPrefix(p, homeVar), ":$@") {
 		return false
 	}
 	switch {
 	case p == "." || p == ".." || p == "/" || p == "~":
 		return false
-	case strings.HasPrefix(p, "/"), strings.HasPrefix(p, "~/"),
+	case strings.HasPrefix(p, "/"), strings.HasPrefix(p, "~/"), strings.HasPrefix(p, homeVar),
 		strings.HasPrefix(p, "./"), strings.HasPrefix(p, "../"):
 		return true
 	case strings.Contains(p, "/"):
@@ -151,6 +157,9 @@ func looksLikePath(p string) bool {
 	}
 	return knownExts[strings.ToLower(p[dot+1:])]
 }
+
+// homeVar is how a shell script spells "~/".
+const homeVar = "$HOME/"
 
 // Inspect resolves each path against workingDir and reports what is actually
 // there. home is the user's home directory, used to expand "~"; an empty home
@@ -195,11 +204,11 @@ func Inspect(prompt, workingDir, home string) []Candidate {
 // a base would produce checks about a directory the task never runs in.
 func resolvePath(raw, workingDir, home string) string {
 	switch {
-	case strings.HasPrefix(raw, "~/"):
+	case strings.HasPrefix(raw, "~/"), strings.HasPrefix(raw, homeVar):
 		if home == "" {
 			return ""
 		}
-		return filepath.Join(home, raw[2:])
+		return filepath.Join(home, raw[strings.IndexByte(raw, '/')+1:])
 	case filepath.IsAbs(raw):
 		return filepath.Clean(raw)
 	case workingDir == "":
