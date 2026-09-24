@@ -54,9 +54,12 @@ func (s *server) reviewPrompt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	kind := review.KindTask
-	if in.Kind == string(review.KindSystem) {
+	switch in.Kind {
+	case string(review.KindSystem):
 		kind = review.KindSystem
 		in.WorkingDir = "" // the system prompt belongs to no single directory
+	case string(review.KindScript):
+		kind = review.KindScript
 	}
 
 	// The review runs on the provider chosen for it, with the account claudeq is

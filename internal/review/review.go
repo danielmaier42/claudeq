@@ -30,6 +30,9 @@ const (
 	// KindSystem reviews the global custom system prompt, which has no working
 	// directory of its own.
 	KindSystem Kind = "system"
+	// KindScript reviews a script job's program, which runs in its working
+	// directory under the daemon's environment rather than going to a model.
+	KindScript Kind = "script"
 )
 
 // DefaultTimeout bounds a single review. The reviewer runs tool-free on one
@@ -84,6 +87,10 @@ type Reviewer struct {
 	// Home is the user's home directory, used to expand "~" in a prompt's paths.
 	// Empty falls back to os.UserHomeDir.
 	Home string
+	// PATH is the search path a script job runs with, for looking up the
+	// commands it calls. Empty falls back to this process's own PATH, which is
+	// the one the daemon hands its script jobs.
+	PATH string
 	// Timeout bounds one review; zero uses DefaultTimeout.
 	Timeout time.Duration
 	// Ask runs the review turn.
@@ -105,6 +112,14 @@ func (r *Reviewer) Review(ctx context.Context, req Request) (Result, error) {
 		home, _ = os.UserHomeDir()
 	}
 	facts := Inspect(req.Prompt, req.WorkingDir, home)
+	var cmds []Command
+	if req.Kind == KindScript && isShellScript(req.Prompt) {
+		pathEnv := r.PATH
+		if pathEnv == "" {
+			pathEnv = os.Getenv("PATH")
+		}
+		cmds = InspectCommands(req.Prompt, pathEnv, home)
+	}
 
 	timeout := r.Timeout
 	if timeout <= 0 {
@@ -118,7 +133,7 @@ func (r *Reviewer) Review(ctx context.Context, req Request) (Result, error) {
 	answer, err := r.Ask.Ask(ctx, req.Provider, provider.AsideRequest{
 		Model:  req.Model,
 		System: systemPrompt(req.Kind),
-		Text:   userMessage(req, facts),
+		Text:   userMessage(req, facts, cmds),
 	})
 	if err != nil {
 		return Result{}, err

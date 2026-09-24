@@ -333,8 +333,8 @@ sit at the bottom, out of the way of the work:
   Claude checks it against this Mac and shows what it found in a purple banner
   under the prompt box, with **Apply** to take the rewrite; just opening a sheet
   again shows the earlier finding and costs nothing. A [script job](#script-jobs)
-  is never reviewed — its text is a program, and the sheet hides the provider,
-  model and permission settings it cannot have.
+  is reviewed as the program it is, and the sheet hides the provider, model and
+  permission settings it cannot have.
   See [The prompt review](#the-prompt-review).
 - **Activity** — every run, newest first, with an unread badge for new results.
   Open a run to see the live/finished log as a chat view or raw output, along
@@ -1063,6 +1063,11 @@ a dependent job consolidates. More output than a run record may carry keeps the
 **end** — a script says what matters last — with a line in front saying so. A hung script is killed by the same idle timeout
 as an agent run, and **Cancel task** stops it and its whole process tree.
 
+**Checked before it is queued.** Like a prompt, a script is read against this
+Mac while you write it — missing paths, commands the daemon's PATH does not
+have, anything that waits for a person. See
+[The prompt review](#the-prompt-review).
+
 **What it cannot have.** A provider, a model, a reasoning effort, or the
 permission-prompt bypass. Those all steer a model, and a job that runs none is
 refused rather than quietly ignoring them. Switching an existing task to
@@ -1238,6 +1243,18 @@ What it looks for:
   when it runs.
 - **A prompt that waits for you.** A question, a confirmation, a choice — an
   unattended run has nobody to answer it, so the rewrite decides up front.
+
+A [script job](#script-jobs) gets the same banner, judged as a program rather
+than as a prompt: a path it reads, changes into, sources or names as its
+interpreter that isn't there; a file it writes into a folder that doesn't exist
+(the rewrite adds `mkdir -p`); `sudo` without `-n`, a `read` from the terminal
+or another prompt nobody will answer; and, for a shell script, **a command that
+isn't on the PATH it runs with**. The daemon's PATH is launchd's minimal one and
+reads no shell profile, so a Homebrew tool you use every day in Terminal is
+often simply not there at 3 a.m. ClaudeQ looks each command up on that very
+PATH and, when one is missing but installed elsewhere (`/opt/homebrew/bin`,
+`/usr/local/bin`, `~/.local/bin`, …), the rewrite calls it by its full path.
+Paths written as `$HOME/…` are checked like `~/…`.
 
 The same banner sits under the **custom system prompt** in Settings, with the
 rules adjusted to what that text is: it applies to every task, in every

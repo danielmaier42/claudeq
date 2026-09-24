@@ -118,32 +118,98 @@ Look for exactly these problems:
 Nothing else. This text is global standing guidance; do not comment on its
 content, its opinions, or how it is worded.`
 
+// scriptRules describe what to look for in a script job, whose text is run as
+// a program rather than handed to a model.
+const scriptRules = `You review a script job queued in claudeq, a local queue that runs jobs unattended — usually at night, with nobody watching. A script job goes to no model: its text is written to a file and executed as a program, in the task's working directory, by the interpreter its shebang names (/bin/sh without one), under the claudeq daemon's environment. There is no terminal, and stdin carries nothing but the results of the jobs it waits for. Wherever these instructions say "prompt", they mean this script.
+
+claudeq has already checked every path the script mentions, and every command it runs by name, against this machine and lists the results below. Trust those facts completely; you have no tools and cannot look for yourself.
+
+Look for exactly these problems:
+
+1. A path the script READS or runs in (an input file, a directory it changes
+   into, a program it calls by path, its shebang interpreter, a file it
+   sources) does not exist here. Say which one. Offer no revision — only the
+   operator knows the right path.
+
+2. A path the script WRITES (a redirect target, an output file, a copy
+   destination) sits in a directory that does not exist, and the script does
+   not create it before the first write. Say which directory. A revision that
+   adds "mkdir -p" for it before that write is a good fix.
+
+3. A command the script runs is not found on the PATH it runs with. That PATH
+   is the daemon's, which reads no shell profile, so tools installed with
+   Homebrew and the like are often missing from it. Say which command. When the
+   checks found it elsewhere on this machine, revise the script to call it by
+   that absolute path; otherwise offer no revision. A command the script only
+   probes for (command -v, which, type) before deciding what to do is fine.
+
+4. Something waits for a person: sudo without -n, a read from the terminal, an
+   interactive prompt, a pager, an editor, a confirmation the tool asks unless
+   given its non-interactive flag. Nobody is there, so the run fails or hangs
+   until the idle watchdog kills it. Say so, and revise it to the
+   non-interactive form when that form is clear.
+
+5. A relative path is used but the task has no working directory to resolve it
+   against. Say so.
+
+Only report a path the script really uses as a filesystem path. A token that
+merely looks like one — part of a sed or regular expression, of a URL, a glob
+pattern, text it prints, a line inside a here-document — is no finding, even
+when the checks list it as missing. A path the script creates before using it
+is fine.
+
+Nothing else. In particular: never comment on style, quoting, error handling,
+portability, or how the script could be written better. A script with no such
+problem gets {"ok": true}.`
+
 // systemPrompt is the reviewer's whole system prompt for one kind of field.
 func systemPrompt(kind Kind) string {
 	rules := taskRules
-	if kind == KindSystem {
+	switch kind {
+	case KindSystem:
 		rules = systemRules
+	case KindScript:
+		rules = scriptRules
 	}
 	return rules + "\n" + sharedRules
 }
 
+// subject is what the text under review is called in the reviewer's message.
+func subject(kind Kind) string {
+	if kind == KindScript {
+		return "script"
+	}
+	return "prompt"
+}
+
 // userMessage assembles what the reviewer sees: the prompt under review, the
-// working directory, claudeq's path checks, and the content of the small files
-// the prompt refers to.
-func userMessage(req Request, cands []Candidate) string {
+// working directory, claudeq's path checks, the commands a script runs, and the
+// content of the small files the prompt refers to.
+func userMessage(req Request, cands []Candidate, cmds []Command) string {
+	noun := subject(req.Kind)
 	var b strings.Builder
-	b.WriteString("## The prompt to review\n\n")
-	b.WriteString(fence("PROMPT", req.Prompt))
+	b.WriteString("## The " + noun + " to review\n\n")
+	b.WriteString(fence(strings.ToUpper(noun), req.Prompt))
 
 	b.WriteString("\n## Working directory\n\n")
 	b.WriteString(workingDirLine(req))
 
-	b.WriteString("\n## Paths mentioned in the prompt, as claudeq finds them on this machine\n\n")
+	b.WriteString("\n## Paths mentioned in the " + noun + ", as claudeq finds them on this machine\n\n")
 	if len(cands) == 0 {
-		b.WriteString("The prompt mentions no filesystem paths.\n")
+		b.WriteString("The " + noun + " mentions no filesystem paths.\n")
 	}
 	for _, c := range cands {
 		b.WriteString("- " + candidateLine(c) + "\n")
+	}
+
+	if req.Kind == KindScript {
+		b.WriteString("\n## Commands the script runs by name, looked up on the PATH it runs with\n\n")
+		if len(cmds) == 0 {
+			b.WriteString("None found (not a shell script, or it calls programs only by path).\n")
+		}
+		for _, c := range cmds {
+			b.WriteString("- " + commandLine(c) + "\n")
+		}
 	}
 
 	var withBody []Candidate
@@ -196,6 +262,19 @@ func candidateLine(c Candidate) string {
 		return quoted + " → " + c.Resolved + " — MISSING, but its parent directory " + c.Parent + " exists"
 	default:
 		return quoted + " → " + c.Resolved + " — MISSING, and its parent directory " + c.Parent + " is missing too"
+	}
+}
+
+// commandLine states one command lookup in a single line.
+func commandLine(c Command) string {
+	quoted := "`" + c.Name + "`"
+	switch {
+	case c.OnPath != "":
+		return quoted + " → " + c.OnPath + " — found"
+	case c.Elsewhere != "":
+		return quoted + " — NOT on the PATH, but installed at " + c.Elsewhere
+	default:
+		return quoted + " — NOT on the PATH, and not found in the usual install locations either (it may be a function or alias defined elsewhere)"
 	}
 }
 

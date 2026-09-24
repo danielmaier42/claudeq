@@ -79,7 +79,7 @@ function openSheet(title,submitLabel,fresh){ $('#addErr').textContent=''; $('#f-
   $('#f-provider-hint').hidden=true; $('#f-provider-hint').textContent='';
   clearTimeout(cronTimer); cronVerdict.expr=null; showCronStatus(null); cronRecheck();
   $('#addSheetTitle').textContent=title; $('#addSubmitBtn').textContent=submitLabel; $('#addSheet').showModal();
-  if(scriptMode()) taskReview.reset(); else if(fresh) taskReview.run(); else taskReview.restore(); }   // a new review is worth Claude usage only when the prompt is new or changed
+  if(fresh) taskReview.run(); else taskReview.restore(); }   // a new review is worth Claude usage only when the prompt is new or changed
 export function openAdd(){ taskMode='add'; taskEditId='';
   ['f-name','f-prompt','f-dir','f-at','f-cron'].forEach(x=>$('#'+x).value='');
   $('#f-dir').value=DEFAULT_WORKING_DIR;
@@ -98,7 +98,7 @@ export function openReplay(t){ if(!t){ toast('No saved definition to replay','er
 // setKind switches the sheet between the two job types. A script job has no
 // provider, model, reasoning effort or permission grant — showing those fields
 // would offer settings that are refused on save — and its text is a program, so
-// the prompt review has nothing to say about it.
+// the review judges it by a script's rules instead of a prompt's.
 function setKind(v){
   const kind=v==='script'?'script':'agent', script=kind==='script';
   $('#f-kind').querySelectorAll('button').forEach(b=>b.classList.toggle('active',b.dataset.v===kind));
@@ -108,9 +108,10 @@ function setKind(v){
   $('#f-prompt').placeholder=script?'#!/bin/zsh\n\ncurl -s …':'What should Claude do?';
   $('#f-provider-row').hidden=script;
   $('#f-skip-row').hidden=script;
-  // reset(), not merely hiding the banner: a review armed by the last keystroke
-  // would otherwise still fire and spend usage on a script.
-  if(script){ $('#f-skip').checked=false; if(taskReview) taskReview.reset(); }
+  // A finding about the text as the other kind says nothing about this one, and
+  // a review armed by the last keystroke would still ask about the wrong kind.
+  if(script) $('#f-skip').checked=false;
+  if(taskReview) taskReview.reset();
 }
 // scriptMode reports what the sheet is currently editing.
 function scriptMode(){ return $('#f-kind').dataset.value==='script'; }
@@ -225,7 +226,7 @@ function initImport(){
 
 export function initTaskSheet(){
   $('#f-trigger').querySelectorAll('button').forEach(b=>b.onclick=()=>setSeg(b.dataset.v));
-  $('#f-kind').querySelectorAll('button').forEach(b=>b.onclick=()=>{ setKind(b.dataset.v); if(!scriptMode()) taskReview.restore(); });
+  $('#f-kind').querySelectorAll('button').forEach(b=>b.onclick=()=>{ setKind(b.dataset.v); taskReview.run(); });
   $('#f-cron').oninput=()=>{ clearTimeout(cronTimer); cronTimer=setTimeout(cronRecheck,250); };
   $('#f-dir-btn').onclick=chooseFolder;
   $('#addCancelBtn').onclick=()=>$('#addSheet').close();
