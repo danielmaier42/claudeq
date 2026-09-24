@@ -45,6 +45,10 @@ func TestExtractCommands(t *testing.T) {
 		{"here-string is not a here-document", "grep x <<< hello\nsort f", []string{"grep", "sort"}},
 		{"for and case", "for f in a b; do gzip \"$f\"; done\ncase $1 in\n  start) launchctl start x ;;\n  *) exit 1 ;;\nesac\nuptime", []string{"gzip", "launchctl", "uptime"}},
 		{"probing is not running", "if ! command -v jq >/dev/null; then exit 0; fi\nuptime", []string{"uptime"}},
+		{"fd redirections are not commands", "make 2>&1 | tee log\necho x >&2\nls &>/dev/null", []string{"make", "tee", "ls"}},
+		{"parentheses that start no command", "n=$((n + 1))\narr=(alpha beta)\n[[ $x =~ (a|b) ]] && uptime\n( cd /x && gzip f )", []string{"uptime", "gzip"}},
+		{"here-document in a comment starts nothing", "# see cat <<EOF\nfoo x\ncat <<'END'\nbar y\nEND\nbaz", []string{"foo", "cat", "baz"}},
+		{"sudo options with a value", "sudo -u bob -n make", []string{"make"}},
 		{"duplicates collapse", "jq a\njq b", []string{"jq"}},
 	}
 	for _, tc := range tests {

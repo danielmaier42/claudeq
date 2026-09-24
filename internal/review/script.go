@@ -80,6 +80,9 @@ var shellBuiltin = map[string]bool{
 	"disown": true, "emulate": true, "autoload": true, "zmodload": true,
 }
 
+// sudoArgFlags are the sudo options whose value is the next word.
+var sudoArgFlags = map[string]bool{"-u": true, "-g": true, "-h": true, "-p": true, "-C": true, "-D": true, "-r": true, "-t": true, "-U": true}
+
 // shellNoCommand are keywords after which the rest of the segment names no
 // program at all (a loop variable, a case subject, a function name).
 var shellNoCommand = map[string]bool{"for": true, "case": true, "select": true, "function": true, "in": true}
@@ -87,7 +90,10 @@ var shellNoCommand = map[string]bool{"for": true, "case": true, "select": true, 
 var (
 	// heredocRe finds a here-document and the word that ends it.
 	// A here-string (<<<) has no end word.
-	heredocRe = regexp.MustCompile(`(?:^|[^<])<<-?\s*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?`)
+	heredocRe = regexp.MustCompile(`(?:^|[^<])<<-?\s*([A-Za-z_][A-Za-z0-9_]*)`)
+	// quotedHeredocRe is a here-document whose end word is quoted (<<'EOF'),
+	// unquoted before the quotes are blanked so the end word survives.
+	quotedHeredocRe = regexp.MustCompile(`<<(-?)\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]`)
 	// caseStartRe and caseEndRe bracket a case statement, whose pattern lines
 	// ("start)", "*)") name no command.
 	caseStartRe = regexp.MustCompile(`(?:^|[\s;])case\s.*\sin(?:\s|$)`)
@@ -96,6 +102,10 @@ var (
 	casePatternRe = regexp.MustCompile(`^\s*\(?[^()]*\)`)
 	// quotedRe matches single-line quoted strings; their content is data.
 	quotedRe = regexp.MustCompile(`'[^']*'|"(?:[^"\\]|\\.)*"`)
+	// notCommandRe matches constructs whose parentheses or ampersands start no
+	// command: fd redirections (2>&1, &>), arithmetic $((…)), an array
+	// assignment a=(…) and a [[ … ]] test, whose =~ pattern may hold "(a|b)".
+	notCommandRe = regexp.MustCompile(`[0-9]*[<>]&[0-9-]*|&>>?|\$\(\([^)]*\)\)|[A-Za-z_][A-Za-z0-9_]*\+?=\([^)]*\)|\[\[.*?\]\]`)
 	// segmentRe splits a line where a new command can start.
 	segmentRe = regexp.MustCompile("\\|\\|?|&&|;|&|\\$\\(|`|\\(")
 	// funcDefRe finds the functions a script defines, which are not programs.
@@ -126,9 +136,7 @@ func ExtractCommands(src string) []string {
 		if i == 0 && strings.HasPrefix(line, "#!") {
 			continue
 		}
-		if m := heredocRe.FindStringSubmatch(line); m != nil {
-			heredocEnd = m[1]
-		}
+		line = quotedHeredocRe.ReplaceAllString(line, "<<$1$2")
 		line = quotedRe.ReplaceAllString(line, `""`)
 		if c := strings.Index(line, " #"); c >= 0 {
 			line = line[:c]
@@ -136,6 +144,11 @@ func ExtractCommands(src string) []string {
 		if strings.HasPrefix(strings.TrimSpace(line), "#") {
 			continue
 		}
+		// Only now: a "<<EOF" inside a comment or a string starts nothing.
+		if m := heredocRe.FindStringSubmatch(line); m != nil {
+			heredocEnd = m[1]
+		}
+		line = notCommandRe.ReplaceAllString(line, " ")
 		if caseDepth > 0 {
 			line = casePatternRe.ReplaceAllString(line, "")
 		}
@@ -162,8 +175,9 @@ func ExtractCommands(src string) []string {
 
 // segmentCommand returns the program a single command segment starts, or "".
 func segmentCommand(seg string) string {
-	for _, w := range strings.Fields(seg) {
-		w = strings.TrimRight(w, ")}")
+	words := strings.Fields(seg)
+	for i := 0; i < len(words); i++ {
+		w := strings.TrimRight(words[i], ")}")
 		switch {
 		case w == "":
 			continue
@@ -174,7 +188,12 @@ func segmentCommand(seg string) string {
 		case strings.Contains(w, "=") && !strings.HasPrefix(w, "="):
 			continue // FOO=bar prefixing the command
 		case strings.HasPrefix(w, "-"):
-			continue // a flag of a skipped prefix (sudo -n, command -v)
+			// A flag of a skipped prefix (sudo -n); sudo's -u bob and the like
+			// take the next word with them.
+			if sudoArgFlags[w] {
+				i++
+			}
+			continue
 		case !commandNameRe.MatchString(w):
 			return "" // a path, a variable, a redirect: nothing to look up by name
 		default:
