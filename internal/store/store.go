@@ -714,7 +714,7 @@ type Settings struct {
 	// It is presentation state and nothing else. Every adapter is always
 	// registered, the API and the CLI always accept every provider, and the
 	// scheduler never looks at this flag — so a Codex task made from the command
-	// line runs, and stays visible in Queue and Activity, whatever the app is
+	// line runs, and stays visible in Queue and Log, whatever the app is
 	// showing. Hiding setup controls must never hide actual work.
 	BetaFeatures bool `toml:"beta_features,omitempty" json:"beta_features"`
 	// LegacyShowCodexBeta is what that preference was called when it governed

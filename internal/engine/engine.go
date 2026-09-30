@@ -1059,7 +1059,7 @@ func clipOutput(s string) (string, bool) {
 // not a finished run: it closes the provider's gate and holds up every other
 // task on that provider, possibly for days when a weekly allowance is what ran
 // out. Dropping it left the queue stopped with a banner and nothing in
-// Activity to explain it, and with no entry there was nowhere to cancel the
+// the Log to explain it, and with no entry there was nowhere to cancel the
 // resume either.
 func quietDrop(t task.Task, status store.RunStatus) bool {
 	if !t.QuietHistory {

@@ -7,8 +7,8 @@ const template = `
     <button data-tab="tasks" class="active">
       <svg viewBox="0 0 20 20"><path d="M4 6h12M4 10h12M4 14h12"/></svg> Queue</button>
     <button data-tab="news">
-      <svg viewBox="0 0 20 20"><path d="M10 3a4 4 0 0 1 4 4v3l1.5 2.5H4.5L6 10V7a4 4 0 0 1 4-4zM8 15a2 2 0 0 0 4 0"/></svg>
-      Activity <span id="unreadCount" class="count" hidden>0</span></button>
+      <svg viewBox="0 0 20 20"><path d="M3.5 10a6.5 6.5 0 1 0 1.9-4.6"/><path d="M3 3v3.5h3.5M10 6.5V10l2.5 1.5"/></svg>
+      Log <span id="unreadCount" class="count" hidden>0</span></button>
     <button data-tab="artifacts">
       <svg viewBox="0 0 20 20"><path d="M6 2.5h5L15 6.5V17a.5.5 0 0 1-.5.5h-9A.5.5 0 0 1 5 17V3a.5.5 0 0 1 .5-.5z"/><path d="M11 2.5V7h4"/></svg>
       Artifacts <span id="artifactCount" class="count" hidden>0</span></button>

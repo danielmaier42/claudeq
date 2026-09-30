@@ -1,5 +1,5 @@
 .act-card .resume { color:var(--warn); font-weight:600; }
-/* Activity rows: the unread dot and the mark-read eye live inside the card, so
+/* Log rows: the unread dot and the mark-read eye live inside the card, so
    a row's outer edges are the dashboard's, the same as a Queue group's. */
 .act-list { display:flex; flex-direction:column; gap:8px; }
 /* One piece of work, shown as one thing: a fan-out and the join that combines

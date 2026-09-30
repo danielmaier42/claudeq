@@ -137,14 +137,14 @@ function taskRow(t,i,block,tasks,paused){
   if(t.kind==='script') tags.push('<span class="chip" title="Runs as a program, without a model: no provider, no usage, and a rate limit never holds it up">script</span>');
   if(BETA_PROVIDERS.has(t.provider||'')) tags.push('<span class="chip beta" title="This task runs on a provider that is still in beta">beta</span>');
   if(t.blocked_reason) tags.push(`<span class="chip danger" title="${esc(t.blocked_reason+' The task keeps its place and starts by itself once the provider works again.')}">blocked</span>`);
-  if(t.waiting_for_limit) tags.push(`<span class="chip warn" title="${esc('The rate limit interrupted this task. Its Claude session '+resumeTimeText(LIMITED_UNTIL)+' — drop the resume in Activity with “Cancel resume”.')}">rescheduled</span>`);
+  if(t.waiting_for_limit) tags.push(`<span class="chip warn" title="${esc('The rate limit interrupted this task. Its Claude session '+resumeTimeText(LIMITED_UNTIL)+' — drop the resume in the Log with “Cancel resume”.')}">rescheduled</span>`);
   // A job that waits for other jobs looks like one that never starts, unless
   // the queue says what it is waiting for.
   if((t.waiting_for||[]).length) tags.push(`<span class="chip" title="${esc('Starts by itself once these jobs have finished: '+t.waiting_for.join(', ')+'. It runs even if one of them fails.')}">waiting for ${t.waiting_for.length} job${t.waiting_for.length>1?'s':''}</span>`);
   if(t.parallel) tags.push('<span class="chip" title="Runs alongside other parallel tasks">parallel</span>');
   if(t.permissions==='skip') tags.push('<span class="chip warn" title="Skips permission prompts">granted</span>');
   if(t.notify_on_result) tags.push('<span class="chip accent" title="Sends outcome and last message when it finishes">notifies</span>');
-  if(t.quiet_history) tags.push('<span class="chip" title="Successful runs stay out of Activity; failures are kept">silent</span>');
+  if(t.quiet_history) tags.push('<span class="chip" title="Successful runs stay out of the Log; failures are kept">silent</span>');
   const grip=el('span','grip',GRIP);
   grip.title='Drag to reorder, or onto a group to move it there';
   dragSource(grip,row,t);
@@ -365,7 +365,7 @@ async function exportTask(t,btn){
 async function runNow(id){
   try{ await api('POST',`/api/tasks/${id}/run-now`); }catch(e){ toast(e.message,'err'); return; }
   toast('Started');
-  select('news');           // jump to Activity
+  select('news');           // jump to the Log
   watchNewRun(id);          // find the fresh run and open its live log
 }
 // Poll briefly until the just-started run for this task appears, then open its

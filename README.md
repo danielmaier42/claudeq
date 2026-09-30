@@ -13,7 +13,7 @@ A background daemon runs it headless through
 [Claude Code](https://claude.com/claude-code),
 [Codex](https://learn.chatgpt.com/docs/developer-commands?surface=cli) or
 [opencode](https://opencode.ai), and in the morning the result is waiting: the
-full transcript in **Activity**, any file the run produced in **Artifacts**,
+full transcript in the **Log**, any file the run produced in **Artifacts**,
 and a notification on your phone if you asked for one.
 
 It began as a way to spend the nightly Claude Code allowance, and the rate
@@ -121,13 +121,13 @@ The nightly cycle looks like this:
 3. If a run hits the **rate limit**, ClaudeQ pauses the whole queue and, once the
    limit clears, resumes the *same* Claude session — no work is lost. The pause is
    visible while it lasts: a banner names the time the queue continues, the run is
-   marked **rescheduled** in Activity with its resume time, and you can drop that
+   marked **rescheduled** in the Log with its resume time, and you can drop that
    resume there so the task does not start again.
 4. To run a timed task past a scheduled sleep, it wakes the Mac with `pmset`, and
    holds the Mac awake (`caffeinate`) while a run is in flight so a task never
    freezes mid-run.
-5. Results — success, failure, rate-limit wait, or auth problem — land in
-   **Activity** with the full log, optionally with a notification.
+5. Results — success, failure, rate-limit wait, or auth problem — land in the
+   **Log** with the full run output, optionally with a notification.
 
 ## Install
 
@@ -187,7 +187,7 @@ echo "$USER ALL=(root) NOPASSWD: /usr/bin/pmset" | sudo tee /etc/sudoers.d/claud
    pointed somewhere new.
 2. Leave it queued. The daemon runs it at the scheduled time (or overnight when
    the allowance resets).
-3. Check **Activity** for the outcome, open a run to read the full log, or replay
+3. Check the **Log** for the outcome, open a run to read the full log, or replay
    it. A finished one-shot task leaves the queue but stays in history; recurring
    tasks remain queued for their next occurrence.
 4. **Usage** shows your consumption over the last 14 days.
@@ -320,7 +320,7 @@ sit at the bottom, out of the way of the work:
   group is nothing but the tasks that name it. While the global pause switch is on, a yellow banner sits above the
   list (with a **Resume runs** button) and **Run now** is disabled on every
   row. A running one-shot task moves to
-  Activity; a recurring task stays here with a *running* badge; hovering its
+  Log; a recurring task stays here with a *running* badge; hovering its
   cron expression shows the next occurrence and when it last ran. Underneath
   each task sits a badge for every option it has switched on: *script* (it runs
   as a program, without a model), *parallel*, *granted* (orange, the task skips
@@ -337,7 +337,7 @@ sit at the bottom, out of the way of the work:
   is reviewed as the program it is, and the sheet hides the provider, model and
   permission settings it cannot have.
   See [The prompt review](#the-prompt-review).
-- **Activity** — every run, newest first, with an unread badge for new results.
+- **Log** — every run, newest first, with an unread badge for new results.
   Open a run to see the live/finished log as a chat view or raw output, along
   with the prompt; a running task can be stopped from there with **Cancel task**
   (its process is terminated and the run is recorded as `canceled`); a run the
@@ -366,7 +366,7 @@ sit at the bottom, out of the way of the work:
   still be resumed — **Continue in Chat…**, the same interactive resume as in
   a run's log. Either way, opening an artifact marks it read automatically; you can
   also mark one or all read by hand, or delete one (which removes the stored copy).
-  The view is built like Activity: a from–to date filter in the toolbar, 25
+  The view is built like the Log: a from–to date filter in the toolbar, 25
   artifacts per page, and a footer with the count, the page and the pager.
   Clicking the notification of a newly published artifact lands here with that
   artifact already open — on the page that holds it, with a date filter that
@@ -475,7 +475,7 @@ this section is for.
 That switch decides what the app *offers* and nothing else. The adapter is
 always part of the build, the API and `claudeq` always accept Codex and
 opencode, and the scheduler never looks at the switch — so a Codex task created from the command
-line runs, and stays visible in Queue and Activity, whatever the app is showing.
+line runs, and stays visible in Queue and Log, whatever the app is showing.
 Hiding setup controls never hides actual work.
 
 Codex is beta for one concrete reason: what a real exhausted ChatGPT allowance
@@ -550,7 +550,7 @@ before.
   says so in the run's log, which also names the provider it came from. Once
   that run finishes the paused session is dropped rather than resumed later:
   the work has been done, and doing it twice is worse than losing a
-  conversation. The paused run stays in Activity as the record of what
+  conversation. The paused run stays in the Log as the record of what
   happened.
 - **The model can be chosen with the fallback** ("Model there"). Left open, the
   task's own model travels only between two accounts of the same harness, and a
@@ -972,7 +972,7 @@ has all of it.
   competing reports.
 
 In the app, a job that is waiting says so in the Queue (*waiting for 2 jobs*,
-with the names on hover), and Activity groups the runs of one workflow into a
+with the names on hover), and the Log groups the runs of one workflow into a
 single **Workflow** block instead of scattering them among unrelated runs. A job
 queued by a run joins that run's workflow, which is also what groups an ordinary
 self-queued chain.
@@ -1045,7 +1045,7 @@ on `claudeq add` / `edit` / `queue`) decides which:
   no provider is chosen, nothing is spent, and nothing about it is guessed at.
 
 Everything else is shared: the same queue, the same triggers and priority, the
-same groups, the same run log in Activity, the same notifications, the same
+same groups, the same run log in the Log, the same notifications, the same
 quiet history, the same dependencies.
 
 **What it runs.** The script is written to a temporary file and executed. Begin
@@ -1108,7 +1108,7 @@ closed immediately — an unattended run never waits for input nobody will type.
 ## Quiet history for frequent jobs
 
 A task that runs every few minutes would, by default, produce hundreds of
-successful runs a day: each one unread in Activity, each one counting against
+successful runs a day: each one unread in the Log, each one counting against
 the `Max run history` limit until it pushes a run you actually care about out of
 the record. Mark such a task **Quiet history** (the switch in the task form, or
 `--quiet-history` on `claudeq add` / `claudeq edit` / `claudeq queue`) and:
@@ -1119,10 +1119,10 @@ the record. Mark such a task **Quiet history** (the switch in the task form, or
   rate limit is recorded** with its log, unread, exactly like an ordinary run,
   and notifies as usual. A pause is kept even though the daemon resumes it by
   itself: it closes that provider's gate and holds up every other task on it,
-  so it is the answer to "why is nothing running?" — and its Activity entry is
+  so it is the answer to "why is nothing running?" — and its Log entry is
   where **Cancel resume** lives.
 - While it is running, the Queue shows the task's *running* badge as usual, but
-  there is no Activity entry to open (and so no live log or **Cancel task**).
+  there is no Log entry to open (and so no live log or **Cancel task**).
 
 Everything else — notifications the run sends, artifacts it publishes, tasks it
 queues — is unaffected. A task queued from inside a quiet-history run is **not**
@@ -1363,7 +1363,7 @@ that.
   it. The interrupted session is then dropped instead of being resumed after the
   reset, so the task does not run twice.
 - **A blocked queue says so.** While the gate is closed a banner names the time
-  it reopens, the paused run is marked *rescheduled* in Activity with that time,
+  it reopens, the paused run is marked *rescheduled* in the Log with that time,
   and the task carries a *rescheduled* badge in the Queue — a waiting queue is
   never mistaken for a stuck one. **Cancel resume** on the run drops the plan:
   the pending session is forgotten, the run is recorded as `canceled`, and a

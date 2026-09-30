@@ -57,7 +57,7 @@ function renderLimitBar(iso,providers){
     // again from the beginning over there, so only the uncovered ones wait.
     const tail=covered===list.length&&covered>0
       ?'The run the limit interrupted is not resumed: the fallback did the work from the start.'
-      :'A run the limit interrupted is marked <strong>rescheduled</strong> in Activity and continues its Claude session then — or drop it there with <strong>Cancel resume</strong>.';
+      :'A run the limit interrupted is marked <strong>rescheduled</strong> in the Log and continues its Claude session then — or drop it there with <strong>Cancel resume</strong>.';
     bar.innerHTML=heading+body+tail;
     bar.hidden=false;
   }
