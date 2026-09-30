@@ -786,7 +786,15 @@ func (s *server) resumeCommand(run store.Run, t task.Task) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append([]string{cmd.Path}, cmd.Args...), nil
+	argv := append([]string{cmd.Path}, cmd.Args...)
+	// The adapter's environment is what picks the account: a Claude Code
+	// instance is its config directory. Terminal starts a fresh login shell
+	// that knows nothing of it, so without `env` the session would reopen
+	// under whichever account the shell's default login belongs to.
+	if len(cmd.Env) > 0 {
+		argv = append(append([]string{"/usr/bin/env"}, cmd.Env...), argv...)
+	}
+	return argv, nil
 }
 
 // resumeAccess is the authority a continued session gets: the one the run

@@ -278,7 +278,8 @@ explains it.
 - **Full history** of every run with its complete log as a chat transcript or
   raw output, and replay.
 - **Continue in Chat…** opens Terminal in the task's folder and resumes the
-  run's session interactively, with the harness that owns it.
+  run's session interactively, with the harness and account that ran it (a run
+  a rate-limit fallback took over reopens on the fallback's account).
 - **Usage**: tokens, runs and API-equivalent cost per day over the last 14
   days.
 

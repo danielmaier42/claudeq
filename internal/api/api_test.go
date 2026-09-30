@@ -15,6 +15,7 @@ import (
 
 	"github.com/danielmaier42/claudeq/internal/app"
 	"github.com/danielmaier42/claudeq/internal/provider"
+	"github.com/danielmaier42/claudeq/internal/provider/claudecode"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
 )
@@ -706,6 +707,42 @@ func TestContinueRunFollowsTheRunsOwnProvider(t *testing.T) {
 	}
 	if got.argv[0] != "/opt/claude-work" {
 		t.Fatalf("argv = %v, want the binary of the provider that owns the session", got.argv)
+	}
+}
+
+// TestContinueRunUsesTheProvidersAccount: a Claude Code instance is its config
+// directory. A run that went to a fallback account has to reopen under that
+// account, not under the login a plain shell would pick.
+func TestContinueRunUsesTheProvidersAccount(t *testing.T) {
+	stubSrv, srvStore, got := continueFixture(t, func(r *store.Run) {
+		r.Provider = store.RunProvider{ID: "claude-max", Kind: store.DefaultProviderKind, Name: "Claude Max"}
+	}, nil)
+	stubSrv.Close()
+	// The real adapter, because it is the one that turns the config directory
+	// into the environment the resume needs.
+	reg := provider.NewRegistry(claudecode.New())
+	srv := httptest.NewServer(Handler(Deps{Store: srvStore, Registry: reg, Providers: provider.NewChecker(reg),
+		OpenTerminal: func(_ context.Context, dir string, argv []string) error {
+			got.dir, got.argv = dir, argv
+			return nil
+		}}))
+	t.Cleanup(srv.Close)
+	if err := srvStore.UpdateConfig(func(cfg *store.Config) error {
+		cfg.Providers = append(cfg.Providers, store.Provider{
+			ID: "claude-max", Kind: store.DefaultProviderKind, Name: "Claude Max",
+			BinaryPath: "/opt/claude", ConfigDir: "/Users/x/.claude-max", Enabled: true,
+		})
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+
+	if r := do(t, srv, "POST", "/api/runs/r1/continue", nil); r.Status != http.StatusNoContent {
+		t.Fatalf("continue status = %d (%s)", r.Status, r.Body)
+	}
+	want := []string{"/usr/bin/env", "CLAUDE_CONFIG_DIR=/Users/x/.claude-max", "/opt/claude", "--resume", "sess-1"}
+	if strings.Join(got.argv, " ") != strings.Join(want, " ") {
+		t.Fatalf("argv = %v, want %v", got.argv, want)
 	}
 }
 
