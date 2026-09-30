@@ -211,7 +211,7 @@ func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
 	waiting := s.waitingFor(cfg)
 	out := make([]taskView, 0, len(cfg.Tasks))
 	for _, t := range cfg.Tasks {
-		// A running one-shot task moves to Activity and is hidden here. Recurring
+		// A running one-shot task moves to the Log and is hidden here. Recurring
 		// (cron) tasks stay in the queue even while running, since they remain
 		// queued for their next occurrence — just flagged as running.
 		if active[t.ID] && t.Trigger != task.TriggerCron {

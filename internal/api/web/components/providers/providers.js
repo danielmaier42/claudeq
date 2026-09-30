@@ -221,7 +221,7 @@ async function fillFallbackModels(select,row,providerID,model){
 // Show one settings pane. The choice is remembered for the session, so leaving
 // Settings and coming back lands on the pane you were last on.
 
-// The Queue, the task sheet, Activity and Settings each fetch /api/providers
+// The Queue, the task sheet, Log and Settings each fetch /api/providers
 // alongside their own data. They hand the answer here instead of keeping a
 // second copy that could disagree with this one.
 export function setProviderSnapshot({providers,showBeta,defaultDir}={}){

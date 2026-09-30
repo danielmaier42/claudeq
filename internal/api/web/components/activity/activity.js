@@ -36,7 +36,7 @@ export async function loadRuns(){
   if(sig===runsSig && $('#news').childElementCount) return;
   runsSig=sig;
   const c=$('#news'); c.innerHTML='';
-  if(!runs.length){ c.append(emptyState('No activity yet','Runs will appear here after tasks execute.')); return; }
+  if(!runs.length){ c.append(emptyState('Nothing logged yet','Runs will appear here after tasks execute.')); return; }
   if(!filtered.length){ c.append(emptyState('No runs in this range','Adjust the date filter to see activity.')); return; }
   const list=el('div','act-list');
   // Runs that came out of one piece of work are shown together: a fan-out and
@@ -160,7 +160,7 @@ export async function readRun(id){ try{ await api('POST',`/api/runs/${id}/read`)
 async function markAllRead(){ try{await api('POST','/api/runs/read-all');toast('All marked read','ok'); runsSig=''; loadRuns();}catch(e){toast(e.message,'err')} }
 
 export const view={
-  title:'Activity',
+  title:'Log',
   toolbar(ta){
     ta.append(dateRange(actFrom,actTo,
       v=>{actFrom=v;actPage=0;runsSig='';loadRuns();},

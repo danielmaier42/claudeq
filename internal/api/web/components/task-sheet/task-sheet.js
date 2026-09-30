@@ -282,7 +282,7 @@ const sheetTemplate = `
         <label class="switch"><input type="checkbox" id="f-skip"><span class="sl"></span></label></div>
       <div class="row"><div class="grow"><div class="title">Notify me with the result</div><div class="sub">Send outcome + last message when it finishes</div></div>
         <label class="switch"><input type="checkbox" id="f-notify"><span class="sl"></span></label></div>
-      <div class="row"><div class="grow"><div class="title">Quiet history</div><div class="sub">Drop successful runs from Activity; failures are kept. For frequent watcher jobs</div></div>
+      <div class="row"><div class="grow"><div class="title">Quiet history</div><div class="sub">Drop successful runs from the Log; failures are kept. For frequent watcher jobs</div></div>
         <label class="switch"><input type="checkbox" id="f-quiet"><span class="sl"></span></label></div>
     </div>
     <p id="addErr" class="hint" style="color:var(--danger)"></p>

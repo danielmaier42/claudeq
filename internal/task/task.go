@@ -131,7 +131,7 @@ type Task struct {
 	// QuietHistory keeps the task's routine runs out of the way: a run that
 	// succeeds (or pauses on the rate limit, which resolves itself) is never
 	// written to history and its log is deleted, so a frequent watcher job
-	// neither floods the Activity view nor pushes real work out of the bounded
+	// neither floods the Log view nor pushes real work out of the bounded
 	// history. Runs that fail, hit an auth problem or are canceled are recorded
 	// like any other.
 	QuietHistory bool `toml:"quiet_history,omitempty" json:"quiet_history,omitempty"`

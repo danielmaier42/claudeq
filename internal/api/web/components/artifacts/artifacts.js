@@ -26,7 +26,7 @@ function openArtifactExternal(a){ const url=location.origin+contentURL(a,false);
 // it. The local flag is cleared first so a second open (e.g. "Open externally"
 // from an already-opened viewer) does not re-post and re-render the list.
 function markReadOnOpen(a){ if(!a||!a.unread) return; a.unread=false; readArtifact(a.id); }
-// Jump to Activity and open the log of the run that produced this artifact. The
+// Jump to the Log and open the log of the run that produced this artifact. The
 // run may have been pruned from history (artifacts outlive runs), so check first.
 async function openArtifactRun(a){
   if(!a.run_id) return;
@@ -63,7 +63,7 @@ async function loadArtifacts(){
     const gl=el('div','act-gl'); if(a.unread) gl.append(el('div','unread-dot'));
     const card=el('div','act-card');
     const grow=el('div','grow');
-    // "from <task>" links to the producing run's log in Activity (when the run is
+    // "from <task>" links to the producing run's log in the Log (when the run is
     // still in history); the rest of the line is the file name, size and time.
     const srcHtml=a.task_name
       ? (a.run_id ? `<span class="art-src" role="button" tabindex="0">from ${esc(a.task_name)}</span> · `
@@ -81,7 +81,7 @@ async function loadArtifacts(){
     const del=el('button','btn small danger','Delete'); del.title='Delete'; del.onclick=()=>deleteArtifact(a); actions.append(del);
     const kind=el('span','art-meta',extLabel(a.file_name,a.content_type));
     card.append(grow,actions,kind);
-    // Dot and eye sit inside the card, as in Activity, so an artifact row is
+    // Dot and eye sit inside the card, as in the Log, so an artifact row is
     // exactly as wide as a Queue group or a Usage card.
     if(a.unread){ const mr=el('button','eye-btn',EYE); mr.title='Mark read'; mr.onclick=()=>readArtifact(a.id); actions.prepend(mr); }
     card.prepend(gl);
@@ -90,7 +90,7 @@ async function loadArtifacts(){
   });
   c.append(list);
 
-  // Footer: count + pager, as in Activity (newest first, so "Newer" goes to
+  // Footer: count + pager, as in the Log (newest first, so "Newer" goes to
   // lower page indices).
   const inRange=(artFrom||artTo)?' in range':'';
   const foot=el('div','act-foot');
