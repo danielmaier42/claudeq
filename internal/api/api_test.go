@@ -1354,3 +1354,22 @@ func TestTaskBecomesAScriptOnEdit(t *testing.T) {
 		t.Fatalf("stored task = %+v, want a script job", cfg.Tasks)
 	}
 }
+
+// A WKWebView that reused a cached answer would show the queue as it was on an
+// earlier request, so every read of the daemon, data and assets alike, forbids it.
+func TestResponsesAreNeverCached(t *testing.T) {
+	srv, _ := newServer(t, nil)
+	for _, path := range []string{"/api/tasks", "/api/runs", "/api/artifacts", "/api/stats", "/", "/main.js"} {
+		resp, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET %s: status %d", path, resp.StatusCode)
+		}
+		if got := resp.Header.Get("Cache-Control"); !strings.Contains(got, "no-store") {
+			t.Errorf("GET %s: Cache-Control = %q, want no-store", path, got)
+		}
+	}
+}

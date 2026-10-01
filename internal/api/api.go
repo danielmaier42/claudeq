@@ -161,13 +161,14 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/feedback/url", s.feedbackURL)
 
 	sub, _ := fs.Sub(webFS, "web")
-	mux.Handle("GET /", noCache(http.FileServer(http.FS(sub))))
-	return mux
+	mux.Handle("GET /", http.FileServer(http.FS(sub)))
+	return noCache(mux)
 }
 
 // noCache tells the WKWebView (and any client) never to reuse a cached copy of
-// the embedded dashboard assets, so a rebuilt daemon's new logo/CSS/JS always
-// shows instead of a stale cached version.
+// anything the daemon serves: a rebuilt daemon's new logo/CSS/JS always shows
+// instead of a stale cached version, and a list of tasks or runs is always the
+// present one rather than what the queue looked like on an earlier request.
 func noCache(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")

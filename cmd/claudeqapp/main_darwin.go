@@ -72,10 +72,12 @@ func main() {
 	installOpenPanel(w.Window())
 
 	// Native menu bar (webview_go creates none). Custom items drive the dashboard
-	// via the same JS the sidebar uses: openAdd() and select('settings').
+	// via the same JS the sidebar uses: openAdd() and select('settings'), and
+	// View > Refresh (Cmd+R) re-reads every view from the daemon: cqRefresh().
 	installMenu(
 		func() { w.Dispatch(func() { w.Eval("window.openAdd && window.openAdd()") }) },
 		func() { w.Dispatch(func() { w.Eval("window.select && window.select('settings')") }) },
+		func() { w.Dispatch(func() { w.Eval("window.cqRefresh && window.cqRefresh()") }) },
 	)
 
 	// Open external (http/https) links in the default browser — WKWebView won't

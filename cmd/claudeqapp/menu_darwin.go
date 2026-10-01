@@ -11,6 +11,7 @@ import "C"
 var (
 	onMenuNewTask  func()
 	onMenuSettings func()
+	onMenuRefresh  func()
 )
 
 //export goMenuNewTask
@@ -27,10 +28,18 @@ func goMenuSettings() {
 	}
 }
 
+//export goMenuRefresh
+func goMenuRefresh() {
+	if f := onMenuRefresh; f != nil {
+		f()
+	}
+}
+
 // installMenu sets claudeq's native menu bar and wires the custom items back to
 // the given handlers (which drive the dashboard in the WKWebView).
-func installMenu(newTask, settings func()) {
+func installMenu(newTask, settings, refresh func()) {
 	onMenuNewTask = newTask
 	onMenuSettings = settings
+	onMenuRefresh = refresh
 	C.cqInstallMenu()
 }

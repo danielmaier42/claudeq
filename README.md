@@ -377,6 +377,12 @@ sit at the bottom, out of the way of the work:
   prompt gets the same review banner as a task prompt. A red badge here means
   an update is available.
 
+The views keep themselves current: every few seconds the window re-reads the
+queue, the log, the artifacts and the usage from the daemon, including the
+views that are not open, so a view you click shows the present state. Coming
+back to the window re-reads them at once. **View → Refresh** (**⌘R**) in the
+menu bar redraws every view on demand; it leaves an unsaved Settings form alone.
+
 The dashboard is also reachable in a normal browser at
 `http://127.0.0.1:10765` while the daemon is running.
 

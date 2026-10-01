@@ -1,4 +1,4 @@
-import {current, select} from '../app-shell/app-shell.js';
+import {select} from '../app-shell/app-shell.js';
 import {canContinue, showLog} from '../log-sheet/log-sheet.js';
 import {setConn} from '../status/status.js';
 import {api} from '../../core/api.js';
@@ -42,7 +42,7 @@ async function openArtifactRun(a){
 // mark-read), and an earlier fetch answering last would paint the artifact
 // unread again over the newer answer.
 let loadsGen=0;
-async function loadArtifacts(){
+export async function loadArtifacts(){
   const gen=++loadsGen;
   let arts; try{ arts=await api('GET','/api/artifacts'); setConn(true);}catch(e){ setConn(false); return; }
   if(gen!==loadsGen) return;   // a newer load superseded us
@@ -206,6 +206,7 @@ export const view={
     const b=el('button','btn',EYE+'<span>Mark all read</span>'); b.onclick=markAllArtifactsRead; ta.append(b);
   },
   enter(){ loadArtifacts(); },
+  refresh(){ artifactsSig=''; loadArtifacts(); },
 };
 
 // The sheet that previews one artifact.
@@ -219,11 +220,3 @@ const sheetTemplate = `
 `;
 
 export function mountViewer(){ document.body.insertAdjacentHTML('beforeend', sheetTemplate); }
-
-// Keep the artifact unread badge current on every tab; re-render the list when
-// it's the open tab.
-export async function refreshArtifacts(){
-  if(current==='artifacts'){ loadArtifacts(); return; }
-  try{ const arts=await api('GET','/api/artifacts'); const unread=arts.filter(a=>a.unread).length;
-    const badge=$('#artifactCount'); badge.hidden=unread===0; badge.textContent=unread; }catch{}
-}

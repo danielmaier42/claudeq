@@ -295,5 +295,8 @@ export const view={
   title:'Settings',
   toolbar(ta){ const b=el('button','btn primary',SAVE+'<span>Save</span>'); b.onclick=saveSettings; ta.append(b); },
   enter(){ loadSettings(); loadUpdate(); },
+  // Only what the daemon decides: reloading the form would throw away edits
+  // that have not been saved yet.
+  refresh(){ loadUpdate(); },
   leave(){ if(settingsReview){ settingsReview.reset(); settingsReview=null; } },
 };

@@ -1,6 +1,6 @@
 import {loadRuns} from './components/activity/activity.js';
-import {current, initShell, mountShell, select} from './components/app-shell/app-shell.js';
-import {initViewer, mountViewer, refreshArtifacts} from './components/artifacts/artifacts.js';
+import {initShell, mountShell, refreshAll, select} from './components/app-shell/app-shell.js';
+import {initViewer, loadArtifacts, mountViewer} from './components/artifacts/artifacts.js';
 import {initFeedback, mountFeedback} from './components/feedback/feedback.js';
 import {initLogSheet, mountLogSheet} from './components/log-sheet/log-sheet.js';
 import {initProviderSheet, mountProviderSheet} from './components/providers/providers.js';
@@ -10,6 +10,7 @@ import {mountSidebar} from './components/sidebar/sidebar.js';
 import {checkHealth, mountBanners} from './components/status/status.js';
 import {initTaskSheet, mountTaskSheet, openAdd} from './components/task-sheet/task-sheet.js';
 import {loadUpdate} from './components/update/update.js';
+import {loadUsage} from './components/usage/usage.js';
 import {mountConfirm} from './core/confirm.js';
 import {initDialogs} from './core/dom.js';
 import {loadModels} from './core/models.js';
@@ -51,18 +52,39 @@ initProviderSheet();
 initFeedback();
 initDialogs();
 
-// The app window's menu bar drives the page through these two, and its
+// The app window's menu bar drives the page through these three, and its
 // "new artifact" notification through window.cqOpenArtifact (published where it
 // is implemented). Modules keep everything else to themselves, so what the
 // native side may call is exactly this list — see cmd/claudeqapp/main_darwin.go.
 window.openAdd=openAdd;
 window.select=select;
+window.cqRefresh=refresh;
 
-// Poll activity for the unread badge + live updates.
-setInterval(()=>{ if(current==='tasks') loadTasks(); loadRuns(); refreshArtifacts(); }, 5000);
-refreshArtifacts();
+// Every list is kept current in the background, not only the open one: a page
+// that is clicked then shows the present straight away, and its own load on
+// entering confirms it. The badges ride along with the lists.
+function poll(){ loadTasks(); loadRuns(); loadArtifacts(); loadUsage(); }
+setInterval(poll, 5000);
+
+// refresh is the explicit "show me now" of View > Refresh (Cmd+R) in the app's
+// menu bar: every view is redrawn, changed or not.
+function refresh(){ refreshAll(); checkHealth(); }
+// Coming back to the window polls at once: WebKit holds back the timers of a
+// window in the background, so what it shows on return can be minutes old. It
+// is a poll, not a refresh: a row redrawn without a change could swallow the
+// click that brought the window forward.
+let lastBack=0;
+function back(){
+  if(document.visibilityState!=='visible') return;
+  // Focus and visibility arrive together when the window comes back.
+  const now=Date.now(); if(now-lastBack<1000) return; lastBack=now;
+  poll(); checkHealth();
+}
+window.addEventListener('focus', back);
+document.addEventListener('visibilitychange', back);
+
 setInterval(checkHealth, 30000); checkHealth();
 // The daemon checks GitHub hourly; the UI just reads its cached result, so a
 // slow poll keeps the Settings badge current without any extra network calls.
 setInterval(loadUpdate, 60000); loadUpdate();
-loadModels().then(()=>select('tasks'));
+loadModels().then(()=>{ select('tasks'); poll(); });

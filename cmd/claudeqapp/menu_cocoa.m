@@ -11,6 +11,7 @@
 // Defined in Go (//export). The custom menu items call back into these.
 extern void goMenuNewTask(void);
 extern void goMenuSettings(void);
+extern void goMenuRefresh(void);
 
 // Target for the custom menu items. Standard items (Quit, Close, Cut/Copy/…)
 // use built-in selectors routed through the responder chain and need no target.
@@ -19,6 +20,7 @@ extern void goMenuSettings(void);
 @implementation CQMenuTarget
 - (void)cqNewTask:(id)sender  { (void)sender; goMenuNewTask(); }
 - (void)cqSettings:(id)sender { (void)sender; goMenuSettings(); }
+- (void)cqRefresh:(id)sender  { (void)sender; goMenuRefresh(); }
 - (void)cqAbout:(id)sender {
     // The standard About panel already shows the bundle icon (our logo),
     // CFBundleName and the version — a native, familiar dialog.
@@ -82,6 +84,13 @@ static void cqBuildMenu(void) {
     cqAdd(editMenu, @"Copy", @selector(copy:), @"c", nil);
     cqAdd(editMenu, @"Paste", @selector(paste:), @"v", nil);
     cqAdd(editMenu, @"Select All", @selector(selectAll:), @"a", nil);
+
+    // View menu
+    NSMenuItem *viewItem = [[NSMenuItem alloc] init];
+    [main addItem:viewItem];
+    NSMenu *viewMenu = [[NSMenu alloc] initWithTitle:@"View"];
+    [viewItem setSubmenu:viewMenu];
+    cqAdd(viewMenu, @"Refresh", @selector(cqRefresh:), @"r", gMenuTarget);
 
     // Window menu
     NSMenuItem *winItem = [[NSMenuItem alloc] init];
