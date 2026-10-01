@@ -8,8 +8,16 @@ const fmtTok=n=>{ n=n||0; return n>=1e6?(n/1e6).toFixed(2)+'M':n>=1e3?(n/1e3).to
 const fmtDur=ms=>{ const s=Math.round((ms||0)/1000); if(s<60)return s+'s'; const m=Math.floor(s/60); if(m<60)return m+'m'; return Math.floor(m/60)+'h '+(m%60)+'m'; };
 const statCell=(label,val)=>`<div style="flex:1;min-width:84px"><div class="usage-num" style="font-size:20px">${val}</div><div class="sub">${label}</div></div>`;
 
-async function loadUsage(){
+let usageGen=0, usageSig='';
+export async function loadUsage(){
+  const gen=++usageGen;
   let stats; try{ stats=await api('GET','/api/stats'); setConn(true);}catch(e){ setConn(false); return; }
+  if(gen!==usageGen) return;   // a newer load superseded us
+  // The poll keeps this page current while another one is open; redrawing it
+  // with the same numbers would only cost the hover on a bar.
+  const sig=JSON.stringify(stats);
+  if(sig===usageSig && $('#usage').childElementCount) return;
+  usageSig=sig;
   const c=$('#usage'); c.innerHTML='';
   if(!stats) return;
   const tot=stats.totals, w=stats.last_7d;
@@ -74,4 +82,4 @@ function barChart(days, valueOf, fmt){
     <div class="xlabels" style="grid-template-columns:${cols}">${labels}</div></div></div>`;
 }
 
-export const view={ title:'Usage', enter(){ loadUsage(); } };
+export const view={ title:'Usage', enter(){ loadUsage(); }, refresh(){ usageSig=''; loadUsage(); } };

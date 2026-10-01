@@ -31,6 +31,13 @@ export function select(tab){
   if(v.enter) v.enter();
 }
 
+// refreshAll redraws every view that can be redrawn from the daemon's present
+// state, open or not, so the next tab clicked shows the same moment. A view
+// says how in its `refresh`; one without (Feedback) holds only what was typed.
+export function refreshAll(){
+  VIEW_IDS.forEach(id=>{ const v=viewOf(id); if(v.refresh) v.refresh(); });
+}
+
 export function initShell(){
   document.querySelectorAll('.nav button[data-tab]').forEach(b=>b.onclick=()=>select(b.dataset.tab));
 }

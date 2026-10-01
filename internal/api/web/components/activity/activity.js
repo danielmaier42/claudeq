@@ -11,12 +11,13 @@ import {baseName, inDateRange, relTime, resumeText, runTimeTitle} from '../../co
 import {EYE, REPLAY} from '../../core/icons.js';
 import {toast} from '../../core/toast.js';
 
-let runsSig='', actFrom='', actTo='', actPage=0; const ACT_PAGE=25;
+let runsGen=0, runsSig='', actFrom='', actTo='', actPage=0; const ACT_PAGE=25;
 // The next poll re-renders instead of matching its signature and skipping the
 // work — what a caller means when it changed a run behind the list's back.
 export function invalidateRuns(){ runsSig=''; }
 
 export async function loadRuns(){
+  const gen=++runsGen;
   let runs;
   try{
     // The provider list rides along: which harness a run used is only worth
@@ -24,6 +25,7 @@ export async function loadRuns(){
     const [rs,ps]=await Promise.all([api('GET','/api/runs'),api('GET','/api/providers')]);
     runs=rs; if(ps) setProviderSnapshot({providers:ps}); setConn(true);
   }catch(e){ setConn(false); return; }
+  if(gen!==runsGen) return;   // a newer load superseded us
   const unread=runs.filter(r=>r.unread).length; const badge=$('#unreadCount'); badge.hidden=unread===0; badge.textContent=unread;
   const filtered=runs.filter(r=>inDateRange(r.started_at,actFrom,actTo));
   const pages=Math.max(1,Math.ceil(filtered.length/ACT_PAGE));
@@ -168,4 +170,5 @@ export const view={
     const b=el('button','btn',EYE+'<span>Mark all read</span>'); b.onclick=markAllRead; ta.append(b);
   },
   enter(){ loadRuns(); },
+  refresh(){ invalidateRuns(); loadRuns(); },
 };

@@ -30,7 +30,7 @@ function runsOn(t){
   return model?who+' · '+model:who;
 }
 
-let tasksSig='', tasksOnlyActive=false;
+let tasksSig='', tasksOnlyActive=false, tasksGen=0;
 // GROUPS maps a group name to whether its section is folded shut. The daemon
 // owns it, so the fold survives a reload, a restart and the window closing.
 let GROUPS={};
@@ -54,12 +54,16 @@ export async function loadTasks(){
   if(dragging||draggingGroup) return;
   // The pause state rides along with the queue: it decides the banner and
   // whether Run now is offered at all, and both must be right on every poll.
+  const gen=++tasksGen;
   let tasks, paused=false;
   try{ const [t,s,ps,gs]=await Promise.all([api('GET','/api/tasks'),api('GET','/api/settings'),api('GET','/api/providers'),api('GET','/api/groups')]);
     tasks=t; paused=!!s.paused; setConn(true);
     GROUPS={}; (gs||[]).forEach(g=>{ GROUPS[g.name]=!!g.collapsed; });
     setProviderSnapshot({providers:ps||[],showBeta:s.beta_features,defaultDir:s.default_working_dir});
   }catch(e){ setConn(false); return; }
+  // A slow answer that lands after a newer one would paint the older state over
+  // it, so only the latest load may draw.
+  if(gen!==tasksGen) return;
   tasks=tasks||[];
   const shown=tasksOnlyActive?tasks.filter(t=>t.enabled):tasks;
   const sig=JSON.stringify([paused,tasksOnlyActive,tasks.length,LIMITED_UNTIL&&LIMITED_UNTIL.toISOString(),GROUPS,shown.map(t=>[t.id,t.name,t.kind||'',t.trigger,t.enabled,t.parallel,t.permissions,t.notify_on_result,t.quiet_history,t.fixed_at,t.cron,t.next_run,t.last_run,t.running,t.waiting_for_limit,t.blocked_reason,t.provider,t.model,t.group||'',(t.waiting_for||[]).join(',')])]);
@@ -393,4 +397,5 @@ export const view={
     const b=el('button','btn primary','+ New task'); b.onclick=openAdd; ta.append(b);
   },
   enter(){ loadTasks(); },
+  refresh(){ invalidateTasks(); loadTasks(); },
 };
