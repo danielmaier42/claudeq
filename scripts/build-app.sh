@@ -8,6 +8,10 @@
 # Requires: go, rsvg-convert (librsvg), iconutil, sips — all macOS/brew tools.
 set -euo pipefail
 
+# Leave a few cores for the desktop: an unbounded Go build on a 12-core Mac
+# freezes the UI for seconds while three binaries compile and link back to back.
+export GOMAXPROCS="${GOMAXPROCS:-8}"
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${1:-$ROOT/build}"
 APP="$OUT/ClaudeQ.app"
