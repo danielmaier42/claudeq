@@ -22,6 +22,7 @@ Usage:
   claudeq provider list [--json]
   claudeq provider show ID [--json]
   claudeq provider check ID [--json]   (probe it now, ignoring the cached verdict)
+  claudeq provider limits [ID] [--json] (how much of each allowance is used)
   claudeq provider add  ID --kind KIND [--name N] [--path PATH]
                         [--config-dir PATH] [--default-model MODEL]
                         [--fallback ID] [--fallback-model MODEL]
@@ -49,6 +50,8 @@ func cmdProvider(st *store.Store, args []string) error {
 		return cmdProviderShow(st, rest, false)
 	case "check":
 		return cmdProviderShow(st, rest, true)
+	case "limits":
+		return cmdProviderLimits(st, rest)
 	case "add":
 		return cmdProviderAdd(st, rest)
 	case "edit":
