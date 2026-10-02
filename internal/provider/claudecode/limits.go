@@ -12,6 +12,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/danielmaier42/claudeq/internal/provider"
@@ -46,6 +49,10 @@ type credentials struct {
 	OAuth *struct {
 		AccessToken string `json:"accessToken"`
 		ExpiresAt   int64  `json:"expiresAt"` // milliseconds since the epoch
+		// SubscriptionType and RateLimitTier say which plan the login is on
+		// ("max", "default_claude_max_20x"); see planOf.
+		SubscriptionType string `json:"subscriptionType"`
+		RateLimitTier    string `json:"rateLimitTier"`
 	} `json:"claudeAiOauth"`
 }
 
@@ -64,11 +71,41 @@ type usageReport struct {
 
 // ReadLimits implements provider.LimitReader: the account's five-hour and
 // weekly windows, read with the login the CLI stored for this instance.
-func (a *Adapter) ReadLimits(ctx context.Context, inst provider.Instance) ([]provider.LimitWindow, error) {
-	token, err := a.accessToken(ctx, inst)
+func (a *Adapter) ReadLimits(ctx context.Context, inst provider.Instance) (provider.LimitReading, error) {
+	login, err := a.login(ctx, inst)
 	if err != nil {
-		return nil, err
+		return provider.LimitReading{}, err
 	}
+	windows, err := a.readUsage(ctx, login.AccessToken)
+	if err != nil {
+		return provider.LimitReading{}, err
+	}
+	plan, capacity := planOf(login.SubscriptionType, login.RateLimitTier)
+	return provider.LimitReading{Windows: windows, Plan: plan, Capacity: capacity}, nil
+}
+
+// tierRe finds the multiplier in a rate-limit tier ("default_claude_max_20x").
+var tierRe = regexp.MustCompile(`_(\d+)x$`)
+
+// planOf names the plan a login is on and its size relative to Pro. The tier
+// carries the multiplier; a Team seat reports a Max tier of its own, which is
+// exactly the allowance it has. An unrecognised plan has capacity 0: unknown,
+// and a pool then weighs it as 1 unless the operator says otherwise.
+func planOf(subscription, tier string) (string, float64) {
+	name := strings.ToUpper(subscription[:min(1, len(subscription))]) + subscription[min(1, len(subscription)):]
+	if m := tierRe.FindStringSubmatch(tier); m != nil {
+		if n, err := strconv.Atoi(m[1]); err == nil && n > 0 {
+			return strings.TrimSpace(name + " " + m[1] + "x"), float64(n)
+		}
+	}
+	if subscription == "pro" {
+		return "Pro", 1
+	}
+	return name, 0
+}
+
+// readUsage asks the usage endpoint for the account's windows.
+func (a *Adapter) readUsage(ctx context.Context, token string) ([]provider.LimitWindow, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.usageURL(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("build usage request: %w", err)
@@ -128,38 +165,43 @@ func parseUsage(body []byte) ([]provider.LimitWindow, error) {
 	return out, nil
 }
 
-// accessToken returns the instance's stored OAuth access token: from the
-// keychain where macOS Claude Code keeps it, else from the credentials file the
-// CLI writes where there is no keychain. The token is never logged or wrapped
-// into an error.
-func (a *Adapter) accessToken(ctx context.Context, inst provider.Instance) (string, error) {
+// oauthLogin is the part of a stored login ReadLimits uses.
+type oauthLogin struct {
+	AccessToken, SubscriptionType, RateLimitTier string
+}
+
+// login returns the instance's stored OAuth login: from the keychain where
+// macOS Claude Code keeps it, else from the credentials file the CLI writes
+// where there is no keychain. The token is never logged or wrapped into an
+// error.
+func (a *Adapter) login(ctx context.Context, inst provider.Instance) (oauthLogin, error) {
 	raw, err := a.readKeychain(ctx, keychainService(inst.ConfigDir))
 	if err != nil {
 		dir := inst.ConfigDir
 		if dir == "" {
 			home, herr := os.UserHomeDir()
 			if herr != nil {
-				return "", fmt.Errorf("locate Claude's configuration directory: %w", herr)
+				return oauthLogin{}, fmt.Errorf("locate Claude's configuration directory: %w", herr)
 			}
 			dir = filepath.Join(home, ".claude")
 		}
 		var ferr error
 		raw, ferr = os.ReadFile(filepath.Join(dir, ".credentials.json")) // #nosec G304 — the instance's own configuration directory
 		if ferr != nil {
-			return "", errors.New("no Claude login was found for this account; run `claude auth login`")
+			return oauthLogin{}, errors.New("no Claude login was found for this account; run `claude auth login`")
 		}
 	}
 	var c credentials
 	if err := json.Unmarshal(raw, &c); err != nil {
-		return "", errors.New("the stored Claude login is not in a format claudeq understands")
+		return oauthLogin{}, errors.New("the stored Claude login is not in a format claudeq understands")
 	}
 	if c.OAuth == nil || c.OAuth.AccessToken == "" {
-		return "", errors.New("this account is not logged in with a Claude plan, so it has no plan limits to show")
+		return oauthLogin{}, errors.New("this account is not logged in with a Claude plan, so it has no plan limits to show")
 	}
 	if c.OAuth.ExpiresAt > 0 && a.now().After(time.UnixMilli(c.OAuth.ExpiresAt)) {
-		return "", errors.New("the stored Claude login has expired; it is renewed on the next run on this account")
+		return oauthLogin{}, errors.New("the stored Claude login has expired; it is renewed on the next run on this account")
 	}
-	return c.OAuth.AccessToken, nil
+	return oauthLogin{AccessToken: c.OAuth.AccessToken, SubscriptionType: c.OAuth.SubscriptionType, RateLimitTier: c.OAuth.RateLimitTier}, nil
 }
 
 // readKeychain returns the secret of a generic keychain item, through the same

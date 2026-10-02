@@ -3,6 +3,7 @@ package provider
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/danielmaier42/claudeq/internal/store"
 )
@@ -35,6 +36,13 @@ type Selection struct {
 	// Model names a model for that provider. Empty selects the provider's own
 	// default model.
 	Model string
+	// PoolID names a pool instead of a provider; the run goes to one of its
+	// members (see Set.ResolveAvailable). It excludes ProviderID.
+	PoolID string
+	// Prefer is the pool member holding the task's interrupted session. It is
+	// chosen over the ranking while it can take the work, because only there
+	// can the session continue.
+	Prefer string
 }
 
 // Resolved is the effective execution identity for one run.
@@ -47,6 +55,9 @@ type Resolved struct {
 	// its allowance was used up and its fallback took the job. It is what the
 	// run's log says happened; an empty value means nothing was substituted.
 	FallbackFrom Instance
+	// Pool is set when the selection named a pool: which one, and how its
+	// members stood when this one was chosen.
+	Pool *PoolChoice
 }
 
 // Substituted reports whether the run is going somewhere other than the
@@ -57,6 +68,7 @@ func (r Resolved) Substituted() bool { return r.FallbackFrom.ID != "" }
 type Set struct {
 	instances []Instance
 	defaultID string
+	pools     []Pool
 }
 
 // NewSet builds a set. It rejects an instance list that could not be resolved
@@ -100,7 +112,45 @@ func FromConfig(cfg store.Config) (Set, error) {
 	for i, p := range cfg.Providers {
 		insts[i] = InstanceOf(p)
 	}
-	return NewSet(cfg.Settings.DefaultProvider, insts)
+	set, err := NewSet(cfg.Settings.DefaultProvider, insts)
+	if err != nil {
+		return Set{}, err
+	}
+	pools := make([]Pool, len(cfg.Pools))
+	for i, p := range cfg.Pools {
+		pools[i] = PoolOf(p)
+	}
+	return set.WithPools(pools), nil
+}
+
+// WithPools returns the set with these pools configured.
+func (s Set) WithPools(pools []Pool) Set {
+	s.pools = append([]Pool(nil), pools...)
+	return s
+}
+
+// Pools returns the configured pools in order.
+func (s Set) Pools() []Pool { return append([]Pool(nil), s.pools...) }
+
+// LookupPool returns the pool with the given ID.
+func (s Set) LookupPool(id string) (Pool, bool) {
+	for _, p := range s.pools {
+		if p.ID == id {
+			return p, true
+		}
+	}
+	return Pool{}, false
+}
+
+// PoolMembers returns the configured instances of a pool, in its order.
+func (s Set) PoolMembers(p Pool) []Instance {
+	out := make([]Instance, 0, len(p.Members))
+	for _, m := range p.Members {
+		if inst, ok := s.Lookup(m.ProviderID); ok {
+			out = append(out, inst)
+		}
+	}
+	return out
 }
 
 // All returns the configured instances in order.
@@ -135,6 +185,9 @@ func (s Set) Lookup(id string) (Instance, bool) {
 // provider into the new one. There is no fallback to another provider: a
 // selection that cannot be honoured returns an error saying why.
 func (s Set) Resolve(sel Selection) (Resolved, error) {
+	if sel.PoolID != "" {
+		return s.resolvePool(sel, Availability{})
+	}
 	id := sel.ProviderID
 	if id == "" {
 		id = s.defaultID
@@ -169,6 +222,13 @@ type Availability struct {
 	// hop that cannot take the work is stepped over, which substitutes nothing,
 	// because it is not the provider the task named. Nil accepts every hop.
 	CanTakeWork func(inst Instance) bool
+
+	// Limits, Running and Now are what a pool ranks its members by (see
+	// RankPool). Nil Limits ranks every member as unread; nil Now is the zero
+	// time, which only matters to a member with a reading.
+	Limits  func(inst Instance) (Limits, bool)
+	Running func(id string) int
+	Now     func() time.Time
 }
 
 // ResolveAvailable resolves a selection and then, when the chosen instance is
@@ -184,6 +244,9 @@ type Availability struct {
 // is a pause, not a verdict on the work. A provider that is missing, logged
 // out or switched off is still never answered by running somewhere else.
 func (s Set) ResolveAvailable(sel Selection, av Availability) (Resolved, error) {
+	if sel.PoolID != "" {
+		return s.resolvePool(sel, av)
+	}
 	res, err := s.Resolve(sel)
 	if err != nil || av.OutOfAllowance == nil || !av.OutOfAllowance(res.Instance.ID) {
 		return res, err
@@ -232,4 +295,70 @@ func fallbackModel(origin, from, next Instance, want string) string {
 		return want
 	}
 	return next.DefaultModel
+}
+
+// resolvePool picks the member of a pool a run goes to.
+//
+// The member holding the task's interrupted session is taken first while it
+// can work, so the session continues. Otherwise the best-ranked member that can
+// take work wins (see RankPool). A pool none of whose members can take work
+// resolves to one that is waiting out its rate limit, if any is — the caller
+// then holds the task back until one reopens — and otherwise to its first
+// enabled member, whose readiness check says what is wrong. A pool's members do
+// not hand work to their own fallbacks: the pool is the fallback.
+func (s Set) resolvePool(sel Selection, av Availability) (Resolved, error) {
+	p, ok := s.LookupPool(sel.PoolID)
+	if !ok {
+		return Resolved{}, fmt.Errorf("%w %q", ErrUnknownPool, sel.PoolID)
+	}
+	members := s.PoolMembers(p)
+	var enabled []Instance
+	for _, inst := range members {
+		if inst.Enabled {
+			enabled = append(enabled, inst)
+		}
+	}
+	if len(enabled) == 0 {
+		return Resolved{}, fmt.Errorf("%w: every member of pool %q is switched off", ErrProviderDisabled, p.ID)
+	}
+	model := func(inst Instance) string {
+		if sel.Model != "" {
+			return sel.Model
+		}
+		return inst.DefaultModel
+	}
+	out := func(inst Instance, c PoolChoice) Resolved {
+		c.Pool = p
+		return Resolved{Instance: inst, Model: model(inst), Pool: &c}
+	}
+	blocked := func(inst Instance) bool { return av.OutOfAllowance != nil && av.OutOfAllowance(inst.ID) }
+	for _, inst := range enabled {
+		if inst.ID == sel.Prefer && !blocked(inst) && av.usable(inst) {
+			return out(inst, PoolChoice{Resumed: true}), nil
+		}
+	}
+	in := RankInputs{Limits: av.Limits, Running: av.Running}
+	if av.Now != nil {
+		in.Now = av.Now()
+	}
+	in.Usable = func(inst Instance) (bool, string) {
+		switch {
+		case blocked(inst):
+			return false, "waiting for its rate limit"
+		case !av.usable(inst):
+			return false, "cannot run right now"
+		}
+		return true, ""
+	}
+	scores := RankPool(s, p, in)
+	if len(scores) > 0 && scores[0].Tier < 3 {
+		inst, _ := s.Lookup(scores[0].ProviderID)
+		return out(inst, PoolChoice{Scores: scores}), nil
+	}
+	for _, inst := range enabled {
+		if blocked(inst) {
+			return out(inst, PoolChoice{Scores: scores}), nil
+		}
+	}
+	return out(enabled[0], PoolChoice{Scores: scores}), nil
 }

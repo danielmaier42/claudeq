@@ -305,7 +305,7 @@ func (e *Executor) runEnv(req Request, adapterEnv []string) []string {
 	// that may have moved by the time it starts — and rather than the stand-in
 	// that a rate limit happened to send this one run to.
 	parent := req.Task
-	if parent.Provider == "" {
+	if parent.Provider == "" && parent.Pool == "" {
 		parent.Provider = req.Provider.ID
 		if req.InheritProvider != "" {
 			parent.Provider = req.InheritProvider

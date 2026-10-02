@@ -96,6 +96,11 @@ type Task struct {
 	// provider, which is what every task migrated from a pre-provider config
 	// does.
 	Provider string `toml:"provider,omitempty" json:"provider,omitempty"`
+	// Pool selects a provider pool instead of one provider: every run goes to
+	// the member whose allowance is most at risk of expiring unused (see
+	// provider.RankPool). It excludes Provider; empty means the task names a
+	// provider (or the default) instead.
+	Pool string `toml:"pool,omitempty" json:"pool,omitempty"`
 	// Model overrides the effective provider's default model when non-empty.
 	Model string `toml:"model,omitempty" json:"model,omitempty"`
 	// ReasoningEffort asks the model to think harder or less hard. It is passed
@@ -190,6 +195,9 @@ func (t Task) Validate() error {
 	if err := t.checkKind(); err != nil {
 		return err
 	}
+	if t.Provider != "" && t.Pool != "" {
+		return fmt.Errorf("%w: a task runs on a provider or on a pool, not both", ErrInvalidTask)
+	}
 
 	switch t.Trigger {
 	case TriggerASAP:
@@ -248,6 +256,7 @@ func (t Task) checkKind() error {
 	}
 	for _, f := range []struct{ name, value string }{
 		{"provider", t.Provider},
+		{"pool", t.Pool},
 		{"model", t.Model},
 		{"reasoning_effort", t.ReasoningEffort},
 	} {

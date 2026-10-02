@@ -62,6 +62,14 @@ func (e *Engine) SetNotifier(n notify.Notifier) { e.notifier = n }
 // not call it.
 func (e *Engine) SetRunFinished(f func(providerID string)) { e.runFinished = f }
 
+// SetLimits gives the engine each provider's last allowance reading, which is
+// what a pool picks its member by. f should answer from memory: it is asked on
+// the scheduler's pass. Without it every pool member counts as unread, and a
+// pool spreads its work by how busy each member is.
+func (e *Engine) SetLimits(f func(ctx context.Context, inst provider.Instance) (provider.Limits, bool)) {
+	e.limits = f
+}
+
 // WakeError reports the last wake-scheduling error, or "" if the most recent
 // attempt succeeded (or wake is disabled / not yet attempted). Surfaced in the
 // UI so a broken scheduled-wake setup (e.g. missing pmset sudoers entry) is
@@ -109,6 +117,7 @@ type Engine struct {
 	wakeErr         atomic.Pointer[string] // exposed to the API (thread-safe)
 	notifier        notify.Notifier
 	runFinished     func(providerID string)
+	limits          func(ctx context.Context, inst provider.Instance) (provider.Limits, bool)
 
 	runCtx    context.Context
 	runCancel context.CancelFunc
@@ -124,8 +133,11 @@ type Engine struct {
 	canceled          map[string]bool               // runID -> user requested cancellation
 	nonParallelActive int
 	parallelActive    int
-	wg                sync.WaitGroup
-	awake             sleepGuard // keeps the Mac awake while runs are in flight
+	// runningOn counts the runs in flight per provider instance, which a pool
+	// weighs its members by so concurrent starts spread out.
+	runningOn map[string]int
+	wg        sync.WaitGroup
+	awake     sleepGuard // keeps the Mac awake while runs are in flight
 
 	// providerHealth is the health state last announced per provider, so an
 	// unresolved problem is reported once instead of on every tick. It is seeded
@@ -153,6 +165,7 @@ func New(st *store.Store, gates *limit.Gates, r Runner, c clock.Clock, providers
 		active:         map[string]bool{},
 		cancels:        map[string]context.CancelFunc{},
 		canceled:       map[string]bool{},
+		runningOn:      map[string]int{},
 		providerHealth: map[string]string{},
 	}
 	// Runs use their own context so that cancelling the loop (SIGINT) does not
@@ -324,6 +337,18 @@ type assignment struct {
 // than silently disappearing from the tick.
 func (e *Engine) assign(ctx context.Context, set provider.Set, due []task.Task) []assignment {
 	out := make([]assignment, 0, len(due))
+	// Which pool member holds a task's interrupted session is read once per
+	// pass. Without it a pool would pick by rank and drop the session.
+	st, stErr := e.store.LoadState()
+	if stErr != nil {
+		fmt.Fprintf(os.Stderr, "claudeqd: load state for pool assignment: %v; pool tasks wait for the next tick\n", stErr)
+	}
+	// Runs planned onto a member in this pass count as running on it, so two
+	// pool tasks due in the same tick do not both pick the same account.
+	planned := map[string]int{}
+	av := e.availability(ctx)
+	running := av.Running
+	av.Running = func(id string) int { return running(id) + planned[id] }
 	for _, t := range due {
 		// A script job runs no harness, so there is nothing to resolve and no
 		// allowance it could be waiting for: it goes through even while every
@@ -333,14 +358,34 @@ func (e *Engine) assign(ctx context.Context, set provider.Set, due []task.Task) 
 			out = append(out, assignment{task: t})
 			continue
 		}
-		sel := provider.Selection{ProviderID: t.Provider, Model: t.Model}
-		res, err := set.ResolveAvailable(sel, e.availability(ctx))
+		// Without the state a pool cannot see which member holds the task's
+		// interrupted session, and ranking it elsewhere would drop that session.
+		// The task waits a tick instead.
+		if t.Pool != "" && stErr != nil {
+			continue
+		}
+		res, err := set.ResolveAvailable(selectionFor(t, st), av)
 		if err == nil && !e.gateOpen(res.Instance.ID) {
 			continue
+		}
+		if err == nil && res.Pool != nil {
+			planned[res.Instance.ID]++
 		}
 		out = append(out, assignment{task: t, resolved: res, err: err})
 	}
 	return out
+}
+
+// selectionFor is what a task asks the provider set for. A pool task also names
+// the member its interrupted session is waiting on, if any.
+func selectionFor(t task.Task, st *store.State) provider.Selection {
+	sel := provider.Selection{ProviderID: t.Provider, Model: t.Model, PoolID: t.Pool}
+	if t.Pool != "" && st != nil {
+		if pending, ok := st.PendingResume(t.ID); ok {
+			sel.Prefer = pending.ProviderID
+		}
+	}
+	return sel
 }
 
 // gateOpen reports whether a provider instance has allowance left right now,
@@ -359,6 +404,18 @@ func (e *Engine) availability(ctx context.Context) provider.Availability {
 		CanTakeWork: func(inst provider.Instance) bool {
 			return !e.providers.Check(ctx, inst).KnownUnready()
 		},
+		Limits: func(inst provider.Instance) (provider.Limits, bool) {
+			if e.limits == nil {
+				return provider.Limits{}, false
+			}
+			return e.limits(ctx, inst)
+		},
+		Running: func(id string) int {
+			e.mu.Lock()
+			defer e.mu.Unlock()
+			return e.runningOn[id]
+		},
+		Now: e.clock.Now,
 	}
 }
 
@@ -366,6 +423,11 @@ func (e *Engine) availability(ctx context.Context) provider.Availability {
 // when it names none: the one the task was scheduled onto, not the stand-in a
 // rate limit sent this single run to.
 func inheritedProvider(res provider.Resolved) string {
+	if res.Pool != nil {
+		// The task names a pool, and so does whatever it queues (the task
+		// itself travels to the child; see executor.Request.InheritProvider).
+		return ""
+	}
 	if res.Substituted() {
 		return res.FallbackFrom.ID
 	}
@@ -378,6 +440,9 @@ func inheritedProvider(res provider.Resolved) string {
 // look for them.
 func runNotes(res provider.Resolved, dropped string) []string {
 	var notes []string
+	if res.Pool != nil {
+		notes = append(notes, res.Pool.Note(res.Instance))
+	}
 	if res.Substituted() {
 		notes = append(notes, fmt.Sprintf(
 			"%s has used up its allowance, so this run goes to its fallback %s instead",
@@ -472,7 +537,7 @@ func (h providerHealth) ready(res provider.Resolved) bool {
 // it may run under, or why it may not. It is the single-task form of
 // refreshProviderHealth, for the manual "run now".
 func (e *Engine) resolveRunnable(ctx context.Context, set provider.Set, st *store.State, t task.Task) (provider.Resolved, error) {
-	res, err := set.ResolveAvailable(provider.Selection{ProviderID: t.Provider, Model: t.Model}, e.availability(ctx))
+	res, err := set.ResolveAvailable(selectionFor(t, st), e.availability(ctx))
 	if err != nil {
 		return provider.Resolved{}, err
 	}
@@ -504,12 +569,16 @@ func (e *Engine) refreshProviderHealth(ctx context.Context, set provider.Set, du
 		if a.task.IsScript() {
 			continue // no harness behind it, so nothing to probe
 		}
-		known[a.task.Provider] = true // an id no instance answers to is remembered too
+		asked := a.task.Provider
+		if a.task.Pool != "" {
+			asked = a.task.Pool
+		}
+		known[asked] = true // an id no instance answers to is remembered too
 		if a.err != nil {
 			// The instance is gone from the configuration, or switched off. There
 			// is nothing to probe, so it is reported under the id the task asked
 			// for.
-			e.noteProviderHealth(st, provider.Instance{ID: a.task.Provider, Name: a.task.Provider},
+			e.noteProviderHealth(st, provider.Instance{ID: asked, Name: asked},
 				provider.Health{State: provider.HealthInvalidConfiguration, Reason: a.err.Error()})
 			continue
 		}
@@ -664,6 +733,9 @@ func (e *Engine) launchTask(t task.Task, settings store.Settings, resolved provi
 	}
 
 	e.active[t.ID] = true
+	if id := resolved.Instance.ID; id != "" {
+		e.runningOn[id]++
+	}
 	if t.Parallel {
 		e.parallelActive++
 	} else {
@@ -728,10 +800,19 @@ func runProvider(t task.Task, resolved provider.Resolved) store.RunProvider {
 		ID:              resolved.Instance.ID,
 		Kind:            string(resolved.Instance.Kind),
 		Name:            resolved.Instance.Label(),
+		Pool:            poolLabel(resolved),
 		Model:           resolved.Model,
 		ReasoningEffort: t.ReasoningEffort,
 		AccessMode:      string(accessMode(t.Permissions)),
 	}
+}
+
+// poolLabel names the pool a run was placed through, or "".
+func poolLabel(res provider.Resolved) string {
+	if res.Pool == nil {
+		return ""
+	}
+	return res.Pool.Pool.Label()
 }
 
 // runGuarded runs the request and turns a panic into a failed result instead of
@@ -936,6 +1017,11 @@ func (e *Engine) finish(t task.Task, providerID string, rec store.Run, res provi
 	wasCanceled := e.canceled[rec.RunID]
 	delete(e.canceled, rec.RunID)
 	delete(e.cancels, rec.RunID)
+	if providerID != "" {
+		if e.runningOn[providerID]--; e.runningOn[providerID] <= 0 {
+			delete(e.runningOn, providerID)
+		}
+	}
 	if t.Parallel {
 		e.parallelActive--
 	} else {

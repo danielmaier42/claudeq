@@ -38,7 +38,27 @@ const usageBody = `{"five_hour":{"utilization":22.0,"resets_at":"2026-10-02T18:1
 
 func creds(token string, expires time.Time) []byte {
 	return []byte(`{"claudeAiOauth":{"accessToken":"` + token + `","refreshToken":"r","expiresAt":` +
-		strconv.FormatInt(expires.UnixMilli(), 10) + `}}`)
+		strconv.FormatInt(expires.UnixMilli(), 10) +
+		`,"subscriptionType":"team","rateLimitTier":"default_claude_max_5x"}}`)
+}
+
+func TestPlanOf(t *testing.T) {
+	cases := []struct {
+		sub, tier, plan string
+		capacity        float64
+	}{
+		{"max", "default_claude_max_20x", "Max 20x", 20},
+		{"team", "default_claude_max_5x", "Team 5x", 5},
+		{"pro", "default_claude_ai", "Pro", 1},
+		{"enterprise", "", "Enterprise", 0},
+		{"", "", "", 0},
+	}
+	for _, tc := range cases {
+		plan, capacity := planOf(tc.sub, tc.tier)
+		if plan != tc.plan || capacity != tc.capacity {
+			t.Errorf("planOf(%q, %q) = %q, %v; want %q, %v", tc.sub, tc.tier, plan, capacity, tc.plan, tc.capacity)
+		}
+	}
 }
 
 // limitsAdapter returns an adapter whose keychain holds items, whose clock
@@ -72,10 +92,14 @@ func TestReadLimitsReadsTheInstancesOwnAccount(t *testing.T) {
 		_, _ = w.Write([]byte(usageBody))
 	})
 
-	got, err := a.ReadLimits(context.Background(), provider.Instance{ID: "team", ConfigDir: dir})
+	reading, err := a.ReadLimits(context.Background(), provider.Instance{ID: "team", ConfigDir: dir})
 	if err != nil {
 		t.Fatalf("ReadLimits: %v", err)
 	}
+	if reading.Plan != "Team 5x" || reading.Capacity != 5 {
+		t.Fatalf("plan = %q (capacity %v), want the team seat's Max 5x tier", reading.Plan, reading.Capacity)
+	}
+	got := reading.Windows
 	if gotAuth != "Bearer team-token" || gotBeta != usageBeta {
 		t.Fatalf("request headers auth=%q beta=%q, want the team account's token", gotAuth, gotBeta)
 	}

@@ -69,6 +69,7 @@ workflow engine:
 **Doing more with it**
 
 - [Providers](#providers)
+- [Provider pools](#provider-pools)
 - [Command-line interface](#command-line-interface)
 - [From another tool or agent](#from-another-tool-or-agent)
 - [What every run is told](#what-every-run-is-told)
@@ -229,6 +230,10 @@ explains it.
   [When the limit is reached](#when-the-limit-is-reached).
 - **A fallback for the limit.** A provider can name another one to take its
   tasks while its allowance is used up, so the night carries on.
+- **Pools spread the work.** Put two subscriptions in a pool and give the task
+  the pool: every run goes to the account whose weekly allowance would
+  otherwise expire unused soonest, weighted by plan size. See
+  [Provider pools](#provider-pools).
 - **Auth errors are their own outcome**, notified, never silently retried.
 
 **Tasks that do more**
@@ -312,7 +317,10 @@ Dashboard:
   enabled provider with a bar per window (for Claude the 5-hour and the weekly
   window, for Codex the windows its account has) and when each one resets. A
   bar turns orange from 75% and red from 90%. Read without spending any usage;
-  see [How much is left](#how-much-is-left) for when and how.
+  see [How much is left](#how-much-is-left) for when and how. Below them,
+  every [pool](#provider-pools) lists its members in the order a run started
+  now would take them, with the reason and the urgency of each, and says which
+  one the next run goes to.
 - **Queue** — the pending tasks in priority order. Add, edit, delete, enable/pause,
   reorder, or **run now** (a manual test run, independent of the trigger). Each
   row carries its task's name, what it runs on (the provider and the model that
@@ -403,7 +411,7 @@ The dashboard is also reachable in a normal browser at
 
 ## Settings
 
-Settings is split into four tabs — **General**, **Providers**,
+Settings is split into five tabs — **General**, **Providers**, **Pools**,
 **Notifications** and **System**. An available update is announced by a banner
 above the tabs and by a red dot on **General**, which is where the About section
 and the update button live.
@@ -421,6 +429,7 @@ and the update button live.
 | | About | Version / Software updates | Current version and a manual "Check for updates" button. |
 | **Providers** | One block per provider | Its settings | Name, status, its current limits (the same bars as the Dashboard, when the harness reports any), binary path, configuration directory, default model, the provider that takes over when the limit is reached (and the model it uses), and an on/off switch — written by the **Save** button at the top of Settings, like every other field here. **Check again**, **Make default** and **Remove** are actions and take effect at once. The block is headed by the provider's name and type. See [Providers](#providers). |
 | | | **Add provider** | Below the blocks, and only with beta features on: opens a sheet asking for an id, a type and optionally a configuration directory. |
+| **Pools** | One block per pool | Its settings | Name, and per provider of the pool's type a switch for membership and a weight. An empty weight takes the plan size the provider reports (shown as the placeholder, e.g. *auto · 20×*). Written by **Save**; **Remove** acts at once and is refused while a task uses the pool. **Add pool** below asks for an id, a name and the members. See [Provider pools](#provider-pools). |
 | **Notifications** | macOS | Alerts that wait for you | Opens System Settings → Notifications, where ClaudeQ's alert style lives: *Banners* disappear on their own, *Alerts* stay until you click them. |
 | | Pushover | Send to Pushover | Toggle plus API token and user key for phone push. |
 | | ntfy | Send to ntfy | Toggle, server (empty = ntfy.sh), topic, and an optional access token for a protected topic. |
@@ -645,6 +654,69 @@ tool the CLI uses, so no keychain prompt appears) and sends it to Anthropic
 only, the same place the CLI sends it. It is held for that one request and is
 never written, logged or served over the API.
 
+## Provider pools
+
+A **pool** is a set of providers of one type, two Claude subscriptions for
+example, that a task can be given instead of a single provider. ClaudeQ
+decides at every start which member runs it, so the allowances are used up
+before they reset instead of one account running dry while the other's
+expires unused.
+
+**How a member is chosen**, at the moment a run starts:
+
+1. Members that cannot take work right now are out: switched off, not ready,
+   or waiting out a rate limit.
+2. Members whose 5-hour window is at 90% or more, or whose week is used up, go
+   to the back. They are still tried if nothing else can run.
+3. Among the rest, the highest **urgency** wins:
+
+   `urgency = free % of the week × weight ÷ hours until the week resets ÷ (1 + runs already on it)`
+
+   It measures how much allowance would expire unused per hour. 10% left that
+   resets in 4 hours beats 60% left for another five days. The **weight** is
+   the plan's size: ClaudeQ reads it from the Claude login (Max 20x = 20, a
+   Team seat on Max 5x = 5, Pro = 1), so 10% of a large plan counts for more
+   than 10% of a small one. Codex does not say how its plans compare, so a
+   Codex member counts as 1 unless you set its weight.
+4. Runs already going on a member share its urgency. Two pool tasks that start
+   in the same tick land on two accounts rather than both on the first.
+5. A member with no limit reading yet ranks after the ones with a reading.
+
+**Sessions.** A pool task that hit a rate limit continues its session on the
+same member as soon as that member is open again, because the session only
+exists there. While that member is still limited, the task starts over on
+another member instead of waiting, which is the point of the pool. The run's
+log says so.
+
+**Seeing the choice.** Every run of a pool task opens its log with the choice
+and the reasons, for example *Pool Claude chose Claude Max: Claude Max (14% of
+week left, resets in 2 d); Claude Team (100% of 5 hours used)*. The Log names
+the pool next to the provider. The Dashboard and `claudeq pool show` list the
+members in the order the next run would take them.
+
+**Rules.**
+- Every member must be of one type, so the model a task names means the same
+  on each. The model list in the task sheet is the first member's.
+- A pool has its own id, which no provider may share. Tasks choose it in the
+  same Provider field as a provider (listed under *Pools*), or with
+  `--pool ID` on `add`, `edit` and `queue`. A task names a provider or a pool,
+  never both; naming one clears the other.
+- A member's own rate-limit fallback is not used inside a pool: the pool is
+  the fallback.
+- A pool is offered and a task on it is accepted as long as at least one member
+  can run. The queue marks the task blocked only when none can.
+- A provider cannot be removed while it is a member, and a pool cannot be
+  removed while a task uses it.
+- Jobs a pool task queues inherit the pool, not the member the parent landed
+  on. A task exported as a `.claudeq` file leaves its pool behind, like its
+  provider.
+
+```sh
+claudeq pool add claude-pool --name Claude --member claude --member claude-team
+claudeq add --id nightly --prompt "…" --dir ~/code/app --pool claude-pool
+claudeq pool show claude-pool
+```
+
 ## Command-line interface
 
 Everything the app does is also available on the command line. You can list the
@@ -732,6 +804,11 @@ claudeq provider list [--json]                 # the harnesses tasks run on
 claudeq provider show ID [--json]
 claudeq provider check ID [--json]             # probe it now
 claudeq provider limits [ID] [--json]          # 5-hour/weekly windows, used and reset
+claudeq pool list [--json]                     # provider pools
+claudeq pool show ID [--json]                  # members ranked as a run started now would take them
+claudeq pool add  ID --member PROVIDER[=WEIGHT]... [--name N]
+claudeq pool edit ID [--name N] [--member PROVIDER[=WEIGHT]]...   # --member replaces the list
+claudeq pool rm ID
 claudeq provider add  ID --kind claude-code|codex [--name N] [--path PATH]
                       [--config-dir PATH] [--default-model MODEL]
                       [--fallback ID] [--fallback-model MODEL]
@@ -1477,7 +1554,7 @@ Everything lives under `~/Library/Application Support/claudeq` (override with th
 
 | Path | Contents |
 |------|----------|
-| `config.toml` | Global settings, the configured [providers](#providers), and the ordered task list — the order is the priority, and tasks of one group sit together in it (human-readable, versionable). No credentials: a provider entry holds its CLI's path and configuration directory, never what is inside them. |
+| `config.toml` | Global settings, the configured [providers](#providers) and [pools](#provider-pools), and the ordered task list — the order is the priority, and tasks of one group sit together in it (human-readable, versionable). No credentials: a provider entry holds its CLI's path and configuration directory, never what is inside them. |
 | `history.jsonl` | Append-only index of every run (except a quiet-history task's successful ones, which are never written). |
 | `runs/<run-id>.log` | Full log for each run. |
 | `artifacts.json` | Index of published artifacts (title, source task/run, its group and parent job, file name, size, type). |

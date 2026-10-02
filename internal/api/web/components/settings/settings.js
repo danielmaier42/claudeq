@@ -1,3 +1,4 @@
+import {loadPools, openAddPool, poolEdits} from '../pools/pools.js';
 import {PROVIDERS, SHOW_BETA, fillAsideChoices, loadProviders, openAddProvider, setProviderSnapshot, submitProvider} from '../providers/providers.js';
 import {setPaused} from '../queue/queue.js';
 import {makeReview} from '../review/review.js';
@@ -17,7 +18,7 @@ import {toast} from '../../core/toast.js';
 // a review in flight instead of letting the daemon run it out.
 let settingsReview=null;
 let settingsPane='general';
-const SETTINGS_PANES=[['general','General'],['providers','Providers'],['notifications','Notifications'],['system','System']];
+const SETTINGS_PANES=[['general','General'],['providers','Providers'],['pools','Pools'],['notifications','Notifications'],['system','System']];
 async function loadSettings(){
   let s; try{ s=await api('GET','/api/settings'); setConn(true);}catch(e){ setConn(false); return; }
   const c=$('#settings');
@@ -96,6 +97,11 @@ async function loadSettings(){
       <div id="s-provider-add" class="center-action" hidden>
         <button class="btn beta" id="s-add-provider">${SPARK}<span>Add provider</span></button>
       </div>
+    </div>
+
+    <div class="s-pane" data-pane="pools">
+      <div id="s-pools"><div class="group"><div class="row"><div class="grow"><div class="sub">Loading…</div></div></div></div></div>
+      <div class="center-action"><button class="btn" id="s-add-pool">Add pool</button></div>
     </div>
 
     <div class="s-pane" data-pane="notifications">
@@ -202,6 +208,7 @@ async function loadSettings(){
   $('#s-check-updates').onclick=checkForUpdates;
   $('#s-notif-settings').onclick=openNotificationSettings;
   $('#s-add-provider').onclick=openAddProvider;
+  $('#s-add-pool').onclick=openAddPool;
   $('#np-add').onclick=submitProvider;
   c.querySelectorAll('#s-tabs button').forEach(b=>b.onclick=()=>selectSettingsPane(b.dataset.pane));
   selectSettingsPane(settingsPane);
@@ -210,6 +217,7 @@ async function loadSettings(){
   // rather than rendering an empty one and correcting itself a moment later.
   await loadProviders();
   fillAsidePickers(s.prompt_review_provider||'', s.prompt_review_model||'', s.feedback_provider||'', s.feedback_model||'');
+  loadPools();
 }
 
 // fillAsidePickers rebuilds the provider/model pairs for the two jobs claudeq
@@ -286,9 +294,16 @@ async function saveSettings(){
     try{ await api('PUT','/api/providers/'+encodeURIComponent(p.id),p.body); }
     catch(e){ failed.push(`${p.id}: ${e.message}`); }
   }
+  // Pools after providers: a pool may name a provider the same Save just
+  // switched on or renamed.
+  for(const p of poolEdits()){
+    try{ await api('PUT','/api/pools/'+encodeURIComponent(p.id),p.body); }
+    catch(e){ failed.push(`${p.id}: ${e.message}`); }
+  }
   if(failed.length){ toast(failed.join('\n'),'err'); }
   else toast('Settings saved','ok');
   if(document.querySelector('#s-providers')) loadProviders();
+  if(document.querySelector('#s-pools')) loadPools();
 }
 
 export const view={

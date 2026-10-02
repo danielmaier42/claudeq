@@ -1,0 +1,4 @@
+/* The add-pool sheet lists the providers as a column of checkboxes. */
+#npl-members { display:flex; flex-direction:column; gap:6px; margin-top:4px; }
+#npl-members .chk { display:flex; align-items:center; gap:8px; font-size:13px; }
+#npl-members .chk .sub { color:var(--fg2); font-size:12px; }

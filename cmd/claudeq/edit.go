@@ -91,7 +91,11 @@ func printTask(t task.Task) {
 	// A script job has none of these, and printing them as "(the default
 	// provider)" would suggest it runs on one.
 	if !t.IsScript() {
-		fmt.Printf("provider:          %s\n", orDefault(t.Provider, "(the default provider)"))
+		if t.Pool != "" {
+			fmt.Printf("pool:              %s\n", t.Pool)
+		} else {
+			fmt.Printf("provider:          %s\n", orDefault(t.Provider, "(the default provider)"))
+		}
 		fmt.Printf("model:             %s\n", model)
 		fmt.Printf("reasoning_effort:  %s\n", orDefault(t.ReasoningEffort, "(the provider's own)"))
 		fmt.Printf("permissions:       %s\n", t.Permissions)
@@ -139,13 +143,13 @@ func cmdEdit(st *store.Store, args []string) error {
 	// whatever state the current provider is in, because that edit may be how the
 	// operator is fixing it. A job that is (or becomes) a script has no provider
 	// to check — the edit is refused by validation instead.
-	if patch.has("provider") {
+	if patch.has("provider") || patch.has("pool") {
 		cur, err := findTask(st, id)
 		if err != nil {
 			return err
 		}
 		if patch.targetKind(cur.Kind) != task.KindScript {
-			if err := ensureRunnable(st, patch.provider); err != nil {
+			if err := ensureRunnable(st, patch.provider, patch.pool); err != nil {
 				return err
 			}
 		}
@@ -175,6 +179,7 @@ type taskSettings struct {
 	kind         string
 	group        string
 	provider     string
+	pool         string
 	model        string
 	reasoning    string
 	parallel     bool
@@ -189,6 +194,7 @@ func (s *taskSettings) register(fs *flag.FlagSet, dflt string) {
 	fs.StringVar(&s.kind, "kind", "", "agent (a prompt for a model) or script (a program, run without a model) (default: "+dflt+")")
 	fs.StringVar(&s.group, "group", "", "queue group to file the task under; empty = ungrouped (default: "+dflt+")")
 	fs.StringVar(&s.provider, "provider", "", "provider instance to run on; empty = the default provider (default: "+dflt+")")
+	fs.StringVar(&s.pool, "pool", "", "provider pool to run on instead of one provider (claudeq pool list) (default: "+dflt+")")
 	fs.StringVar(&s.model, "model", "", "model override; empty = the provider's default model (default: "+dflt+")")
 	fs.StringVar(&s.reasoning, "reasoning-effort", "", "how hard the model should think, for providers that take it (default: "+dflt+")")
 	fs.BoolVar(&s.parallel, "parallel", false, "allow running alongside other parallel tasks (default: "+dflt+")")
@@ -208,7 +214,7 @@ func (s taskSettings) apply(t *task.Task, has func(string) bool) {
 			t.Kind = "" // the default is stored as absent
 		}
 		if t.IsScript() {
-			t.Provider, t.Model, t.ReasoningEffort = "", "", ""
+			t.Provider, t.Pool, t.Model, t.ReasoningEffort = "", "", "", ""
 			t.Permissions = task.PermissionsDefault
 		}
 	}
@@ -216,8 +222,22 @@ func (s taskSettings) apply(t *task.Task, has func(string) bool) {
 	// model, so the new provider's own default applies (the resolution table in
 	// internal/provider). Carrying a Claude model into another harness would
 	// silently produce a run that cannot start.
+	// A provider and a pool exclude each other: naming one clears the other,
+	// so moving a task between them is one flag.
 	if has("provider") {
 		t.Provider = s.provider
+		if !has("pool") {
+			t.Pool = ""
+		}
+		if !has("model") {
+			t.Model = ""
+		}
+	}
+	if has("pool") {
+		t.Pool = s.pool
+		if !has("provider") {
+			t.Provider = ""
+		}
 		if !has("model") {
 			t.Model = ""
 		}
@@ -403,6 +423,7 @@ type taskDoc struct {
 	Cron            string `toml:"cron"`
 	Parallel        bool   `toml:"parallel"`
 	Provider        string `toml:"provider"`
+	Pool            string `toml:"pool"`
 	Model           string `toml:"model"`
 	ReasoningEffort string `toml:"reasoning_effort"`
 	Permissions     string `toml:"permissions"`
@@ -423,6 +444,8 @@ const taskDocHeader = `# claudeq task — edit, save, and close this file to app
 #   fixed_at           RFC3339 start time, for trigger = "fixed"
 #   cron               5-field crontab expression, for trigger = "cron"
 #   provider           empty = the default provider (claudeq provider list)
+#   pool               a provider pool instead of a provider (claudeq pool list);
+#                      leave provider empty when you set it
 #   model              empty = the provider's own default model
 #   reasoning_effort   empty = the provider's own; ignored by providers without it
 #   permissions        default | skip  (skip bypasses permission prompts)
@@ -433,7 +456,7 @@ func encodeTaskDoc(t task.Task) ([]byte, error) {
 	d := taskDoc{
 		ID: t.ID, Name: t.Name, Kind: kindOf(t), Enabled: t.Enabled, WorkingDir: t.WorkingDir, Group: t.Group,
 		Trigger: string(t.Trigger), Cron: t.Cron, Parallel: t.Parallel,
-		Provider: t.Provider, Model: t.Model, ReasoningEffort: t.ReasoningEffort,
+		Provider: t.Provider, Pool: t.Pool, Model: t.Model, ReasoningEffort: t.ReasoningEffort,
 		Permissions:    string(t.Permissions),
 		NotifyOnResult: t.NotifyOnResult, QuietHistory: t.QuietHistory, Prompt: t.Prompt,
 	}
@@ -465,7 +488,7 @@ func decodeTaskDoc(data []byte, orig task.Task) (task.Task, error) {
 		ID: d.ID, Name: d.Name, Kind: task.Kind(d.Kind), Prompt: d.Prompt, WorkingDir: d.WorkingDir,
 		Group:   strings.TrimSpace(d.Group),
 		Trigger: task.Trigger(d.Trigger), Cron: d.Cron, Parallel: d.Parallel,
-		Enabled: d.Enabled, Provider: d.Provider, Model: d.Model, ReasoningEffort: d.ReasoningEffort,
+		Enabled: d.Enabled, Provider: d.Provider, Pool: d.Pool, Model: d.Model, ReasoningEffort: d.ReasoningEffort,
 		Permissions: task.Permissions(d.Permissions), NotifyOnResult: d.NotifyOnResult,
 		QuietHistory: d.QuietHistory,
 	}

@@ -36,7 +36,7 @@ Usage:
   claudeq show   ID [--json]       (one task in full, prompt included)
   claudeq add    --id ID --prompt P --dir DIR [--name N] [--kind agent|script]
                  [--trigger asap|fixed|cron]
-                 [--at RFC3339] [--cron EXPR] [--provider ID] [--model M]
+                 [--at RFC3339] [--cron EXPR] [--provider ID | --pool ID] [--model M]
                  [--reasoning-effort E] [--parallel] [--skip-permissions]
                  [--notify] [--quiet-history]
                  (--kind script runs --prompt as a program instead of sending it to a
@@ -45,11 +45,11 @@ Usage:
   claudeq edit   ID [--name N] [--prompt P | --prompt-file PATH] [--dir DIR]
                  [--kind agent|script]
                  [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR]
-                 [--provider ID] [--model M] [--reasoning-effort E]
+                 [--provider ID | --pool ID] [--model M] [--reasoning-effort E]
                  [--parallel=BOOL] [--enabled=BOOL] [--skip-permissions=BOOL]
                  [--notify=BOOL] [--quiet-history=BOOL]  (only the flags you pass are changed)
   claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [--name N]
-                 [--kind agent|script] [--provider ID] [--model M] [--reasoning-effort E]
+                 [--kind agent|script] [--provider ID | --pool ID] [--model M] [--reasoning-effort E]
                  [--parallel=BOOL] [--skip-permissions=BOOL]
                  [--notify=BOOL] [--quiet-history=BOOL]
                  [--depends-on JOBID]... [--include-results] [--json]
@@ -72,6 +72,7 @@ Usage:
   claudeq status [--all]           (recent runs; unread marked *)
   claudeq read RUNID | claudeq read-all
   claudeq provider ...             (the harnesses tasks run on; run it for its own help)
+  claudeq pool ...                 (provider pools: one task, the best-suited account; run it for help)
   claudeq settings [--json] [--default-provider ID] [--heartbeat-minutes N]
                    [--idle-timeout-minutes N] [--max-run-history N]
                    [--system-prompt S | --system-prompt-file PATH]
@@ -143,6 +144,8 @@ func run(args []string) error {
 		return app.MarkAllRead(st)
 	case "settings":
 		return cmdSettings(st, rest)
+	case "pool":
+		return cmdPool(st, rest)
 	case "provider":
 		return cmdProvider(st, rest)
 	default:
@@ -226,7 +229,7 @@ func cmdAdd(st *store.Store, args []string) error {
 	t := task.Task{
 		ID: *id, Name: *name, Kind: task.Kind(s.kind), Prompt: *prompt, WorkingDir: *dir,
 		Trigger: task.Trigger(*trig), Cron: *cronArg, Enabled: true,
-		Provider: s.provider, Model: s.model, ReasoningEffort: s.reasoning,
+		Provider: s.provider, Pool: s.pool, Model: s.model, ReasoningEffort: s.reasoning,
 		Group:    strings.TrimSpace(s.group),
 		Parallel: s.parallel, NotifyOnResult: s.notify,
 		QuietHistory: s.quietHistory, Permissions: task.PermissionsFor(s.skipPerms),
@@ -255,7 +258,7 @@ func cmdAdd(st *store.Store, args []string) error {
 	// A script job runs no harness, so nothing about the providers can stop it
 	// from being filed — which is half the point of having one.
 	if !t.IsScript() {
-		if err := ensureRunnable(st, t.Provider); err != nil {
+		if err := ensureRunnable(st, t.Provider, t.Pool); err != nil {
 			return err
 		}
 	}
@@ -271,19 +274,19 @@ func cmdAdd(st *store.Store, args []string) error {
 // machine running them.
 var newProviderChecker = func() *provider.Checker { return provider.NewChecker(adapters.Default()) }
 
-// ensureRunnable refuses to file work for a provider that cannot run it. The
-// point of the queue is unattended execution, so a job whose harness is missing
-// or logged out is rejected here — while someone is looking at the terminal —
-// rather than failing at three in the morning. An empty id means the default
-// provider.
-func ensureRunnable(st *store.Store, providerID string) error {
+// ensureRunnable refuses to file work for a provider (or a pool none of whose
+// members) can run it. The point of the queue is unattended execution, so a
+// job whose harness is missing or logged out is rejected here — while someone
+// is looking at the terminal — rather than failing at three in the morning. An
+// empty provider id and no pool means the default provider.
+func ensureRunnable(st *store.Store, providerID, poolID string) error {
 	set, err := app.Providers(st)
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), providerCheckTimeout)
 	defer cancel()
-	return app.EnsureRunnable(ctx, set, newProviderChecker(), providerID)
+	return app.EnsureTaskTarget(ctx, set, newProviderChecker(), providerID, poolID)
 }
 
 // queueOpts are the caller-supplied parts of `claudeq queue`. Everything not
@@ -374,7 +377,7 @@ func cmdQueue(st *store.Store, args []string) error {
 			// Checked once per call, not once per id retry: the provider does not
 			// become ready between two attempts a microsecond apart.
 			if !t.IsScript() {
-				if err := ensureRunnable(st, t.Provider); err != nil {
+				if err := ensureRunnable(st, t.Provider, t.Pool); err != nil {
 					return err
 				}
 			}
@@ -405,13 +408,14 @@ func printQueued(t task.Task, asJSON bool) error {
 		JobID      string   `json:"job_id"`
 		Name       string   `json:"name"`
 		Provider   string   `json:"provider,omitempty"`
+		Pool       string   `json:"pool,omitempty"`
 		Model      string   `json:"model,omitempty"`
 		When       string   `json:"when"`
 		WorkflowID string   `json:"workflow_id,omitempty"`
 		ParentRun  string   `json:"parent_run,omitempty"`
 		DependsOn  []string `json:"depends_on,omitempty"`
 	}{
-		JobID: t.ID, Name: t.Name, Provider: t.Provider, Model: t.Model,
+		JobID: t.ID, Name: t.Name, Provider: t.Provider, Pool: t.Pool, Model: t.Model,
 		When: queueWhen(t), WorkflowID: t.WorkflowID, ParentRun: t.ParentRun,
 		DependsOn: t.DependsOn,
 	}, "", "  ")

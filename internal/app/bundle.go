@@ -51,7 +51,7 @@ func exportHint(cfg store.Config, t task.Task) bundle.ProviderHint {
 	if err != nil {
 		return bundle.ProviderHint{}
 	}
-	res, err := set.Resolve(provider.Selection{ProviderID: t.Provider, Model: t.Model})
+	res, err := set.Resolve(provider.Selection{ProviderID: t.Provider, PoolID: t.Pool, Model: t.Model})
 	if err != nil {
 		return bundle.ProviderHint{}
 	}

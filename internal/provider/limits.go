@@ -33,7 +33,19 @@ type LimitWindow struct {
 // harness has an allowance to report: opencode runs whatever backend it is
 // pointed at, a local model included.
 type LimitReader interface {
-	ReadLimits(ctx context.Context, inst Instance) ([]LimitWindow, error)
+	ReadLimits(ctx context.Context, inst Instance) (LimitReading, error)
+}
+
+// LimitReading is one successful read of an account's allowance.
+type LimitReading struct {
+	Windows []LimitWindow
+	// Plan names the account's plan where the harness says ("Max 20x").
+	Plan string
+	// Capacity is the plan's allowance relative to the smallest plan of the
+	// same harness (a Max 20x plan is 20, a Pro plan 1); zero when unknown. A
+	// pool weighs its members with it, because 10% of a large plan is more work
+	// than 10% of a small one.
+	Capacity float64
 }
 
 // LimitsState says what the latest attempt to read an instance's limits found.
@@ -60,6 +72,10 @@ type Limits struct {
 	Windows []LimitWindow `json:"windows,omitempty"`
 	// Reason says, in a sentence, why the latest read did not succeed.
 	Reason string `json:"reason,omitempty"`
+	// Plan and Capacity are what the last successful read said about the
+	// account's plan (see LimitReading).
+	Plan     string  `json:"plan,omitempty"`
+	Capacity float64 `json:"capacity,omitempty"`
 	// UpdatedAt is when Windows were read. Zero when they never were.
 	UpdatedAt time.Time `json:"updated_at,omitzero"`
 	// CheckedAt is when the latest attempt was made, successful or not.
@@ -141,6 +157,14 @@ func (m *LimitMonitor) Get(ctx context.Context, insts []Instance, fresh bool) []
 	}
 	wg.Wait()
 	return out
+}
+
+// Cached returns what the monitor remembers about inst, never reading. It is
+// for callers that must not wait on a provider — the scheduler's pass above
+// all; the timer and the after-run reads keep the memory current.
+func (m *LimitMonitor) Cached(inst Instance) (Limits, bool) {
+	l, ok := m.cached(inst)
+	return l, ok && len(l.Windows) > 0
 }
 
 // RefreshID reads the limits of the instance with this id now, regardless of
@@ -266,7 +290,7 @@ func (m *LimitMonitor) read(ctx context.Context, inst Instance, prev Limits) Lim
 	}
 	ctx, cancel := context.WithTimeout(ctx, LimitsTimeout)
 	defer cancel()
-	windows, err := r.ReadLimits(ctx, inst)
+	reading, err := r.ReadLimits(ctx, inst)
 	if err != nil {
 		reason := sentence(err.Error())
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -275,12 +299,17 @@ func (m *LimitMonitor) read(ctx context.Context, inst Instance, prev Limits) Lim
 		return Limits{
 			State:     LimitsUnavailable,
 			Windows:   prev.Windows,
+			Plan:      prev.Plan,
+			Capacity:  prev.Capacity,
 			UpdatedAt: prev.UpdatedAt,
 			Reason:    reason,
 			CheckedAt: now,
 		}
 	}
-	return Limits{State: LimitsOK, Windows: windows, UpdatedAt: now, CheckedAt: now}
+	return Limits{
+		State: LimitsOK, Windows: reading.Windows, Plan: reading.Plan, Capacity: reading.Capacity,
+		UpdatedAt: now, CheckedAt: now,
+	}
 }
 
 // sentence turns an error's text into the sentence the app shows: capitalised,

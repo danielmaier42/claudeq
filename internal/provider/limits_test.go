@@ -23,12 +23,12 @@ type limitAnswer struct {
 	err     error
 }
 
-func (a *limitAdapter) ReadLimits(context.Context, Instance) ([]LimitWindow, error) {
+func (a *limitAdapter) ReadLimits(context.Context, Instance) (LimitReading, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	i := min(a.reads, len(a.answers)-1)
 	a.reads++
-	return a.answers[i].windows, a.answers[i].err
+	return LimitReading{Windows: a.answers[i].windows}, a.answers[i].err
 }
 
 func (a *limitAdapter) count() int {

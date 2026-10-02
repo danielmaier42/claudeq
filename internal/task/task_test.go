@@ -227,3 +227,22 @@ func TestIsScript(t *testing.T) {
 		t.Fatal("a script job must say so")
 	}
 }
+
+func TestValidatePool(t *testing.T) {
+	base := Task{ID: "a", Prompt: "p", WorkingDir: "/r", Trigger: TriggerASAP, Permissions: PermissionsDefault}
+	onPool := base
+	onPool.Pool = "pool"
+	if err := onPool.Validate(); err != nil {
+		t.Fatalf("a task on a pool: %v", err)
+	}
+	both := onPool
+	both.Provider = "claude"
+	if err := both.Validate(); err == nil || !strings.Contains(err.Error(), "not both") {
+		t.Fatalf("provider and pool: %v", err)
+	}
+	script := onPool
+	script.Kind = KindScript
+	if err := script.Validate(); err == nil || !strings.Contains(err.Error(), "pool") {
+		t.Fatalf("script on a pool: %v", err)
+	}
+}

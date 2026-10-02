@@ -1,6 +1,7 @@
 import {invalidateRuns, loadRuns} from '../activity/activity.js';
 import {current, select} from '../app-shell/app-shell.js';
 import {showLog} from '../log-sheet/log-sheet.js';
+import {loadPoolList, poolByID} from '../pools/pools.js';
 import {BETA_PROVIDERS, PROVIDERS, setProviderSnapshot} from '../providers/providers.js';
 import {LIMITED_UNTIL, setConn} from '../status/status.js';
 import {openAdd, openEdit} from '../task-sheet/task-sheet.js';
@@ -24,6 +25,10 @@ function cronTip(t){ const l=[];
 // stand here, which nobody needs — the row is the task.
 function runsOn(t){
   if(t.kind==='script') return 'Script';
+  // A pool task names the pool: which member a run lands on is decided at
+  // the start, from the allowance left then.
+  if(t.pool){ const pl=poolByID(t.pool); const who='Pool '+(pl?pl.name:t.pool);
+    const model=modelLabel(t.model||''); return model?who+' · '+model:who; }
   const p=PROVIDERS.find(x=>x.id===(t.provider||''))||PROVIDERS.find(x=>x.default);
   const who=p?(p.name||p.id):(t.provider||'default provider');
   const model=modelLabel(t.model||(p&&p.default_model)||'');
@@ -56,7 +61,8 @@ export async function loadTasks(){
   // whether Run now is offered at all, and both must be right on every poll.
   const gen=++tasksGen;
   let tasks, paused=false;
-  try{ const [t,s,ps,gs]=await Promise.all([api('GET','/api/tasks'),api('GET','/api/settings'),api('GET','/api/providers'),api('GET','/api/groups')]);
+  // The pools ride along only to name them; loadPoolList keeps its own copy.
+  try{ const [t,s,ps,gs]=await Promise.all([api('GET','/api/tasks'),api('GET','/api/settings'),api('GET','/api/providers'),api('GET','/api/groups'),loadPoolList()]);
     tasks=t; paused=!!s.paused; setConn(true);
     GROUPS={}; (gs||[]).forEach(g=>{ GROUPS[g.name]=!!g.collapsed; });
     setProviderSnapshot({providers:ps||[],showBeta:s.beta_features,defaultDir:s.default_working_dir});
@@ -66,7 +72,7 @@ export async function loadTasks(){
   if(gen!==tasksGen) return;
   tasks=tasks||[];
   const shown=tasksOnlyActive?tasks.filter(t=>t.enabled):tasks;
-  const sig=JSON.stringify([paused,tasksOnlyActive,tasks.length,LIMITED_UNTIL&&LIMITED_UNTIL.toISOString(),GROUPS,shown.map(t=>[t.id,t.name,t.kind||'',t.trigger,t.enabled,t.parallel,t.permissions,t.notify_on_result,t.quiet_history,t.fixed_at,t.cron,t.next_run,t.last_run,t.running,t.waiting_for_limit,t.blocked_reason,t.provider,t.model,t.group||'',(t.waiting_for||[]).join(',')])]);
+  const sig=JSON.stringify([paused,tasksOnlyActive,tasks.length,LIMITED_UNTIL&&LIMITED_UNTIL.toISOString(),GROUPS,shown.map(t=>[t.id,t.name,t.kind||'',t.trigger,t.enabled,t.parallel,t.permissions,t.notify_on_result,t.quiet_history,t.fixed_at,t.cron,t.next_run,t.last_run,t.running,t.waiting_for_limit,t.blocked_reason,t.provider,t.pool||'',t.pool?(poolByID(t.pool)||{}).name:'',t.model,t.group||'',(t.waiting_for||[]).join(',')])]);
   if(sig===tasksSig && $('#tasks').childElementCount) return;   // avoid flicker on poll
   tasksSig=sig;
   const c=$('#tasks'); c.innerHTML='';

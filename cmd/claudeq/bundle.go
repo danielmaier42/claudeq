@@ -77,7 +77,7 @@ func applyImportProvider(st *store.Store, t *task.Task, hint bundle.ProviderHint
 	}
 	switch {
 	case providerOverride != "":
-		t.Provider = providerOverride
+		t.Provider, t.Pool = providerOverride, ""
 		// A model from the file was chosen for another harness; without an
 		// explicit one the new provider's default is the honest answer.
 		t.Model = modelOverride
@@ -134,7 +134,7 @@ func cmdImport(st *store.Store, args []string) error {
 	}
 	// Whatever the task ended up pointing at still has to be able to run it.
 	if !t.IsScript() {
-		if err := ensureRunnable(st, t.Provider); err != nil {
+		if err := ensureRunnable(st, t.Provider, t.Pool); err != nil {
 			return err
 		}
 	}
