@@ -69,7 +69,6 @@ export async function loadDashboard(fresh){
       </div>`;
     }).join('')+`</div>`;
   c.append(box);
-  c.append(el('p','hint','Read from each provider without using any of its allowance: when this page opens, on View → Refresh, every 15 minutes and after every run.'));
 }
 
 export const view={ title:'Dashboard', enter(){ loadDashboard(true); }, refresh(){ sig=''; loadDashboard(true); } };
