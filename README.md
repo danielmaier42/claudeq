@@ -358,7 +358,9 @@ sit at the bottom, out of the way of the work:
   task. Runs of a *quiet history* task appear here only if they did not
   succeed.
 - **Artifacts** — files your tasks published, newest first, with an unread badge.
-  Each shows its title, source task, file type, and size. **View** opens the
+  Each shows its title, source task, file type, and size; when another job
+  created that task (a watcher that filed a review job), the line reads
+  "from *watcher* › *review job*". **View** opens the
   artifact in an in-app viewer: HTML, PDF, images, and text are previewed
   inline, anything else (archives, binaries) shows a short note instead of a
   preview. The viewer offers **Open externally**, which hands the file to your
@@ -368,8 +370,11 @@ sit at the bottom, out of the way of the work:
   also mark one or all read by hand, or delete one (which removes the stored copy).
   The view is built like the Log: a from–to date filter in the toolbar, 25
   artifacts per page, and a footer with the count, the page and the pager.
+  Next to the dates, **All groups** narrows the list to one queue group, and
+  **All parents** to the artifacts one job produced, itself or through the jobs
+  it created (see [where an artifact comes from](#where-an-artifact-comes-from)).
   Clicking the notification of a newly published artifact lands here with that
-  artifact already open — on the page that holds it, with a date filter that
+  artifact already open — on the page that holds it, with any filter that
   would hide it dropped.
 - **Usage** — a per-day bar chart of runs, tokens, and cost for the last 14 days,
   plus totals and a 7-day summary.
@@ -1007,6 +1012,24 @@ browser. Artifacts are kept until you delete them, independent of run-history
 pruning. `--title` defaults to the file name; `--file` may be relative to the
 task's working directory.
 
+### Where an artifact comes from
+
+A common pattern is a cheap watcher (often a script job) that notices something
+and files an agent job to deal with it, and that agent job publishes the
+result. The artifact then names the agent job, but what you look for is the
+watcher. So every artifact also records its **parent**: the job at the root of
+the chain that created the publisher. A job added with `claudeq add` or
+`claudeq queue` from inside a run remembers the job that ran it, or that job's
+own parent if it has one, so a chain of any length leads back to the watcher. A
+job nothing created is its own parent. The artifact also records the
+publisher's queue group.
+
+The Artifacts view filters by both. While the parent job is still in the queue,
+its current name and group are used, so renaming the watcher or moving it to
+another group takes its artifacts along. Artifacts published before this was
+recorded are traced back through run history where it still has the runs,
+otherwise their parent is the job that published them.
+
 ## Letting a task send a notification
 
 Some jobs have nothing to hand over — a watcher that checks a deployment, a
@@ -1396,7 +1419,7 @@ Everything lives under `~/Library/Application Support/claudeq` (override with th
 | `config.toml` | Global settings, the configured [providers](#providers), and the ordered task list — the order is the priority, and tasks of one group sit together in it (human-readable, versionable). No credentials: a provider entry holds its CLI's path and configuration directory, never what is inside them. |
 | `history.jsonl` | Append-only index of every run (except a quiet-history task's successful ones, which are never written). |
 | `runs/<run-id>.log` | Full log for each run. |
-| `artifacts.json` | Index of published artifacts (title, source task/run, file name, size, type). |
+| `artifacts.json` | Index of published artifacts (title, source task/run, its group and parent job, file name, size, type). |
 | `artifacts/<id>/<file>` | The published files themselves (snapshots copied at publish time). |
 | `notifications.json` | Outbox of notifications sent with `claudeq notify`, waiting for the daemon to deliver them (normally empty). |
 | `state.json` | Machine bookkeeping: read/unread flags (runs and artifacts), which artifacts have been notified about, cron anchors, pending-resume sessions, the provider health you were last told about, which queue groups are folded shut, dismissed update version. |

@@ -9,6 +9,35 @@ import {EYE} from '../../core/icons.js';
 import {toast} from '../../core/toast.js';
 
 let artifactsSig='', artFrom='', artTo='', artPage=0; const ART_PAGE=25;
+// The group and parent filters. The parent is the job at the root of the chain
+// that published (a watcher behind its review job), resolved by the daemon.
+// NO_GROUP stands for "no group": a real group name never starts with a space.
+let artGroup='', artOrigin=''; const NO_GROUP=' none';
+let groupSel=null, originSel=null;
+const groupKey=a=>a.group||NO_GROUP;
+const matchesSource=a=>(!artGroup||groupKey(a)===artGroup)&&(!artOrigin||a.origin_id===artOrigin);
+// Refill both filter menus from the artifacts there are. The parent menu only
+// offers parents in the chosen group, and a choice that no longer matches
+// anything falls back to "all", so the list can never be filtered to nothing
+// by a stale selection.
+function fillSourceFilters(arts){
+  if(!groupSel||!groupSel.isConnected) return;
+  const groups=new Map(), origins=new Map();
+  arts.forEach(a=>{ groups.set(groupKey(a),a.group||'No group');
+    if(a.origin_id&&(!artGroup||groupKey(a)===artGroup)&&!origins.has(a.origin_id)) origins.set(a.origin_id,a.origin_name||a.origin_id); });
+  if(artGroup&&!groups.has(artGroup)) artGroup='';
+  if(artOrigin&&!origins.has(artOrigin)) artOrigin='';
+  const byLabel=m=>[...m].sort((x,y)=>(x[0]===NO_GROUP)-(y[0]===NO_GROUP)||x[1].localeCompare(y[1]));
+  const fill=(sel,all,m,cur)=>{
+    const opts=[['',all],...byLabel(m)];
+    const sig=JSON.stringify([opts,cur]); if(sel.dataset.sig===sig) return; sel.dataset.sig=sig;
+    sel.innerHTML=''; opts.forEach(([v,l])=>{ const o=document.createElement('option'); o.value=v; o.textContent=l; sel.append(o); });
+    sel.value=cur; };
+  fill(groupSel,'All groups',groups,artGroup);
+  fill(originSel,'All parents',origins,artOrigin);
+}
+function sourceFilter(title,on){ const sel=el('select','tb-select'); sel.title=title;
+  sel.onchange=e=>{ on(e.target.value); artPage=0; artifactsSig=''; loadArtifacts(); }; return sel; }
 const fmtBytes=n=>{ n=n||0; if(n<1024)return n+' B'; if(n<1048576)return (n/1024).toFixed(1)+' KB'; if(n<1073741824)return (n/1048576).toFixed(1)+' MB'; return (n/1073741824).toFixed(1)+' GB'; };
 function artifactKind(ct){ ct=(ct||'').toLowerCase();
   if(ct.includes('pdf'))return 'pdf';
@@ -47,16 +76,17 @@ export async function loadArtifacts(){
   let arts; try{ arts=await api('GET','/api/artifacts'); setConn(true);}catch(e){ setConn(false); return; }
   if(gen!==loadsGen) return;   // a newer load superseded us
   const unread=arts.filter(a=>a.unread).length; const badge=$('#artifactCount'); badge.hidden=unread===0; badge.textContent=unread;
-  const filtered=arts.filter(a=>inDateRange(a.published_at,artFrom,artTo));
+  fillSourceFilters(arts);
+  const filtered=arts.filter(a=>inDateRange(a.published_at,artFrom,artTo)&&matchesSource(a));
   const pages=Math.max(1,Math.ceil(filtered.length/ART_PAGE));
   if(artPage>pages-1) artPage=pages-1; if(artPage<0) artPage=0;
   const pageArts=filtered.slice(artPage*ART_PAGE, artPage*ART_PAGE+ART_PAGE);
-  const sig=JSON.stringify([artFrom,artTo,artPage,arts.length,filtered.length,pageArts.map(a=>[a.id,a.unread,a.title])]);
+  const sig=JSON.stringify([artFrom,artTo,artGroup,artOrigin,artPage,arts.length,filtered.length,pageArts.map(a=>[a.id,a.unread,a.title])]);
   if(sig===artifactsSig && $('#artifacts').childElementCount) return;   // avoid flicker on poll
   artifactsSig=sig;
   const c=$('#artifacts'); c.innerHTML='';
   if(!arts.length){ c.append(emptyState('No artifacts yet','Files your tasks publish with “claudeq publish” appear here — reports, exports, HTML pages, PDFs.')); return; }
-  if(!filtered.length){ c.append(emptyState('No artifacts in this range','Adjust the date filter to see artifacts.')); return; }
+  if(!filtered.length){ c.append(emptyState('No artifacts match','Adjust the date, group or parent filter to see artifacts.')); return; }
   const list=el('div','act-list');
   pageArts.forEach(a=>{
     const line=el('div','act-line');
@@ -64,10 +94,12 @@ export async function loadArtifacts(){
     const card=el('div','act-card');
     const grow=el('div','grow');
     // "from <task>" links to the producing run's log in the Log (when the run is
-    // still in history); the rest of the line is the file name, size and time.
+    // still in history), led by the parent job when another job created it; the
+    // rest of the line is the file name, size and time.
+    const parent=a.origin_id&&a.origin_id!==a.task_id&&a.origin_name ? `${esc(a.origin_name)} › ` : '';
     const srcHtml=a.task_name
-      ? (a.run_id ? `<span class="art-src" role="button" tabindex="0">from ${esc(a.task_name)}</span> · `
-                  : `from ${esc(a.task_name)} · `)
+      ? (a.run_id ? `from ${parent}<span class="art-src" role="button" tabindex="0">${esc(a.task_name)}</span> · `
+                  : `from ${parent}${esc(a.task_name)} · `)
       : '';
     const meta=`${esc(a.file_name)} · ${esc(fmtBytes(a.size))} · <span class="hint-time" data-tip="${esc(exactTime(a.published_at))}">${esc(relTime(a.published_at))}</span>`;
     grow.innerHTML=`<div class="title">${esc(a.title)}</div>`
@@ -92,7 +124,7 @@ export async function loadArtifacts(){
 
   // Footer: count + pager, as in the Log (newest first, so "Newer" goes to
   // lower page indices).
-  const inRange=(artFrom||artTo)?' in range':'';
+  const inRange=(artFrom||artTo||artGroup||artOrigin)?' matching':'';
   const foot=el('div','act-foot');
   foot.append(el('span','sub',`${filtered.length} artifact${filtered.length!==1?'s':''}${inRange} · page ${artPage+1} of ${pages}`));
   const pager=el('div','pager');
@@ -171,11 +203,12 @@ export function initViewer(){
   $('#viewerContinueBtn').onclick=continueArtifactRun;
   $('#viewerDoneBtn').onclick=()=>$('#viewerSheet').close();
 }
-// Drop the day filter, in the state and in the two date fields the toolbar
-// shows: the toolbar is built once per view switch, so clearing the state alone
-// would leave the old dates standing in it.
-function clearDateFilter(){ artFrom=''; artTo='';
+// Drop every filter, in the state and in the fields the toolbar shows: the
+// toolbar is built once per view switch, so clearing the state alone would
+// leave the old dates standing in it. The menus refill on the next load.
+function clearFilters(){ artFrom=''; artTo=''; artGroup=''; artOrigin='';
   document.querySelectorAll('#toolbarActions .date-in').forEach(i=>i.value=''); }
+const shown=a=>inDateRange(a.published_at,artFrom,artTo)&&matchesSource(a);
 // Open one artifact by id. This is what a click on a "new artifact"
 // notification ends up calling (the app window pushes the id in from
 // cqOpenPendingArtifact): show the Artifacts view, then open the artifact in
@@ -186,10 +219,10 @@ window.cqOpenArtifact=async function(id){
   const a=arts.find(x=>x.id===id);
   if(!a){ toast('That artifact is no longer available','err'); return; }
   // Land on the artifact, so closing the viewer leaves it in the list instead
-  // of on a page it is not on: a date filter that hides it is dropped, and the
-  // list moves to the page that holds it.
-  if(!inDateRange(a.published_at,artFrom,artTo)) clearDateFilter();
-  artPage=Math.floor(arts.filter(x=>inDateRange(x.published_at,artFrom,artTo)).indexOf(a)/ART_PAGE);
+  // of on a page it is not on: filters that hide it are dropped, and the list
+  // moves to the page that holds it.
+  if(!shown(a)) clearFilters();
+  artPage=Math.floor(arts.filter(shown).indexOf(a)/ART_PAGE);
   artifactsSig=''; loadArtifacts();
   openViewer(a);
 };
@@ -203,6 +236,9 @@ export const view={
     ta.append(dateRange(artFrom,artTo,
       v=>{artFrom=v;artPage=0;artifactsSig='';loadArtifacts();},
       v=>{artTo=v;artPage=0;artifactsSig='';loadArtifacts();}));
+    groupSel=sourceFilter('Show the artifacts of one queue group',v=>{artGroup=v;artOrigin='';});
+    originSel=sourceFilter('Show the artifacts one job produced, directly or through the jobs it created',v=>{artOrigin=v;});
+    ta.append(groupSel,originSel);
     const b=el('button','btn',EYE+'<span>Mark all read</span>'); b.onclick=markAllArtifactsRead; ta.append(b);
   },
   enter(){ loadArtifacts(); },

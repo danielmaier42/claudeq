@@ -463,10 +463,12 @@ func (s *server) updateTask(w http.ResponseWriter, r *http.Request) {
 		Group *string `json:"group"`
 	}
 	_ = json.Unmarshal(body, &sent)
-	if sent.Group == nil {
-		if prev, err := s.storedTask(t.ID); err == nil {
+	// The origin is set by whichever job created this one and is never edited.
+	if prev, err := s.storedTask(t.ID); err == nil {
+		if sent.Group == nil {
 			t.Group = prev.Group
 		}
+		t.OriginID, t.OriginName = prev.OriginID, prev.OriginName
 	}
 	if t.Permissions == "" {
 		t.Permissions = task.PermissionsDefault
@@ -979,6 +981,19 @@ func (s *server) listArtifacts(w http.ResponseWriter, _ *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	// The queue and history give each artifact the group and origin the
+	// view filters by (see app.ResolveArtifactSources).
+	cfg, err := s.d.Store.LoadConfig()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	runs, err := s.d.Store.Runs()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	app.ResolveArtifactSources(arts, cfg.Tasks, runs)
 	views := make([]artifactView, 0, len(arts))
 	// Newest first for the dashboard.
 	for i := len(arts) - 1; i >= 0; i-- {

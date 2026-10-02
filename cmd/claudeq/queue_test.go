@@ -479,3 +479,35 @@ func TestCmdQueueRefusesARecurringDependency(t *testing.T) {
 		t.Fatalf("error = %v, want it to explain why", err)
 	}
 }
+
+func TestBuildQueuedTaskRecordsItsOrigin(t *testing.T) {
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	root := task.Task{ID: "digest", Name: "Morning Digest", WorkingDir: "/repo", Group: "dc AG"}
+
+	// Queued by a job nothing created: the caller is the origin.
+	child, err := buildQueuedTask(parentJSON(t, root), "q-1", queueOpts{prompt: "join"}, now)
+	if err != nil {
+		t.Fatalf("buildQueuedTask: %v", err)
+	}
+	if child.OriginID != "digest" || child.OriginName != "Morning Digest" || child.Group != "dc AG" {
+		t.Fatalf("child origin/group = %q %q %q", child.OriginID, child.OriginName, child.Group)
+	}
+
+	// Queued by that child: the origin stays the root, not the child.
+	grand, err := buildQueuedTask(parentJSON(t, child), "q-2", queueOpts{prompt: "again"}, now)
+	if err != nil {
+		t.Fatalf("buildQueuedTask: %v", err)
+	}
+	if grand.OriginID != "digest" || grand.OriginName != "Morning Digest" {
+		t.Fatalf("grandchild origin = %q %q, want the root", grand.OriginID, grand.OriginName)
+	}
+
+	// Standalone there is no origin.
+	alone, err := buildQueuedTask("", "q-3", queueOpts{prompt: "x", dir: "/repo"}, now)
+	if err != nil {
+		t.Fatalf("buildQueuedTask: %v", err)
+	}
+	if alone.OriginID != "" || alone.OriginName != "" {
+		t.Fatalf("standalone origin = %q %q, want none", alone.OriginID, alone.OriginName)
+	}
+}

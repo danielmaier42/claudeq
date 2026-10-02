@@ -127,6 +127,15 @@ type Task struct {
 	// queued by a run inherits that run's workflow; a run that has none starts
 	// one under its own id.
 	WorkflowID string `toml:"workflow_id,omitempty" json:"workflow_id,omitempty"`
+	// OriginID and OriginName name the job at the root of the chain that
+	// created this one: a watcher script that adds a review job, or a digest
+	// that queues its join. A job added or queued from inside a run inherits
+	// the calling job's origin, or takes the calling job itself when that has
+	// none. Both stay empty for a job the operator created. Unlike ParentRun
+	// this survives a quiet parent whose run is never written to history, which
+	// is exactly the watcher case.
+	OriginID   string `toml:"origin_id,omitempty" json:"origin_id,omitempty"`
+	OriginName string `toml:"origin_name,omitempty" json:"origin_name,omitempty"`
 
 	// QuietHistory keeps the task's routine runs out of the way: a run that
 	// succeeds (or pauses on the rate limit, which resolves itself) is never
@@ -144,6 +153,15 @@ func PermissionsFor(skip bool) Permissions {
 		return PermissionsSkip
 	}
 	return PermissionsDefault
+}
+
+// Origin returns the job at the root of t's chain: its recorded origin, or t
+// itself when it was not created by another job.
+func (t Task) Origin() (id, name string) {
+	if t.OriginID != "" {
+		return t.OriginID, t.OriginName
+	}
+	return t.ID, t.Name
 }
 
 // IsScript reports whether the job runs its prompt as a script instead of
