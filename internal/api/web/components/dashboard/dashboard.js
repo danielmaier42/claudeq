@@ -37,7 +37,7 @@ export function limitWindowsHTML(l){
 export function limitStatusText(l){
   switch(l.state){
     case 'ok': return 'Updated '+relTime(l.updated_at);
-    case 'unsupported': return l.reason||'No allowance reported';
+    case 'unsupported': return l.reason||'No limit';
     case 'disabled': return 'Switched off';
   }
   const when=l.updated_at?' Showing the reading from '+relTime(l.updated_at)+'.':'';

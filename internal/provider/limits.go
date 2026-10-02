@@ -260,11 +260,9 @@ func (m *LimitMonitor) read(ctx context.Context, inst Instance, prev Limits) Lim
 	}
 	r, ok := ad.(LimitReader)
 	if !ok {
-		return Limits{
-			State:     LimitsUnsupported,
-			Reason:    ad.Describe().Name + " does not report an allowance.",
-			CheckedAt: now,
-		}
+		// A harness without an allowance (opencode on a local model, say) has
+		// no limit to wait for, and that is what the operator needs to read.
+		return Limits{State: LimitsUnsupported, Reason: "No limit", CheckedAt: now}
 	}
 	ctx, cancel := context.WithTimeout(ctx, LimitsTimeout)
 	defer cancel()

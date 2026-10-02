@@ -599,7 +599,7 @@ Reading them costs no tokens and none of the allowance.
 |---------|-----------------------------|---------------|
 | Claude | The usage endpoint Claude Code's own `/usage` screen reads, called with the login the CLI stored for that provider's configuration directory | 5 hours, week |
 | Codex | The CLI's own `codex app-server`, asked `account/rateLimits/read` with the provider's `CODEX_HOME` | whichever windows the account reports, one or two (5 hours, week) |
-| opencode | nothing; it runs whatever backend it is pointed at | none |
+| opencode | nothing; it runs whatever backend it is pointed at | none, shown as *No limit* |
 
 The daemon reads them **when the Dashboard opens**, on **View → Refresh**
 (**⌘R**), **every 15 minutes** on its own, and **right after every run** on that

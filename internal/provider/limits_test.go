@@ -141,7 +141,7 @@ func TestLimitMonitorDisabledAndUnsupported(t *testing.T) {
 	if got[0].State != LimitsDisabled {
 		t.Fatalf("disabled instance = %+v", got[0])
 	}
-	if got[1].State != LimitsUnsupported || got[1].Reason == "" {
+	if got[1].State != LimitsUnsupported || got[1].Reason != "No limit" {
 		t.Fatalf("instance without a LimitReader = %+v", got[1])
 	}
 }
