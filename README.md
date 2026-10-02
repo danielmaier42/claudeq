@@ -614,6 +614,25 @@ come back with the next run on that account or after `claude auth login`. The
 Claude endpoint is not a documented API; if Anthropic changes it, the Dashboard
 says the limits cannot be read and nothing else is affected.
 
+The same figures are on the command line, read right then rather than from
+the daemon's memory, so the command works with the daemon stopped too:
+
+```sh
+claudeq provider limits                 # every provider, one line per window
+claudeq provider limits claude --json   # one provider, in the shape the API serves
+```
+
+```
+ID           WINDOW   USED  RESETS                 NOTE
+claude       5 hours  10%   Sat 01:19 (in 4h 36m)
+claude       Week     85%   Mon 02:59 (in 2d 6h)
+opencode     -        -     -                      No limit
+```
+
+A running job can ask before it hands work to another account: `used_percent`
+per window and `state` (`ok`, `unavailable`, `unsupported`, `disabled`) are in
+the JSON.
+
 ### Credentials
 
 ClaudeQ stores no passwords, tokens or API keys. It stores the *path* of a
@@ -712,6 +731,7 @@ claudeq read RUNID | claudeq read-all
 claudeq provider list [--json]                 # the harnesses tasks run on
 claudeq provider show ID [--json]
 claudeq provider check ID [--json]             # probe it now
+claudeq provider limits [ID] [--json]          # 5-hour/weekly windows, used and reset
 claudeq provider add  ID --kind claude-code|codex [--name N] [--path PATH]
                       [--config-dir PATH] [--default-model MODEL]
                       [--fallback ID] [--fallback-model MODEL]
@@ -842,6 +862,7 @@ global settings:
 ```sh
 claudeq provider list                                   # ids, kinds, default models, status
 claudeq provider check claude                           # probe it and print why it is not ready
+claudeq provider limits                                 # how much of each allowance is used
 claudeq provider edit claude --path /Users/me/.local/bin/claude
 claudeq provider edit claude --default-model opus
 claudeq provider disable claude                         # keep it, run nothing on it
