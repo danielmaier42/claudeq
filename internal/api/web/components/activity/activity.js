@@ -133,7 +133,8 @@ function runProviderText(r){
   // A script run always says so: that it ran without a model is the one thing
   // that sets it apart from the agent runs around it.
   if(p.kind!=='script'&&PROVIDERS.length<2) return '';
-  return ' · '+esc(p.name)+(p.model?' <span class="mono">'+esc(p.model)+'</span>':'');
+  return ' · '+esc(p.name)+(p.model?' <span class="mono">'+esc(p.model)+'</span>':'')
+    +(p.pool?' <span class="sub">via pool '+esc(p.pool)+'</span>':'');
 }
 
 // A rate-limited run reads as "rescheduled" while its session is still queued

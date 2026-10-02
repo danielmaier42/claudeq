@@ -45,26 +45,35 @@ type rateLimitWindow struct {
 }
 
 // rateLimitsResult is the part of `account/rateLimits/read` claudeq shows: the
-// account's main limit, which has up to two windows.
+// account's main limit, which has up to two windows, and its plan.
 type rateLimitsResult struct {
 	RateLimits *struct {
 		Primary   *rateLimitWindow `json:"primary"`
 		Secondary *rateLimitWindow `json:"secondary"`
+		PlanType  string           `json:"planType"`
 	} `json:"rateLimits"`
 }
 
 // ReadLimits implements provider.LimitReader by asking the instance's own
 // `codex app-server` — same binary, same CODEX_HOME as a run.
-func (a *Adapter) ReadLimits(ctx context.Context, inst provider.Instance) ([]provider.LimitWindow, error) {
+//
+// Codex says which plan the account is on but not how the plans compare, so
+// the reading carries no capacity: a pool weighs a Codex member as 1 unless the
+// operator sets its weight.
+func (a *Adapter) ReadLimits(ctx context.Context, inst provider.Instance) (provider.LimitReading, error) {
 	bin := a.ResolveBinary(inst)
 	if bin == "" {
-		return nil, errors.New("the Codex CLI was not found, so its limits cannot be read")
+		return provider.LimitReading{}, errors.New("the Codex CLI was not found, so its limits cannot be read")
 	}
 	res, err := askAppServer(ctx, provider.Command{Path: bin, Args: []string{"app-server"}, Env: a.env(inst)})
 	if err != nil {
-		return nil, err
+		return provider.LimitReading{}, err
 	}
-	return parseRateLimits(res)
+	windows, plan, err := parseRateLimits(res)
+	if err != nil {
+		return provider.LimitReading{}, err
+	}
+	return provider.LimitReading{Windows: windows, Plan: plan}, nil
 }
 
 // askAppServer runs the app server, holds the rateLimitsRequest conversation
@@ -120,13 +129,13 @@ func askAppServer(ctx context.Context, c provider.Command) (json.RawMessage, err
 }
 
 // parseRateLimits turns the app server's answer into limit windows.
-func parseRateLimits(raw json.RawMessage) ([]provider.LimitWindow, error) {
+func parseRateLimits(raw json.RawMessage) ([]provider.LimitWindow, string, error) {
 	var res rateLimitsResult
 	if err := json.Unmarshal(raw, &res); err != nil {
-		return nil, fmt.Errorf("the Codex limits are not in a format claudeq understands: %w", err)
+		return nil, "", fmt.Errorf("the Codex limits are not in a format claudeq understands: %w", err)
 	}
 	if res.RateLimits == nil {
-		return nil, errors.New("the Codex CLI reported no limits for this account")
+		return nil, "", errors.New("the Codex CLI reported no limits for this account")
 	}
 	var out []provider.LimitWindow
 	for _, w := range []*rateLimitWindow{res.RateLimits.Primary, res.RateLimits.Secondary} {
@@ -142,9 +151,20 @@ func parseRateLimits(raw json.RawMessage) ([]provider.LimitWindow, error) {
 		out = append(out, lw)
 	}
 	if len(out) == 0 {
-		return nil, errors.New("the Codex CLI reported no limit windows for this account")
+		return nil, "", errors.New("the Codex CLI reported no limit windows for this account")
 	}
-	return out, nil
+	return out, planName(res.RateLimits.PlanType), nil
+}
+
+// planName turns Codex's plan id ("prolite") into a label.
+func planName(id string) string {
+	switch id {
+	case "":
+		return ""
+	case "prolite":
+		return "Pro Lite"
+	}
+	return strings.ToUpper(id[:1]) + id[1:]
 }
 
 // windowName names a window by its length, using the names Claude's windows

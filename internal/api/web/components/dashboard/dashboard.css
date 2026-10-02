@@ -14,3 +14,9 @@
 .limit-head b.danger { color:var(--danger); }
 .meter.warn > span { background:var(--warn); }
 .meter.danger > span { background:var(--danger); }
+/* A pool's members in the order a run would try them. */
+.pool-row { align-items:flex-start; flex-wrap:wrap; gap:10px 18px; }
+.pool-rank { flex:2 1 320px; margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4px; }
+.pool-rank li { font-size:13px; }
+.pool-rank .sub { color:var(--fg2); font-size:12px; margin-left:6px; }
+.pool-rank li.pool-back { color:var(--fg2); }

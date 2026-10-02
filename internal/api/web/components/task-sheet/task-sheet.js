@@ -1,5 +1,6 @@
 import {loadRuns} from '../activity/activity.js';
 import {current} from '../app-shell/app-shell.js';
+import {POOLS, loadPoolList} from '../pools/pools.js';
 import {DEFAULT_WORKING_DIR, PROVIDERS, betaAllowed, setProviderSnapshot} from '../providers/providers.js';
 import {loadTasks} from '../queue/queue.js';
 import {taskReview} from '../review/review.js';
@@ -16,7 +17,7 @@ function prefillTask(t){
   setKind(t.kind||'agent');
   $('#f-parallel').checked=!!t.parallel; $('#f-skip').checked=(t.permissions==='skip'); $('#f-notify').checked=!!t.notify_on_result;
   $('#f-quiet').checked=!!t.quiet_history;
-  fillProviderChoices(t.provider||'', t.model||'', t.reasoning_effort||'');
+  fillProviderChoices(t.pool?'pool:'+t.pool:(t.provider||''), t.model||'', t.reasoning_effort||'');
   setSeg(t.trigger||'asap');
   $('#f-at').value=(t.trigger==='fixed'&&t.fixed_at)?toLocalDT(t.fixed_at):'';
   $('#f-cron').value=t.trigger==='cron'?(t.cron||''):'';
@@ -34,6 +35,9 @@ const REASONING_LEVELS=['low','medium','high','xhigh'];
 // Only providers that can actually run are offered. A task already pointed at
 // one that cannot keeps it in the list, marked — an existing task stays visible
 // with the reason it is blocked rather than being quietly moved.
+//
+// Pools sit below the providers in the same field, as "pool:ID": a task runs on
+// one or the other, never both, so one choice says it.
 async function fillProviderChoices(providerID, model, effort){
   const sel=$('#f-provider');
   if(!PROVIDERS.length){
@@ -42,6 +46,10 @@ async function fillProviderChoices(providerID, model, effort){
       setProviderSnapshot({providers:ps||[],showBeta:st.beta_features});
     }catch{}
   }
+  await loadPoolList();
+  const poolID=providerID.startsWith('pool:')?providerID.slice(5):'';
+  const pools=POOLS.map(p=>`<option value="pool:${esc(p.id)}"${p.id===poolID?' selected':''}>${esc(p.name||p.id)}</option>`).join('')
+    +(poolID&&!POOLS.some(p=>p.id===poolID)?`<option value="pool:${esc(poolID)}" selected>${esc(poolID)} — not configured</option>`:'');
   const offered=PROVIDERS.filter(p=>p.enabled&&p.health&&p.health.state==='ready'&&(!p.beta||betaAllowed()))
     .sort((a,b)=>(a.name||a.id).localeCompare(b.name||b.id));
   const picked=PROVIDERS.find(p=>p.id===providerID);
@@ -53,13 +61,20 @@ async function fillProviderChoices(providerID, model, effort){
       const label=(p.name||p.id)+(p.beta?' (beta)':'')+(ready?'':' — '+(p.health?p.health.state.replace(/_/g,' '):'unavailable'));
       return `<option value="${esc(p.id)}"${p.id===providerID?' selected':''}>${esc(label)}</option>`;
     }).join('')
-    +(providerID && !picked?`<option value="${esc(providerID)}" selected>${esc(providerID)} — not configured</option>`:'');
+    +(providerID && !poolID && !picked?`<option value="${esc(providerID)}" selected>${esc(providerID)} — not configured</option>`:'')
+    +(pools?`<optgroup label="Pools">${pools}</optgroup>`:'');
   sel.onchange=()=>fillTaskModels(sel.value,'');
   await fillTaskModels(providerID, model, effort);
 }
 // fillTaskModels asks the chosen provider for its models and shows the
 // reasoning-effort field only where the harness takes one.
 async function fillTaskModels(providerID, model, effort){
+  // A pool's members are of one type, so its first member speaks for the
+  // models and the reasoning effort of all of them.
+  if(providerID.startsWith('pool:')){
+    const pool=POOLS.find(p=>p.id===providerID.slice(5));
+    providerID=(pool&&pool.members[0]&&pool.members[0].provider)||'';
+  }
   let models=[];
   try{ models=await api('GET','/api/models'+(providerID?'?provider='+encodeURIComponent(providerID):''))||[]; }catch{}
   $('#f-model').innerHTML=modelOptionsFrom(models,model||'','Provider default');
@@ -170,7 +185,8 @@ async function submitTask(){
     // sent empty: the daemon refuses a script that names any of it.
     model:script?undefined:($('#f-model').value||undefined),
     permissions:script?'default':($('#f-skip').checked?'skip':'default'),
-    provider:script?undefined:($('#f-provider').value||undefined),
+    provider:script||$('#f-provider').value.startsWith('pool:')?undefined:($('#f-provider').value||undefined),
+    pool:!script&&$('#f-provider').value.startsWith('pool:')?$('#f-provider').value.slice(5):undefined,
     reasoning_effort:(script||$('#f-reasoning-wrap').hidden)?undefined:($('#f-reasoning').value||undefined)};
   if(!t.working_dir){ $('#addErr').textContent='Please choose a working directory.'; return; }
   if(trig==='cron'){

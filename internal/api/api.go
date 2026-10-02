@@ -17,6 +17,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -136,6 +137,10 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/providers", s.listProviders)
 	mux.HandleFunc("GET /api/providers/kinds", s.listProviderKinds)
 	mux.HandleFunc("GET /api/limits", s.listLimits)
+	mux.HandleFunc("GET /api/pools", s.listPools)
+	mux.HandleFunc("POST /api/pools", s.addPool)
+	mux.HandleFunc("PUT /api/pools/{id}", s.updatePool)
+	mux.HandleFunc("DELETE /api/pools/{id}", s.deletePool)
 	mux.HandleFunc("POST /api/providers", s.addProvider)
 	mux.HandleFunc("PUT /api/providers/{id}", s.updateProvider)
 	mux.HandleFunc("DELETE /api/providers/{id}", s.deleteProvider)
@@ -226,7 +231,7 @@ func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
 		// A script job runs on no provider, so a provider that cannot run is
 		// not what is holding it up — nothing is.
 		if !t.IsScript() {
-			v.BlockedReason = blocked[t.Provider]
+			v.BlockedReason = blocked[targetKey(t)]
 		}
 		// A task whose session is waiting for the rate limit is not idle: say so
 		// in the queue, so it does not look like a job that simply hangs.
@@ -315,27 +320,50 @@ func (s *server) blockedReasons(ctx context.Context, cfg store.Config) map[strin
 	insts := []provider.Instance{}
 	fields := map[string][]string{} // instance id -> the task fields that resolve to it
 	asked := map[string]bool{}
+	var pools []provider.Pool
 	for _, t := range cfg.Tasks {
-		if asked[t.Provider] {
+		key := targetKey(t)
+		if asked[key] {
 			continue
 		}
-		asked[t.Provider] = true
+		asked[key] = true
+		if t.Pool != "" {
+			if p, ok := set.LookupPool(t.Pool); ok {
+				pools = append(pools, p)
+			} else {
+				out[key] = fmt.Sprintf("%v %q", provider.ErrUnknownPool, t.Pool)
+			}
+			continue
+		}
 		resolved, err := set.Resolve(provider.Selection{ProviderID: t.Provider})
 		if err != nil {
-			out[t.Provider] = err.Error()
+			out[key] = err.Error()
 			continue
 		}
 		id := resolved.Instance.ID
 		if _, seen := fields[id]; !seen {
 			insts = append(insts, resolved.Instance)
 		}
-		fields[id] = append(fields[id], t.Provider)
+		fields[id] = append(fields[id], key)
+	}
+	// A pool's members are asked with everything else; the pool is blocked
+	// only when none of them can run, because one working account gets its
+	// work done.
+	for _, p := range pools {
+		for _, inst := range set.PoolMembers(p) {
+			if _, seen := fields[inst.ID]; !seen && inst.Enabled {
+				insts = append(insts, inst)
+				fields[inst.ID] = nil
+			}
+		}
 	}
 	// And they are asked together: when the verdicts have gone stale — which is
 	// exactly the state the app finds them in after a while with no window open
 	// — each one spawns a CLI, and the queue is the first thing the dashboard
 	// asks for.
+	health := map[string]provider.Health{}
 	for i, h := range s.d.Providers.CheckEach(ctx, insts) {
+		health[insts[i].ID] = h
 		if h.Ready() {
 			continue
 		}
@@ -344,8 +372,38 @@ func (s *server) blockedReasons(ctx context.Context, cfg store.Config) map[strin
 			out[field] = reason
 		}
 	}
+	for _, p := range pools {
+		var reasons []string
+		ready := false
+		for _, inst := range set.PoolMembers(p) {
+			h, checked := health[inst.ID]
+			switch {
+			case !inst.Enabled:
+				reasons = append(reasons, inst.Label()+" is switched off.")
+			case checked && !h.Ready():
+				reasons = append(reasons, inst.Label()+": "+h.ReasonOr("it cannot run tasks right now."))
+			default:
+				ready = true
+			}
+		}
+		if !ready {
+			out[poolKey(p.ID)] = "No member of pool " + p.Label() + " can run: " + strings.Join(reasons, " ")
+		}
+	}
 	return out
 }
+
+// targetKey is what blockedReasons files a task's verdict under: its provider
+// field as stored, or its pool. The two cannot collide, because a pool's key
+// carries a prefix no provider id can have.
+func targetKey(t task.Task) string {
+	if t.Pool != "" {
+		return poolKey(t.Pool)
+	}
+	return t.Provider
+}
+
+func poolKey(id string) string { return "pool:" + id }
 
 func (s *server) addTask(w http.ResponseWriter, r *http.Request) {
 	var t task.Task
@@ -376,7 +434,7 @@ func (s *server) addTask(w http.ResponseWriter, r *http.Request) {
 	// A script job needs no harness, so it is filed whatever state the
 	// providers are in — that is half the point of having one.
 	if !t.IsScript() {
-		if err := s.ensureRunnable(r.Context(), t.Provider); err != nil {
+		if err := s.ensureRunnable(r.Context(), t.Provider, t.Pool); err != nil {
 			writeErr(w, http.StatusBadRequest, err)
 			return
 		}
@@ -403,14 +461,15 @@ func (s *server) storedTask(id string) (task.Task, error) {
 	return task.Task{}, fmt.Errorf("task %q not found", id)
 }
 
-// ensureRunnable refuses to file work for a provider that cannot run it, so a
-// task is never queued that is known in advance to fail unattended.
-func (s *server) ensureRunnable(ctx context.Context, providerID string) error {
+// ensureRunnable refuses to file work for a provider (or a pool none of whose
+// members) can run it, so a task is never queued that is known in advance to
+// fail unattended.
+func (s *server) ensureRunnable(ctx context.Context, providerID, poolID string) error {
 	set, err := app.Providers(s.d.Store)
 	if err != nil {
 		return err
 	}
-	return app.EnsureRunnable(ctx, set, s.d.Providers, providerID)
+	return app.EnsureTaskTarget(ctx, set, s.d.Providers, providerID, poolID)
 }
 
 // warmAccess provokes the macOS file-access prompt for a task's folder right
@@ -488,8 +547,8 @@ func (s *server) updateTask(w http.ResponseWriter, r *http.Request) {
 	// one it has, and an unready provider must not stand in the way of editing
 	// the prompt, the folder or the schedule — that edit may well be how the
 	// operator is fixing it.
-	if prev, err := s.storedTask(t.ID); err == nil && prev.Provider != t.Provider && !t.IsScript() {
-		if err := s.ensureRunnable(r.Context(), t.Provider); err != nil {
+	if prev, err := s.storedTask(t.ID); err == nil && (prev.Provider != t.Provider || prev.Pool != t.Pool) && !t.IsScript() {
+		if err := s.ensureRunnable(r.Context(), t.Provider, t.Pool); err != nil {
 			writeErr(w, http.StatusBadRequest, err)
 			return
 		}

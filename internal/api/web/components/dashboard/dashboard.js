@@ -1,3 +1,4 @@
+import {loadPoolList} from '../pools/pools.js';
 import {setConn} from '../status/status.js';
 import {api} from '../../core/api.js';
 import {$, el, emptyState, esc} from '../../core/dom.js';
@@ -47,12 +48,19 @@ export function limitStatusText(l){
 let gen=0, sig='';
 export async function loadDashboard(fresh){
   const g=++gen;
-  let list; try{ list=await api('GET','/api/limits'+(fresh?'?fresh=1':''))||[]; setConn(true); }catch(e){ setConn(false); return; }
+  let list, pools;
+  try{
+    // The pools rank on the readings the limits call just took, so they are
+    // asked second.
+    list=await api('GET','/api/limits'+(fresh?'?fresh=1':''))||[];
+    pools=await loadPoolList();
+    setConn(true);
+  }catch(e){ setConn(false); return; }
   if(g!==gen) return;   // a newer load superseded us
   // The poll redraws only on a change, so a hover is not lost every 5 seconds.
   // The minute is part of the change: "updated 3 min ago" and "resets in 2 h"
   // move on their own between two readings.
-  const s=JSON.stringify(list)+'@'+Math.floor(Date.now()/60000);
+  const s=JSON.stringify([list,pools])+'@'+Math.floor(Date.now()/60000);
   if(s===sig && $('#dashboard').childElementCount) return;
   sig=s;
   const c=$('#dashboard'); c.innerHTML='';
@@ -69,6 +77,25 @@ export async function loadDashboard(fresh){
       </div>`;
     }).join('')+`</div>`;
   c.append(box);
+  if(pools.length) c.append(poolsSection(pools));
+}
+
+// poolsSection shows, per pool, where a run started now would go and how the
+// members stand: the same order the daemon takes them in.
+function poolsSection(pools){
+  const box=el('div');
+  box.innerHTML=`<div class="section-label">Pools</div><div class="group">`
+    +pools.map(p=>{
+      const next=(p.ranking||[]).find(r=>r.tier<3);
+      return `<div class="row pool-row">
+        <div class="limit-name"><div class="title">${esc(p.name)} <span class="chip">Pool</span></div>
+          <div class="sub multi">${next?'Next run goes to <b>'+esc(next.name)+'</b>':'No member can take work right now'}</div></div>
+        <ol class="pool-rank">${(p.ranking||[]).map(r=>`
+          <li class="${r.tier>=2?'pool-back':''}"><span class="pool-member">${esc(r.name)}</span>
+            <span class="sub">${esc(r.note)} · weight ${esc(String(Math.round(r.weight*100)/100))}×${r.tier<3&&r.urgency?' · urgency '+r.urgency.toFixed(1):''}</span></li>`).join('')}</ol>
+      </div>`;
+    }).join('')+`</div>`;
+  return box;
 }
 
 export const view={ title:'Dashboard', enter(){ loadDashboard(true); }, refresh(){ sig=''; loadDashboard(true); } };

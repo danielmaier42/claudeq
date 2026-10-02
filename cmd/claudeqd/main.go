@@ -177,6 +177,9 @@ func cmdRun(args []string) error {
 		}
 		return set.All(), nil
 	})
+	eng.SetLimits(func(_ context.Context, inst provider.Instance) (provider.Limits, bool) {
+		return limits.Cached(inst)
+	})
 	eng.SetRunFinished(func(providerID string) {
 		go func() {
 			if err := limits.RefreshID(context.Background(), providerID); err != nil {

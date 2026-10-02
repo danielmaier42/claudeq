@@ -4,6 +4,7 @@ import {initViewer, loadArtifacts, mountViewer} from './components/artifacts/art
 import {loadDashboard} from './components/dashboard/dashboard.js';
 import {initFeedback, mountFeedback} from './components/feedback/feedback.js';
 import {initLogSheet, mountLogSheet} from './components/log-sheet/log-sheet.js';
+import {initPoolSheet, mountPoolSheet} from './components/pools/pools.js';
 import {initProviderSheet, mountProviderSheet} from './components/providers/providers.js';
 import {loadTasks} from './components/queue/queue.js';
 import {initTaskReview} from './components/review/review.js';
@@ -41,6 +42,7 @@ mountTaskSheet();
 mountLogSheet();
 mountViewer();
 mountProviderSheet();
+mountPoolSheet();
 mountConfirm();
 mountToasts();
 
@@ -50,6 +52,7 @@ initTaskReview();
 initLogSheet();
 initViewer();
 initProviderSheet();
+initPoolSheet();
 initFeedback();
 initDialogs();
 

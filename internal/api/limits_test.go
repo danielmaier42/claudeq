@@ -19,9 +19,9 @@ type limitsStub struct {
 	reads *atomic.Int32
 }
 
-func (s limitsStub) ReadLimits(context.Context, provider.Instance) ([]provider.LimitWindow, error) {
+func (s limitsStub) ReadLimits(context.Context, provider.Instance) (provider.LimitReading, error) {
 	n := s.reads.Add(1)
-	return []provider.LimitWindow{{ID: "week", Label: "Week", UsedPercent: float64(n)}}, nil
+	return provider.LimitReading{Windows: []provider.LimitWindow{{ID: "week", Label: "Week", UsedPercent: float64(n)}}}, nil
 }
 
 func TestListLimits(t *testing.T) {

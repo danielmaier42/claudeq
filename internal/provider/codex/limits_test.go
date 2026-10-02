@@ -38,14 +38,18 @@ cat > /dev/null
 }
 
 func TestReadLimitsAsksTheInstancesAppServer(t *testing.T) {
-	bin, record := fakeAppServer(t, `{"id":2,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":37,"windowDurationMins":300,"resetsAt":1791350308},"secondary":{"usedPercent":100,"windowDurationMins":10080,"resetsAt":1791900000}}}}`)
+	bin, record := fakeAppServer(t, `{"id":2,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":37,"windowDurationMins":300,"resetsAt":1791350308},"secondary":{"usedPercent":100,"windowDurationMins":10080,"resetsAt":1791900000},"planType":"prolite"}}}`)
 	a := New()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	got, err := a.ReadLimits(ctx, provider.Instance{BinaryPath: bin, ConfigDir: "/tmp/codex-b"})
+	reading, err := a.ReadLimits(ctx, provider.Instance{BinaryPath: bin, ConfigDir: "/tmp/codex-b"})
 	if err != nil {
 		t.Fatalf("ReadLimits: %v", err)
 	}
+	if reading.Plan != "Pro Lite" || reading.Capacity != 0 {
+		t.Fatalf("plan = %q (capacity %v), want Pro Lite with no capacity", reading.Plan, reading.Capacity)
+	}
+	got := reading.Windows
 	if len(got) != 2 || got[0].ID != "five_hour" || got[0].UsedPercent != 37 || got[1].ID != "week" || got[1].UsedPercent != 100 {
 		t.Fatalf("windows = %+v", got)
 	}
@@ -94,7 +98,7 @@ func TestParseRateLimits(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := parseRateLimits(json.RawMessage(tc.body))
+			got, _, err := parseRateLimits(json.RawMessage(tc.body))
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("err = %v, wantErr %v", err, tc.wantErr)
 			}

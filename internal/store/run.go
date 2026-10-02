@@ -52,6 +52,8 @@ type RunProvider struct {
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 	// AccessMode is the authority the run was given.
 	AccessMode string `json:"access_mode,omitempty"`
+	// Pool names the pool the run was placed through, when its task named one.
+	Pool string `json:"pool,omitempty"`
 }
 
 // ScriptRunKind is what RunProvider.Kind says for the run of a script job: it

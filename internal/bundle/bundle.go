@@ -92,6 +92,7 @@ func Write(w io.Writer, t task.Task, hint ProviderHint, now time.Time) error {
 	// nothing on the machine the bundle is opened on. What travels is the hint,
 	// which the importer matches against their own providers.
 	env.Task.Provider = ""
+	env.Task.Pool = "" // likewise: a pool is configured on this Mac only
 	meta, err := json.MarshalIndent(env, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode task settings: %w", err)
@@ -154,7 +155,7 @@ func Read(data []byte) (task.Task, ProviderHint, error) {
 	}
 	t := env.Task.Task
 	t.Prompt = string(prompt)
-	t.Provider = "" // see Write: a provider id is local to the machine that exported
+	t.Provider, t.Pool = "", "" // see Write: both ids are local to the machine that exported
 	return t, env.Provider, nil
 }
 

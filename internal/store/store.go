@@ -519,8 +519,31 @@ type Config struct {
 	// Providers are the configured provider instances, in the order they were
 	// added. The domain type built from them lives in internal/provider; this is
 	// only their on-disk shape.
-	Providers []Provider  `toml:"providers,omitempty"`
-	Tasks     []task.Task `toml:"tasks"`
+	Providers []Provider `toml:"providers,omitempty"`
+	// Pools are the configured provider pools: sets of providers a task can be
+	// given as a whole, with each run going to the member that suits it best.
+	Pools []Pool      `toml:"pools,omitempty"`
+	Tasks []task.Task `toml:"tasks"`
+}
+
+// Pool is one provider pool as config.toml holds it.
+type Pool struct {
+	// ID is the stable identifier a task selects ("claude-pool").
+	ID string `toml:"id" json:"id"`
+	// Name is the label shown in the app and in run messages.
+	Name string `toml:"name" json:"name"`
+	// Members are the providers the pool spreads its tasks over, in order.
+	Members []PoolMember `toml:"members" json:"members"`
+}
+
+// PoolMember is one provider of a pool.
+type PoolMember struct {
+	// Provider is the member's provider id.
+	Provider string `toml:"provider" json:"provider"`
+	// Weight is how large the member's allowance is compared with the others'
+	// (a Max 20x plan is 20, a Pro plan 1). Zero takes what the provider
+	// reports about its plan, or 1 when it reports nothing.
+	Weight float64 `toml:"weight,omitempty" json:"weight,omitempty"`
 }
 
 // Identity of the provider instance every claudeq configuration has: the Claude

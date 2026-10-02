@@ -59,6 +59,9 @@ func AddProvider(s *store.Store, reg *provider.Registry, inst provider.Instance)
 		if providerIndex(cfg.Providers, inst.ID) >= 0 {
 			return fmt.Errorf("provider %q already exists", inst.ID)
 		}
+		if poolIndex(cfg.Pools, inst.ID) >= 0 {
+			return fmt.Errorf("a pool already has the id %q", inst.ID)
+		}
 		cfg.Providers = append(cfg.Providers, inst.Stored())
 		return nil
 	})
@@ -198,6 +201,17 @@ func providerRefs(cfg store.Config, id string) []string {
 	}
 	if len(fallbacks) > 0 {
 		refs = append(refs, "the rate-limit fallback of provider "+strings.Join(fallbacks, ", "))
+	}
+	var pools []string
+	for _, p := range cfg.Pools {
+		for _, m := range p.Members {
+			if m.Provider == id {
+				pools = append(pools, p.ID)
+			}
+		}
+	}
+	if len(pools) > 0 {
+		refs = append(refs, "pool "+strings.Join(pools, ", "))
 	}
 	var tasks []string
 	for _, t := range cfg.Tasks {
