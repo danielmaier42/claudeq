@@ -190,7 +190,8 @@ echo "$USER ALL=(root) NOPASSWD: /usr/bin/pmset" | sudo tee /etc/sudoers.d/claud
 3. Check the **Log** for the outcome, open a run to read the full log, or replay
    it. A finished one-shot task leaves the queue but stays in history; recurring
    tasks remain queued for their next occurrence.
-4. **Usage** shows your consumption over the last 14 days.
+4. The **Dashboard** shows how much of each provider's allowance is left;
+   **Usage** shows what ClaudeQ consumed over the last 14 days.
 
 ## Features
 
@@ -216,6 +217,9 @@ explains it.
   Same queue, same history, same limit handling. See [Providers](#providers).
 - **Any number of accounts.** Two providers of the same kind with separate
   configuration directories are two accounts with two allowances.
+- **How much is left, at a glance.** The Dashboard shows each account's
+  5-hour and weekly window with its reset time, read without spending any of
+  it. See [How much is left](#how-much-is-left).
 - **Checked before the night.** A provider whose CLI is missing or logged out
   blocks its tasks with the reason instead of failing them; they start by
   themselves once it works again. See [Is it ready?](#is-it-ready).
@@ -299,10 +303,16 @@ explains it.
 
 ## The app
 
-The dashboard (and the native window that wraps it) has five views. Four sit at
+The dashboard (and the native window that wraps it) has seven views. Five sit at
 the top of the sidebar; **Settings** and **Feedback** ([below](#sending-feedback))
-sit at the bottom, out of the way of the work:
+sit at the bottom, out of the way of the work. The window opens on the
+Dashboard:
 
+- **Dashboard** — how much of each provider's allowance is used: one row per
+  enabled provider with a bar per window (for Claude the 5-hour and the weekly
+  window, for Codex the windows its account has) and when each one resets. A
+  bar turns orange from 75% and red from 90%. Read without spending any usage;
+  see [How much is left](#how-much-is-left) for when and how.
 - **Queue** — the pending tasks in priority order. Add, edit, delete, enable/pause,
   reorder, or **run now** (a manual test run, independent of the trigger). Each
   row carries its task's name, what it runs on (the provider and the model that
@@ -383,8 +393,8 @@ sit at the bottom, out of the way of the work:
   an update is available.
 
 The views keep themselves current: every few seconds the window re-reads the
-queue, the log, the artifacts and the usage from the daemon, including the
-views that are not open, so a view you click shows the present state. Coming
+queue, the log, the artifacts, the usage and the limits the daemon last read,
+including the views that are not open, so a view you click shows the present state. Coming
 back to the window re-reads them at once. **View → Refresh** (**⌘R**) in the
 menu bar redraws every view on demand; it leaves an unsaved Settings form alone.
 
@@ -409,7 +419,7 @@ and the update button live.
 | | | Feedback model | Model it drafts with; left at *ClaudeQ's choice* it uses a small, fast model rather than whatever you picked for real tasks. |
 | | Execution | Pause all runs | Global stop switch: nothing starts while it is on, not even *Run now*; a run already in flight keeps going. Applies immediately, without pressing Save. |
 | | About | Version / Software updates | Current version and a manual "Check for updates" button. |
-| **Providers** | One block per provider | Its settings | Name, status, binary path, configuration directory, default model, the provider that takes over when the limit is reached (and the model it uses), and an on/off switch — written by the **Save** button at the top of Settings, like every other field here. **Check again**, **Make default** and **Remove** are actions and take effect at once. The block is headed by the provider's name and type. See [Providers](#providers). |
+| **Providers** | One block per provider | Its settings | Name, status, its current limits (the same bars as the Dashboard, when the harness reports any), binary path, configuration directory, default model, the provider that takes over when the limit is reached (and the model it uses), and an on/off switch — written by the **Save** button at the top of Settings, like every other field here. **Check again**, **Make default** and **Remove** are actions and take effect at once. The block is headed by the provider's name and type. See [Providers](#providers). |
 | | | **Add provider** | Below the blocks, and only with beta features on: opens a sheet asking for an id, a type and optionally a configuration directory. |
 | **Notifications** | macOS | Alerts that wait for you | Opens System Settings → Notifications, where ClaudeQ's alert style lives: *Banners* disappear on their own, *Alerts* stay until you click them. |
 | | Pushover | Send to Pushover | Toggle plus API token and user key for phone push. |
@@ -579,12 +589,42 @@ reached", plus "Model there"), or with
 `claudeq provider edit ID --fallback OTHER --fallback-model MODEL`; `none`
 clears either flag.
 
+### How much is left
+
+The Dashboard and each provider's block in **Settings → Providers** show the
+account's allowance windows: how much of each is used and when it resets.
+Reading them costs no tokens and none of the allowance.
+
+| Harness | Where the figures come from | Windows shown |
+|---------|-----------------------------|---------------|
+| Claude | The usage endpoint Claude Code's own `/usage` screen reads, called with the login the CLI stored for that provider's configuration directory | 5 hours, week |
+| Codex | The CLI's own `codex app-server`, asked `account/rateLimits/read` with the provider's `CODEX_HOME` | whichever windows the account reports, one or two (5 hours, week) |
+| opencode | nothing; it runs whatever backend it is pointed at | none |
+
+The daemon reads them **when the Dashboard opens**, on **View → Refresh**
+(**⌘R**), **every 15 minutes** on its own, and **right after every run** on that
+provider. A request that comes within 30 seconds of the last reading reuses it,
+so switching views does not hammer the provider. The window's regular polling
+only shows what was last read; it never asks the provider itself.
+
+When a reading fails, the last good figures stay up with their age and the
+reason underneath, for example an expired Claude login: ClaudeQ never renews a
+login itself (that would rotate the CLI's token and log it out), so the figures
+come back with the next run on that account or after `claude auth login`. The
+Claude endpoint is not a documented API; if Anthropic changes it, the Dashboard
+says the limits cannot be read and nothing else is affected.
+
 ### Credentials
 
 ClaudeQ stores no passwords, tokens or API keys. It stores the *path* of a
 CLI's configuration directory; the CLI owns what is inside it. Readiness checks
 read only whether a login exists, never whose it is, and neither the daemon log
-nor the API ever carries account details.
+nor the API ever carries account details. The one exception to "never reads
+the login" is the Claude limits reading above: the daemon reads the access
+token Claude Code stored (from the macOS keychain, through the same `security`
+tool the CLI uses, so no keychain prompt appears) and sends it to Anthropic
+only, the same place the CLI sends it. It is held for that one request and is
+never written, logged or served over the API.
 
 ## Command-line interface
 

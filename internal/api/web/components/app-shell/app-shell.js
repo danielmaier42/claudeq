@@ -1,6 +1,7 @@
 import {$} from '../../core/dom.js';
 import {view as activity} from '../activity/activity.js';
 import {view as artifacts} from '../artifacts/artifacts.js';
+import {view as dashboard} from '../dashboard/dashboard.js';
 import {view as feedback} from '../feedback/feedback.js';
 import {view as queue} from '../queue/queue.js';
 import {view as settings} from '../settings/settings.js';
@@ -13,10 +14,10 @@ import {view as usage} from '../usage/usage.js';
 // Every view the sidebar can reach, keyed by the id of its <section> and of its
 // tab button. Looked up on demand: the views import the shell back, and a table
 // built while those modules are still loading would read half of them as empty.
-const VIEW_IDS=['tasks','news','artifacts','usage','feedback','settings'];
-function viewOf(tab){ return {tasks:queue,news:activity,artifacts,usage,feedback,settings}[tab]; }
+const VIEW_IDS=['dashboard','tasks','news','artifacts','usage','feedback','settings'];
+function viewOf(tab){ return {dashboard,tasks:queue,news:activity,artifacts,usage,feedback,settings}[tab]; }
 
-export let current='tasks';
+export let current='dashboard';
 
 export function select(tab){
   const prev=viewOf(current);
@@ -48,7 +49,7 @@ export function mountShell(){
   document.body.insertAdjacentHTML('beforeend', `
 <div class="main">
   <div class="toolbar">
-    <h1 id="pageTitle">Tasks</h1>
+    <h1 id="pageTitle">Dashboard</h1>
     <div class="spacer"></div>
     <div id="toolbarActions"></div>
   </div>

@@ -1,4 +1,5 @@
 import {select} from '../app-shell/app-shell.js';
+import {limitStatusText, limitWindowsHTML} from '../dashboard/dashboard.js';
 import {api} from '../../core/api.js';
 import {confirmSheetAsk} from '../../core/confirm.js';
 import {$, el, esc} from '../../core/dom.js';
@@ -49,16 +50,29 @@ export async function loadProviders(){
     return; }
   if(!PROVIDER_KINDS.length){ try{ PROVIDER_KINDS=await api('GET','/api/providers/kinds')||[]; }catch{} }
   if(!box) return;
+  // The limits are what the daemon last read; a block without them is still a
+  // complete block, so a failure here costs only the meters.
+  let limits={};
+  try{ (await api('GET','/api/limits')||[]).forEach(l=>{ limits[l.id]=l.limits; }); }catch{}
   box.innerHTML='';
-  [...PROVIDERS].sort((a,b)=>(a.name||a.id).localeCompare(b.name||b.id)).forEach(p=>box.append(providerBlock(p)));
+  [...PROVIDERS].sort((a,b)=>(a.name||a.id).localeCompare(b.name||b.id)).forEach(p=>box.append(providerBlock(p,limits[p.id])));
   // Adding a provider is one of the parts claudeq does not consider finished,
   // so the button appears only once the operator has asked for those.
   const add=$('#s-provider-add');
   if(add) add.hidden=!betaAllowed();
 }
+// limitsRow shows the provider's allowance windows, the same meters as the
+// Dashboard. A provider with nothing to report (switched off, or a harness
+// without an allowance) gets no row rather than a row saying so.
+function limitsRow(l){
+  if(!l || !(l.windows||[]).length && l.state!=='unavailable') return '';
+  return `<div class="row limit-row"><div class="limit-name"><div class="title">Limits</div>
+      <div class="sub multi${l.state==='unavailable'?' limit-problem':''}">${esc(limitStatusText(l))}</div></div>
+    ${(l.windows||[]).length?limitWindowsHTML(l):''}</div>`;
+}
 // providerBlock is one provider's settings block: its name above it, the way
 // every other group in Settings is introduced.
-function providerBlock(p){
+function providerBlock(p,limits){
   const wrap=el('div');
   const detected=p.detected?`Detected: ${p.detected}`:'';
   const chips=providerStateChip(p.health)
@@ -71,6 +85,7 @@ function providerBlock(p){
           <div class="title">${chips}</div>
           <div class="sub multi"><span class="mono">${esc(p.id)}</span>${p.health.reason||p.health.detail?' — '+esc(p.health.reason||p.health.detail):''}</div></div>
         <label class="switch"><input type="checkbox" ${p.enabled?'checked':''}><span class="sl"></span></label></div>
+      ${limitsRow(limits)}
       <div class="row"><div class="grow"><div class="title">Name</div>
           <div class="sub">What this provider is called in the app and in run messages</div></div>
         <input type="text" class="p-name" style="max-width:260px"></div>

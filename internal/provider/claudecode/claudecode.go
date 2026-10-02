@@ -6,8 +6,10 @@
 package claudecode
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -35,6 +37,14 @@ type Adapter struct {
 	// catalog holds each instance's model list: a binary's own help text does
 	// not change while the daemon runs, but two instances can be two binaries.
 	catalog provider.Catalog
+
+	// keychain, http, usageEndpoint and clock stand in for the keychain, the
+	// network and time when reading the plan limits (see limits.go); nil and
+	// empty mean the real ones.
+	keychain      func(ctx context.Context, service string) ([]byte, error)
+	http          *http.Client
+	usageEndpoint string
+	clock         func() time.Time
 }
 
 // New returns the Claude Code adapter.

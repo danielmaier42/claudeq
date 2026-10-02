@@ -1,0 +1,16 @@
+/* A provider's row: its name on the left, one meter per allowance window. */
+.limit-row { align-items:flex-start; flex-wrap:wrap; gap:10px 18px; }
+.limit-name { flex:1 1 180px; min-width:0; }
+.limit-problem { color:var(--warn) !important; }
+.limit-windows { flex:2 1 320px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px 18px; }
+/* The week sits in the same column on every row, also where an account has no
+   five-hour window, so the rows can be read down a column. */
+.limit-window.w-week { grid-column:2; }
+.limit-window .meter { margin-top:5px; }
+.limit-window .sub { margin-top:4px; }
+.limit-head { display:flex; justify-content:space-between; font-size:12px; color:var(--fg2); }
+.limit-head b { color:var(--fg); font-weight:600; }
+.limit-head b.warn { color:var(--warn); }
+.limit-head b.danger { color:var(--danger); }
+.meter.warn > span { background:var(--warn); }
+.meter.danger > span { background:var(--danger); }
