@@ -9,6 +9,7 @@ import (
 
 	"github.com/danielmaier42/claudeq/internal/app"
 	"github.com/danielmaier42/claudeq/internal/store"
+	"github.com/danielmaier42/claudeq/internal/task"
 )
 
 // publishTestArtifact writes a temp file and publishes it into the store.
@@ -131,5 +132,54 @@ func TestArtifactDelete(t *testing.T) {
 	}
 	if r := do(t, srv, "DELETE", "/api/artifacts/a-1", nil); r.Status != http.StatusBadRequest {
 		t.Fatalf("deleting missing artifact: want 400, got %d", r.Status)
+	}
+}
+
+func TestListArtifactsCarriesGroupAndOrigin(t *testing.T) {
+	srv, st := newServer(t, nil)
+	watcher := sampleTask("adr-watch")
+	watcher.Name, watcher.Group = "dc: ADR Wiki Watch", "dc AG"
+	if r := do(t, srv, "POST", "/api/tasks", watcher); r.Status != http.StatusCreated {
+		t.Fatalf("add: %d (%s)", r.Status, r.Body)
+	}
+	src := filepath.Join(t.TempDir(), "review.html")
+	if err := os.WriteFile(src, []byte("x"), 0o644); err != nil {
+		t.Fatalf("write src: %v", err)
+	}
+	if _, err := app.PublishArtifact(st, app.PublishInput{
+		ID: "a-1", SourcePath: src, TaskID: "q-1", TaskName: "ADR-7 review",
+		OriginID: "adr-watch", OriginName: "dc: ADR Wiki Watch", Now: time.Now(),
+	}); err != nil {
+		t.Fatalf("PublishArtifact: %v", err)
+	}
+
+	var views []artifactView
+	do(t, srv, "GET", "/api/artifacts", nil).into(t, &views)
+	if len(views) != 1 || views[0].Group != "dc AG" || views[0].OriginID != "adr-watch" ||
+		views[0].OriginName != "dc: ADR Wiki Watch" {
+		t.Fatalf("views = %+v, want the watcher's group and origin", views)
+	}
+}
+
+func TestUpdateTaskKeepsItsOrigin(t *testing.T) {
+	srv, st := newServer(t, nil)
+	if r := do(t, srv, "POST", "/api/tasks", sampleTask("q-1")); r.Status != http.StatusCreated {
+		t.Fatalf("add: %d", r.Status)
+	}
+	if err := app.EditTask(st, "q-1", func(tk *task.Task) error {
+		tk.OriginID, tk.OriginName = "adr-watch", "dc: ADR Wiki Watch"
+		return nil
+	}); err != nil {
+		t.Fatalf("EditTask: %v", err)
+	}
+	// The task form sends no origin; saving it must not drop it.
+	edited := sampleTask("q-1")
+	edited.Prompt = "changed"
+	if r := do(t, srv, "PUT", "/api/tasks/q-1", edited); r.Status != http.StatusOK {
+		t.Fatalf("update: %d (%s)", r.Status, r.Body)
+	}
+	cfg, _ := st.LoadConfig()
+	if got := cfg.Tasks[0]; got.Prompt != "changed" || got.OriginID != "adr-watch" || got.OriginName != "dc: ADR Wiki Watch" {
+		t.Fatalf("task = %+v, want the edit applied and the origin kept", got)
 	}
 }

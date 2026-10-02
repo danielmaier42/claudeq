@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/danielmaier42/claudeq/internal/store"
+	"github.com/danielmaier42/claudeq/internal/task"
 )
 
 func writeTempFile(t *testing.T, name, content string) string {
@@ -24,6 +27,7 @@ func TestPublishArtifactCopiesAndRecords(t *testing.T) {
 	art, err := PublishArtifact(s, PublishInput{
 		ID: "a-1", SourcePath: src, Description: "a summary",
 		TaskID: "t1", TaskName: "Nightly", RunID: "r1",
+		Group: "dc AG", OriginID: "watch", OriginName: "Watch",
 		Now: time.Date(2026, 7, 21, 3, 0, 0, 0, time.UTC),
 	})
 	if err != nil {
@@ -38,7 +42,8 @@ func TestPublishArtifactCopiesAndRecords(t *testing.T) {
 	if art.ContentType == "" || art.ContentType[:9] != "text/html" {
 		t.Fatalf("ContentType = %q, want text/html…", art.ContentType)
 	}
-	if art.TaskName != "Nightly" || art.RunID != "r1" {
+	if art.TaskName != "Nightly" || art.RunID != "r1" ||
+		art.Group != "dc AG" || art.OriginID != "watch" || art.OriginName != "Watch" {
 		t.Fatalf("attribution not recorded: %+v", art)
 	}
 
@@ -128,5 +133,58 @@ func TestMarkAllArtifactsRead(t *testing.T) {
 	st, _ := s.LoadState()
 	if !st.IsArtifactRead("a-1") || !st.IsArtifactRead("a-2") {
 		t.Fatal("all artifacts should be read")
+	}
+}
+
+func TestResolveArtifactSources(t *testing.T) {
+	watcher := task.Task{ID: "adr-watch", Name: "dc: ADR Wiki Watch", Group: "dc AG"}
+	digest := task.Task{ID: "digest", Name: "Morning Digest", Group: "dc AG"}
+	runs := []store.Run{
+		// A digest run, the join it queued, and a run with no snapshot at all.
+		{RunID: "r-digest", WorkflowID: "r-digest", Task: &task.Task{ID: "digest", Name: "Morning Digest"}},
+		{RunID: "r-join", WorkflowID: "r-digest", Task: &task.Task{ID: "q-join", Name: "Join", Group: "Old group"}},
+		{RunID: "r-bare"},
+	}
+	tasks := []task.Task{watcher, digest, {ID: "loner", Name: "Loner"}}
+
+	cases := []struct {
+		name              string
+		in                store.Artifact
+		group, oID, oName string
+	}{
+		{"recorded origin takes the origin's current name and group",
+			store.Artifact{TaskID: "q-1", OriginID: "adr-watch", OriginName: "ADR Watch (old name)", Group: "Elsewhere"},
+			"dc AG", "adr-watch", "dc: ADR Wiki Watch"},
+		{"recorded origin no longer queued keeps what it recorded",
+			store.Artifact{TaskID: "q-1", OriginID: "gone", OriginName: "Gone watcher", Group: "GP3D"},
+			"GP3D", "gone", "Gone watcher"},
+		{"legacy artifact traced to its workflow's first run",
+			store.Artifact{TaskID: "q-join", TaskName: "Join", RunID: "r-join"},
+			"dc AG", "digest", "Morning Digest"},
+		{"legacy artifact of a root job is its own origin",
+			store.Artifact{TaskID: "digest", TaskName: "Morning Digest", RunID: "r-digest"},
+			"dc AG", "digest", "Morning Digest"},
+		{"legacy artifact whose run is gone falls back to the publisher",
+			store.Artifact{TaskID: "q-gone", TaskName: "Review #1", RunID: "r-pruned"},
+			"", "q-gone", "Review #1"},
+		{"ungrouped origin keeps the publisher's group",
+			store.Artifact{TaskID: "q-2", OriginID: "loner", Group: "GP3D"},
+			"GP3D", "loner", "Loner"},
+		{"run without a snapshot uses the queued publisher",
+			store.Artifact{TaskID: "digest", TaskName: "Digest", RunID: "r-bare"},
+			"dc AG", "digest", "Morning Digest"},
+		{"published outside any run has no source",
+			store.Artifact{}, "", "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			arts := []store.Artifact{c.in}
+			ResolveArtifactSources(arts, tasks, runs)
+			got := arts[0]
+			if got.Group != c.group || got.OriginID != c.oID || got.OriginName != c.oName {
+				t.Fatalf("got group=%q origin=%q/%q, want %q %q/%q",
+					got.Group, got.OriginID, got.OriginName, c.group, c.oID, c.oName)
+			}
+		})
 	}
 }

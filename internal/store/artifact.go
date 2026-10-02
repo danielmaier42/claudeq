@@ -32,6 +32,13 @@ type Artifact struct {
 	TaskID   string `json:"task_id,omitempty"`
 	TaskName string `json:"task_name,omitempty"`
 	RunID    string `json:"run_id,omitempty"`
+	// Group is the queue group of the publishing job when it published.
+	Group string `json:"group,omitempty"`
+	// OriginID/OriginName name the job at the root of the publishing job's
+	// chain (see task.Task.Origin): the watcher that added the review job that
+	// published, or the publishing job itself when nothing created it.
+	OriginID   string `json:"origin_id,omitempty"`
+	OriginName string `json:"origin_name,omitempty"`
 	// PublishedAt is when the artifact was published.
 	PublishedAt time.Time `json:"published_at"`
 }

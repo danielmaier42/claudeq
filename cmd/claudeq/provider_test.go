@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/danielmaier42/claudeq/internal/app"
+	"github.com/danielmaier42/claudeq/internal/executor"
 	"github.com/danielmaier42/claudeq/internal/provider"
 	"github.com/danielmaier42/claudeq/internal/store"
 )
@@ -277,5 +278,31 @@ func TestCmdImportRefusesAnUnreadyProvider(t *testing.T) {
 	cfg, _ := dst.LoadConfig()
 	if len(cfg.Tasks) != 0 {
 		t.Fatalf("a refused import must not be stored, got %+v", cfg.Tasks)
+	}
+}
+
+func TestCmdAddFromARunRecordsItsOrigin(t *testing.T) {
+	st := newTestStore(t)
+	withProviderHealth(t, providerReady)
+	t.Setenv(executor.EnvParentTask, `{"id":"adr-watch","name":"dc: ADR Wiki Watch","kind":"script"}`)
+
+	if err := cmdAdd(st, []string{"--id", "adr-7", "--prompt", "review", "--dir", t.TempDir(), "--group", "dc AG"}); err != nil {
+		t.Fatalf("cmdAdd: %v", err)
+	}
+	got, err := findTask(st, "adr-7")
+	if err != nil {
+		t.Fatalf("findTask: %v", err)
+	}
+	if got.OriginID != "adr-watch" || got.OriginName != "dc: ADR Wiki Watch" {
+		t.Fatalf("origin = %q %q, want the watcher", got.OriginID, got.OriginName)
+	}
+
+	// Added by hand, outside any run, a job has no origin.
+	t.Setenv(executor.EnvParentTask, "")
+	if err := cmdAdd(st, []string{"--id", "by-hand", "--prompt", "x", "--dir", t.TempDir()}); err != nil {
+		t.Fatalf("cmdAdd: %v", err)
+	}
+	if got, _ := findTask(st, "by-hand"); got.OriginID != "" {
+		t.Fatalf("hand-added origin = %q, want none", got.OriginID)
 	}
 }

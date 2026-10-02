@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/danielmaier42/claudeq/internal/store"
+	"github.com/danielmaier42/claudeq/internal/task"
 )
 
 // PublishInput describes a file to publish as an artifact. ID is a caller-
@@ -24,6 +25,9 @@ type PublishInput struct {
 	TaskID      string
 	TaskName    string
 	RunID       string
+	Group       string
+	OriginID    string
+	OriginName  string
 	Now         time.Time
 }
 
@@ -77,6 +81,9 @@ func PublishArtifact(s *store.Store, in PublishInput) (store.Artifact, error) {
 		TaskID:      in.TaskID,
 		TaskName:    in.TaskName,
 		RunID:       in.RunID,
+		Group:       in.Group,
+		OriginID:    in.OriginID,
+		OriginName:  in.OriginName,
 		PublishedAt: in.Now,
 	}
 	if art.Title == "" {
@@ -91,6 +98,65 @@ func PublishArtifact(s *store.Store, in PublishInput) (store.Artifact, error) {
 		return store.Artifact{}, err
 	}
 	return art, nil
+}
+
+// ResolveArtifactSources fills in the group and origin the Artifacts view
+// filters by, in place. An artifact keeps what it recorded when it was
+// published; one published before claudeq recorded either is traced back
+// through run history: its run's task gives the group, and the first run of
+// its workflow the origin. Failing that, the publishing job is its own origin.
+//
+// An origin still in the queue then lends its current name, and its group when
+// it has one, so renaming a watcher or moving it to another group takes its
+// artifacts along instead of splitting them under an old label.
+func ResolveArtifactSources(arts []store.Artifact, tasks []task.Task, runs []store.Run) {
+	queued := make(map[string]task.Task, len(tasks))
+	for _, t := range tasks {
+		queued[t.ID] = t
+	}
+	byRun := make(map[string]store.Run, len(runs))
+	for _, r := range runs {
+		byRun[r.RunID] = r
+	}
+	for i := range arts {
+		a := &arts[i]
+		if a.OriginID == "" {
+			traceArtifactOrigin(a, queued, byRun)
+		}
+		if o, ok := queued[a.OriginID]; ok && a.OriginID != "" {
+			a.OriginName = o.Name
+			if o.Group != "" {
+				a.Group = o.Group
+			}
+		}
+		if a.OriginName == "" {
+			a.OriginName = a.OriginID
+		}
+	}
+}
+
+// traceArtifactOrigin works out the group and origin of an artifact published
+// before either was recorded.
+func traceArtifactOrigin(a *store.Artifact, queued map[string]task.Task, byRun map[string]store.Run) {
+	if run, ok := byRun[a.RunID]; ok && run.Task != nil {
+		if a.Group == "" {
+			a.Group = run.Task.Group
+		}
+		switch {
+		case run.Task.OriginID != "":
+			a.OriginID, a.OriginName = run.Task.OriginID, run.Task.OriginName
+		case run.WorkflowID != "" && run.WorkflowID != run.RunID:
+			if root, ok := byRun[run.WorkflowID]; ok && root.Task != nil {
+				a.OriginID, a.OriginName = root.Task.ID, root.Task.Name
+			}
+		}
+	}
+	if a.Group == "" {
+		a.Group = queued[a.TaskID].Group
+	}
+	if a.OriginID == "" {
+		a.OriginID, a.OriginName = a.TaskID, a.TaskName
+	}
 }
 
 // copyFile copies src to dst and returns the number of bytes written.

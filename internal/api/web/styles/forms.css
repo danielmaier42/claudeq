@@ -23,3 +23,6 @@ textarea { resize:vertical; }
   background:var(--card-2); color:var(--fg); }
 .date-sep { color:var(--fg2); font-size:12px; padding:0 1px; }
 .date-range { display:flex; align-items:center; gap:6px; }
+/* The group and parent filters in the Artifacts toolbar: sized like the day
+   fields beside them, not like a form field. */
+select.tb-select { width:auto; max-width:200px; font-size:12px; padding:4px 26px 4px 8px; background-position:right 8px center; }

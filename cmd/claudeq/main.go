@@ -234,6 +234,11 @@ func cmdAdd(st *store.Store, args []string) error {
 	if t.Name == "" {
 		t.Name = t.ID
 	}
+	// Added from inside a run (a watcher script filing a review job), the job
+	// records where it came from, so what it publishes can be traced back.
+	if pt, ok := callingTask(); ok {
+		t.OriginID, t.OriginName = pt.Origin()
+	}
 	if *at != "" {
 		parsed, err := time.Parse(time.RFC3339, *at)
 		if err != nil {
@@ -429,6 +434,13 @@ func buildQueuedTask(parentJSON, id string, o queueOpts, now time.Time) (task.Ta
 		}
 	}
 
+	// The new job's origin is the caller's: a watcher's review job, and any
+	// job that review queues in turn, all trace back to the watcher.
+	var originID, originName string
+	if t.ID != "" {
+		originID, originName = t.Origin()
+	}
+
 	// Keep inherited settings (model, permissions, parallel, notify_on_result and
 	// working_dir as the default); reset everything that identifies or schedules.
 	// Quiet history is not inherited: it suits a watcher's routine ticks, but a
@@ -454,6 +466,7 @@ func buildQueuedTask(parentJSON, id string, o queueOpts, now time.Time) (task.Ta
 	// starts a workflow of its own.
 	t.ParentRun = os.Getenv(executor.EnvRunID)
 	t.WorkflowID = os.Getenv(executor.EnvWorkflowID)
+	t.OriginID, t.OriginName = originID, originName
 	if o.dir != "" {
 		t.WorkingDir = o.dir
 	}
@@ -536,6 +549,9 @@ func cmdPublish(st *store.Store, args []string) error {
 		TaskID:      src.taskID,
 		TaskName:    src.taskName,
 		RunID:       src.runID,
+		Group:       src.group,
+		OriginID:    src.originID,
+		OriginName:  src.originName,
 		Now:         now,
 	}
 
@@ -559,9 +575,12 @@ func cmdPublish(st *store.Store, args []string) error {
 }
 
 // runSource identifies the task and run a CLI call was made from, for
-// attributing what it produces (an artifact, a notification).
+// attributing what it produces (an artifact, a notification). group and the
+// origin are what the Artifacts view filters by.
 type runSource struct {
 	taskID, taskName, runID string
+	group                   string
+	originID, originName    string
 }
 
 // callingRun reads the attribution the daemon injects into every run's
@@ -569,18 +588,34 @@ type runSource struct {
 func callingRun() runSource {
 	src := runSource{taskID: os.Getenv(executor.EnvTaskID), runID: os.Getenv(executor.EnvRunID)}
 	src.taskName = src.taskID
-	if parent := os.Getenv(executor.EnvParentTask); parent != "" {
-		var pt task.Task
-		if err := json.Unmarshal([]byte(parent), &pt); err == nil {
-			if pt.ID != "" {
-				src.taskID = pt.ID
-			}
-			if pt.Name != "" {
-				src.taskName = pt.Name
-			}
+	if pt, ok := callingTask(); ok {
+		if pt.ID != "" {
+			src.taskID = pt.ID
 		}
+		if pt.Name != "" {
+			src.taskName = pt.Name
+		}
+		src.group = pt.Group
+		src.originID, src.originName = pt.Origin()
+	}
+	if src.originID == "" {
+		src.originID, src.originName = src.taskID, src.taskName
 	}
 	return src
+}
+
+// callingTask reads the task of the run this CLI call was made from. ok is
+// false outside a run, or when the daemon handed over nothing usable.
+func callingTask() (task.Task, bool) {
+	parent := os.Getenv(executor.EnvParentTask)
+	if parent == "" {
+		return task.Task{}, false
+	}
+	var pt task.Task
+	if err := json.Unmarshal([]byte(parent), &pt); err != nil || pt.ID == "" {
+		return task.Task{}, false
+	}
+	return pt, true
 }
 
 // newArtifactID builds a unique-ish artifact id.

@@ -66,8 +66,16 @@ func TestCallingRunReadsTheDaemonEnvironment(t *testing.T) {
 	t.Setenv("CLAUDEQ_TASK_ID", "watch")
 	t.Setenv("CLAUDEQ_RUN_ID", "r-1")
 	t.Setenv("CLAUDEQ_PARENT_TASK", `{"id":"watch","name":"Prod watch"}`)
-	if got := callingRun(); got != (runSource{taskID: "watch", taskName: "Prod watch", runID: "r-1"}) {
+	want := runSource{taskID: "watch", taskName: "Prod watch", runID: "r-1", originID: "watch", originName: "Prod watch"}
+	if got := callingRun(); got != want {
 		t.Fatalf("callingRun = %+v", got)
+	}
+
+	// A job another job created carries that job's group and origin along.
+	t.Setenv("CLAUDEQ_PARENT_TASK", `{"id":"q-1","name":"ADR-7 review","group":"dc AG","origin_id":"adr-watch","origin_name":"dc: ADR Wiki Watch"}`)
+	want = runSource{taskID: "q-1", taskName: "ADR-7 review", runID: "r-1", group: "dc AG", originID: "adr-watch", originName: "dc: ADR Wiki Watch"}
+	if got := callingRun(); got != want {
+		t.Fatalf("callingRun with origin = %+v", got)
 	}
 
 	// Without the parent JSON the name falls back to the id.
