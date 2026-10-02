@@ -97,6 +97,9 @@ type Deps struct {
 	// scheduler's verdicts instead of probing the CLIs again. Required for the
 	// provider endpoints and for the queue's blocked marker.
 	Providers *provider.Checker
+	// Limits remembers and reads each provider's allowance (5-hour and weekly
+	// windows). Optional; when nil the dashboard has no limits to show.
+	Limits *provider.LimitMonitor
 }
 
 // Handler builds the HTTP handler (REST API under /api + dashboard at /).
@@ -132,6 +135,7 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/artifacts/{id}/content", s.artifactContent)
 	mux.HandleFunc("GET /api/providers", s.listProviders)
 	mux.HandleFunc("GET /api/providers/kinds", s.listProviderKinds)
+	mux.HandleFunc("GET /api/limits", s.listLimits)
 	mux.HandleFunc("POST /api/providers", s.addProvider)
 	mux.HandleFunc("PUT /api/providers/{id}", s.updateProvider)
 	mux.HandleFunc("DELETE /api/providers/{id}", s.deleteProvider)

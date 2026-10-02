@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/danielmaier42/claudeq/internal/api"
+	"github.com/danielmaier42/claudeq/internal/app"
 	"github.com/danielmaier42/claudeq/internal/aside"
 	"github.com/danielmaier42/claudeq/internal/clock"
 	"github.com/danielmaier42/claudeq/internal/engine"
@@ -167,6 +168,22 @@ func cmdRun(args []string) error {
 		eng.SetWaker(&wake.Scheduler{Runner: system.Real{}, Sudo: true})
 	}
 	eng.SetNotifier(liveNotifier{st: st})
+	// Each provider's allowance is read without spending any of it: on a
+	// timer, when the dashboard asks, and whenever a run on that account ends.
+	limits := provider.NewLimitMonitor(registry, func() ([]provider.Instance, error) {
+		set, err := app.Providers(st)
+		if err != nil {
+			return nil, err
+		}
+		return set.All(), nil
+	})
+	eng.SetRunFinished(func(providerID string) {
+		go func() {
+			if err := limits.RefreshID(context.Background(), providerID); err != nil {
+				fmt.Fprintln(os.Stderr, "claudeqd: provider limits:", err)
+			}
+		}()
+	})
 	// Ask for notification permission up front (only does anything when running
 	// from the app bundle) so run-outcome notifications carry the app icon.
 	notify.RequestMacAuthorization()
@@ -186,6 +203,9 @@ func cmdRun(args []string) error {
 	// manual "Check for updates" button answer instantly (see internal/update).
 	updSvc := update.NewService(update.GitHubFetcher{}, update.DefaultInterval)
 	go updSvc.Run(ctx)
+	go limits.Run(ctx, provider.DefaultLimitsInterval, func(format string, args ...any) {
+		fmt.Fprintf(os.Stderr, "claudeqd: "+format+"\n", args...)
+	})
 
 	// Prompt review and the feedback assistant ask a harness questions of
 	// claudeq's own (see internal/aside); both go through the one runner, so
@@ -204,7 +224,7 @@ func cmdRun(args []string) error {
 			NotifyStatus: notify.MacAuthorization,
 			Feedback:     feedback.New(asides), OSVersion: osVersion(system.Real{}),
 			Review:   &review.Reviewer{Ask: asides},
-			Registry: registry, Providers: checker,
+			Registry: registry, Providers: checker, Limits: limits,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}

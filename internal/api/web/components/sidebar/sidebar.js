@@ -4,7 +4,9 @@ const template = `
 <aside class="sidebar">
   <div class="brand"><img class="logo" src="/logo.svg" alt="ClaudeQ"><b>ClaudeQ</b></div>
   <nav class="nav">
-    <button data-tab="tasks" class="active">
+    <button data-tab="dashboard" class="active">
+      <svg viewBox="0 0 20 20"><rect x="3" y="3" width="6" height="6" rx="1.2"/><rect x="11" y="3" width="6" height="6" rx="1.2"/><rect x="3" y="11" width="6" height="6" rx="1.2"/><rect x="11" y="11" width="6" height="6" rx="1.2"/></svg> Dashboard</button>
+    <button data-tab="tasks">
       <svg viewBox="0 0 20 20"><path d="M4 6h12M4 10h12M4 14h12"/></svg> Queue</button>
     <button data-tab="news">
       <svg viewBox="0 0 20 20"><path d="M3.5 10a6.5 6.5 0 1 0 1.9-4.6"/><path d="M3 3v3.5h3.5M10 6.5V10l2.5 1.5"/></svg>

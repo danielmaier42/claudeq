@@ -56,6 +56,12 @@ func (e *Engine) SetWaker(w Waker) { e.waker = w }
 // SetNotifier enables outcome notifications (failure / auth error).
 func (e *Engine) SetNotifier(n notify.Notifier) { e.notifier = n }
 
+// SetRunFinished registers f to be told the provider instance a run just ended
+// on — the moment that account's allowance has moved. f must not block: it is
+// called on the finishing run's goroutine. Script jobs use no provider and do
+// not call it.
+func (e *Engine) SetRunFinished(f func(providerID string)) { e.runFinished = f }
+
 // WakeError reports the last wake-scheduling error, or "" if the most recent
 // attempt succeeded (or wake is disabled / not yet attempted). Surfaced in the
 // UI so a broken scheduled-wake setup (e.g. missing pmset sudoers entry) is
@@ -102,6 +108,7 @@ type Engine struct {
 	lastNotifyErr   string
 	wakeErr         atomic.Pointer[string] // exposed to the API (thread-safe)
 	notifier        notify.Notifier
+	runFinished     func(providerID string)
 
 	runCtx    context.Context
 	runCancel context.CancelFunc
@@ -1028,6 +1035,10 @@ func (e *Engine) finish(t task.Task, providerID string, rec store.Run, res provi
 		if rec.Status != store.StatusSuccess {
 			e.logStatus(rec)
 		}
+	}
+
+	if e.runFinished != nil && providerID != "" {
+		e.runFinished(providerID)
 	}
 
 	// Notify outside any lock so channel I/O never blocks other finishing runs.

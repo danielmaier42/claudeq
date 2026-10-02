@@ -1,6 +1,7 @@
 import {loadRuns} from './components/activity/activity.js';
 import {initShell, mountShell, refreshAll, select} from './components/app-shell/app-shell.js';
 import {initViewer, loadArtifacts, mountViewer} from './components/artifacts/artifacts.js';
+import {loadDashboard} from './components/dashboard/dashboard.js';
 import {initFeedback, mountFeedback} from './components/feedback/feedback.js';
 import {initLogSheet, mountLogSheet} from './components/log-sheet/log-sheet.js';
 import {initProviderSheet, mountProviderSheet} from './components/providers/providers.js';
@@ -25,7 +26,7 @@ import {mountToasts} from './core/toast.js';
 //   main.js      this file: what the page is made of, and in which order
 //
 // A component owns its own markup (its `mount`), its own controls (its `init`)
-// and, if it is one of the six views, what the toolbar and the title say while
+// and, if it is one of the seven views, what the toolbar and the title say while
 // it is open (its `view`). Nothing reaches into another component except
 // through what that component exports.
 //
@@ -62,8 +63,10 @@ window.cqRefresh=refresh;
 
 // Every list is kept current in the background, not only the open one: a page
 // that is clicked then shows the present straight away, and its own load on
-// entering confirms it. The badges ride along with the lists.
-function poll(){ loadTasks(); loadRuns(); loadArtifacts(); loadUsage(); }
+// entering confirms it. The badges ride along with the lists. The dashboard's
+// poll reads only what the daemon last read from the providers; asking them
+// again is for opening it and View > Refresh.
+function poll(){ loadDashboard(false); loadTasks(); loadRuns(); loadArtifacts(); loadUsage(); }
 setInterval(poll, 5000);
 
 // refresh is the explicit "show me now" of View > Refresh (Cmd+R) in the app's
@@ -87,4 +90,4 @@ setInterval(checkHealth, 30000); checkHealth();
 // The daemon checks GitHub hourly; the UI just reads its cached result, so a
 // slow poll keeps the Settings badge current without any extra network calls.
 setInterval(loadUpdate, 60000); loadUpdate();
-loadModels().then(()=>{ select('tasks'); poll(); });
+loadModels().then(()=>{ select('dashboard'); poll(); });
