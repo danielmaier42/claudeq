@@ -48,7 +48,10 @@ async function fillProviderChoices(providerID, model, effort){
   }
   await loadPoolList();
   const poolID=providerID.startsWith('pool:')?providerID.slice(5):'';
-  const pools=POOLS.map(p=>`<option value="pool:${esc(p.id)}"${p.id===poolID?' selected':''}>${esc(p.name||p.id)}</option>`).join('')
+  // Pools are a beta feature: offered with beta features on, and kept for a
+  // task that already runs on one either way.
+  const pools=POOLS.filter(p=>betaAllowed()||p.id===poolID)
+    .map(p=>`<option value="pool:${esc(p.id)}"${p.id===poolID?' selected':''}>${esc(p.name||p.id)} (beta)</option>`).join('')
     +(poolID&&!POOLS.some(p=>p.id===poolID)?`<option value="pool:${esc(poolID)}" selected>${esc(poolID)} — not configured</option>`:'');
   const offered=PROVIDERS.filter(p=>p.enabled&&p.health&&p.health.state==='ready'&&(!p.beta||betaAllowed()))
     .sort((a,b)=>(a.name||a.id).localeCompare(b.name||b.id));

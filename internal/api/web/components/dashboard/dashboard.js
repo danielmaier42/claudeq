@@ -88,7 +88,7 @@ function poolsSection(pools){
     +pools.map(p=>{
       const next=(p.ranking||[]).find(r=>r.tier<3);
       return `<div class="row pool-row">
-        <div class="limit-name"><div class="title">${esc(p.name)} <span class="chip">Pool</span></div>
+        <div class="limit-name"><div class="title">${esc(p.name)} <span class="chip">Pool</span> <span class="chip beta">beta</span></div>
           <div class="sub multi">${next?'Next run goes to <b>'+esc(next.name)+'</b>':'No member can take work right now'}</div></div>
         <ol class="pool-rank">${(p.ranking||[]).map(r=>`
           <li class="${r.tier>=2?'pool-back':''}"><span class="pool-member">${esc(r.name)}</span>

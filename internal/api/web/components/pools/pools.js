@@ -1,4 +1,4 @@
-import {PROVIDERS} from '../providers/providers.js';
+import {PROVIDERS, betaAllowed} from '../providers/providers.js';
 import {api} from '../../core/api.js';
 import {confirmSheetAsk} from '../../core/confirm.js';
 import {$, el, esc} from '../../core/dom.js';
@@ -27,12 +27,22 @@ async function loadCapacities(){
 }
 function weightPlaceholder(id){ const c=capacities[id]; return c?`auto · ${c}×`:'auto · 1×'; }
 
+// onPoolsDrawn is told whenever the pool list in Settings has been redrawn, so
+// Settings can show or hide the Pools tab for what is configured now.
+let onPoolsDrawn=()=>{};
+export function setOnPoolsDrawn(f){ onPoolsDrawn=f; }
+
 export async function loadPools(){
   const box=$('#s-pools');
   if(!box) return;
   await Promise.all([loadPoolList(), loadCapacities()]);
+  drawPools(box);
+  onPoolsDrawn();
+}
+function drawPools(box){
   box.innerHTML='';
   if(!POOLS.length){
+    if(!betaAllowed()) return;
     box.innerHTML=`<div class="group"><div class="row"><div class="grow"><div class="sub multi">No pools yet. A pool groups providers of one type — two Claude subscriptions, say — and every run of a task on it goes to the account whose weekly allowance would otherwise expire unused soonest.</div></div></div></div>`;
     return;
   }
@@ -50,7 +60,7 @@ function poolBlock(p){
   const candidates=PROVIDERS.filter(x=>!kind||x.kind===kind);
   const member=id=>p.members.find(m=>m.provider===id);
   wrap.innerHTML=`
-    <div class="section-label" style="margin-top:18px">${esc(p.name||p.id)}</div>
+    <div class="section-label" style="margin-top:18px">${esc(p.name||p.id)} <span class="chip beta">beta</span></div>
     <div class="group">
       <div class="row"><div class="grow"><div class="title">Name</div>
           <div class="sub"><span class="mono">${esc(p.id)}</span> — what tasks name it by</div></div>
