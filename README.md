@@ -412,7 +412,8 @@ The dashboard is also reachable in a normal browser at
 ## Settings
 
 Settings is split into five tabs — **General**, **Providers**, **Pools**,
-**Notifications** and **System**. An available update is announced by a banner
+**Notifications** and **System**. **Pools** is there with beta features on, or
+while a pool exists. An available update is announced by a banner
 above the tabs and by a red dot on **General**, which is where the About section
 and the update button live.
 
@@ -429,7 +430,7 @@ and the update button live.
 | | About | Version / Software updates | Current version and a manual "Check for updates" button. |
 | **Providers** | One block per provider | Its settings | Name, status, its current limits (the same bars as the Dashboard, when the harness reports any), binary path, configuration directory, default model, the provider that takes over when the limit is reached (and the model it uses), and an on/off switch — written by the **Save** button at the top of Settings, like every other field here. **Check again**, **Make default** and **Remove** are actions and take effect at once. The block is headed by the provider's name and type. See [Providers](#providers). |
 | | | **Add provider** | Below the blocks, and only with beta features on: opens a sheet asking for an id, a type and optionally a configuration directory. |
-| **Pools** | One block per pool | Its settings | Name, and per provider of the pool's type a switch for membership and a weight. An empty weight takes the plan size the provider reports (shown as the placeholder, e.g. *auto · 20×*). Written by **Save**; **Remove** acts at once and is refused while a task uses the pool. **Add pool** below asks for an id, a name and the members. See [Provider pools](#provider-pools). |
+| **Pools** (beta) | One block per pool | Its settings | Name, and per provider of the pool's type a switch for membership and a weight. An empty weight takes the plan size the provider reports (shown as the placeholder, e.g. *auto · 20×*). Written by **Save**; **Remove** acts at once and is refused while a task uses the pool. **Add pool** below asks for an id, a name and the members. The tab is there with [beta features](#beta-features) on, or while a pool exists. See [Provider pools](#provider-pools). |
 | **Notifications** | macOS | Alerts that wait for you | Opens System Settings → Notifications, where ClaudeQ's alert style lives: *Banners* disappear on their own, *Alerts* stay until you click them. |
 | | Pushover | Send to Pushover | Toggle plus API token and user key for phone push. |
 | | ntfy | Send to ntfy | Toggle, server (empty = ntfy.sh), topic, and an optional access token for a protected topic. |
@@ -495,16 +496,19 @@ instance, which names the tasks that have to change first.
 
 ### Beta features
 
-Two things are behind one switch, **Settings → System → Beta features**: adding
-providers at all, and the two beta harnesses, Codex and opencode. With it off
-there is no **Add provider** button and neither is offered; with it on all of
-them appear, the button marked as beta, and anything on a beta provider is
-labelled *beta* wherever it shows up. The switch itself does not enumerate what it contains — that is what
+Three things are behind one switch, **Settings → System → Beta features**:
+adding providers at all, the two beta harnesses Codex and opencode, and
+[provider pools](#provider-pools). With it off there is no **Add provider**
+button, neither harness is offered, and there is no **Pools** tab and no pool in
+the task sheet; with it on all of them appear, the buttons marked as beta, and
+anything on a beta provider or a pool is labelled *beta* wherever it shows up.
+A pool that already exists keeps its tab, its Dashboard row and its tasks with
+the switch off. The switch itself does not enumerate what it contains — that is what
 this section is for.
 
 That switch decides what the app *offers* and nothing else. The adapter is
-always part of the build, the API and `claudeq` always accept Codex and
-opencode, and the scheduler never looks at the switch — so a Codex task created from the command
+always part of the build, the API and `claudeq` always accept Codex, opencode
+and pools, and the scheduler never looks at the switch — so a Codex task created from the command
 line runs, and stays visible in Queue and Log, whatever the app is showing.
 Hiding setup controls never hides actual work.
 
@@ -655,6 +659,9 @@ only, the same place the CLI sends it. It is held for that one request and is
 never written, logged or served over the API.
 
 ## Provider pools
+
+Pools are a [beta feature](#beta-features): the app offers them only with beta
+features on, while `claudeq pool` and `--pool` work either way.
 
 A **pool** is a set of providers of one type, two Claude subscriptions for
 example, that a task can be given instead of a single provider. ClaudeQ

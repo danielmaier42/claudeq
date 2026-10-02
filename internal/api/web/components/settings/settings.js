@@ -1,4 +1,4 @@
-import {loadPools, openAddPool, poolEdits} from '../pools/pools.js';
+import {POOLS, loadPools, openAddPool, poolEdits, setOnPoolsDrawn} from '../pools/pools.js';
 import {PROVIDERS, SHOW_BETA, fillAsideChoices, loadProviders, openAddProvider, setProviderSnapshot, submitProvider} from '../providers/providers.js';
 import {setPaused} from '../queue/queue.js';
 import {makeReview} from '../review/review.js';
@@ -101,7 +101,9 @@ async function loadSettings(){
 
     <div class="s-pane" data-pane="pools">
       <div id="s-pools"><div class="group"><div class="row"><div class="grow"><div class="sub">Loading…</div></div></div></div></div>
-      <div class="center-action"><button class="btn" id="s-add-pool">Add pool</button></div>
+      <div id="s-pool-add" class="center-action" hidden>
+        <button class="btn beta" id="s-add-pool">${SPARK}<span>Add pool</span></button>
+      </div>
     </div>
 
     <div class="s-pane" data-pane="notifications">
@@ -191,6 +193,9 @@ async function loadSettings(){
     await loadProviders();
     fillAsidePickers($('#s-review-provider').value, $('#s-review-model').value,
       $('#s-feedback-provider').value, $('#s-feedback-model').value);
+    // The pool list says something different with beta features on (an
+    // invitation to add one) than off (nothing), so it is drawn again.
+    await loadPools();
   };
   // The Settings view is rebuilt on every visit, so its review controller is
   // bound to the fresh nodes here. The system prompt has no working directory:
@@ -217,7 +222,20 @@ async function loadSettings(){
   // rather than rendering an empty one and correcting itself a moment later.
   await loadProviders();
   fillAsidePickers(s.prompt_review_provider||'', s.prompt_review_model||'', s.feedback_provider||'', s.feedback_model||'');
-  loadPools();
+  syncPoolsPane();
+  setOnPoolsDrawn(syncPoolsPane);
+  await loadPools();
+}
+
+// Pools are a beta feature. Without beta features the app offers none: the
+// tab is gone and so is Add pool. A pool that already exists keeps its tab
+// and its block, because hiding setup never hides work that is set up.
+function syncPoolsPane(){
+  const tab=document.querySelector('#s-tabs button[data-pane=pools]');
+  if(!tab) return;
+  tab.hidden=!SHOW_BETA && !POOLS.length;
+  $('#s-pool-add').hidden=!SHOW_BETA;
+  if(tab.hidden && settingsPane==='pools') selectSettingsPane('general');
 }
 
 // fillAsidePickers rebuilds the provider/model pairs for the two jobs claudeq

@@ -145,7 +145,8 @@ function taskRow(t,i,block,tasks,paused){
   row.dataset.id=t.id; row.dataset.group=t.group||'';
   const tags=[];
   if(t.kind==='script') tags.push('<span class="chip" title="Runs as a program, without a model: no provider, no usage, and a rate limit never holds it up">script</span>');
-  if(BETA_PROVIDERS.has(t.provider||'')) tags.push('<span class="chip beta" title="This task runs on a provider that is still in beta">beta</span>');
+  if(t.pool) tags.push('<span class="chip beta" title="This task runs on a provider pool, which is still in beta">beta</span>');
+  else if(BETA_PROVIDERS.has(t.provider||'')) tags.push('<span class="chip beta" title="This task runs on a provider that is still in beta">beta</span>');
   if(t.blocked_reason) tags.push(`<span class="chip danger" title="${esc(t.blocked_reason+' The task keeps its place and starts by itself once the provider works again.')}">blocked</span>`);
   if(t.waiting_for_limit) tags.push(`<span class="chip warn" title="${esc('The rate limit interrupted this task. Its Claude session '+resumeTimeText(LIMITED_UNTIL)+' — drop the resume in the Log with “Cancel resume”.')}">rescheduled</span>`);
   // A job that waits for other jobs looks like one that never starts, unless
