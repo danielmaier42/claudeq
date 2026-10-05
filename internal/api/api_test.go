@@ -16,6 +16,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/app"
 	"github.com/danielmaier42/claudeq/internal/provider"
 	"github.com/danielmaier42/claudeq/internal/provider/claudecode"
+	"github.com/danielmaier42/claudeq/internal/schedule"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
 )
@@ -1371,5 +1372,37 @@ func TestResponsesAreNeverCached(t *testing.T) {
 		if got := resp.Header.Get("Cache-Control"); !strings.Contains(got, "no-store") {
 			t.Errorf("GET %s: Cache-Control = %q, want no-store", path, got)
 		}
+	}
+}
+
+func TestQueueShowsTheSchedulersHold(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	if err := st.SaveConfig(store.Config{Tasks: []task.Task{sampleTask("held"), sampleTask("free")}}); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	since := time.Date(2026, 10, 5, 15, 41, 0, 0, time.UTC)
+	reg := provider.NewRegistry(stubAdapter{health: provider.Health{State: provider.HealthReady}})
+	srv := httptest.NewServer(Handler(Deps{
+		Store: st, Registry: reg, Providers: provider.NewChecker(reg),
+		Holds: func() map[string]schedule.Hold {
+			return map[string]schedule.Hold{"held": {Reason: "Runs are paused.", Since: since}}
+		},
+	}))
+	t.Cleanup(srv.Close)
+
+	var listed []taskView
+	do(t, srv, "GET", "/api/tasks", nil).into(t, &listed)
+	byID := map[string]taskView{}
+	for _, v := range listed {
+		byID[v.ID] = v
+	}
+	if h := byID["held"].Hold; h == nil || h.Reason != "Runs are paused." || !h.Since.Equal(since) {
+		t.Fatalf("hold of held = %+v", h)
+	}
+	if byID["free"].Hold != nil {
+		t.Fatalf("hold of free = %+v, want none", byID["free"].Hold)
 	}
 }

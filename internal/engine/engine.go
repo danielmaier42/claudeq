@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"strings"
 	"sync"
@@ -95,6 +96,11 @@ func (e *Engine) LimitedUntil() time.Time { return e.gates.BlockedUntil() }
 // queue".
 func (e *Engine) BlockedProviders() map[string]time.Time { return e.gates.Blocked() }
 
+// Holds returns, per task, why the last tick did not start it although it was
+// due, and since when it has been waiting. Surfaced in the queue, so a task
+// that sits there says what it waits for.
+func (e *Engine) Holds() map[string]schedule.Hold { return e.holds.snapshot() }
+
 // Engine orchestrates task execution. Construct it with [New].
 type Engine struct {
 	store *store.Store
@@ -145,6 +151,11 @@ type Engine struct {
 	// own lock because the readiness pass deliberately runs outside mu.
 	healthMu       sync.Mutex
 	providerHealth map[string]string
+
+	// holds says why each due task the last tick left out did not start, and
+	// holdLog is where a long wait is written down (stdout, the daemon's log).
+	holds   holds
+	holdLog io.Writer
 }
 
 // ShutdownGrace is how long Loop lets in-flight runs finish on shutdown before
@@ -167,6 +178,7 @@ func New(st *store.Store, gates *limit.Gates, r Runner, c clock.Clock, providers
 		canceled:       map[string]bool{},
 		runningOn:      map[string]int{},
 		providerHealth: map[string]string{},
+		holdLog:        os.Stdout,
 	}
 	// Runs use their own context so that cancelling the loop (SIGINT) does not
 	// immediately kill in-flight Claude processes; shutdown drains them first.
@@ -189,6 +201,7 @@ func (e *Engine) Tick(ctx context.Context) error {
 	// no scheduling state is touched, so a task that came due while paused runs
 	// as soon as the switch goes off again.
 	if cfg.Settings.Paused {
+		e.holdAll(cfg, "Runs are paused.")
 		return nil
 	}
 
@@ -213,7 +226,10 @@ func (e *Engine) Tick(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	assigned := e.assign(ctx, providers, due)
+	// held collects why each due task does not start this tick; whatever is
+	// left in it at the end is what the queue shows.
+	held := map[string]string{}
+	assigned := e.assign(ctx, providers, due, held)
 
 	// Their harnesses are then probed *outside* the lock. A readiness check
 	// spawns a CLI and a CLI can hang; holding e.mu across that would stall the
@@ -249,7 +265,15 @@ func (e *Engine) Tick(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if !stillDue || a.err != nil || (!a.task.IsScript() && !health.ready(a.resolved)) {
+		switch {
+		case !stillDue:
+			delete(held, a.task.ID)
+			continue
+		case a.err != nil:
+			held[a.task.ID] = a.err.Error()
+			continue
+		case !a.task.IsScript() && !health.ready(a.resolved):
+			held[a.task.ID] = health.reason(a.resolved)
 			continue
 		}
 		runnable = append(runnable, a.task)
@@ -257,6 +281,8 @@ func (e *Engine) Tick(ctx context.Context) error {
 	}
 
 	selected := schedule.Select(runnable, e.runningState())
+	maps.Copy(held, schedule.Held(runnable, e.runningState()))
+	e.holds.update(held, now, e.holdLog)
 	starts := make([]start, 0, len(selected))
 	for _, t := range selected {
 		starts = append(starts, start{task: t, resolved: ready[t.ID], deps: deps[t.ID]})
@@ -285,6 +311,32 @@ func (e *Engine) Tick(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// holdAll files one reason for every task that is due right now: what a tick
+// that starts nothing at all, such as while runs are paused, has to say. The
+// reasons only feed the queue's display, so failing to work them out is logged
+// and never stops the loop.
+func (e *Engine) holdAll(cfg store.Config, reason string) {
+	due, err := e.allDue(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "claudeqd: work out which tasks wait: %v\n", err)
+		return
+	}
+	held := make(map[string]string, len(due))
+	for _, t := range due {
+		held[t.ID] = reason
+	}
+	e.holds.update(held, e.clock.Now(), e.holdLog)
+}
+
+// allDue is dueTasks with the dependencies worked out first.
+func (e *Engine) allDue(cfg store.Config) ([]task.Task, error) {
+	deps, err := e.dependencyState(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return e.dueTasks(cfg, deps)
 }
 
 // dueTasks reports the tasks whose trigger has come round, without asking any
@@ -335,7 +387,9 @@ type assignment struct {
 // holds up only its own work. A task whose provider cannot be resolved at all
 // is kept, carrying the reason: it is reported as blocked further down rather
 // than silently disappearing from the tick.
-func (e *Engine) assign(ctx context.Context, set provider.Set, due []task.Task) []assignment {
+//
+// Why a dropped task does not start is filed in held, by task id.
+func (e *Engine) assign(ctx context.Context, set provider.Set, due []task.Task, held map[string]string) []assignment {
 	out := make([]assignment, 0, len(due))
 	// Which pool member holds a task's interrupted session is read once per
 	// pass. Without it a pool would pick by rank and drop the session.
@@ -362,10 +416,13 @@ func (e *Engine) assign(ctx context.Context, set provider.Set, due []task.Task) 
 		// interrupted session, and ranking it elsewhere would drop that session.
 		// The task waits a tick instead.
 		if t.Pool != "" && stErr != nil {
+			held[t.ID] = "The scheduling state could not be read; the pool picks a member on the next tick."
 			continue
 		}
 		res, err := set.ResolveAvailable(selectionFor(t, st), av)
 		if err == nil && !e.gateOpen(res.Instance.ID) {
+			held[t.ID] = fmt.Sprintf("%s is out of allowance until %s.",
+				res.Instance.Label(), reopenText(e.gates.For(res.Instance.ID).BlockedUntil(), e.clock.Now()))
 			continue
 		}
 		if err == nil && res.Pool != nil {
@@ -374,6 +431,17 @@ func (e *Engine) assign(ctx context.Context, set provider.Set, due []task.Task) 
 		out = append(out, assignment{task: t, resolved: res, err: err})
 	}
 	return out
+}
+
+// reopenText is when a gate reopens, as a time of day, with the date in front
+// when that is not today: a weekly allowance reopening on Thursday must not
+// read like tomorrow morning.
+func reopenText(at, now time.Time) string {
+	at, now = at.Local(), now.Local()
+	if at.YearDay() == now.YearDay() && at.Year() == now.Year() {
+		return at.Format("15:04")
+	}
+	return at.Format("Mon 2 Jan 15:04")
 }
 
 // selectionFor is what a task asks the provider set for. A pool task also names
@@ -531,6 +599,11 @@ type providerHealth map[string]provider.Health
 func (h providerHealth) ready(res provider.Resolved) bool {
 	got, ok := h[res.Instance.ID]
 	return ok && got.Ready()
+}
+
+// reason says why res cannot run, for a task the check held back.
+func (h providerHealth) reason(res provider.Resolved) string {
+	return h[res.Instance.ID].ReasonOr(res.Instance.Label() + " cannot run tasks right now.")
 }
 
 // resolveRunnable probes one task's provider and reports the execution identity

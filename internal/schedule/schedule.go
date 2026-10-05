@@ -92,3 +92,36 @@ func Select(due []task.Task, running Running) []task.Task {
 	}
 	return start
 }
+
+// Hold is why a due task did not start, and since when it has been waiting.
+// The queue shows it, so a task that sits there is not a mystery.
+type Hold struct {
+	Reason string    `json:"reason"`
+	Since  time.Time `json:"since"`
+}
+
+// Held explains, for each due task [Select] leaves out, why the concurrency
+// rules hold it back. due and running must be what Select was given.
+func Held(due []task.Task, running Running) map[string]string {
+	started := map[string]bool{}
+	for _, t := range Select(due, running) {
+		started[t.ID] = true
+	}
+	out := map[string]string{}
+	exclusiveAhead := false
+	for _, t := range due {
+		switch {
+		case started[t.ID]:
+		case running.NonParallel:
+			out[t.ID] = "A task that runs alone is running; nothing else starts until it finishes."
+		case exclusiveAhead:
+			out[t.ID] = "Waits behind a higher-priority task that runs alone."
+		default:
+			out[t.ID] = "Runs alone, so it waits until the running tasks finish."
+		}
+		if !t.Parallel {
+			exclusiveAhead = true
+		}
+	}
+	return out
+}

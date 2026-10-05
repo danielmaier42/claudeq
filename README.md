@@ -347,7 +347,13 @@ Dashboard:
   job says **Script** where the others name their provider and model. A task the rate limit interrupted carries a
   *rescheduled* badge (orange) whose tooltip names when its interrupted session
   continues, and a task whose provider cannot run it carries a red *blocked*
-  badge naming what is wrong. An **export** button on each row saves the task as a `.claudeq`
+  badge naming what is wrong. A task that is due but did not start carries an
+  orange *waiting* badge with how long it has been due (*waiting 12 min*, counted
+  from the daemon's start if it restarted meanwhile); its
+  tooltip gives the scheduler's reason, such as the pause, a task that runs
+  alone, or an account out of allowance until a given time. A wait of five
+  minutes or more is also written to `claudeqd.out.log` with its reason, once,
+  so it can still be explained after the badge is gone. An **export** button on each row saves the task as a `.claudeq`
   file via the native save panel, and **Import…** in the toolbar opens such a
   file in the task sheet for review. Whenever a prompt is written or changed,
   Claude checks it against this Mac and shows what it found in a purple banner
