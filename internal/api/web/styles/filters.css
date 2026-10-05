@@ -1,0 +1,13 @@
+/* The filter bar above a list (Log, Artifacts): the search with its switch on
+   the first line, the menus on the left and the dates on the right of the
+   second, every control the same height. */
+.filters { display:flex; flex-direction:column; gap:8px; margin:0 0 16px; }
+.filters .frow { display:flex; align-items:center; gap:10px; }
+.filters .spacer { flex:1; }
+.search-in { flex:1; min-width:0; font:inherit; font-size:13px; padding:6px 10px;
+  border:.5px solid var(--hairline); border-radius:8px; background:var(--card); color:var(--fg); }
+.filters .date-in, .filters select.tb-select { background:var(--card); font-size:13px; padding-top:6px; padding-bottom:6px; border-radius:8px; }
+/* Three menus and the dates share the second line: a menu gives way before
+   the line breaks, the dates never do. */
+.filters select.tb-select { max-width:240px; flex:0 1 auto; min-width:0; }
+.filters .date-range { flex:none; }

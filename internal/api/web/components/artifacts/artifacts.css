@@ -8,16 +8,6 @@
 
 .art-src { cursor:pointer; }
 .art-src:hover { color:var(--accent); text-decoration:underline; }
-/* The filter bar above the list: the search with All | Unread on the first
-   line, group and parent on the left and the dates on the right of the
-   second, every control the same height. */
-.art-filters { display:flex; flex-direction:column; gap:8px; margin:0 0 16px; }
-.art-filters .frow { display:flex; align-items:center; gap:10px; }
-.art-filters .spacer { flex:1; }
-.search-in { flex:1; min-width:0; font:inherit; font-size:13px; padding:6px 10px;
-  border:.5px solid var(--hairline); border-radius:8px; background:var(--card); color:var(--fg); }
-.art-filters .date-in, .art-filters select.tb-select { background:var(--card); font-size:13px; padding-top:6px; padding-bottom:6px; border-radius:8px; }
-.art-filters select.tb-select { max-width:240px; }
 /* One artifact per row, the rows of a day in one card. The whole row opens
    the viewer; the actions show when the pointer is on it. */
 .art-row { position:relative; cursor:pointer; gap:10px; padding:9px 12px 9px 11px; }

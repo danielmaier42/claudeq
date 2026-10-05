@@ -5,6 +5,7 @@ import {api} from '../../core/api.js';
 import {confirmSheetAsk} from '../../core/confirm.js';
 import {$, dateRange, el, emptyState, esc} from '../../core/dom.js';
 import {exactTime, inDateRange, localDate, relTime} from '../../core/format.js';
+import {byLabel, fillSelect, filterBar, listOf, matchesWords, searchField, segFilter, selectFilter} from '../../core/filters.js';
 import {EYE} from '../../core/icons.js';
 import {toast} from '../../core/toast.js';
 
@@ -19,11 +20,10 @@ let artUnread=false, unreadSeg=null;
 // artQuery is the search text. Every word has to occur somewhere in the
 // artifact — title, description, file name, task, parent, group or type — so
 // "adr 0050" finds "ADR-0050 review" and "seo pdf" the PDF of the SEO job.
-let artQuery='', searchIn=null;
+let artQuery='', searchIn=null, listEl=null;
 const groupKey=a=>a.group||NO_GROUP;
 const haystack=a=>[a.title,a.description,a.file_name,a.task_name,a.origin_name,a.group,extLabel(a.file_name,a.content_type)].join('\n').toLowerCase();
-function matchesQuery(a){ const words=artQuery.toLowerCase().split(/\s+/).filter(Boolean); if(!words.length) return true;
-  const h=haystack(a); return words.every(w=>h.includes(w)); }
+const matchesQuery=a=>matchesWords(artQuery,haystack(a));
 const matchesSource=a=>(!artGroup||groupKey(a)===artGroup)&&(!artOrigin||a.origin_id===artOrigin)&&(!artUnread||a.unread);
 const anyFilter=()=>!!(artFrom||artTo||artGroup||artOrigin||artUnread||artQuery);
 // Refill both filter menus from the artifacts there are. The parent menu only
@@ -31,43 +31,15 @@ const anyFilter=()=>!!(artFrom||artTo||artGroup||artOrigin||artUnread||artQuery)
 // anything falls back to "all", so the list can never be filtered to nothing
 // by a stale selection.
 function fillSourceFilters(arts){
-  if(!groupSel||!groupSel.isConnected) return;
   const groups=new Map(), origins=new Map();
   arts.forEach(a=>{ groups.set(groupKey(a),a.group||'No group');
     if(a.origin_id&&(!artGroup||groupKey(a)===artGroup)&&!origins.has(a.origin_id)) origins.set(a.origin_id,a.origin_name||a.origin_id); });
   if(artGroup&&!groups.has(artGroup)) artGroup='';
   if(artOrigin&&!origins.has(artOrigin)) artOrigin='';
-  const byLabel=m=>[...m].sort((x,y)=>(x[0]===NO_GROUP)-(y[0]===NO_GROUP)||x[1].localeCompare(y[1]));
-  const fill=(sel,all,m,cur)=>{
-    const opts=[['',all],...byLabel(m)];
-    const sig=JSON.stringify([opts,cur]); if(sel.dataset.sig===sig) return; sel.dataset.sig=sig;
-    sel.innerHTML=''; opts.forEach(([v,l])=>{ const o=document.createElement('option'); o.value=v; o.textContent=l; sel.append(o); });
-    sel.value=cur; };
-  fill(groupSel,'All groups',groups,artGroup);
-  fill(originSel,'All parents',origins,artOrigin);
+  fillSelect(groupSel,'All groups',byLabel(groups,NO_GROUP),artGroup);
+  fillSelect(originSel,'All parents',byLabel(origins),artOrigin);
 }
 function refilter(){ artPage=0; artifactsSig=''; loadArtifacts(); }
-function sourceFilter(title,on){ const sel=el('select','tb-select'); sel.title=title;
-  sel.onchange=e=>{ on(e.target.value); refilter(); }; return sel; }
-// All | Unread, as a segmented control like the Queue's All | Active.
-function unreadFilterSeg(){
-  const seg=el('div','seg');
-  const mk=(v,label,tip)=>{ const b=el('button',null,label); b.title=tip; b.classList.toggle('active',v===artUnread);
-    b.onclick=()=>{ artUnread=v; seg.querySelectorAll('button').forEach(x=>x.classList.toggle('active',x===b)); refilter(); };
-    return b; };
-  seg.append(mk(false,'All','Show every artifact'), mk(true,'Unread','Show only the artifacts you have not opened yet'));
-  return seg;
-}
-// The search field. Typing filters as you go (after a short pause, so a fast
-// typist does not rebuild the list on every key); Escape clears it.
-function searchField(){
-  const i=el('input','search-in'); i.type='search'; i.placeholder='Search artifacts'; i.value=artQuery;
-  i.setAttribute('aria-label','Search artifacts'); i.title='Search by title, description, file name, task, parent or group (⌘F)';
-  let t=0;
-  i.oninput=()=>{ clearTimeout(t); t=setTimeout(()=>{ if(i.value.trim()===artQuery.trim()) return; artQuery=i.value; refilter(); },120); };
-  i.onkeydown=e=>{ if(e.key==='Escape'){ e.preventDefault(); if(i.value){ i.value=''; artQuery=''; refilter(); } else i.blur(); } };
-  return i;
-}
 const fmtBytes=n=>{ n=n||0; if(n<1024)return n+' B'; if(n<1048576)return (n/1024).toFixed(1)+' KB'; if(n<1073741824)return (n/1048576).toFixed(1)+' MB'; return (n/1073741824).toFixed(1)+' GB'; };
 function artifactKind(ct){ ct=(ct||'').toLowerCase();
   if(ct.includes('pdf'))return 'pdf';
@@ -157,10 +129,11 @@ export async function loadArtifacts(){
   const pages=Math.max(1,Math.ceil(filtered.length/ART_PAGE));
   if(artPage>pages-1) artPage=pages-1; if(artPage<0) artPage=0;
   const pageArts=filtered.slice(artPage*ART_PAGE, artPage*ART_PAGE+ART_PAGE);
+  if(!listEl) listEl=listOf($('#artifacts'));
   const sig=JSON.stringify([artFrom,artTo,artGroup,artOrigin,artUnread,artQuery,artPage,arts.length,filtered.length,pageArts.map(a=>[a.id,a.unread,a.title])]);
-  if(sig===artifactsSig && $('#artList').childElementCount) return;   // avoid flicker on poll
+  if(sig===artifactsSig && listEl.childElementCount) return;   // avoid flicker on poll
   artifactsSig=sig;
-  const c=$('#artList'); c.innerHTML='';
+  const c=listEl; c.innerHTML='';
   if(!arts.length){ c.append(emptyState('No artifacts yet','Files your tasks publish with “claudeq publish” appear here — reports, exports, HTML pages, PDFs.')); return; }
   if(!filtered.length){
     const why=artQuery?`Nothing matches “${artQuery.trim()}”. Try fewer or different words.`
@@ -267,9 +240,9 @@ export function initViewer(){
 // toolbar is built once per view switch, so clearing the state alone would
 // leave the old dates standing in it. The menus refill on the next load.
 function clearFilters(){ artFrom=''; artTo=''; artGroup=''; artOrigin=''; artUnread=false; artQuery='';
-  if(unreadSeg) unreadSeg.querySelectorAll('button').forEach((b,i)=>b.classList.toggle('active',i===0));
+  if(unreadSeg) unreadSeg.set(false);
   if(searchIn) searchIn.value='';
-  document.querySelectorAll('#artFilters .date-in').forEach(i=>i.value=''); }
+  document.querySelectorAll('#artifacts .filters .date-in').forEach(i=>i.value=''); }
 const shown=a=>inDateRange(a.published_at,artFrom,artTo)&&matchesSource(a)&&matchesQuery(a);
 // Open one artifact by id. This is what a click on a "new artifact"
 // notification ends up calling (the app window pushes the id in from
@@ -296,16 +269,15 @@ async function deleteArtifact(a){ if(await confirmSheetAsk('Delete artifact “'
 // toolbar keeps the one action that applies to everything, the filters stay
 // with what they filter. Built on every entry so the fields show the state.
 function renderFilters(){
-  const sec=$('#artifacts');
-  if(!$('#artList')){ sec.append(el('div','art-filters'), el('div')); sec.children[0].id='artFilters'; sec.children[1].id='artList'; }
-  const f=$('#artFilters'); f.innerHTML='';
-  // Two lines: the search with All | Unread, then where and when.
-  const top=el('div','frow'), where=el('div','frow');
-  searchIn=searchField(); unreadSeg=unreadFilterSeg(); top.append(searchIn,unreadSeg);
-  groupSel=sourceFilter('Show the artifacts of one queue group',v=>{artGroup=v;artOrigin='';});
-  originSel=sourceFilter('Show the artifacts one job produced, directly or through the jobs it created',v=>{artOrigin=v;});
+  const {list,row}=filterBar($('#artifacts')); listEl=list;
+  const top=row(), where=row();
+  searchIn=searchField(artQuery,v=>{ if(v.trim()===artQuery.trim()) return; artQuery=v; refilter(); },
+    'Search artifacts','Search by title, description, file name, task, parent or group (⌘F)');
+  unreadSeg=segFilter([[false,'All','Show every artifact'],[true,'Unread','Show only the artifacts you have not opened yet']],artUnread,v=>{ artUnread=v; refilter(); });
+  top.append(searchIn,unreadSeg);
+  groupSel=selectFilter('Show the artifacts of one queue group',v=>{ artGroup=v; artOrigin=''; refilter(); });
+  originSel=selectFilter('Show the artifacts one job produced, directly or through the jobs it created',v=>{ artOrigin=v; refilter(); });
   where.append(groupSel,originSel,el('span','spacer'),dateRange(artFrom,artTo, v=>{artFrom=v;refilter();}, v=>{artTo=v;refilter();}));
-  f.append(top,where);
 }
 export const view={
   title:'Artifacts',
