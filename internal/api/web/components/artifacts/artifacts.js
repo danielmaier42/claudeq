@@ -257,9 +257,10 @@ export function initViewer(){
   $('#viewerContinueBtn').onclick=continueArtifactRun;
   $('#viewerDoneBtn').onclick=()=>$('#viewerSheet').close();
   // ⌘F (Ctrl+F elsewhere) puts the cursor in the search field while the
-  // Artifacts view is showing; other views keep the browser's own find.
+  // Artifacts view is showing; other views keep the browser's own find, and
+  // so does an open viewer, where the toolbar is behind the modal.
   document.addEventListener('keydown',e=>{
-    if(current!=='artifacts'||!(e.metaKey||e.ctrlKey)||e.key!=='f'||!searchIn||!searchIn.isConnected) return;
+    if(current!=='artifacts'||$('#viewerSheet').open||!(e.metaKey||e.ctrlKey)||e.key!=='f'||!searchIn||!searchIn.isConnected) return;
     e.preventDefault(); searchIn.focus(); searchIn.select(); });
 }
 // Drop every filter, in the state and in the fields the toolbar shows: the
