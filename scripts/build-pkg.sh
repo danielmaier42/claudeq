@@ -62,10 +62,16 @@ PKG="$OUT/claudeq-$VERSION.pkg"
 # and "dev-main"/"dev-<branch>" never does against a real release like
 # "0.9.0" (or against each other) — so a dev build would silently install its
 # receipt while leaving the old binaries in place. Force the overwrite always.
+#
+# Newer pkgbuild versions leave keys at their default out of the analyzed plist,
+# and PlistBuddy cannot Set a key that is missing, so each one is deleted (if
+# present) and added fresh.
 COMPONENT_PLIST="$(mktemp -d)/component.plist"
 pkgbuild --analyze --root "$STAGE" "$COMPONENT_PLIST" >/dev/null
-/usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false" "$COMPONENT_PLIST"
-/usr/libexec/PlistBuddy -c "Set :0:BundleIsVersionChecked false" "$COMPONENT_PLIST"
+for key in BundleIsRelocatable BundleIsVersionChecked; do
+  /usr/libexec/PlistBuddy -c "Delete :0:$key" "$COMPONENT_PLIST" 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Add :0:$key bool false" "$COMPONENT_PLIST"
+done
 
 PKGARGS=(
   --root "$STAGE"
