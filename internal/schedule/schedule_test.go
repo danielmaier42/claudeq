@@ -140,3 +140,42 @@ func equal(a, b []string) bool {
 	}
 	return true
 }
+
+func TestHeld(t *testing.T) {
+	par := func(id string) task.Task { tk := base(id, task.TriggerASAP); tk.Parallel = true; return tk }
+	excl := func(id string) task.Task { return base(id, task.TriggerASAP) }
+	const (
+		alone   = "Runs alone, so it waits until the running tasks finish."
+		behind  = "Waits behind a higher-priority task that runs alone."
+		blocked = "A task that runs alone is running; nothing else starts until it finishes."
+	)
+	tests := []struct {
+		name    string
+		due     []task.Task
+		running Running
+		want    map[string]string
+	}{
+		{"everything starts", []task.Task{par("a"), par("b")}, Running{}, map[string]string{}},
+		{"exclusive running holds all", []task.Task{par("a"), excl("b")}, Running{NonParallel: true},
+			map[string]string{"a": blocked, "b": blocked}},
+		{"exclusive waits for parallel", []task.Task{excl("a"), par("b")}, Running{Parallel: true},
+			map[string]string{"a": alone, "b": behind}},
+		{"exclusive after a started parallel", []task.Task{par("a"), excl("b"), par("c")}, Running{},
+			map[string]string{"b": alone, "c": behind}},
+		{"tasks behind a started exclusive", []task.Task{excl("a"), par("b")}, Running{},
+			map[string]string{"b": behind}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Held(tc.due, tc.running)
+			if len(got) != len(tc.want) {
+				t.Fatalf("Held = %v, want %v", got, tc.want)
+			}
+			for id, reason := range tc.want {
+				if got[id] != reason {
+					t.Fatalf("Held[%s] = %q, want %q", id, got[id], reason)
+				}
+			}
+		})
+	}
+}

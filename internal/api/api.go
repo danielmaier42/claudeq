@@ -24,6 +24,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/app"
 	"github.com/danielmaier42/claudeq/internal/feedback"
 	"github.com/danielmaier42/claudeq/internal/provider"
+	"github.com/danielmaier42/claudeq/internal/schedule"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
 	"github.com/danielmaier42/claudeq/internal/update"
@@ -71,6 +72,9 @@ type Deps struct {
 	// rate limit, each with the time its own gate reopens, so the dashboard can
 	// name which account it is waiting on. Optional (engine.Engine.BlockedProviders).
 	BlockedProviders func() map[string]time.Time
+	// Holds reports, per task, why the scheduler's last pass did not start it
+	// although it was due, and since when it waits. Optional (engine.Engine.Holds).
+	Holds func() map[string]schedule.Hold
 	// NotifyStatus reports whether macOS will actually show notifications
 	// (notify.MacAuthorization). Optional; empty means "don't know".
 	NotifyStatus func() string
@@ -219,6 +223,10 @@ func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
 	active := s.activeTasks()
 	blocked := s.blockedReasons(r.Context(), cfg)
 	waiting := s.waitingFor(cfg)
+	var holds map[string]schedule.Hold
+	if s.d.Holds != nil {
+		holds = s.d.Holds()
+	}
 	out := make([]taskView, 0, len(cfg.Tasks))
 	for _, t := range cfg.Tasks {
 		// A running one-shot task moves to the Log and is hidden here. Recurring
@@ -228,6 +236,9 @@ func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		v := taskView{Task: t, Running: active[t.ID], WaitingFor: waiting[t.ID]}
+		if h, ok := holds[t.ID]; ok && !active[t.ID] {
+			v.Hold = &h
+		}
 		// A script job runs on no provider, so a provider that cannot run is
 		// not what is holding it up — nothing is.
 		if !t.IsScript() {
@@ -276,6 +287,11 @@ type taskView struct {
 	// the queue looks like a job that never starts unless the queue says what it
 	// is waiting on.
 	WaitingFor []string `json:"waiting_for,omitempty"`
+	// Hold is why the scheduler did not start this task on its last pass
+	// although it was due, and since when it has been waiting. It is the
+	// scheduler's own verdict, so it covers what the markers above cannot see:
+	// a pause, a task that runs alone, an exhausted allowance.
+	Hold *schedule.Hold `json:"hold,omitempty"`
 }
 
 // waitingFor names, per task, the jobs it is still waiting for. Only tasks that

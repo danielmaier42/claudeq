@@ -72,7 +72,7 @@ export async function loadTasks(){
   if(gen!==tasksGen) return;
   tasks=tasks||[];
   const shown=tasksOnlyActive?tasks.filter(t=>t.enabled):tasks;
-  const sig=JSON.stringify([paused,tasksOnlyActive,tasks.length,LIMITED_UNTIL&&LIMITED_UNTIL.toISOString(),GROUPS,shown.map(t=>[t.id,t.name,t.kind||'',t.trigger,t.enabled,t.parallel,t.permissions,t.notify_on_result,t.quiet_history,t.fixed_at,t.cron,t.next_run,t.last_run,t.running,t.waiting_for_limit,t.blocked_reason,t.provider,t.pool||'',t.pool?(poolByID(t.pool)||{}).name:'',t.model,t.group||'',(t.waiting_for||[]).join(',')])]);
+  const sig=JSON.stringify([paused,tasksOnlyActive,tasks.length,LIMITED_UNTIL&&LIMITED_UNTIL.toISOString(),GROUPS,shown.map(t=>[t.id,t.name,t.kind||'',t.trigger,t.enabled,t.parallel,t.permissions,t.notify_on_result,t.quiet_history,t.fixed_at,t.cron,t.next_run,t.last_run,t.running,t.waiting_for_limit,t.blocked_reason,t.provider,t.pool||'',t.pool?(poolByID(t.pool)||{}).name:'',t.model,t.group||'',(t.waiting_for||[]).join(','),t.hold?[t.hold.reason,waitedFor(t.hold.since)]:''])]);
   if(sig===tasksSig && $('#tasks').childElementCount) return;   // avoid flicker on poll
   tasksSig=sig;
   const c=$('#tasks'); c.innerHTML='';
@@ -136,6 +136,13 @@ function lastOther(block,t){
   return null;
 }
 
+// waitedFor is how long a held task has been due, as " 12 min" or " 2 h", or
+// nothing for the first minute.
+function waitedFor(since){
+  const m=Math.floor((Date.now()-new Date(since))/60000);
+  return m<1?'':m<60?` ${m} min`:` ${Math.floor(m/60)} h`;
+}
+
 function taskRow(t,i,block,tasks,paused){
   let when;
   if(t.trigger==='fixed') when=esc(new Date(t.fixed_at).toLocaleString());
@@ -151,6 +158,9 @@ function taskRow(t,i,block,tasks,paused){
   if(t.waiting_for_limit) tags.push(`<span class="chip warn" title="${esc('The rate limit interrupted this task. Its Claude session '+resumeTimeText(LIMITED_UNTIL)+' — drop the resume in the Log with “Cancel resume”.')}">rescheduled</span>`);
   // A job that waits for other jobs looks like one that never starts, unless
   // the queue says what it is waiting for.
+  // The scheduler's own verdict on why a due task did not start, so a task
+  // that sits in the queue says what it waits for, and since when.
+  if(t.hold&&!t.blocked_reason) tags.push(`<span class="chip warn" title="${esc(t.hold.reason+' Due since '+new Date(t.hold.since).toLocaleTimeString()+'; it starts by itself once that changes.')}">waiting${waitedFor(t.hold.since)}</span>`);
   if((t.waiting_for||[]).length) tags.push(`<span class="chip" title="${esc('Starts by itself once these jobs have finished: '+t.waiting_for.join(', ')+'. It runs even if one of them fails.')}">waiting for ${t.waiting_for.length} job${t.waiting_for.length>1?'s':''}</span>`);
   if(t.parallel) tags.push('<span class="chip" title="Runs alongside other parallel tasks">parallel</span>');
   if(t.permissions==='skip') tags.push('<span class="chip warn" title="Skips permission prompts">granted</span>');
