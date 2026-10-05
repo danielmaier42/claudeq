@@ -64,8 +64,13 @@ PKG="$OUT/claudeq-$VERSION.pkg"
 # receipt while leaving the old binaries in place. Force the overwrite always.
 COMPONENT_PLIST="$(mktemp -d)/component.plist"
 pkgbuild --analyze --root "$STAGE" "$COMPONENT_PLIST" >/dev/null
-/usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false" "$COMPONENT_PLIST"
-/usr/libexec/PlistBuddy -c "Set :0:BundleIsVersionChecked false" "$COMPONENT_PLIST"
+# Newer pkgbuild versions leave out keys they consider default (macOS 27 drops
+# BundleIsRelocatable), so delete-then-add instead of Set, which fails on a
+# missing key.
+for key in BundleIsRelocatable BundleIsVersionChecked; do
+  /usr/libexec/PlistBuddy -c "Delete :0:$key" "$COMPONENT_PLIST" 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Add :0:$key bool false" "$COMPONENT_PLIST"
+done
 
 PKGARGS=(
   --root "$STAGE"
