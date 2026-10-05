@@ -373,9 +373,13 @@ Dashboard:
   `--dangerously-skip-permissions`);
   the button needs the session to still exist — Claude Code prunes old sessions
   after ~30 days; mark one or
-  all read; filter by a from–to date range; page through history; and replay a
-  task. Runs of a *quiet history* task appear here only if they did not
-  succeed.
+  all read; page through history; and replay a task. Above the list sits the
+  same filter bar as in Artifacts: a **search field** (⌘F jumps to it, Escape
+  clears it) where every word has to occur somewhere in the run — task, folder,
+  harness, model, group, outcome or error —, **All | Unread**, and menus for
+  the queue **group**, the **task** and the **outcome** (success, failed, rate
+  limited, …), plus a from–to date range. Runs of a *quiet history* task
+  appear here only if they did not succeed.
 - **Artifacts** — files your tasks published, newest first, with an unread badge.
   The list is grouped by day (Today, Yesterday, then the date), one row per
   artifact: its title, a one-line summary (the description, or the file name
