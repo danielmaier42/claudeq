@@ -393,14 +393,14 @@ Dashboard:
   still be resumed — **Continue in Chat…**, the same interactive resume as in
   a run's log. Either way, opening an artifact marks it read automatically; the
   actions to mark one read or delete it (which removes the stored copy) appear
-  when the pointer is on its row, and the eye button in the toolbar marks all read.
-  The toolbar starts with a **search field** (⌘F jumps to it, Escape clears
-  it): every word you type has to occur somewhere in the artifact — title,
-  description, file name, task, parent, group or file type — so "adr 0050"
-  finds the ADR-0050 review and "seo pdf" the PDF of the SEO job. Next to it,
-  as in the Log, a from–to date filter, 25 artifacts per page, and a footer
-  with the count, the page and the pager.
-  **All | Unread** hides everything already opened,
+  when the pointer is on its row, and **Mark all read** in the toolbar does what it says.
+  Above the list sits a filter bar. It starts with a **search field** (⌘F
+  jumps to it, Escape clears it): every word you type has to occur somewhere
+  in the artifact — title, description, file name, task, parent, group or
+  file type — so "adr 0050" finds the ADR-0050 review and "seo pdf" the PDF
+  of the SEO job. Next to it, as in the Log, a from–to date filter; the list
+  shows 25 artifacts per page with a footer holding the count, the page and
+  the pager. **All | Unread** hides everything already opened,
   **All groups** narrows the list to one queue group, and **All parents** to the
   artifacts one top-level job produced, itself or through the jobs it created
   (see [where an artifact comes from](#where-an-artifact-comes-from)). The

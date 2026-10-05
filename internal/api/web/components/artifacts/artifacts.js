@@ -158,9 +158,9 @@ export async function loadArtifacts(){
   if(artPage>pages-1) artPage=pages-1; if(artPage<0) artPage=0;
   const pageArts=filtered.slice(artPage*ART_PAGE, artPage*ART_PAGE+ART_PAGE);
   const sig=JSON.stringify([artFrom,artTo,artGroup,artOrigin,artUnread,artQuery,artPage,arts.length,filtered.length,pageArts.map(a=>[a.id,a.unread,a.title])]);
-  if(sig===artifactsSig && $('#artifacts').childElementCount) return;   // avoid flicker on poll
+  if(sig===artifactsSig && $('#artList').childElementCount) return;   // avoid flicker on poll
   artifactsSig=sig;
-  const c=$('#artifacts'); c.innerHTML='';
+  const c=$('#artList'); c.innerHTML='';
   if(!arts.length){ c.append(emptyState('No artifacts yet','Files your tasks publish with “claudeq publish” appear here — reports, exports, HTML pages, PDFs.')); return; }
   if(!filtered.length){
     const why=artQuery?`Nothing matches “${artQuery.trim()}”. Try fewer or different words.`
@@ -269,7 +269,7 @@ export function initViewer(){
 function clearFilters(){ artFrom=''; artTo=''; artGroup=''; artOrigin=''; artUnread=false; artQuery='';
   if(unreadSeg) unreadSeg.querySelectorAll('button').forEach((b,i)=>b.classList.toggle('active',i===0));
   if(searchIn) searchIn.value='';
-  document.querySelectorAll('#toolbarActions .date-in').forEach(i=>i.value=''); }
+  document.querySelectorAll('#artFilters .date-in').forEach(i=>i.value=''); }
 const shown=a=>inDateRange(a.published_at,artFrom,artTo)&&matchesSource(a)&&matchesQuery(a);
 // Open one artifact by id. This is what a click on a "new artifact"
 // notification ends up calling (the app window pushes the id in from
@@ -292,20 +292,27 @@ async function readArtifact(id){ try{ await api('POST','/api/artifacts/'+encodeU
 async function markAllArtifactsRead(){ try{ await api('POST','/api/artifacts/read-all'); toast('All marked read','ok'); artifactsSig=''; loadArtifacts();}catch(e){toast(e.message,'err');} }
 async function deleteArtifact(a){ if(await confirmSheetAsk('Delete artifact “'+a.title+'”? This removes the stored copy.')){ try{ await api('DELETE','/api/artifacts/'+encodeURIComponent(a.id)); toast('Deleted','ok'); artifactsSig=''; loadArtifacts();}catch(e){toast(e.message,'err');} } }
 
+// The filter bar sits above the list, not in the window's toolbar: the
+// toolbar keeps the one action that applies to everything, the filters stay
+// with what they filter. Built on every entry so the fields show the state.
+function renderFilters(){
+  const sec=$('#artifacts');
+  if(!$('#artList')){ sec.append(el('div','art-filters'), el('div')); sec.children[0].id='artFilters'; sec.children[1].id='artList'; }
+  const f=$('#artFilters'); f.innerHTML='';
+  // Two lines: the search with All | Unread, then where and when.
+  const top=el('div','frow'), where=el('div','frow');
+  searchIn=searchField(); unreadSeg=unreadFilterSeg(); top.append(searchIn,unreadSeg);
+  groupSel=sourceFilter('Show the artifacts of one queue group',v=>{artGroup=v;artOrigin='';});
+  originSel=sourceFilter('Show the artifacts one job produced, directly or through the jobs it created',v=>{artOrigin=v;});
+  where.append(groupSel,originSel,el('span','spacer'),dateRange(artFrom,artTo, v=>{artFrom=v;refilter();}, v=>{artTo=v;refilter();}));
+  f.append(top,where);
+}
 export const view={
   title:'Artifacts',
   toolbar(ta){
-    ta.classList.add('art-toolbar');
-    searchIn=searchField(); ta.append(searchIn);
-    ta.append(dateRange(artFrom,artTo, v=>{artFrom=v;refilter();}, v=>{artTo=v;refilter();}));
-    unreadSeg=unreadFilterSeg(); ta.append(unreadSeg);
-    groupSel=sourceFilter('Show the artifacts of one queue group',v=>{artGroup=v;artOrigin='';});
-    originSel=sourceFilter('Show the artifacts one job produced, directly or through the jobs it created',v=>{artOrigin=v;});
-    ta.append(groupSel,originSel);
-    const b=el('button','btn iconly',EYE); b.dataset.tip='Mark all read'; b.setAttribute('aria-label','Mark all read'); b.onclick=markAllArtifactsRead; ta.append(b);
+    const b=el('button','btn',EYE+'<span>Mark all read</span>'); b.onclick=markAllArtifactsRead; ta.append(b);
   },
-  enter(){ loadArtifacts(); },
-  leave(){ $('#toolbarActions').classList.remove('art-toolbar'); },
+  enter(){ renderFilters(); artifactsSig=''; loadArtifacts(); },
   refresh(){ artifactsSig=''; loadArtifacts(); },
 };
 
