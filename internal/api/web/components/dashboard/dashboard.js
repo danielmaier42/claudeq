@@ -10,10 +10,12 @@ import {relTime} from '../../core/format.js';
    of an hour, after every run, and whenever this page opens or View > Refresh
    asks — and the background poll only ever reads what it remembered. */
 
-// A window close to its end is coloured before it is full: at 100% the
-// provider's tasks already wait, and the point is to see it coming.
-function level(pct){ return pct>=90?'danger':pct>=75?'warn':''; }
-function pct(n){ return Math.round(n)+'%'; }
+// A window shows what is left of it, so the bar empties as it is used. It is
+// coloured before it runs dry: at 0% left the provider's tasks already wait,
+// and the point is to see it coming.
+function left(w){ return Math.min(100,Math.max(0,100-w.used_percent)); }
+function level(left){ return left<=10?'danger':left<=25?'warn':''; }
+function pct(n){ return Math.round(n)+'% left'; }
 function resetText(w){
   if(!w.resets_at) return '';
   const at=new Date(w.resets_at);
@@ -27,8 +29,8 @@ function resetText(w){
 export function limitWindowsHTML(l){
   return `<div class="limit-windows">${(l.windows||[]).map(w=>`
     <div class="limit-window w-${esc(w.id)}">
-      <div class="limit-head"><span>${esc(w.label)}</span><b class="${level(w.used_percent)}">${pct(w.used_percent)}</b></div>
-      <div class="meter ${level(w.used_percent)}"><span style="width:${Math.min(100,Math.max(0,w.used_percent))}%"></span></div>
+      <div class="limit-head"><span>${esc(w.label)}</span><b class="${level(left(w))}">${pct(left(w))}</b></div>
+      <div class="meter ${level(left(w))}"><span style="width:${left(w)}%"></span></div>
       <div class="sub">${esc(resetText(w))}</div>
     </div>`).join('')}</div>`;
 }

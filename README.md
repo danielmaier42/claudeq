@@ -313,10 +313,11 @@ the top of the sidebar; **Settings** and **Feedback** ([below](#sending-feedback
 sit at the bottom, out of the way of the work. The window opens on the
 Dashboard:
 
-- **Dashboard** — how much of each provider's allowance is used: one row per
+- **Dashboard** — how much of each provider's allowance is left: one row per
   enabled provider with a bar per window (for Claude the 5-hour and the weekly
-  window, for Codex the windows its account has) and when each one resets. A
-  bar turns orange from 75% and red from 90%. Read without spending any usage;
+  window, for Codex the windows its account has) and when each one resets. Each
+  bar shows the percent left and empties as the window is used; it turns orange
+  at 25% left and red at 10%. Read without spending any usage;
   see [How much is left](#how-much-is-left) for when and how. Below them,
   every [pool](#provider-pools) lists its members in the order a run started
   now would take them, with the reason and the urgency of each, and says which
