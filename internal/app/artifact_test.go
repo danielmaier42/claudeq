@@ -144,8 +144,13 @@ func TestResolveArtifactSources(t *testing.T) {
 		{RunID: "r-digest", WorkflowID: "r-digest", Task: &task.Task{ID: "digest", Name: "Morning Digest"}},
 		{RunID: "r-join", WorkflowID: "r-digest", Task: &task.Task{ID: "q-join", Name: "Join", Group: "Old group"}},
 		{RunID: "r-bare"},
+		// A review job's run and its follow-up, long after its watcher's
+		// quiet runs left history.
+		{RunID: "r-review", WorkflowID: "r-review", Task: &task.Task{ID: "q-review", Name: "Review #1"}},
+		{RunID: "r-fix", WorkflowID: "r-review", Task: &task.Task{ID: "q-fix", Name: "Fix #1"}},
 	}
-	tasks := []task.Task{watcher, digest, {ID: "loner", Name: "Loner"}}
+	rollout := task.Task{ID: "rollout", Name: "Rollout", OriginID: "adr-watch", OriginName: "ADR Watch"}
+	tasks := []task.Task{watcher, digest, rollout, {ID: "loner", Name: "Loner"}}
 
 	cases := []struct {
 		name              string
@@ -164,9 +169,24 @@ func TestResolveArtifactSources(t *testing.T) {
 		{"legacy artifact of a root job is its own origin",
 			store.Artifact{TaskID: "digest", TaskName: "Morning Digest", RunID: "r-digest"},
 			"dc AG", "digest", "Morning Digest"},
-		{"legacy artifact whose run is gone falls back to the publisher",
+		{"legacy artifact whose run is gone has no parent",
 			store.Artifact{TaskID: "q-gone", TaskName: "Review #1", RunID: "r-pruned"},
-			"", "q-gone", "Review #1"},
+			"", "", ""},
+		{"legacy artifact of a one-off job no longer queued has no parent",
+			store.Artifact{TaskID: "q-review", TaskName: "Review #1", RunID: "r-review"},
+			"", "", ""},
+		{"legacy artifact traced to a first run no longer queued has no parent",
+			store.Artifact{TaskID: "q-fix", TaskName: "Fix #1", RunID: "r-fix"},
+			"", "", ""},
+		{"legacy artifact of a queued job another job created takes that job's origin",
+			store.Artifact{TaskID: "rollout", TaskName: "Rollout"},
+			"dc AG", "adr-watch", "dc: ADR Wiki Watch"},
+		{"recorded self-origin of a job no longer queued has no parent",
+			store.Artifact{TaskID: "q-3", OriginID: "q-3", OriginName: "One-off", Group: "GP3D"},
+			"GP3D", "", ""},
+		{"recorded self-origin of a queued job stays",
+			store.Artifact{TaskID: "digest", OriginID: "digest", OriginName: "Digest"},
+			"dc AG", "digest", "Morning Digest"},
 		{"ungrouped origin keeps the publisher's group",
 			store.Artifact{TaskID: "q-2", OriginID: "loner", Group: "GP3D"},
 			"GP3D", "loner", "Loner"},

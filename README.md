@@ -389,9 +389,12 @@ Dashboard:
   also mark one or all read by hand, or delete one (which removes the stored copy).
   The view is built like the Log: a from–to date filter in the toolbar, 25
   artifacts per page, and a footer with the count, the page and the pager.
-  Next to the dates, **All groups** narrows the list to one queue group, and
-  **All parents** to the artifacts one job produced, itself or through the jobs
-  it created (see [where an artifact comes from](#where-an-artifact-comes-from)).
+  Next to the dates, **Unread only** hides everything already opened,
+  **All groups** narrows the list to one queue group, and **All parents** to the
+  artifacts one top-level job produced, itself or through the jobs it created
+  (see [where an artifact comes from](#where-an-artifact-comes-from)). The
+  parent menu lists only jobs at the root of a chain, never the one-off jobs a
+  watcher filed.
   Clicking the notification of a newly published artifact lands here with that
   artifact already open — on the page that holds it, with any filter that
   would hide it dropped.
@@ -1167,14 +1170,18 @@ watcher. So every artifact also records its **parent**: the job at the root of
 the chain that created the publisher. A job added with `claudeq add` or
 `claudeq queue` from inside a run remembers the job that ran it, or that job's
 own parent if it has one, so a chain of any length leads back to the watcher. A
-job nothing created is its own parent. The artifact also records the
-publisher's queue group.
+job nothing created is its own parent while it is in the queue; once a job like
+that is deleted, its artifacts have no parent any more, so finished one-off jobs
+do not pile up in the parent menu. The artifact also records the publisher's
+queue group.
 
 The Artifacts view filters by both. While the parent job is still in the queue,
 its current name and group are used, so renaming the watcher or moving it to
 another group takes its artifacts along. Artifacts published before this was
-recorded are traced back through run history where it still has the runs,
-otherwise their parent is the job that published them.
+recorded are traced back through run history where it still has the runs. When
+the run itself does not name a parent, they get one only if the trace leads to a
+job still in the queue (or to that job's parent); otherwise they have none and
+show up under **All parents** only.
 
 ## Letting a task send a notification
 

@@ -103,8 +103,14 @@ func PublishArtifact(s *store.Store, in PublishInput) (store.Artifact, error) {
 // ResolveArtifactSources fills in the group and origin the Artifacts view
 // filters by, in place. An artifact keeps what it recorded when it was
 // published; one published before claudeq recorded either is traced back
-// through run history: its run's task gives the group, and the first run of
-// its workflow the origin. Failing that, the publishing job is its own origin.
+// through run history: its run's task gives the group, and the origin its run
+// recorded, else the first run of its workflow, else the publishing job itself.
+// A guessed origin (the last two) only stands when it is a job still in the
+// queue, and then as that job's own origin:
+// history rarely reaches back to the watcher behind a one-off review job, and
+// taking that job as its own origin would offer every one of them as a parent.
+// For the same reason a job that recorded itself as its origin loses it once it
+// has left the queue: a one-off job is not a parent anyone filters by.
 //
 // An origin still in the queue then lends its current name, and its group when
 // it has one, so renaming a watcher or moving it to another group takes its
@@ -123,7 +129,14 @@ func ResolveArtifactSources(arts []store.Artifact, tasks []task.Task, runs []sto
 		if a.OriginID == "" {
 			traceArtifactOrigin(a, queued, byRun)
 		}
-		if o, ok := queued[a.OriginID]; ok && a.OriginID != "" {
+		o, ok := queued[a.OriginID]
+		if !ok && a.OriginID == a.TaskID {
+			a.OriginID, a.OriginName = "", ""
+		}
+		if a.OriginID == "" {
+			continue
+		}
+		if ok {
 			a.OriginName = o.Name
 			if o.Group != "" {
 				a.Group = o.Group
@@ -138,6 +151,7 @@ func ResolveArtifactSources(arts []store.Artifact, tasks []task.Task, runs []sto
 // traceArtifactOrigin works out the group and origin of an artifact published
 // before either was recorded.
 func traceArtifactOrigin(a *store.Artifact, queued map[string]task.Task, byRun map[string]store.Run) {
+	root := a.TaskID
 	if run, ok := byRun[a.RunID]; ok && run.Task != nil {
 		if a.Group == "" {
 			a.Group = run.Task.Group
@@ -146,8 +160,8 @@ func traceArtifactOrigin(a *store.Artifact, queued map[string]task.Task, byRun m
 		case run.Task.OriginID != "":
 			a.OriginID, a.OriginName = run.Task.OriginID, run.Task.OriginName
 		case run.WorkflowID != "" && run.WorkflowID != run.RunID:
-			if root, ok := byRun[run.WorkflowID]; ok && root.Task != nil {
-				a.OriginID, a.OriginName = root.Task.ID, root.Task.Name
+			if first, ok := byRun[run.WorkflowID]; ok && first.Task != nil {
+				root = first.Task.ID
 			}
 		}
 	}
@@ -155,7 +169,9 @@ func traceArtifactOrigin(a *store.Artifact, queued map[string]task.Task, byRun m
 		a.Group = queued[a.TaskID].Group
 	}
 	if a.OriginID == "" {
-		a.OriginID, a.OriginName = a.TaskID, a.TaskName
+		if t, ok := queued[root]; ok {
+			a.OriginID, a.OriginName = t.Origin()
+		}
 	}
 }
 

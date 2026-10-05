@@ -14,8 +14,10 @@ let artifactsSig='', artFrom='', artTo='', artPage=0; const ART_PAGE=25;
 // NO_GROUP stands for "no group": a real group name never starts with a space.
 let artGroup='', artOrigin=''; const NO_GROUP=' none';
 let groupSel=null, originSel=null;
+// artUnread narrows the list to the artifacts not opened yet.
+let artUnread=false, unreadSel=null;
 const groupKey=a=>a.group||NO_GROUP;
-const matchesSource=a=>(!artGroup||groupKey(a)===artGroup)&&(!artOrigin||a.origin_id===artOrigin);
+const matchesSource=a=>(!artGroup||groupKey(a)===artGroup)&&(!artOrigin||a.origin_id===artOrigin)&&(!artUnread||a.unread);
 // Refill both filter menus from the artifacts there are. The parent menu only
 // offers parents in the chosen group, and a choice that no longer matches
 // anything falls back to "all", so the list can never be filtered to nothing
@@ -76,17 +78,18 @@ export async function loadArtifacts(){
   let arts; try{ arts=await api('GET','/api/artifacts'); setConn(true);}catch(e){ setConn(false); return; }
   if(gen!==loadsGen) return;   // a newer load superseded us
   const unread=arts.filter(a=>a.unread).length; const badge=$('#artifactCount'); badge.hidden=unread===0; badge.textContent=unread;
-  fillSourceFilters(arts);
+  // With "Unread only" the menus offer only groups and parents with something unread.
+  fillSourceFilters(artUnread?arts.filter(a=>a.unread):arts);
   const filtered=arts.filter(a=>inDateRange(a.published_at,artFrom,artTo)&&matchesSource(a));
   const pages=Math.max(1,Math.ceil(filtered.length/ART_PAGE));
   if(artPage>pages-1) artPage=pages-1; if(artPage<0) artPage=0;
   const pageArts=filtered.slice(artPage*ART_PAGE, artPage*ART_PAGE+ART_PAGE);
-  const sig=JSON.stringify([artFrom,artTo,artGroup,artOrigin,artPage,arts.length,filtered.length,pageArts.map(a=>[a.id,a.unread,a.title])]);
+  const sig=JSON.stringify([artFrom,artTo,artGroup,artOrigin,artUnread,artPage,arts.length,filtered.length,pageArts.map(a=>[a.id,a.unread,a.title])]);
   if(sig===artifactsSig && $('#artifacts').childElementCount) return;   // avoid flicker on poll
   artifactsSig=sig;
   const c=$('#artifacts'); c.innerHTML='';
   if(!arts.length){ c.append(emptyState('No artifacts yet','Files your tasks publish with “claudeq publish” appear here — reports, exports, HTML pages, PDFs.')); return; }
-  if(!filtered.length){ c.append(emptyState('No artifacts match','Adjust the date, group or parent filter to see artifacts.')); return; }
+  if(!filtered.length){ c.append(emptyState('No artifacts match',artUnread?'Everything here has been read. Show all artifacts to see the rest.':'Adjust the date, group or parent filter to see artifacts.')); return; }
   const list=el('div','act-list');
   pageArts.forEach(a=>{
     const line=el('div','act-line');
@@ -124,7 +127,7 @@ export async function loadArtifacts(){
 
   // Footer: count + pager, as in the Log (newest first, so "Newer" goes to
   // lower page indices).
-  const inRange=(artFrom||artTo||artGroup||artOrigin)?' matching':'';
+  const inRange=(artFrom||artTo||artGroup||artOrigin||artUnread)?' matching':'';
   const foot=el('div','act-foot');
   foot.append(el('span','sub',`${filtered.length} artifact${filtered.length!==1?'s':''}${inRange} · page ${artPage+1} of ${pages}`));
   const pager=el('div','pager');
@@ -206,7 +209,8 @@ export function initViewer(){
 // Drop every filter, in the state and in the fields the toolbar shows: the
 // toolbar is built once per view switch, so clearing the state alone would
 // leave the old dates standing in it. The menus refill on the next load.
-function clearFilters(){ artFrom=''; artTo=''; artGroup=''; artOrigin='';
+function clearFilters(){ artFrom=''; artTo=''; artGroup=''; artOrigin=''; artUnread=false;
+  if(unreadSel) unreadSel.value='';
   document.querySelectorAll('#toolbarActions .date-in').forEach(i=>i.value=''); }
 const shown=a=>inDateRange(a.published_at,artFrom,artTo)&&matchesSource(a);
 // Open one artifact by id. This is what a click on a "new artifact"
@@ -238,7 +242,10 @@ export const view={
       v=>{artTo=v;artPage=0;artifactsSig='';loadArtifacts();}));
     groupSel=sourceFilter('Show the artifacts of one queue group',v=>{artGroup=v;artOrigin='';});
     originSel=sourceFilter('Show the artifacts one job produced, directly or through the jobs it created',v=>{artOrigin=v;});
-    ta.append(groupSel,originSel);
+    unreadSel=sourceFilter('Show only the artifacts you have not opened yet',v=>{artUnread=v==='unread';});
+    [['','All artifacts'],['unread','Unread only']].forEach(([v,l])=>{ const o=document.createElement('option'); o.value=v; o.textContent=l; unreadSel.append(o); });
+    unreadSel.value=artUnread?'unread':'';
+    ta.append(unreadSel,groupSel,originSel);
     const b=el('button','btn',EYE+'<span>Mark all read</span>'); b.onclick=markAllArtifactsRead; ta.append(b);
   },
   enter(){ loadArtifacts(); },
