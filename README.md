@@ -377,27 +377,38 @@ Dashboard:
   task. Runs of a *quiet history* task appear here only if they did not
   succeed.
 - **Artifacts** — files your tasks published, newest first, with an unread badge.
-  Each shows its title, source task, file type, and size; when another job
-  created that task (a watcher that filed a review job), the line reads
-  "from *watcher* › *review job*". **View** opens the
+  The list is grouped by day (Today, Yesterday, then the date), one row per
+  artifact: its title, a one-line summary (the description, or the file name
+  when there is none) behind a small type tag, who made it, and when. Unread
+  artifacts have a dot and a bold title. "Who made it" is the parent job when
+  another job created the publisher (a watcher that filed a review job), else
+  the publisher itself; hovering it spells out the whole chain, clicking it
+  opens the producing run's log (while that run is still in history). Hovering
+  the title shows the file name and size. Clicking a row opens the
   artifact in an in-app viewer: HTML, PDF, images, and text are previewed
   inline, anything else (archives, binaries) shows a short note instead of a
-  preview. The viewer offers **Open externally**, which hands the file to your
+  preview. The viewer names the file and its size under the title and offers
+  **Open externally**, which hands the file to your
   browser to open or save, and — when the run that published the artifact can
   still be resumed — **Continue in Chat…**, the same interactive resume as in
-  a run's log. Either way, opening an artifact marks it read automatically; you can
-  also mark one or all read by hand, or delete one (which removes the stored copy).
-  The view is built like the Log: a from–to date filter in the toolbar, 25
-  artifacts per page, and a footer with the count, the page and the pager.
-  Next to the dates, **Unread only** hides everything already opened,
+  a run's log. Either way, opening an artifact marks it read automatically; the
+  actions to mark one read or delete it (which removes the stored copy) appear
+  when the pointer is on its row, and **Mark all read** in the toolbar does what it says.
+  Above the list sits a filter bar. It starts with a **search field** (⌘F
+  jumps to it, Escape clears it): every word you type has to occur somewhere
+  in the artifact — title, description, file name, task, parent, group or
+  file type — so "adr 0050" finds the ADR-0050 review and "seo pdf" the PDF
+  of the SEO job. Next to it, as in the Log, a from–to date filter; the list
+  shows 25 artifacts per page with a footer holding the count, the page and
+  the pager. **All | Unread** hides everything already opened,
   **All groups** narrows the list to one queue group, and **All parents** to the
   artifacts one top-level job produced, itself or through the jobs it created
   (see [where an artifact comes from](#where-an-artifact-comes-from)). The
   parent menu lists only jobs at the root of a chain, never the one-off jobs a
   watcher filed.
   Clicking the notification of a newly published artifact lands here with that
-  artifact already open — on the page that holds it, with any filter that
-  would hide it dropped.
+  artifact already open — on the page that holds it, with any filter or search
+  that would hide it dropped.
 - **Usage** — a per-day bar chart of runs, tokens, and cost for the last 14 days,
   plus totals and a 7-day summary.
 - **Settings** — global defaults and integrations (below). The custom system

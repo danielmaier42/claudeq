@@ -1,10 +1,10 @@
-import {select} from '../app-shell/app-shell.js';
+import {current, select} from '../app-shell/app-shell.js';
 import {canContinue, showLog} from '../log-sheet/log-sheet.js';
 import {setConn} from '../status/status.js';
 import {api} from '../../core/api.js';
 import {confirmSheetAsk} from '../../core/confirm.js';
 import {$, dateRange, el, emptyState, esc} from '../../core/dom.js';
-import {exactTime, inDateRange, relTime} from '../../core/format.js';
+import {exactTime, inDateRange, localDate, relTime} from '../../core/format.js';
 import {EYE} from '../../core/icons.js';
 import {toast} from '../../core/toast.js';
 
@@ -15,9 +15,17 @@ let artifactsSig='', artFrom='', artTo='', artPage=0; const ART_PAGE=25;
 let artGroup='', artOrigin=''; const NO_GROUP=' none';
 let groupSel=null, originSel=null;
 // artUnread narrows the list to the artifacts not opened yet.
-let artUnread=false, unreadSel=null;
+let artUnread=false, unreadSeg=null;
+// artQuery is the search text. Every word has to occur somewhere in the
+// artifact — title, description, file name, task, parent, group or type — so
+// "adr 0050" finds "ADR-0050 review" and "seo pdf" the PDF of the SEO job.
+let artQuery='', searchIn=null;
 const groupKey=a=>a.group||NO_GROUP;
+const haystack=a=>[a.title,a.description,a.file_name,a.task_name,a.origin_name,a.group,extLabel(a.file_name,a.content_type)].join('\n').toLowerCase();
+function matchesQuery(a){ const words=artQuery.toLowerCase().split(/\s+/).filter(Boolean); if(!words.length) return true;
+  const h=haystack(a); return words.every(w=>h.includes(w)); }
 const matchesSource=a=>(!artGroup||groupKey(a)===artGroup)&&(!artOrigin||a.origin_id===artOrigin)&&(!artUnread||a.unread);
+const anyFilter=()=>!!(artFrom||artTo||artGroup||artOrigin||artUnread||artQuery);
 // Refill both filter menus from the artifacts there are. The parent menu only
 // offers parents in the chosen group, and a choice that no longer matches
 // anything falls back to "all", so the list can never be filtered to nothing
@@ -38,8 +46,28 @@ function fillSourceFilters(arts){
   fill(groupSel,'All groups',groups,artGroup);
   fill(originSel,'All parents',origins,artOrigin);
 }
+function refilter(){ artPage=0; artifactsSig=''; loadArtifacts(); }
 function sourceFilter(title,on){ const sel=el('select','tb-select'); sel.title=title;
-  sel.onchange=e=>{ on(e.target.value); artPage=0; artifactsSig=''; loadArtifacts(); }; return sel; }
+  sel.onchange=e=>{ on(e.target.value); refilter(); }; return sel; }
+// All | Unread, as a segmented control like the Queue's All | Active.
+function unreadFilterSeg(){
+  const seg=el('div','seg');
+  const mk=(v,label,tip)=>{ const b=el('button',null,label); b.title=tip; b.classList.toggle('active',v===artUnread);
+    b.onclick=()=>{ artUnread=v; seg.querySelectorAll('button').forEach(x=>x.classList.toggle('active',x===b)); refilter(); };
+    return b; };
+  seg.append(mk(false,'All','Show every artifact'), mk(true,'Unread','Show only the artifacts you have not opened yet'));
+  return seg;
+}
+// The search field. Typing filters as you go (after a short pause, so a fast
+// typist does not rebuild the list on every key); Escape clears it.
+function searchField(){
+  const i=el('input','search-in'); i.type='search'; i.placeholder='Search artifacts'; i.value=artQuery;
+  i.setAttribute('aria-label','Search artifacts'); i.title='Search by title, description, file name, task, parent or group (⌘F)';
+  let t=0;
+  i.oninput=()=>{ clearTimeout(t); t=setTimeout(()=>{ if(i.value.trim()===artQuery.trim()) return; artQuery=i.value; refilter(); },120); };
+  i.onkeydown=e=>{ if(e.key==='Escape'){ e.preventDefault(); if(i.value){ i.value=''; artQuery=''; refilter(); } else i.blur(); } };
+  return i;
+}
 const fmtBytes=n=>{ n=n||0; if(n<1024)return n+' B'; if(n<1048576)return (n/1024).toFixed(1)+' KB'; if(n<1073741824)return (n/1048576).toFixed(1)+' MB'; return (n/1073741824).toFixed(1)+' GB'; };
 function artifactKind(ct){ ct=(ct||'').toLowerCase();
   if(ct.includes('pdf'))return 'pdf';
@@ -67,6 +95,51 @@ async function openArtifactRun(a){
   select('news');
   showLog(run);
 }
+// The heading of one day's artifacts: Today, Yesterday, then the weekday and date.
+function dayLabel(iso){
+  const day=localDate(iso), now=new Date(), today=localDate(now.toISOString());
+  const y=new Date(now); y.setDate(y.getDate()-1);
+  if(day===today) return 'Today'; if(day===localDate(y.toISOString())) return 'Yesterday';
+  const d=new Date(iso); const opts={weekday:'long',day:'numeric',month:'long'};
+  if(d.getFullYear()!==now.getFullYear()) opts.year='numeric';
+  return d.toLocaleDateString(undefined,opts);
+}
+// One artifact as one row: the dot, the title with its one-line summary, who
+// made it and when, and the actions, which show when the pointer is on the
+// row. The row itself opens the viewer; file name and size sit in the title's
+// tooltip, where they are at hand without crowding the line.
+function artifactRow(a){
+  const row=el('div','row art-row'); row.tabIndex=0; row.setAttribute('role','button');
+  if(a.unread) row.classList.add('unread');
+  const gl=el('div','act-gl'); if(a.unread) gl.append(el('div','unread-dot'));
+  const grow=el('div','grow');
+  const title=el('div','title',esc(a.title)); title.dataset.tip=a.file_name+' · '+fmtBytes(a.size);
+  const sub=el('div','sub');
+  sub.innerHTML=`<span class="art-kind">${esc(extLabel(a.file_name,a.content_type))}</span>${esc(a.description||a.file_name)}`;
+  grow.append(title,sub);
+  // Who made it: the parent job when another job created the publisher (the
+  // watcher is what one looks for, not the review job it filed), else the
+  // publisher itself. The tooltip spells out the chain, and a click opens the
+  // run's log while that run is still in history.
+  const src=el('div','art-from');
+  if(a.task_name){
+    const parent=a.origin_id&&a.origin_id!==a.task_id&&a.origin_name;
+    src.textContent=parent||a.task_name;
+    src.dataset.tip=(parent?a.origin_name+' › ':'')+a.task_name+(a.run_id?' · click to open the run\'s log':'');
+    if(a.run_id){ src.classList.add('art-src'); src.setAttribute('role','link'); src.tabIndex=0;
+      src.onclick=e=>{ e.stopPropagation(); openArtifactRun(a); };
+      src.onkeydown=e=>{ if(e.key==='Enter'){ e.stopPropagation(); openArtifactRun(a); } }; }
+  }
+  const when=el('div','art-when',esc(relTime(a.published_at))); when.dataset.tip=exactTime(a.published_at);
+  const actions=el('div','row-actions art-actions');
+  if(a.unread){ const mr=el('button','eye-btn',EYE); mr.dataset.tip='Mark read'; mr.setAttribute('aria-label','Mark read');
+    mr.onclick=e=>{ e.stopPropagation(); readArtifact(a.id); }; actions.append(mr); }
+  const del=el('button','btn small danger','Delete'); del.onclick=e=>{ e.stopPropagation(); deleteArtifact(a); }; actions.append(del);
+  row.append(gl,grow,src,when,actions);
+  row.onclick=()=>openViewer(a);
+  row.onkeydown=e=>{ if(e.target===row&&(e.key==='Enter'||e.key===' ')){ e.preventDefault(); openViewer(a); } };
+  return row;
+}
 
 // loadsGen makes the newest load the one that renders: a notification click
 // alone starts three (the view switch, the jump to the artifact's page, the
@@ -78,56 +151,33 @@ export async function loadArtifacts(){
   let arts; try{ arts=await api('GET','/api/artifacts'); setConn(true);}catch(e){ setConn(false); return; }
   if(gen!==loadsGen) return;   // a newer load superseded us
   const unread=arts.filter(a=>a.unread).length; const badge=$('#artifactCount'); badge.hidden=unread===0; badge.textContent=unread;
-  // With "Unread only" the menus offer only groups and parents with something unread.
+  // With "Unread" the menus offer only groups and parents with something unread.
   fillSourceFilters(artUnread?arts.filter(a=>a.unread):arts);
-  const filtered=arts.filter(a=>inDateRange(a.published_at,artFrom,artTo)&&matchesSource(a));
+  const filtered=arts.filter(shown);
   const pages=Math.max(1,Math.ceil(filtered.length/ART_PAGE));
   if(artPage>pages-1) artPage=pages-1; if(artPage<0) artPage=0;
   const pageArts=filtered.slice(artPage*ART_PAGE, artPage*ART_PAGE+ART_PAGE);
-  const sig=JSON.stringify([artFrom,artTo,artGroup,artOrigin,artUnread,artPage,arts.length,filtered.length,pageArts.map(a=>[a.id,a.unread,a.title])]);
-  if(sig===artifactsSig && $('#artifacts').childElementCount) return;   // avoid flicker on poll
+  const sig=JSON.stringify([artFrom,artTo,artGroup,artOrigin,artUnread,artQuery,artPage,arts.length,filtered.length,pageArts.map(a=>[a.id,a.unread,a.title])]);
+  if(sig===artifactsSig && $('#artList').childElementCount) return;   // avoid flicker on poll
   artifactsSig=sig;
-  const c=$('#artifacts'); c.innerHTML='';
+  const c=$('#artList'); c.innerHTML='';
   if(!arts.length){ c.append(emptyState('No artifacts yet','Files your tasks publish with “claudeq publish” appear here — reports, exports, HTML pages, PDFs.')); return; }
-  if(!filtered.length){ c.append(emptyState('No artifacts match',artUnread?'Everything here has been read. Show all artifacts to see the rest.':'Adjust the date, group or parent filter to see artifacts.')); return; }
-  const list=el('div','act-list');
+  if(!filtered.length){
+    const why=artQuery?`Nothing matches “${artQuery.trim()}”. Try fewer or different words.`
+      : artUnread?'Everything here has been read. Switch to All to see the rest.':'Adjust the date, group or parent filter to see artifacts.';
+    c.append(emptyState('No artifacts match',why)); return; }
+  // The page is split by day, one card per day, so the eye finds "this morning"
+  // and "last week" without reading every time stamp.
+  let day='', group=null;
   pageArts.forEach(a=>{
-    const line=el('div','act-line');
-    const gl=el('div','act-gl'); if(a.unread) gl.append(el('div','unread-dot'));
-    const card=el('div','act-card');
-    const grow=el('div','grow');
-    // "from <task>" links to the producing run's log in the Log (when the run is
-    // still in history), led by the parent job when another job created it; the
-    // rest of the line is the file name, size and time.
-    const parent=a.origin_id&&a.origin_id!==a.task_id&&a.origin_name ? `${esc(a.origin_name)} › ` : '';
-    const srcHtml=a.task_name
-      ? (a.run_id ? `from ${parent}<span class="art-src" role="button" tabindex="0">${esc(a.task_name)}</span> · `
-                  : `from ${parent}${esc(a.task_name)} · `)
-      : '';
-    const meta=`${esc(a.file_name)} · ${esc(fmtBytes(a.size))} · <span class="hint-time" data-tip="${esc(exactTime(a.published_at))}">${esc(relTime(a.published_at))}</span>`;
-    grow.innerHTML=`<div class="title">${esc(a.title)}</div>`
-      +(a.description?`<div class="sub" style="white-space:normal">${esc(a.description)}</div>`:'')
-      +`<div class="sub">${srcHtml}${meta}</div>`;
-    if(a.task_name && a.run_id){ const s=grow.querySelector('.art-src'); if(s) s.onclick=()=>openArtifactRun(a); }
-    const actions=el('div','row-actions');
-    // Every artifact opens the viewer — types without a preview get a placeholder
-    // there, and keep the sheet's "Open externally" and "Continue in Chat…".
-    const v=el('button','btn small','View'); v.onclick=()=>openViewer(a); actions.append(v);
-    const del=el('button','btn small danger','Delete'); del.title='Delete'; del.onclick=()=>deleteArtifact(a); actions.append(del);
-    const kind=el('span','art-meta',extLabel(a.file_name,a.content_type));
-    card.append(grow,actions,kind);
-    // Dot and eye sit inside the card, as in the Log, so an artifact row is
-    // exactly as wide as a Queue group or a Usage card.
-    if(a.unread){ const mr=el('button','eye-btn',EYE); mr.title='Mark read'; mr.onclick=()=>readArtifact(a.id); actions.prepend(mr); }
-    card.prepend(gl);
-    line.append(card);
-    list.append(line);
+    const d=localDate(a.published_at);
+    if(d!==day){ day=d; c.append(el('div','section-label',esc(dayLabel(a.published_at)))); group=el('div','group'); c.append(group); }
+    group.append(artifactRow(a));
   });
-  c.append(list);
 
   // Footer: count + pager, as in the Log (newest first, so "Newer" goes to
   // lower page indices).
-  const inRange=(artFrom||artTo||artGroup||artOrigin||artUnread)?' matching':'';
+  const inRange=anyFilter()?' matching':'';
   const foot=el('div','act-foot');
   foot.append(el('span','sub',`${filtered.length} artifact${filtered.length!==1?'s':''}${inRange} · page ${artPage+1} of ${pages}`));
   const pager=el('div','pager');
@@ -143,6 +193,7 @@ let viewerGen=0;
 async function openViewer(a){
   const gen=++viewerGen;
   $('#viewerTitle').textContent=a.title;
+  $('#viewerMeta').textContent=[a.file_name,fmtBytes(a.size),a.task_name&&('from '+a.task_name)].filter(Boolean).join(' · ');
   updateViewerContinue(a,gen);   // async: reveals "Continue in Chat…" if the producing run can be resumed
   const body=$('#viewerBody'); body.innerHTML='';
   const kind=artifactKind(a.content_type);
@@ -205,14 +256,21 @@ export function initViewer(){
     setTimeout(()=>{ if(gen===viewerGen && !$('#viewerSheet').open) $('#viewerBody').innerHTML=''; },0); });
   $('#viewerContinueBtn').onclick=continueArtifactRun;
   $('#viewerDoneBtn').onclick=()=>$('#viewerSheet').close();
+  // ⌘F (Ctrl+F elsewhere) puts the cursor in the search field while the
+  // Artifacts view is showing; other views keep the browser's own find, and
+  // so does an open viewer, where the toolbar is behind the modal.
+  document.addEventListener('keydown',e=>{
+    if(current!=='artifacts'||$('#viewerSheet').open||!(e.metaKey||e.ctrlKey)||e.key!=='f'||!searchIn||!searchIn.isConnected) return;
+    e.preventDefault(); searchIn.focus(); searchIn.select(); });
 }
 // Drop every filter, in the state and in the fields the toolbar shows: the
 // toolbar is built once per view switch, so clearing the state alone would
 // leave the old dates standing in it. The menus refill on the next load.
-function clearFilters(){ artFrom=''; artTo=''; artGroup=''; artOrigin=''; artUnread=false;
-  if(unreadSel) unreadSel.value='';
-  document.querySelectorAll('#toolbarActions .date-in').forEach(i=>i.value=''); }
-const shown=a=>inDateRange(a.published_at,artFrom,artTo)&&matchesSource(a);
+function clearFilters(){ artFrom=''; artTo=''; artGroup=''; artOrigin=''; artUnread=false; artQuery='';
+  if(unreadSeg) unreadSeg.querySelectorAll('button').forEach((b,i)=>b.classList.toggle('active',i===0));
+  if(searchIn) searchIn.value='';
+  document.querySelectorAll('#artFilters .date-in').forEach(i=>i.value=''); }
+const shown=a=>inDateRange(a.published_at,artFrom,artTo)&&matchesSource(a)&&matchesQuery(a);
 // Open one artifact by id. This is what a click on a "new artifact"
 // notification ends up calling (the app window pushes the id in from
 // cqOpenPendingArtifact): show the Artifacts view, then open the artifact in
@@ -234,28 +292,34 @@ async function readArtifact(id){ try{ await api('POST','/api/artifacts/'+encodeU
 async function markAllArtifactsRead(){ try{ await api('POST','/api/artifacts/read-all'); toast('All marked read','ok'); artifactsSig=''; loadArtifacts();}catch(e){toast(e.message,'err');} }
 async function deleteArtifact(a){ if(await confirmSheetAsk('Delete artifact “'+a.title+'”? This removes the stored copy.')){ try{ await api('DELETE','/api/artifacts/'+encodeURIComponent(a.id)); toast('Deleted','ok'); artifactsSig=''; loadArtifacts();}catch(e){toast(e.message,'err');} } }
 
+// The filter bar sits above the list, not in the window's toolbar: the
+// toolbar keeps the one action that applies to everything, the filters stay
+// with what they filter. Built on every entry so the fields show the state.
+function renderFilters(){
+  const sec=$('#artifacts');
+  if(!$('#artList')){ sec.append(el('div','art-filters'), el('div')); sec.children[0].id='artFilters'; sec.children[1].id='artList'; }
+  const f=$('#artFilters'); f.innerHTML='';
+  // Two lines: the search with All | Unread, then where and when.
+  const top=el('div','frow'), where=el('div','frow');
+  searchIn=searchField(); unreadSeg=unreadFilterSeg(); top.append(searchIn,unreadSeg);
+  groupSel=sourceFilter('Show the artifacts of one queue group',v=>{artGroup=v;artOrigin='';});
+  originSel=sourceFilter('Show the artifacts one job produced, directly or through the jobs it created',v=>{artOrigin=v;});
+  where.append(groupSel,originSel,el('span','spacer'),dateRange(artFrom,artTo, v=>{artFrom=v;refilter();}, v=>{artTo=v;refilter();}));
+  f.append(top,where);
+}
 export const view={
   title:'Artifacts',
   toolbar(ta){
-    ta.append(dateRange(artFrom,artTo,
-      v=>{artFrom=v;artPage=0;artifactsSig='';loadArtifacts();},
-      v=>{artTo=v;artPage=0;artifactsSig='';loadArtifacts();}));
-    groupSel=sourceFilter('Show the artifacts of one queue group',v=>{artGroup=v;artOrigin='';});
-    originSel=sourceFilter('Show the artifacts one job produced, directly or through the jobs it created',v=>{artOrigin=v;});
-    unreadSel=sourceFilter('Show only the artifacts you have not opened yet',v=>{artUnread=v==='unread';});
-    [['','All artifacts'],['unread','Unread only']].forEach(([v,l])=>{ const o=document.createElement('option'); o.value=v; o.textContent=l; unreadSel.append(o); });
-    unreadSel.value=artUnread?'unread':'';
-    ta.append(unreadSel,groupSel,originSel);
     const b=el('button','btn',EYE+'<span>Mark all read</span>'); b.onclick=markAllArtifactsRead; ta.append(b);
   },
-  enter(){ loadArtifacts(); },
+  enter(){ renderFilters(); artifactsSig=''; loadArtifacts(); },
   refresh(){ artifactsSig=''; loadArtifacts(); },
 };
 
 // The sheet that previews one artifact.
 const sheetTemplate = `
 <dialog id="viewerSheet">
-  <div class="sheet-hd"><b id="viewerTitle">Artifact</b><div class="spacer" style="flex:1"></div>
+  <div class="sheet-hd"><div class="grow"><b id="viewerTitle">Artifact</b><div class="sub" id="viewerMeta"></div></div>
     <div id="viewerActions" class="row-actions"></div></div>
   <div class="sheet-bd" id="viewerBody"></div>
   <div class="sheet-ft"><button class="btn" id="viewerContinueBtn" hidden data-tip="Opens Terminal in the task's folder and resumes the chat that published this artifact — with the full conversation context">Continue in Chat…</button><button class="btn" id="viewerDoneBtn">Done</button></div>
