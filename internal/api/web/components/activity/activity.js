@@ -20,9 +20,10 @@ let actUnread=false, actGroup='', actTask='', actStatus='', actQuery=''; const N
 let searchIn=null, unreadSeg=null, groupSel=null, taskSel=null, statusSel=null, listEl=null;
 const groupKey=r=>(r.task&&r.task.group)||NO_GROUP;
 // What the search looks through: the task, its folder, the harness and model,
-// the group, the outcome and the error, if any.
+// the group, the outcome and the error, if any. The outcome is in both of its
+// spellings, so "rate limited" also finds a run the row calls "rescheduled".
 const haystack=r=>[r.task_name,r.task&&r.task.working_dir,r.provider&&r.provider.name,r.provider&&r.provider.model,
-  r.provider&&r.provider.pool,r.task&&r.task.group,statusLabel(r),r.error].join('\n');
+  r.provider&&r.provider.pool,r.task&&r.task.group,statusLabel(r),r.status.replace(/_/g,' '),r.error].join('\n');
 const shown=r=>inDateRange(r.started_at,actFrom,actTo)&&(!actUnread||r.unread)&&(!actGroup||groupKey(r)===actGroup)
   &&(!actTask||r.task_id===actTask)&&(!actStatus||r.status===actStatus)&&matchesWords(actQuery,haystack(r));
 const anyFilter=()=>!!(actFrom||actTo||actUnread||actGroup||actTask||actStatus||actQuery);
