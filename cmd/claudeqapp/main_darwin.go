@@ -99,6 +99,11 @@ func main() {
 		w.Dispatch(func() { w.Eval("window.cqOpenPendingArtifact && window.cqOpenPendingArtifact()") })
 	})
 
+	// Settings → General → Appearance pins the window light or dark. The page
+	// colours itself through CSS (core/theme.js); this sets the AppKit side,
+	// so the title bar and what WKWebView reports to the page follow suit.
+	_ = w.Bind("cqSetAppearance", func(mode string) { w.Dispatch(func() { setAppearance(mode) }) })
+
 	// Expose the current accent to the page and (re)apply it on each load.
 	_ = w.Bind("cqReadAccent", func() string { return accentHex() })
 	w.Init(`
