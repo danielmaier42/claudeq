@@ -1,11 +1,19 @@
 import {$} from './dom.js';
 
-export function confirmSheetAsk(text,yesLabel,noLabel){ return new Promise(res=>{ $('#confirmText').textContent=text; $('#confirmYes').textContent=yesLabel||'Delete'; $('#confirmNo').textContent=noLabel||'Cancel';
+export function confirmSheetAsk(text,yesLabel,noLabel){ return askConfirm(text,yesLabel,noLabel,'').then(r=>!!r); }
+
+// The same sheet with a checkbox under the question, for a choice that only
+// makes sense once the user has said yes (also delete the data). Resolves to
+// {checked} on yes, null when the user backs out.
+export function confirmCheckAsk(text,checkLabel,yesLabel){ return askConfirm(text,yesLabel,'',checkLabel); }
+
+function askConfirm(text,yesLabel,noLabel,checkLabel){ return new Promise(res=>{ $('#confirmText').textContent=text; $('#confirmYes').textContent=yesLabel||'Delete'; $('#confirmNo').textContent=noLabel||'Cancel';
+  $('#confirmCheckRow').hidden=!checkLabel; $('#confirmCheckText').textContent=checkLabel; $('#confirmCheck').checked=false;
   const dlg=$('#confirmSheet'); let done=false;
   const finish=v=>{ if(done)return; done=true;
     $('#confirmYes').removeEventListener('click',onYes); $('#confirmNo').removeEventListener('click',onNo);
     dlg.removeEventListener('close',onClose); dlg.close(); res(v); };
-  const onYes=()=>finish(true), onNo=()=>finish(false), onClose=()=>finish(false);
+  const onYes=()=>finish({checked:$('#confirmCheck').checked}), onNo=()=>finish(null), onClose=()=>finish(null);
   $('#confirmYes').addEventListener('click',onYes); $('#confirmNo').addEventListener('click',onNo); dlg.addEventListener('close',onClose);
   dlg.showModal(); }); }
 
@@ -28,7 +36,8 @@ export function promptSheetAsk(text,{placeholder='',value='',okLabel='Create',ma
 
 const template = `
 <dialog id="confirmSheet">
-  <div class="sheet-bd" style="padding-top:20px"><b id="confirmText">Are you sure?</b></div>
+  <div class="sheet-bd" style="padding-top:20px"><b id="confirmText">Are you sure?</b>
+    <label class="chk" id="confirmCheckRow" hidden><input type="checkbox" id="confirmCheck"> <span id="confirmCheckText"></span></label></div>
   <div class="sheet-ft"><button class="btn" id="confirmNo">Cancel</button><button class="btn danger" id="confirmYes">Delete</button></div>
 </dialog>
 <dialog id="promptSheet">

@@ -159,10 +159,11 @@ func cmdRun(args []string) error {
 	checker := provider.NewChecker(registry)
 
 	c := clock.Real{}
+	queueBin := resolveQueueBin()
 	eng := engine.New(st, limit.NewGates(c), &executor.Executor{
 		Registry: registry,
 		Home:     home,
-		QueueBin: resolveQueueBin(),
+		QueueBin: queueBin,
 	}, c, checker)
 	if !*noWake {
 		eng.SetWaker(&wake.Scheduler{Runner: system.Real{}, Sudo: true})
@@ -229,6 +230,7 @@ func cmdRun(args []string) error {
 			Feedback:     feedback.New(asides), OSVersion: osVersion(system.Real{}),
 			Review:   &review.Reviewer{Ask: asides},
 			Registry: registry, Providers: checker, Limits: limits,
+			Uninstall: api.DetachedUninstaller(queueBin),
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
@@ -470,7 +472,11 @@ func cmdUninstall() error {
 		return err
 	}
 	fmt.Printf("removed LaunchAgent %s\n", launchd.DefaultLabel)
-	fmt.Println("If you added the pmset sudoers entry, remove it with: sudo rm -f /etc/sudoers.d/claudeq")
+	cli := resolveQueueBin()
+	if cli == "" {
+		cli = "/Applications/ClaudeQ.app/Contents/MacOS/claudeq"
+	}
+	fmt.Printf("To remove the app, the wake permission and the installer receipt as well, run: %s uninstall\n", cli)
 	return nil
 }
 

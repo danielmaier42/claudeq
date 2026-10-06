@@ -9,6 +9,7 @@ import {$, el} from '../../core/dom.js';
 import {SAVE, SPARK} from '../../core/icons.js';
 import {modelOptions, optionsFor} from '../../core/models.js';
 import {segFilter} from '../../core/filters.js';
+import {confirmCheckAsk} from '../../core/confirm.js';
 import {APPEARANCES, applyAppearance, pinned} from '../../core/theme.js';
 import {toast} from '../../core/toast.js';
 
@@ -171,6 +172,12 @@ async function loadSettings(){
           <div class="sub multi">Parts of ClaudeQ that are not finished yet. It decides what the app offers and nothing else: anything already set up keeps working, and the <code>claudeq</code> CLI accepts it either way.</div></div>
           <label class="switch"><input type="checkbox" id="s-beta"><span class="sl"></span></label></div>
       </div>
+      <div class="section-label">Uninstall</div>
+      <div class="group">
+        <div class="row"><div class="grow"><div class="title">Remove ClaudeQ from this Mac</div>
+          <div class="sub multi">Deletes the app, stops its background service and removes the wake permission. macOS asks for your password. Your tasks and history stay unless you choose to delete them.</div></div>
+          <button class="btn danger" id="s-uninstall">Uninstall…</button></div>
+      </div>
     </div>
 
     <div class="sub" style="text-align:center;margin-top:10px">Made with <span style="color:var(--accent)">♥</span> by
@@ -233,6 +240,7 @@ async function loadSettings(){
   if(reviewOn) sysReview.restore();
   $('#s-check-updates').onclick=checkForUpdates;
   $('#s-notif-settings').onclick=openNotificationSettings;
+  $('#s-uninstall').onclick=uninstallApp;
   $('#s-add-provider').onclick=openAddProvider;
   $('#s-add-pool').onclick=openAddPool;
   $('#np-add').onclick=submitProvider;
@@ -273,6 +281,16 @@ function selectSettingsPane(pane){
   document.querySelectorAll('#s-tabs button').forEach(b=>b.classList.toggle('active',b.dataset.pane===pane));
   document.querySelectorAll('#settings .s-pane').forEach(p=>p.hidden=p.dataset.pane!==pane);
 }
+// Uninstall hands over to `claudeq uninstall --gui`, which asks macOS for the
+// password, quits this window and reports the outcome in an alert of its own.
+async function uninstallApp(){
+  const r=await confirmCheckAsk('Uninstall ClaudeQ? The app quits, and a run in progress is stopped.',
+    'Also delete my tasks, run history and settings','Uninstall');
+  if(!r) return;
+  try{ await api('POST','/api/uninstall',{purge:r.checked}); toast('Removing ClaudeQ…'); }
+  catch(err){ toast(err.message,'err'); }
+}
+
 // Jump to macOS' notification settings, where the alert style lives (Banners
 // disappear on their own, Alerts wait for a click). Only the app window can open
 // a System Settings URL — in a browser tab we just say where to look.

@@ -69,7 +69,7 @@ chmod +x "$FAKE/claude"
 
 # Fake system tools (launchctl/sudo/pmset) log their args instead of touching
 # the real system, so Phase 3 install/wake can be checked safely.
-for tool in launchctl sudo pmset osascript pkill; do
+for tool in launchctl sudo pmset osascript pkill pkgutil defaults; do
   cat > "$FAKE/$tool" <<EOF
 #!/bin/sh
 echo "\$*" >> "$WORK/$tool.log"
@@ -287,8 +287,26 @@ chmod +x "$FAKE/pgrep"
 sh "$ROOT/scripts/pkg/preinstall" >/dev/null 2>&1
 check "preinstall TERMs the window by exact process name"  contains "$WORK/pkill.log" "^-x claudeqapp$"
 check "preinstall does not force-quit a window that exits" bash -c '! grep -q -- "-9" "'"$WORK"'/pkill.log"'
-check "NFA-06 uninstall removes LaunchAgent and app"       contains "$ROOT/scripts/uninstall.sh" "uninstall"
-check "NFA-06 uninstall is valid shell"                    bash -n "$ROOT/scripts/uninstall.sh"
+
+# NFA-06: the real `claudeq uninstall` against the fakes. The fake pkgutil
+# reports an installer receipt, so everything that belongs to root goes through
+# the (fake) administrator prompt; a scratch HOME and data directory take the rest.
+UHOME="$WORK/uhome"; UDATA="$WORK/udata"
+mkdir -p "$UHOME/Library/LaunchAgents" "$UHOME/Library/WebKit/de.maierdaniel.claudeq" "$UDATA"
+touch "$UHOME/Library/LaunchAgents/de.maierdaniel.claudeq.plist" "$UDATA/config.toml" "$UDATA/.lock" "$UDATA/notes.txt"
+: > "$WORK/launchctl.log"; : > "$WORK/osascript.log"; : > "$WORK/defaults.log"; rm -f "$WORK/pkill.log"
+HOME="$UHOME" CLAUDEQ_HOME="$UDATA" "$CQ" uninstall --yes --purge >"$WORK/uninstall.out" 2>&1
+ucode=$?
+num_check "NFA-06 uninstall exits cleanly"                    "$ucode" -eq 0
+num_check "NFA-06 one administrator prompt for root's parts"  "$(lines "$WORK/osascript.log" "with administrator privileges")" -eq 1
+check "NFA-06 uninstall forgets the installer receipt"     contains "$WORK/osascript.log" "pkgutil --forget de.maierdaniel.claudeq"
+check "NFA-06 uninstall closes the window"                 contains "$WORK/pkill.log" "^-x claudeqapp$"
+check "NFA-06 uninstall boots out the LaunchAgent"         contains "$WORK/launchctl.log" "bootout gui/[0-9]*/de.maierdaniel.claudeq$"
+check "NFA-06 uninstall removes the LaunchAgent plist"     bash -c '[ ! -e "'"$UHOME"'/Library/LaunchAgents/de.maierdaniel.claudeq.plist" ]'
+check "NFA-06 --purge deletes ClaudeQ's files"             bash -c '[ ! -e "'"$UDATA"'/config.toml" ] && [ ! -e "'"$UDATA"'/.lock" ]'
+check "NFA-06 --purge keeps others' files in CLAUDEQ_HOME"  test -f "$UDATA/notes.txt"
+check "NFA-06 --purge deletes the app's Library folders"   bash -c '[ ! -e "'"$UHOME"'/Library/WebKit/de.maierdaniel.claudeq" ]'
+check "NFA-06 --purge clears the preferences via cfprefsd" contains "$WORK/defaults.log" "^delete de.maierdaniel.claudeq$"
 check "release pipeline triggers on version tags"          contains "$ROOT/.github/workflows/release.yml" 'tags:'
 check "release pipeline attaches the installer pkg"        contains "$ROOT/.github/workflows/release.yml" "claudeq-.*.pkg"
 

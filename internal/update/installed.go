@@ -52,7 +52,7 @@ func installedApp(exePath, defaultApp string) *Installed {
 // exePath (…/ClaudeQ.app/Contents/MacOS/claudeqd) and the canonical location.
 func candidateApps(exePath, defaultApp string) []string {
 	apps := []string{}
-	if app := enclosingBundle(exePath); app != "" {
+	if app := EnclosingBundle(exePath); app != "" {
 		apps = append(apps, app)
 	}
 	if len(apps) == 0 || apps[0] != defaultApp {
@@ -61,9 +61,9 @@ func candidateApps(exePath, defaultApp string) []string {
 	return apps
 }
 
-// enclosingBundle returns the .app bundle a binary lives in, "" if it does not
+// EnclosingBundle returns the .app bundle a binary lives in, "" if it does not
 // sit inside one.
-func enclosingBundle(exePath string) string {
+func EnclosingBundle(exePath string) string {
 	if exePath == "" {
 		return ""
 	}
@@ -95,6 +95,19 @@ func BundleVersion(appPath string) string {
 		return ""
 	}
 	return plistString(string(b), "CFBundleShortVersionString")
+}
+
+// BundleIdentifier reads CFBundleIdentifier from an app bundle's Info.plist,
+// "" if the bundle or the key is missing.
+func BundleIdentifier(appPath string) string {
+	if appPath == "" {
+		return ""
+	}
+	b, err := os.ReadFile(filepath.Join(appPath, "Contents", "Info.plist"))
+	if err != nil {
+		return ""
+	}
+	return plistString(string(b), "CFBundleIdentifier")
 }
 
 // plistString returns the <string> value following <key>name</key> in an XML

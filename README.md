@@ -485,6 +485,7 @@ and the update button live.
 | | | Keep run history | How many runs (and their logs) to retain before pruning (default 500; Unlimited keeps everything). |
 | | Scheduler | Check for due tasks every | How often the daemon wakes to look for work (15 min – 6 h; also the wake safety-net interval). |
 | | Beta features | Beta features | Reveals the parts of ClaudeQ that are not finished yet — currently **Add provider** and the **Codex** and **opencode** providers. Presentation only: anything already set up keeps working and the CLI accepts it either way. |
+| | Uninstall | Remove ClaudeQ from this Mac | **Uninstall…** asks once, with a checkbox to delete your tasks, history and settings too, then hands over to `claudeq uninstall`: macOS asks for your password, the window quits, and an alert reports the outcome. See [Uninstall](#uninstall). |
 
 ## Providers
 
@@ -880,6 +881,7 @@ claudeq settings [--json] [--default-provider ID]
                  [--pushover=BOOL] [--pushover-token T] [--pushover-user U]
                  [--ntfy=BOOL] [--ntfy-server S] [--ntfy-topic T] [--ntfy-token T]
                  [--webhook=BOOL] [--webhook-url U] [--webhook-template J]
+claudeq uninstall [--purge] [--yes]            # remove ClaudeQ from this Mac (see Uninstall)
 claudeq --version
 ```
 
@@ -1628,15 +1630,34 @@ The LaunchAgent itself is at
 
 ## Uninstall
 
+Dragging ClaudeQ.app to the Bin is not enough: the background agent stays
+registered and macOS keeps trying to start it. Use **Settings → System →
+Uninstall…** in the app, or the CLI:
+
 ```sh
-/Applications/ClaudeQ.app/Contents/MacOS/claudeqd uninstall   # remove the LaunchAgent
-sudo rm -f /etc/sudoers.d/claudeq                             # remove the pmset wake permission
-rm -rf /Applications/ClaudeQ.app
+/Applications/ClaudeQ.app/Contents/MacOS/claudeq uninstall          # keep tasks and history
+/Applications/ClaudeQ.app/Contents/MacOS/claudeq uninstall --purge  # delete them too
 ```
 
-Or run [`scripts/uninstall.sh`](scripts/uninstall.sh) (does all of the above).
-Your tasks and history in `~/Library/Application Support/claudeq` are left in
-place; delete that folder to remove them too.
+Either way this removes:
+
+| What | Where |
+|------|-------|
+| The app | `/Applications/ClaudeQ.app` (and the bundle the command runs from, if that is another copy) |
+| The background agent | `~/Library/LaunchAgents/de.maierdaniel.claudeq.plist`; every running ClaudeQ daemon and window is stopped, and a run in progress is cancelled |
+| The wake permission | `/etc/sudoers.d/claudeq` |
+| The installer receipt | `pkgutil --forget de.maierdaniel.claudeq` |
+| With `--purge` only | The [data directory](#data-on-disk), and the app's own folders under `~/Library` (`WebKit`, `Caches`, `HTTPStorages`, `Saved Application State`, `Preferences`) |
+
+The CLI lists all of it and asks before it starts (`--yes` skips the question).
+The app and its receipt belong to the system, so macOS asks for an
+administrator password once; cancelling that prompt leaves everything as it was.
+Run the command as yourself, not with `sudo`: the agent belongs to your login
+session. With a `CLAUDEQ_HOME` outside the default location, a purge deletes
+only ClaudeQ's own files there and keeps everything else, and it refuses a
+folder ClaudeQ has never used. The app's button runs the
+same command with `--gui`, which reports the outcome in a macOS alert instead of
+the terminal.
 
 ## Build from source
 

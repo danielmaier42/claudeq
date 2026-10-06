@@ -5,3 +5,6 @@ dialog::backdrop { background:rgba(0,0,0,.35); backdrop-filter:blur(2px); }
 .sheet-hd { display:flex; align-items:center; padding:14px 18px; border-bottom:.5px solid var(--hairline); }
 .sheet-hd b { font-size:14px; } .sheet-bd { padding:16px 18px; max-height:70vh; overflow:auto; }
 .sheet-ft { display:flex; justify-content:flex-end; gap:8px; padding:12px 18px; border-top:.5px solid var(--hairline); }
+/* The optional checkbox under a confirm question (confirmCheckAsk) */
+#confirmSheet .chk { display:flex; align-items:center; gap:8px; margin-top:12px; font-size:13px; }
+#confirmSheet .chk[hidden] { display:none; }
