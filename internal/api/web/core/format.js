@@ -37,3 +37,13 @@ export function resumeText(r){ return resumeTimeText(resumeAt(r)); }
 export function runTimeTitle(r){ let t=exactTime(r.started_at);
   if(r.finished_at) t+=' - '+fmtRunDur(new Date(r.finished_at)-new Date(r.started_at));
   return t; }
+// The heading of one day's entries in a list split by day: Today, Yesterday,
+// then the weekday and date (with the year once it is not this one).
+export function dayLabel(iso){
+  const day=localDate(iso), now=new Date(), today=localDate(now.toISOString());
+  const y=new Date(now); y.setDate(y.getDate()-1);
+  if(day===today) return 'Today'; if(day===localDate(y.toISOString())) return 'Yesterday';
+  const d=new Date(iso); const opts={weekday:'long',day:'numeric',month:'long'};
+  if(d.getFullYear()!==now.getFullYear()) opts.year='numeric';
+  return d.toLocaleDateString(undefined,opts);
+}

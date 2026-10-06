@@ -706,21 +706,17 @@ func (e *Engine) noteProviderHealth(st *store.State, inst provider.Instance, h p
 	if e.notifier == nil {
 		return
 	}
-	var n notify.Notification
+	n := notify.Notification{Kind: store.InboxKindProvider}
 	switch {
 	case h.Ready() && previous == "":
 		// First look at a working provider: nothing happened worth announcing.
 		return
 	case h.Ready():
-		n = notify.Notification{
-			Title:   "ClaudeQ: " + inst.Label() + " is ready again",
-			Message: "Tasks waiting for this provider will start on the next check.",
-		}
+		n.Title = "ClaudeQ: " + inst.Label() + " is ready again"
+		n.Message = "Tasks waiting for this provider will start on the next check."
 	default:
-		n = notify.Notification{
-			Title:   "ClaudeQ: " + inst.Label() + " cannot run tasks",
-			Message: h.ReasonOr("The provider is not ready.") + "\nTasks for it stay queued until it works again.",
-		}
+		n.Title = "ClaudeQ: " + inst.Label() + " cannot run tasks"
+		n.Message = h.ReasonOr("The provider is not ready.") + "\nTasks for it stay queued until it works again."
 	}
 	// Off the scheduler goroutine: a channel that takes its time must not delay
 	// the tick that noticed the problem.
@@ -1247,18 +1243,21 @@ func (e *Engine) notifyOutcome(t task.Task, rec store.Run, resultText string) {
 	}
 	msg := truncateRunes(strings.TrimSpace(resultText), 300)
 
-	var n notify.Notification
+	// The run is the click target: the notification opens its log in the window.
+	n := notify.Notification{RunID: rec.RunID, TaskID: rec.TaskID, TaskName: rec.TaskName}
 	switch rec.Status {
 	case store.StatusSuccess:
 		if !t.NotifyOnResult {
 			return
 		}
+		n.Kind = store.InboxKindSuccess
 		n.Title = "ClaudeQ ✓ " + rec.TaskName
 		n.Message = msg
 		if n.Message == "" {
 			n.Message = "Completed successfully."
 		}
 	case store.StatusFailed:
+		n.Kind = store.InboxKindFailure
 		n.Title = "ClaudeQ ✗ " + rec.TaskName + " failed"
 		if t.NotifyOnResult && msg != "" {
 			n.Message = msg
@@ -1268,6 +1267,7 @@ func (e *Engine) notifyOutcome(t task.Task, rec store.Run, resultText string) {
 			n.Message = "Task failed."
 		}
 	case store.StatusAuthError:
+		n.Kind = store.InboxKindFailure
 		n.Title = "ClaudeQ: login problem"
 		n.Message = rec.TaskName + ": Claude Code authentication problem — please re-login."
 	default:
@@ -1281,11 +1281,38 @@ func (e *Engine) notifyOutcome(t task.Task, rec store.Run, resultText string) {
 // operator can find out why an alert never arrived. Deliberately not bound to
 // the loop's context — a notification raised moments before shutdown would
 // otherwise be lost.
+//
+// Before anything goes out, the notification is written to the inbox the
+// Notifications view lists, under the id the macOS notification then carries:
+// a click marks that entry read, and a channel that swallows the message still
+// leaves it where the operator can find it.
 func (e *Engine) send(n notify.Notification) {
+	now := e.clock.Now()
+	n.ID = "i-" + now.UTC().Format("20060102T150405") + "-" + shortHex(3)
+	if err := e.store.AddInboxEntry(inboxEntry(n, now)); err != nil {
+		fmt.Fprintf(os.Stderr, "claudeqd: notification %q not recorded: %v\n", n.Title, err)
+		n.ID = "" // nothing to mark read; a click falls back to the target alone
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := e.notifier.Notify(ctx, n); err != nil {
 		fmt.Fprintf(os.Stderr, "claudeqd: notification %q not delivered: %v\n", n.Title, err)
+	}
+}
+
+// inboxEntry is the inbox record of a notification about to be sent.
+func inboxEntry(n notify.Notification, sentAt time.Time) store.InboxEntry {
+	return store.InboxEntry{
+		ID:         n.ID,
+		Kind:       n.Kind,
+		Title:      n.Title,
+		Message:    n.Message,
+		ArtifactID: n.ArtifactID,
+		RunID:      n.RunID,
+		URL:        n.URL,
+		TaskID:     n.TaskID,
+		TaskName:   n.TaskName,
+		SentAt:     sentAt,
 	}
 }
 

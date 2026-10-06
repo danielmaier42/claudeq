@@ -4,6 +4,7 @@ import {initViewer, loadArtifacts, mountViewer} from './components/artifacts/art
 import {loadDashboard} from './components/dashboard/dashboard.js';
 import {initFeedback, mountFeedback} from './components/feedback/feedback.js';
 import {initLogSheet, mountLogSheet} from './components/log-sheet/log-sheet.js';
+import {loadNotifications} from './components/notifications/notifications.js';
 import {initPoolSheet, mountPoolSheet} from './components/pools/pools.js';
 import {initProviderSheet, mountProviderSheet} from './components/providers/providers.js';
 import {loadTasks} from './components/queue/queue.js';
@@ -56,10 +57,10 @@ initPoolSheet();
 initFeedback();
 initDialogs();
 
-// The app window's menu bar drives the page through these three, and its
-// "new artifact" notification through window.cqOpenArtifact (published where it
-// is implemented). Modules keep everything else to themselves, so what the
-// native side may call is exactly this list — see cmd/claudeqapp/main_darwin.go.
+// The app window's menu bar drives the page through these three, and a click
+// on a macOS notification through window.cqOpenNotificationTarget (published
+// where it is implemented). Modules keep everything else to themselves, so what
+// the native side may call is exactly this list — see cmd/claudeqapp/main_darwin.go.
 window.openAdd=openAdd;
 window.select=select;
 window.cqRefresh=refresh;
@@ -69,7 +70,7 @@ window.cqRefresh=refresh;
 // entering confirms it. The badges ride along with the lists. The dashboard's
 // poll reads only what the daemon last read from the providers; asking them
 // again is for opening it and View > Refresh.
-function poll(){ loadDashboard(false); loadTasks(); loadRuns(); loadArtifacts(); loadUsage(); }
+function poll(){ loadDashboard(false); loadTasks(); loadRuns(); loadArtifacts(); loadNotifications(); loadUsage(); }
 setInterval(poll, 5000);
 
 // refresh is the explicit "show me now" of View > Refresh (Cmd+R) in the app's

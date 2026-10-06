@@ -213,15 +213,21 @@ func detectContentType(name, path string) string {
 	return http.DetectContentType(buf[:n]) // "application/octet-stream" for empty
 }
 
-// MarkArtifactRead marks a single artifact as read (FA-A2).
+// MarkArtifactRead marks a single artifact as read (FA-A2), and with it the
+// notification that announced it.
 func MarkArtifactRead(s *store.Store, id string) error {
-	return s.UpdateState(func(st *store.State) error {
+	if err := s.UpdateState(func(st *store.State) error {
 		st.MarkArtifactRead(id)
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	carryRead(readArtifactNotifications(s, map[string]bool{id: true}))
+	return nil
 }
 
-// MarkAllArtifactsRead marks every published artifact as read.
+// MarkAllArtifactsRead marks every published artifact as read, and every
+// "new artifact" notification with them.
 func MarkAllArtifactsRead(s *store.Store) error {
 	arts, err := s.Artifacts()
 	if err != nil {
@@ -231,10 +237,14 @@ func MarkAllArtifactsRead(s *store.Store) error {
 	for i, a := range arts {
 		ids[i] = a.ID
 	}
-	return s.UpdateState(func(st *store.State) error {
+	if err := s.UpdateState(func(st *store.State) error {
 		st.MarkAllArtifactsRead(ids)
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	carryRead(readArtifactNotifications(s, nil))
+	return nil
 }
 
 // DeleteArtifact removes an artifact's record, its stored file(s), and its

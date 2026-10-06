@@ -91,12 +91,13 @@ func main() {
 		}
 	})
 
-	// Clicking a "new artifact" notification opens that artifact in the window.
-	// The id is fetched by the page (not pushed) so that a click during launch —
-	// before the page exists — is picked up as soon as it has loaded.
-	_ = w.Bind("cqTakePendingArtifact", takePendingArtifact)
+	// Clicking a notification opens what it is about in the window: the
+	// artifact, the run's log, or the Notifications view. The target is fetched
+	// by the page (not pushed) so that a click during launch — before the page
+	// exists — is picked up as soon as it has loaded.
+	_ = w.Bind("cqTakePendingNotification", takePendingNotification)
 	onNotificationClick(func() {
-		w.Dispatch(func() { w.Eval("window.cqOpenPendingArtifact && window.cqOpenPendingArtifact()") })
+		w.Dispatch(func() { w.Eval("window.cqOpenPendingNotification && window.cqOpenPendingNotification()") })
 	})
 
 	// Expose the current accent to the page and (re)apply it on each load.
@@ -106,15 +107,15 @@ func main() {
 			var r = document.documentElement.style;
 			if (hex) r.setProperty('--accent', hex); else r.removeProperty('--accent');
 		};
-		window.cqOpenPendingArtifact = async function(){
+		window.cqOpenPendingNotification = async function(){
 			try {
-				var id = await window.cqTakePendingArtifact();
-				if (id && window.cqOpenArtifact) window.cqOpenArtifact(id);
+				var t = await window.cqTakePendingNotification();
+				if (t && window.cqOpenNotificationTarget) window.cqOpenNotificationTarget(t);
 			} catch (e) {}
 		};
 		window.addEventListener('DOMContentLoaded', async function(){
 			try { window.cqApplyAccent(await window.cqReadAccent()); } catch (e) {}
-			window.cqOpenPendingArtifact();
+			window.cqOpenPendingNotification();
 		});
 	`)
 

@@ -1,10 +1,11 @@
+import {openRun} from '../activity/activity.js';
 import {current, select} from '../app-shell/app-shell.js';
-import {canContinue, showLog} from '../log-sheet/log-sheet.js';
+import {canContinue} from '../log-sheet/log-sheet.js';
 import {setConn} from '../status/status.js';
 import {api} from '../../core/api.js';
 import {confirmSheetAsk} from '../../core/confirm.js';
 import {$, dateRange, el, emptyState, esc} from '../../core/dom.js';
-import {exactTime, inDateRange, localDate, relTime} from '../../core/format.js';
+import {dayLabel, exactTime, inDateRange, localDate, relTime} from '../../core/format.js';
 import {byLabel, fillSelect, filterBar, listOf, matchesWords, searchField, segFilter, selectFilter} from '../../core/filters.js';
 import {EYE} from '../../core/icons.js';
 import {toast} from '../../core/toast.js';
@@ -57,25 +58,6 @@ function openArtifactExternal(a){ const url=location.origin+contentURL(a,false);
 // it. The local flag is cleared first so a second open (e.g. "Open externally"
 // from an already-opened viewer) does not re-post and re-render the list.
 function markReadOnOpen(a){ if(!a||!a.unread) return; a.unread=false; readArtifact(a.id); }
-// Jump to the Log and open the log of the run that produced this artifact. The
-// run may have been pruned from history (artifacts outlive runs), so check first.
-async function openArtifactRun(a){
-  if(!a.run_id) return;
-  let runs=[]; try{ runs=await api('GET','/api/runs'); }catch(e){ toast(e.message,'err'); return; }
-  const run=runs.find(r=>r.run_id===a.run_id);
-  if(!run){ toast('The run that produced this artifact is no longer in history','err'); return; }
-  select('news');
-  showLog(run);
-}
-// The heading of one day's artifacts: Today, Yesterday, then the weekday and date.
-function dayLabel(iso){
-  const day=localDate(iso), now=new Date(), today=localDate(now.toISOString());
-  const y=new Date(now); y.setDate(y.getDate()-1);
-  if(day===today) return 'Today'; if(day===localDate(y.toISOString())) return 'Yesterday';
-  const d=new Date(iso); const opts={weekday:'long',day:'numeric',month:'long'};
-  if(d.getFullYear()!==now.getFullYear()) opts.year='numeric';
-  return d.toLocaleDateString(undefined,opts);
-}
 // One artifact as one row: the dot, the title with its one-line summary, who
 // made it and when, and the actions, which show when the pointer is on the
 // row. The row itself opens the viewer; file name and size sit in the title's
@@ -92,15 +74,15 @@ function artifactRow(a){
   // Who made it: the parent job when another job created the publisher (the
   // watcher is what one looks for, not the review job it filed), else the
   // publisher itself. The tooltip spells out the chain, and a click opens the
-  // run's log while that run is still in history.
+  // run's log while that run is still in history (artifacts outlive runs).
   const src=el('div','art-from');
   if(a.task_name){
     const parent=a.origin_id&&a.origin_id!==a.task_id&&a.origin_name;
     src.textContent=parent||a.task_name;
     src.dataset.tip=(parent?a.origin_name+' › ':'')+a.task_name+(a.run_id?' · click to open the run\'s log':'');
     if(a.run_id){ src.classList.add('art-src'); src.setAttribute('role','link'); src.tabIndex=0;
-      src.onclick=e=>{ e.stopPropagation(); openArtifactRun(a); };
-      src.onkeydown=e=>{ if(e.key==='Enter'){ e.stopPropagation(); openArtifactRun(a); } }; }
+      src.onclick=e=>{ e.stopPropagation(); openRun(a.run_id); };
+      src.onkeydown=e=>{ if(e.key==='Enter'){ e.stopPropagation(); openRun(a.run_id); } }; }
   }
   const when=el('div','art-when',esc(relTime(a.published_at))); when.dataset.tip=exactTime(a.published_at);
   const actions=el('div','row-actions art-actions');
@@ -245,10 +227,10 @@ function clearFilters(){ artFrom=''; artTo=''; artGroup=''; artOrigin=''; artUnr
   document.querySelectorAll('#artifacts .filters .date-in').forEach(i=>i.value=''); }
 const shown=a=>inDateRange(a.published_at,artFrom,artTo)&&matchesSource(a)&&matchesQuery(a);
 // Open one artifact by id. This is what a click on a "new artifact"
-// notification ends up calling (the app window pushes the id in from
-// cqOpenPendingArtifact): show the Artifacts view, then open the artifact in
-// the viewer. If it is already gone, the view alone is the fallback.
-window.cqOpenArtifact=async function(id){
+// notification ends up calling (through the Notifications view): show the
+// Artifacts view, then open the artifact in the viewer. If it is already gone,
+// the view alone is the fallback.
+export async function openArtifact(id){
   select('artifacts');
   let arts; try{ arts=await api('GET','/api/artifacts'); }catch(e){ toast(e.message,'err'); return; }
   const a=arts.find(x=>x.id===id);
@@ -260,7 +242,7 @@ window.cqOpenArtifact=async function(id){
   artPage=Math.floor(arts.filter(shown).indexOf(a)/ART_PAGE);
   artifactsSig=''; loadArtifacts();
   openViewer(a);
-};
+}
 async function readArtifact(id){ try{ await api('POST','/api/artifacts/'+encodeURIComponent(id)+'/read'); }catch{} artifactsSig=''; loadArtifacts(); }
 async function markAllArtifactsRead(){ try{ await api('POST','/api/artifacts/read-all'); toast('All marked read','ok'); artifactsSig=''; loadArtifacts();}catch(e){toast(e.message,'err');} }
 async function deleteArtifact(a){ if(await confirmSheetAsk('Delete artifact “'+a.title+'”? This removes the stored copy.')){ try{ await api('DELETE','/api/artifacts/'+encodeURIComponent(a.id)); toast('Deleted','ok'); artifactsSig=''; loadArtifacts();}catch(e){toast(e.message,'err');} } }
