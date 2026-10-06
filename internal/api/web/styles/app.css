@@ -24,6 +24,7 @@
 @import "empty.css";
 @import "sheet.css";
 @import "../components/artifacts/artifacts.css";
+@import "../components/notifications/notifications.css";
 @import "../components/log-sheet/log-sheet.css";
 @import "../components/task-sheet/task-sheet.css";
 @import "../components/review/review.css";

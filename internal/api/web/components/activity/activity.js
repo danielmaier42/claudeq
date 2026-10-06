@@ -1,4 +1,4 @@
-import {current} from '../app-shell/app-shell.js';
+import {current, select} from '../app-shell/app-shell.js';
 import {showLog} from '../log-sheet/log-sheet.js';
 import {PROVIDERS, setProviderSnapshot} from '../providers/providers.js';
 import {invalidateTasks, loadTasks} from '../queue/queue.js';
@@ -218,6 +218,18 @@ export async function cancelResume(r){
   return ok;
 }
 export async function readRun(id){ try{ await api('POST',`/api/runs/${id}/read`); }catch{} runsSig=''; loadRuns(); }
+// Jump to the Log and open one run's log by id — what a click on an
+// artifact's source or on a run-outcome notification does. The run may have
+// been pruned from history, so check first; the caller learns whether the
+// log opened.
+export async function openRun(runID){
+  let runs=[]; try{ runs=await api('GET','/api/runs'); }catch(e){ toast(e.message,'err'); return false; }
+  const run=runs.find(r=>r.run_id===runID);
+  if(!run){ toast('That run is no longer in history','err'); return false; }
+  select('news');
+  showLog(run);
+  return true;
+}
 async function markAllRead(){ try{await api('POST','/api/runs/read-all');toast('All marked read','ok'); runsSig=''; loadRuns();}catch(e){toast(e.message,'err')} }
 
 export const view={

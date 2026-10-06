@@ -283,7 +283,10 @@ explains it.
 - **Notifications** natively on macOS and, optionally, to
   [Pushover](https://pushover.net), an [ntfy](https://ntfy.sh) topic, or any
   incoming webhook (Slack, Discord, Home Assistant, n8n) with a JSON body you
-  template. Failures always notify, successes only if the task opts in.
+  template. Failures always notify, successes only if the task opts in. Every
+  notification also lands in the app's **Notifications** view, and clicking the
+  macOS banner marks it read there and opens what it is about — the artifact,
+  the run's log, the link.
 - **Full history** of every run with its complete log as a chat transcript or
   raw output, and replay.
 - **Continue in Chat…** opens Terminal in the task's folder and resumes the
@@ -308,7 +311,7 @@ explains it.
 
 ## The app
 
-The dashboard (and the native window that wraps it) has seven views. Five sit at
+The dashboard (and the native window that wraps it) has eight views. Six sit at
 the top of the sidebar; **Settings** and **Feedback** ([below](#sending-feedback))
 sit at the bottom, out of the way of the work. The window opens on the
 Dashboard:
@@ -419,6 +422,23 @@ Dashboard:
   Clicking the notification of a newly published artifact lands here with that
   artifact already open — on the page that holds it, with any filter or search
   that would hide it dropped.
+- **Notifications** — every notification ClaudeQ sent, newest first, with an
+  unread badge: a run's outcome, a new artifact, a provider that stopped or
+  resumed running tasks, and whatever a task said with `claudeq notify`. Each
+  row shows the notification as it was shown on screen — a glyph for its kind,
+  the title, the message — and when it was sent; the list is grouped by day
+  and paged like Artifacts. A row does what clicking the macOS notification
+  does: it turns read, and what it is about opens — the artifact in the viewer,
+  the run's log, a task's link in the browser. The other way round, clicking a
+  macOS notification marks it read here before it opens its target; a
+  notification with no target (a provider's state) lands in this view. Opening
+  an artifact or a run's log from its own view also reads the notification
+  about it, and **Mark all read** in the toolbar does what it says. Above the
+  list: a **search field** (⌘F; every word has to occur in the title, message,
+  task or kind), **All | Unread**, and a menu for the **kind** (run succeeded,
+  run failed, new artifact, provider, from a task). The daemon keeps the last
+  200 notifications; older ones make room. Notifications macOS is set to hide
+  still arrive here, so nothing is lost while the banner is off.
 - **Usage** — a per-day bar chart of runs, tokens, and cost for the last 14 days,
   plus totals and a 7-day summary.
 - **Settings** — global defaults and integrations (below). The custom system
@@ -426,7 +446,7 @@ Dashboard:
   an update is available.
 
 The views keep themselves current: every few seconds the window re-reads the
-queue, the log, the artifacts, the usage and the limits the daemon last read,
+queue, the log, the artifacts, the notifications, the usage and the limits the daemon last read,
 including the views that are not open, so a view you click shows the present state. Coming
 back to the window re-reads them at once. **View → Refresh** (**⌘R**) in the
 menu bar redraws every view on demand; it leaves an unsaved Settings form alone.
@@ -1221,7 +1241,8 @@ claudeq notify --title "Prod drifted" --message "3 commits behind main" --url "h
 The notification goes out over the **channels you already configured** — macOS
 Notification Center, Pushover, ntfy and the webhook, each independently — with
 the same look as ClaudeQ's own alerts, and attributed to the task that sent it
-(its name is appended to the message). Nothing is stored: no artifact, no
+(its name is appended to the message). Like every notification it is listed
+in the app's **Notifications** view; nothing else is stored — no artifact, no
 history entry. The run's own outcome is still announced according to the
 task's settings, so a watcher that finds nothing sends nothing and stays
 silent.
@@ -1597,6 +1618,7 @@ Everything lives under `~/Library/Application Support/claudeq` (override with th
 | `artifacts.json` | Index of published artifacts (title, source task/run, its group and parent job, file name, size, type). |
 | `artifacts/<id>/<file>` | The published files themselves (snapshots copied at publish time). |
 | `notifications.json` | Outbox of notifications sent with `claudeq notify`, waiting for the daemon to deliver them (normally empty). |
+| `inbox.json` | The last 200 notifications the daemon sent (title, message, kind, what each points at, read flag), as listed in the Notifications view. |
 | `state.json` | Machine bookkeeping: read/unread flags (runs and artifacts), which artifacts have been notified about, cron anchors, pending-resume sessions, the provider health you were last told about, which queue groups are folded shut, dismissed update version. |
 | `claudeqd.out.log` / `claudeqd.err.log` | Daemon stdout/stderr. |
 | `.lock` / `.daemon.lock` | Lock files, both empty of interest. `.lock` serializes config/state writes between the daemon and a `claudeq` command; `.daemon.lock` holds the running daemon's pid and is what makes a second daemon on the same store refuse to start. Both are released when the holding process exits, so neither needs clearing by hand. |

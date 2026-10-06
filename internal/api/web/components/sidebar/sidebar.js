@@ -14,6 +14,9 @@ const template = `
     <button data-tab="artifacts">
       <svg viewBox="0 0 20 20"><path d="M6 2.5h5L15 6.5V17a.5.5 0 0 1-.5.5h-9A.5.5 0 0 1 5 17V3a.5.5 0 0 1 .5-.5z"/><path d="M11 2.5V7h4"/></svg>
       Artifacts <span id="artifactCount" class="count" hidden>0</span></button>
+    <button data-tab="notifications">
+      <svg viewBox="0 0 20 20"><path d="M5.5 13.5V9a4.5 4.5 0 0 1 9 0v4.5l1.5 1.5h-12z"/><path d="M8.5 16.5a1.5 1.5 0 0 0 3 0"/></svg>
+      Notifications <span id="notifCount" class="count" hidden>0</span></button>
     <button data-tab="usage">
       <svg viewBox="0 0 20 20"><path d="M3 14a7 7 0 1 1 14 0"/><path d="M10 14l4-4"/></svg>
       Usage</button>

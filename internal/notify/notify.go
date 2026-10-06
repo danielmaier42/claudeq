@@ -18,14 +18,29 @@ import (
 type Notification struct {
 	Title   string
 	Message string
+	// ID names the notification in the daemon's inbox (store.InboxEntry). The
+	// macOS notification carries it so a click can mark that entry read (see
+	// cmd/claudeqapp, notifyclick_cocoa.m); other channels ignore it.
+	ID string
+	// Kind says what the notification announces (a store.InboxKind constant).
+	// It is bookkeeping for the inbox, not something a channel shows.
+	Kind string
 	// ArtifactID, when set, makes the macOS notification open that artifact in
-	// the ClaudeQ window on click (see cmd/claudeqapp, notifyclick_cocoa.m).
-	// Channels that cannot carry a click target ignore it.
+	// the ClaudeQ window on click. Channels that cannot carry a click target
+	// ignore it.
 	ArtifactID string
+	// RunID, when set, makes the macOS notification open that run's log in the
+	// ClaudeQ window on click. Channels that cannot carry a click target ignore
+	// it.
+	RunID string
 	// URL, when set, is the notification's link: Pushover shows it as the
 	// message's supplementary URL, and clicking the macOS notification opens it
 	// (again via cmd/claudeqapp). Channels that cannot carry a link ignore it.
 	URL string
+	// TaskID and TaskName attribute the notification to the task it is about
+	// or that sent it, for the inbox. Channels ignore them.
+	TaskID   string
+	TaskName string
 }
 
 // IsWebURL reports whether s is an absolute http or https URL — the only kind
@@ -56,7 +71,7 @@ type Mac struct {
 // notifications show a generic script icon but always work from a LaunchAgent.
 func (m Mac) Notify(ctx context.Context, n Notification) error {
 	if nativeNotifyAvailable() {
-		if err := postNativeNotification(n.Title, n.Message, n.ArtifactID, n.URL); err == nil {
+		if err := postNativeNotification(n); err == nil {
 			return nil
 		}
 		// fall through to osascript on failure

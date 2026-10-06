@@ -58,6 +58,9 @@ func (e *Engine) deliverTaskNotifications() {
 // cut to what they accept, the body attributed to the task that sent it so the
 // operator can tell which job is talking, and the link re-checked here at the
 // point of use (the CLI validates it too, but the outbox is a plain file).
+//
+// The sending run is attribution, not a click target: what the task pointed
+// at is its link, if any, so the run id stays out of the notification.
 func taskNotification(n store.Notification) notify.Notification {
 	body := n.Message
 	if n.TaskName != "" {
@@ -69,8 +72,11 @@ func taskNotification(n store.Notification) notify.Notification {
 		link = ""
 	}
 	return notify.Notification{
-		Title:   truncateRunes(n.Title, taskNotifyTitleLimit),
-		Message: truncateRunes(body, taskNotifyBodyLimit),
-		URL:     link,
+		Kind:     store.InboxKindTask,
+		Title:    truncateRunes(n.Title, taskNotifyTitleLimit),
+		Message:  truncateRunes(body, taskNotifyBodyLimit),
+		URL:      link,
+		TaskID:   n.TaskID,
+		TaskName: n.TaskName,
 	}
 }

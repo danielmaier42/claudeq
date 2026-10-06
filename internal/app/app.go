@@ -402,15 +402,21 @@ func pruneGroupState(s *store.Store) error {
 	})
 }
 
-// MarkRead marks a single run as read (FA-23).
+// MarkRead marks a single run as read (FA-23), and with it the notification
+// that announced its outcome.
 func MarkRead(s *store.Store, runID string) error {
-	return s.UpdateState(func(st *store.State) error {
+	if err := s.UpdateState(func(st *store.State) error {
 		st.MarkRead(runID)
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	carryRead(readRunNotifications(s, map[string]bool{runID: true}))
+	return nil
 }
 
-// MarkAllRead marks every recorded run as read (FA-24).
+// MarkAllRead marks every recorded run as read (FA-24), and every run-outcome
+// notification with them.
 func MarkAllRead(s *store.Store) error {
 	runs, err := s.Runs()
 	if err != nil {
@@ -420,10 +426,14 @@ func MarkAllRead(s *store.Store) error {
 	for i, r := range runs {
 		ids[i] = r.RunID
 	}
-	return s.UpdateState(func(st *store.State) error {
+	if err := s.UpdateState(func(st *store.State) error {
 		st.MarkAllRead(ids)
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	carryRead(readRunNotifications(s, nil))
+	return nil
 }
 
 func indexOf(tasks []task.Task, id string) int {

@@ -55,11 +55,19 @@ static const char *cqAuthorizationStatus(void) {
 }
 
 // cqPostNotification posts a notification through the app bundle so it carries
-// the app's icon. A non-empty cartifact or curl travels along in the userInfo,
-// where the window app picks it up when the user clicks the notification (the
-// keys are kept in sync with cqArtifactKey/cqURLKey in
-// cmd/claudeqapp/notifyclick_cocoa.m). Returns 0 on success, non-zero on failure.
-static int cqPostNotification(const char *ctitle, const char *cbody, const char *cartifact, const char *curl) {
+// the app's icon. The inbox id and the click target (artifact, run or link)
+// travel along in the userInfo, where the window app picks them up when the
+// user clicks the notification (the keys are kept in sync with the cq*Key
+// constants in cmd/claudeqapp/notifyclick_cocoa.m). Returns 0 on success,
+// non-zero on failure.
+static void cqPutInfo(NSMutableDictionary *info, NSString *key, const char *value) {
+    if (value && value[0] != '\0') {
+        info[key] = [NSString stringWithUTF8String:value];
+    }
+}
+
+static int cqPostNotification(const char *ctitle, const char *cbody, const char *cid,
+                              const char *cartifact, const char *crun, const char *curl) {
     @try {
         UNUserNotificationCenter *c = [UNUserNotificationCenter currentNotificationCenter];
         UNMutableNotificationContent *content = [[UNMutableNotificationContent alloc] init];
@@ -67,12 +75,10 @@ static int cqPostNotification(const char *ctitle, const char *cbody, const char 
         content.body  = [NSString stringWithUTF8String:(cbody ? cbody : "")];
         content.sound = [UNNotificationSound defaultSound];
         NSMutableDictionary *info = [NSMutableDictionary dictionary];
-        if (cartifact && cartifact[0] != '\0') {
-            info[@"cq_artifact"] = [NSString stringWithUTF8String:cartifact];
-        }
-        if (curl && curl[0] != '\0') {
-            info[@"cq_url"] = [NSString stringWithUTF8String:curl];
-        }
+        cqPutInfo(info, @"cq_notification", cid);
+        cqPutInfo(info, @"cq_artifact", cartifact);
+        cqPutInfo(info, @"cq_run", crun);
+        cqPutInfo(info, @"cq_url", curl);
         if ([info count] > 0) {
             content.userInfo = info;
         }
@@ -104,16 +110,16 @@ func requestNativeAuth() { C.cqRequestNotifyAuth() }
 
 func nativeAuthorizationStatus() string { return C.GoString(C.cqAuthorizationStatus()) }
 
-func postNativeNotification(title, body, artifactID, link string) error {
-	ct := C.CString(title)
-	defer C.free(unsafe.Pointer(ct))
-	cb := C.CString(body)
-	defer C.free(unsafe.Pointer(cb))
-	ca := C.CString(artifactID)
-	defer C.free(unsafe.Pointer(ca))
-	cu := C.CString(link)
-	defer C.free(unsafe.Pointer(cu))
-	if rc := C.cqPostNotification(ct, cb, ca, cu); rc != 0 {
+func postNativeNotification(n Notification) error {
+	cstr := func(v string) *C.char { return C.CString(v) }
+	ct, cb := cstr(n.Title), cstr(n.Message)
+	ci, ca, cr, cu := cstr(n.ID), cstr(n.ArtifactID), cstr(n.RunID), cstr(n.URL)
+	defer func() {
+		for _, p := range []*C.char{ct, cb, ci, ca, cr, cu} {
+			C.free(unsafe.Pointer(p))
+		}
+	}()
+	if rc := C.cqPostNotification(ct, cb, ci, ca, cr, cu); rc != 0 {
 		return fmt.Errorf("native notification failed (rc=%d)", int(rc))
 	}
 	return nil

@@ -29,9 +29,12 @@ func (e *Engine) notifyNewArtifacts() {
 	noteErr(&e.lastArtifactErr, "artifact notification failed", err)
 	for _, a := range pending {
 		e.send(notify.Notification{
+			Kind:       store.InboxKindArtifact,
 			Title:      artifactNotifyTitle,
 			Message:    artifactNotifyBody(a),
 			ArtifactID: a.ID,
+			TaskID:     a.TaskID,
+			TaskName:   a.TaskName,
 		})
 	}
 }
