@@ -1,34 +1,29 @@
 :root {
-  --accent:#007aff;
-  --bg:#f2f2f7; --sidebar:rgba(245,245,247,.8); --card:#ffffff; --card-2:#fbfbfd;
-  --fg:#1d1d1f; --fg2:#6e6e73; --hairline:rgba(0,0,0,.10);
-  --seg-bg:rgba(120,120,128,.12); --seg-active:#fff; --switch-off:rgba(120,120,128,.32);
-  --ok:#34c759; --warn:#ff9f0a; --danger:#ff3b30; --running:#007aff;
-  --ai:#7c3aed;                      /* suggestions come from Claude, so they get their own colour */
+  /* Each token names its light and dark value in one place; color-scheme below
+     decides which one shows. Dark follows macOS unless Settings → General →
+     Appearance pins a scheme, which core/theme.js puts on <html data-theme>.
+     Pinning through color-scheme also turns the native controls and
+     scrollbars, not just the page's own colours. */
+  color-scheme: light dark;
+  --accent:light-dark(#007aff,#0a84ff);
+  --bg:light-dark(#f2f2f7,#1c1c1e); --sidebar:light-dark(rgba(245,245,247,.8),rgba(30,30,32,.72));
+  --card:light-dark(#ffffff,#2c2c2e); --card-2:light-dark(#fbfbfd,#252527);
+  --fg:light-dark(#1d1d1f,#f5f5f7); --fg2:light-dark(#6e6e73,#98989d);
+  --hairline:light-dark(rgba(0,0,0,.10),rgba(255,255,255,.12));
+  --seg-bg:light-dark(rgba(120,120,128,.12),rgba(120,120,128,.24)); --seg-active:light-dark(#fff,#636366);
+  --switch-off:light-dark(rgba(120,120,128,.32),rgba(120,120,128,.5));
+  --ok:light-dark(#34c759,#30d158); --warn:#ff9f0a; --danger:light-dark(#ff3b30,#ff453a); --running:light-dark(#007aff,#0a84ff);
+  --ai:light-dark(#7c3aed,#bf9dff);  /* suggestions come from Claude, so they get their own colour */
   --shadow:0 1px 3px rgba(0,0,0,.08),0 6px 20px rgba(0,0,0,.06);
 }
-/* Dark follows macOS unless Settings → General → Appearance pins a scheme:
-   core/theme.js puts that choice on <html data-theme>. The dark tokens are
-   spelled out twice because a media query and an attribute cannot share one
-   selector list — keep the two blocks identical. */
+:root[data-theme=light] { color-scheme: light; }
+:root[data-theme=dark] { color-scheme: dark; }
+/* A shadow is not a colour, so light-dark() cannot carry it: the dark one is
+   named for both ways of being dark. */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme=light]) {
-    --accent:#0a84ff; --bg:#1c1c1e; --sidebar:rgba(30,30,32,.72); --card:#2c2c2e; --card-2:#252527;
-    --fg:#f5f5f7; --fg2:#98989d; --hairline:rgba(255,255,255,.12);
-    --seg-bg:rgba(120,120,128,.24); --seg-active:#636366; --switch-off:rgba(120,120,128,.5);
-    --ok:#30d158; --warn:#ff9f0a; --danger:#ff453a; --running:#0a84ff;
-    --ai:#bf9dff;
-    --shadow:0 1px 3px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
-  }
+  :root:not([data-theme=light]) { --shadow:0 1px 3px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35); }
 }
-:root[data-theme=dark] {
-  --accent:#0a84ff; --bg:#1c1c1e; --sidebar:rgba(30,30,32,.72); --card:#2c2c2e; --card-2:#252527;
-  --fg:#f5f5f7; --fg2:#98989d; --hairline:rgba(255,255,255,.12);
-  --seg-bg:rgba(120,120,128,.24); --seg-active:#636366; --switch-off:rgba(120,120,128,.5);
-  --ok:#30d158; --warn:#ff9f0a; --danger:#ff453a; --running:#0a84ff;
-  --ai:#bf9dff;
-  --shadow:0 1px 3px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
-}
+:root[data-theme=dark] { --shadow:0 1px 3px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35); }
 /* Follow the user's macOS accent color when the browser exposes it: WebKit
    (the app's WKWebView, and Safari) reflects the macOS accent live and
    instantly, with a blue fallback where the system color is unsupported. */

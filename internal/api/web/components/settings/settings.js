@@ -8,7 +8,8 @@ import {api} from '../../core/api.js';
 import {$, el} from '../../core/dom.js';
 import {SAVE, SPARK} from '../../core/icons.js';
 import {modelOptions, optionsFor} from '../../core/models.js';
-import {APPEARANCES, applyAppearance} from '../../core/theme.js';
+import {segFilter} from '../../core/filters.js';
+import {APPEARANCES, applyAppearance, pinned} from '../../core/theme.js';
 import {toast} from '../../core/toast.js';
 
 // The Settings pane is split into sub-tabs. Every pane is rendered and stays in
@@ -19,6 +20,9 @@ import {toast} from '../../core/toast.js';
 // a review in flight instead of letting the daemon run it out.
 let settingsReview=null;
 let settingsPane='general';
+// What the Appearance control shows; Save carries it like every other field,
+// so a Save after a click does not put the old scheme back.
+let appearance='';
 const SETTINGS_PANES=[['general','General'],['providers','Providers'],['pools','Pools'],['notifications','Notifications'],['system','System']];
 async function loadSettings(){
   let s; try{ s=await api('GET','/api/settings'); setConn(true);}catch(e){ setConn(false); return; }
@@ -83,7 +87,7 @@ async function loadSettings(){
       <div class="group">
         <div class="row"><div class="grow"><div class="title">Colour scheme</div>
           <div class="sub multi">Follow macOS, or keep ClaudeQ light or dark whatever the Mac is doing. Takes effect immediately, without saving.</div></div>
-          <div class="seg" id="s-appearance">${APPEARANCES.map(([v,l])=>`<button data-value="${v}"${v===(s.appearance||'')?' class="active"':''}>${l}</button>`).join('')}</div></div>
+          <div id="s-appearance"></div></div>
       </div>
       <div class="section-label">About</div>
       <div class="group">
@@ -175,12 +179,14 @@ async function loadSettings(){
   $('#s-paused').onchange=e=>setPaused(e.target.checked);
   // Like the pause switch, the scheme is applied and written at once: a
   // choice about how the window looks is judged by looking at it.
-  c.querySelectorAll('#s-appearance button').forEach(b=>b.onclick=async()=>{
-    const before=appearanceChoice();
-    markAppearance(b.dataset.value); applyAppearance(b.dataset.value);
-    try{ await api('PUT','/api/settings',{...(await api('GET','/api/settings')),appearance:b.dataset.value}); }
-    catch(err){ toast(err.message,'err'); markAppearance(before); applyAppearance(before); }
+  appearance=pinned(s.appearance);
+  const appearanceSeg=segFilter(APPEARANCES,appearance,async v=>{
+    const before=appearance;
+    appearance=v; applyAppearance(v);
+    try{ await api('PUT','/api/settings',{...(await api('GET','/api/settings')),appearance:v}); }
+    catch(err){ toast(err.message,'err'); appearance=before; appearanceSeg.set(before); applyAppearance(before); }
   });
+  $('#s-appearance').replaceWith(appearanceSeg);
   $('#s-po-enabled').checked=poOn; $('#s-po-token').value=s.pushover?.token||''; $('#s-po-user').value=s.pushover?.user_key||'';
   $('#s-ntfy-enabled').checked=!!s.ntfy?.enabled; $('#s-ntfy-server').value=s.ntfy?.server||'';
   $('#s-ntfy-topic').value=s.ntfy?.topic||''; $('#s-ntfy-token').value=s.ntfy?.token||'';
@@ -261,12 +267,6 @@ function fillAsidePickers(reviewProvider, reviewModel, feedbackProvider, feedbac
   fillAsideChoices($('#s-feedback-provider'), $('#s-feedback-model'), feedbackProvider, feedbackModel,
     'ClaudeQ\u2019s choice (a small, fast model)');
 }
-// The appearance control is a segmented button row, not a form field, so the
-// chosen value is read back from which button is active.
-function appearanceChoice(){ return document.querySelector('#s-appearance button.active')?.dataset.value||''; }
-function markAppearance(value){
-  document.querySelectorAll('#s-appearance button').forEach(b=>b.classList.toggle('active',b.dataset.value===value));
-}
 function selectSettingsPane(pane){
   if(!SETTINGS_PANES.some(([id])=>id===pane)) pane='general';
   settingsPane=pane;
@@ -312,7 +312,7 @@ async function saveSettings(){
     feedback_provider:$('#s-feedback-provider').value,
     feedback_model:$('#s-feedback-model').value,
     beta_features:$('#s-beta').checked,
-    appearance:appearanceChoice(),
+    appearance,
     pushover:{enabled:$('#s-po-enabled').checked,token:$('#s-po-token').value,user_key:$('#s-po-user').value},
     ntfy:{enabled:$('#s-ntfy-enabled').checked,server:$('#s-ntfy-server').value.trim(),topic:$('#s-ntfy-topic').value.trim(),token:$('#s-ntfy-token').value.trim()},
     webhook:{enabled:$('#s-wh-enabled').checked,url:$('#s-wh-url').value.trim(),template:$('#s-wh-template').value.trim()}};
