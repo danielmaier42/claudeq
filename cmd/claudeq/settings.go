@@ -220,6 +220,7 @@ type settingsView struct {
 	FeedbackModel      string `json:"feedback_model"`
 	DefaultWorkingDir  string `json:"default_working_dir"`
 	BetaFeatures       bool   `json:"beta_features"`
+	Appearance         string `json:"appearance"`
 	Paused             bool   `json:"paused"`
 	PushoverEnabled    bool   `json:"pushover_enabled"`
 	PushoverConfigured bool   `json:"pushover_configured"`
@@ -245,6 +246,7 @@ func newSettingsView(s store.Settings) settingsView {
 		FeedbackModel:      s.FeedbackModel,
 		DefaultWorkingDir:  s.DefaultWorkingDir,
 		BetaFeatures:       s.BetaFeatures,
+		Appearance:         s.Appearance,
 		Paused:             s.Paused,
 		PushoverEnabled:    s.Pushover.Enabled,
 		PushoverConfigured: s.Pushover.Token != "" && s.Pushover.UserKey != "",
@@ -273,6 +275,7 @@ func printSettings(s store.Settings) {
 	// Shown but not settable here: it decides what the *app* offers, and the CLI
 	// accepts every provider either way. Settings → System owns it.
 	fmt.Printf("beta_features:             %s (app only)\n", boolLabel(v.BetaFeatures))
+	fmt.Printf("appearance:                %s (app only)\n", orDefault(v.Appearance, "(follows macOS)"))
 	fmt.Printf("pushover:                  %s\n", pushoverLabel(v))
 	fmt.Printf("ntfy:                      %s\n", ntfyLabel(v))
 	fmt.Printf("webhook:                   %s\n", webhookLabel(v))

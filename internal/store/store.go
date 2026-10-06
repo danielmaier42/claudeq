@@ -746,6 +746,26 @@ type Settings struct {
 	// DefaultWorkingDir prefills a new task's working directory. Empty means no
 	// prefill — the field starts blank, as before this setting existed.
 	DefaultWorkingDir string `toml:"default_working_dir,omitempty" json:"default_working_dir"`
+	// Appearance pins the app window and the dashboard to AppearanceLight or
+	// AppearanceDark; empty follows macOS. Presentation state only: the daemon
+	// and the CLI never look at it.
+	Appearance string `toml:"appearance,omitempty" json:"appearance"`
+}
+
+// The appearances Settings.Appearance can pin. Empty means "follow macOS" and
+// is what an untouched config holds, so the key only appears once chosen.
+const (
+	AppearanceLight = "light"
+	AppearanceDark  = "dark"
+)
+
+// ValidAppearance reports whether v is a value Settings.Appearance may hold.
+func ValidAppearance(v string) bool {
+	switch v {
+	case "", AppearanceLight, AppearanceDark:
+		return true
+	}
+	return false
 }
 
 // ErrPaused is what a refused run carries while Settings.Paused is on. A pause

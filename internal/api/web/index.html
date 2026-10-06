@@ -2,6 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<script>
+// A pinned appearance goes on <html> (and, in the app window, on AppKit)
+// before the stylesheet is read, from the copy core/theme.js keeps here —
+// otherwise a dark window would open in the Mac's light scheme and flip once
+// the settings have arrived.
+(function(){var t=localStorage.getItem('cq-appearance');t=(t==='light'||t==='dark')?t:'';
+if(t)document.documentElement.dataset.theme=t;if(window.cqSetAppearance)window.cqSetAppearance(t);})();
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ClaudeQ</title>
 <link rel="icon" type="image/svg+xml" href="/logo.svg">

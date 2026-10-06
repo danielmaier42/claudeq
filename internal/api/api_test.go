@@ -569,6 +569,22 @@ func TestPutSettingsRefusesAnEnabledChannelThatCannotDeliver(t *testing.T) {
 	}
 }
 
+func TestPutSettingsAppearance(t *testing.T) {
+	srv, st := newServer(t, nil)
+	if r := do(t, srv, "PUT", "/api/settings", map[string]any{"appearance": "dark"}); r.Status != http.StatusOK {
+		t.Fatalf("put dark status = %d (%s)", r.Status, r.Body)
+	}
+	if cfg, _ := st.LoadConfig(); cfg.Settings.Appearance != store.AppearanceDark {
+		t.Fatalf("appearance = %q, want dark", cfg.Settings.Appearance)
+	}
+	if r := do(t, srv, "PUT", "/api/settings", map[string]any{"appearance": "sepia"}); r.Status != http.StatusBadRequest {
+		t.Fatalf("put sepia status = %d, want 400 (%s)", r.Status, r.Body)
+	}
+	if cfg, _ := st.LoadConfig(); cfg.Settings.Appearance != store.AppearanceDark {
+		t.Fatal("a rejected appearance must not replace the stored one")
+	}
+}
+
 type stubRunner struct{ done chan string }
 
 func (s *stubRunner) RunTaskNow(_ context.Context, id string) error {

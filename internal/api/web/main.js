@@ -16,6 +16,7 @@ import {loadUsage} from './components/usage/usage.js';
 import {mountConfirm} from './core/confirm.js';
 import {initDialogs} from './core/dom.js';
 import {loadModels} from './core/models.js';
+import {loadAppearance} from './core/theme.js';
 import {mountToasts} from './core/toast.js';
 
 // The dashboard is plain ES modules served straight from the daemon — no build
@@ -93,4 +94,5 @@ setInterval(checkHealth, 30000); checkHealth();
 // The daemon checks GitHub hourly; the UI just reads its cached result, so a
 // slow poll keeps the Settings badge current without any extra network calls.
 setInterval(loadUpdate, 60000); loadUpdate();
+loadAppearance();
 loadModels().then(()=>{ select('dashboard'); poll(); });

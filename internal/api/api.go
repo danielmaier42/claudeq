@@ -1189,6 +1189,10 @@ func (s *server) putSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	if !store.ValidAppearance(in.Appearance) {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("appearance %q: want %q, %q or empty to follow macOS", in.Appearance, store.AppearanceLight, store.AppearanceDark))
+		return
+	}
 	// The pause switch belongs to POST /api/pause alone. It can be flipped from
 	// the Queue banner or the CLI at any time, so a settings form filled in
 	// before that must not carry a stale value back and quietly resume the queue.

@@ -717,3 +717,45 @@ func TestMigrateRenamesTheBetaPreference(t *testing.T) {
 		t.Fatalf("second MigrateConfig = (%t, %v), want (false, nil)", migrated, err)
 	}
 }
+
+func TestValidAppearance(t *testing.T) {
+	for _, v := range []string{"", AppearanceLight, AppearanceDark} {
+		if !ValidAppearance(v) {
+			t.Errorf("ValidAppearance(%q) = false", v)
+		}
+	}
+	for _, v := range []string{"system", "Dark", "sepia"} {
+		if ValidAppearance(v) {
+			t.Errorf("ValidAppearance(%q) = true", v)
+		}
+	}
+}
+
+// The key is written only once a scheme is pinned: an untouched config keeps
+// following macOS without saying so.
+func TestAppearanceIsWrittenOnlyWhenPinned(t *testing.T) {
+	s := openTemp(t)
+	if err := s.UpdateConfig(func(cfg *Config) error { cfg.Settings.HeartbeatMinutes = 30; return nil }); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(s.Home(), configFile))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if strings.Contains(string(data), "appearance") {
+		t.Fatalf("appearance written while following macOS:\n%s", data)
+	}
+	if err := s.UpdateConfig(func(cfg *Config) error { cfg.Settings.Appearance = AppearanceDark; return nil }); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+	if data, _ = os.ReadFile(filepath.Join(s.Home(), configFile)); !strings.Contains(string(data), `appearance = 'dark'`) {
+		t.Fatalf("pinned appearance not written:\n%s", data)
+	}
+	cfg, err := s.LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Settings.Appearance != AppearanceDark {
+		t.Fatalf("appearance = %q after reload, want dark", cfg.Settings.Appearance)
+	}
+}

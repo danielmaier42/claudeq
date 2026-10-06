@@ -298,7 +298,7 @@ explains it.
   with `--json` output for tools and agents. See
   [Command-line interface](#command-line-interface).
 - **Native macOS**: its own window, Dock icon, menu bar, live accent colour,
-  light and dark.
+  light and dark — following macOS, or pinned in Settings.
 - **Automatic updates** from GitHub releases, one click to install. A version
   whose daemon never took over is flagged with a **Finish update** button.
 - **Feedback that writes itself.** Describe a bug or a wish, Claude drafts the
@@ -452,6 +452,7 @@ and the update button live.
 | | Feedback | Feedback provider | Which provider drafts the GitHub issue on the [Feedback](#sending-feedback) page. Same rule as above. |
 | | | Feedback model | Model it drafts with; left at *ClaudeQ's choice* it uses a small, fast model rather than whatever you picked for real tasks. |
 | | Execution | Pause all runs | Global stop switch: nothing starts while it is on, not even *Run now*; a run already in flight keeps going. Applies immediately, without pressing Save. |
+| | Appearance | Colour scheme | *System* follows macOS; *Light* or *Dark* keeps the window and the dashboard that way whatever the Mac is doing. Applies immediately, without pressing Save; stored as `appearance` in `config.toml`, so a browser tab shows the same scheme. |
 | | About | Version / Software updates | Current version and a manual "Check for updates" button. |
 | **Providers** | One block per provider | Its settings | Name, status, its current limits (the same bars as the Dashboard, when the harness reports any), binary path, configuration directory, default model, the provider that takes over when the limit is reached (and the model it uses), and an on/off switch — written by the **Save** button at the top of Settings, like every other field here. **Check again**, **Make default** and **Remove** are actions and take effect at once. The block is headed by the provider's name and type. See [Providers](#providers). |
 | | | **Add provider** | Below the blocks, and only with beta features on: opens a sheet asking for an id, a type and optionally a configuration directory. |
