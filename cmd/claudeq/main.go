@@ -60,6 +60,10 @@ Usage:
                  prompt — or on a script's standard input)
   claudeq publish --file PATH [--title T] [--description D]
                  (publish a file as an artifact; shows up in the Artifacts view)
+  claudeq artifacts list [--json] [--origin ID] [--since TS]
+                 (published artifacts, oldest first; unread marked *. --origin keeps one
+                 parent job's, --since those published after an RFC3339 time or within
+                 a duration such as 24h. --json adds the path of each stored file)
   claudeq notify --title T --message M [--url U]
                  (send a notification over the configured channels, no artifact)
   claudeq export ID [--out PATH] [--force]
@@ -133,6 +137,8 @@ func run(args []string) error {
 		return cmdPublish(st, rest)
 	case "notify":
 		return cmdNotify(st, rest)
+	case "artifacts":
+		return cmdArtifacts(st, rest)
 	case "export":
 		return cmdExport(st, rest)
 	case "import":
