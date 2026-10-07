@@ -156,6 +156,7 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/providers/kinds", s.listProviderKinds)
 	mux.HandleFunc("GET /api/limits", s.listLimits)
 	mux.HandleFunc("GET /api/pools", s.listPools)
+	mux.HandleFunc("GET /api/pools/{id}", s.getPool)
 	mux.HandleFunc("POST /api/pools", s.addPool)
 	mux.HandleFunc("PUT /api/pools/{id}", s.updatePool)
 	mux.HandleFunc("DELETE /api/pools/{id}", s.deletePool)

@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -69,6 +71,7 @@ func TestCmdPoolLifecycle(t *testing.T) {
 
 func TestCmdPoolShowRanksTheMembers(t *testing.T) {
 	st := newTestStore(t)
+	withoutDaemon(t)
 	withProviderHealth(t, providerReady)
 	withLimits(t, limitsAdapter{windows: []provider.LimitWindow{{ID: "week", Label: "Week", UsedPercent: 40}}})
 	if err := cmdProvider(st, []string{"add", "team", "--kind", string(provider.KindClaudeCode), "--config-dir", "/tmp/team"}); err != nil {
@@ -83,7 +86,106 @@ func TestCmdPoolShowRanksTheMembers(t *testing.T) {
 		t.Fatalf("json: %v\n%s", err, out)
 	}
 	// The same reading on both: the heavier member goes first.
-	if len(v.Ranking) != 2 || v.Ranking[0].ProviderID != "team" || v.Ranking[0].Weight != 5 {
-		t.Fatalf("ranking = %+v", v.Ranking)
+	if len(v.Ranking) != 2 || v.Ranking[0].ProviderID != "team" || v.Ranking[0].Weight != 5 || v.Source != poolSourceLocal {
+		t.Fatalf("view = %+v", v)
+	}
+}
+
+// withoutDaemon points the CLI at an address nothing listens on, so no test
+// asks the daemon running on the developer's machine.
+func withoutDaemon(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.NotFoundHandler())
+	srv.Close()
+	withDaemon(t, srv.URL)
+}
+
+func withDaemon(t *testing.T, u string) {
+	t.Helper()
+	previous := daemonURL
+	daemonURL = u
+	t.Cleanup(func() { daemonURL = previous })
+}
+
+func TestCmdPoolNextAsksTheDaemon(t *testing.T) {
+	st := newTestStore(t)
+	ranking := []provider.MemberScore{
+		{ProviderID: "team", Name: "Team", Tier: 0, Urgency: 3.5, Weight: 5, Note: "60% of week left"},
+		{ProviderID: "claude", Name: "Claude", Tier: 3, Weight: 1, Note: "waiting for its rate limit"},
+	}
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/pools/p":
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "p", "name": "P",
+				"members": []map[string]any{{"provider": "claude"}, {"provider": "team", "weight": 5}}, "ranking": ranking})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "unknown pool \"nope\""})
+		}
+	}))
+	t.Cleanup(daemon.Close)
+	withDaemon(t, daemon.URL)
+
+	out := captureStdout(t, func() error { return cmdPool(st, []string{"next", "p", "--json"}) })
+	var v poolNextView
+	if err := json.Unmarshal([]byte(out), &v); err != nil {
+		t.Fatalf("json: %v\n%s", err, out)
+	}
+	if v.Source != poolSourceDaemon || v.Next == nil || v.Next.ProviderID != "team" || v.Next.Urgency != 3.5 || len(v.Ranking) != 2 {
+		t.Fatalf("view = %+v", v)
+	}
+	text := captureStdout(t, func() error { return cmdPool(st, []string{"next", "p"}) })
+	for _, want := range []string{"the next run goes to Team (team)", "urgency 3.50", "waiting for its rate limit", "as the daemon sees it"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("output lacks %q:\n%s", want, text)
+		}
+	}
+	if err := cmdPool(st, []string{"next", "nope"}); err == nil || !strings.Contains(err.Error(), "unknown pool") {
+		t.Fatalf("unknown pool: %v", err)
+	}
+}
+
+func TestCmdPoolNextWithoutAnyReadyMember(t *testing.T) {
+	st := newTestStore(t)
+	withoutDaemon(t)
+	withProviderHealth(t, provider.Health{State: provider.HealthNotAuthenticated, Reason: "Not logged in."})
+	withLimits(t, limitsAdapter{})
+	if err := st.UpdateConfig(func(cfg *store.Config) error {
+		cfg.Pools = []store.Pool{{ID: "p", Name: "P", Members: []store.PoolMember{{Provider: "claude"}}}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	out := captureStdout(t, func() error { return cmdPool(st, []string{"next", "p", "--json"}) })
+	var v poolNextView
+	if err := json.Unmarshal([]byte(out), &v); err != nil {
+		t.Fatalf("json: %v\n%s", err, out)
+	}
+	if v.Next != nil || v.Source != poolSourceLocal || len(v.Ranking) != 1 || v.Ranking[0].Tier != 3 {
+		t.Fatalf("view = %+v", v)
+	}
+	if err := cmdPool(st, []string{"next", "nope"}); err == nil || !strings.Contains(err.Error(), "nope") {
+		t.Fatalf("unknown pool without a daemon: %v", err)
+	}
+}
+
+func TestCmdPoolNextFallsBackOnAnOldDaemon(t *testing.T) {
+	st := newTestStore(t)
+	withProviderHealth(t, providerReady)
+	withLimits(t, limitsAdapter{windows: []provider.LimitWindow{{ID: "week", Label: "Week", UsedPercent: 40}}})
+	// What a daemon from before the endpoint answers: its router's plain 404.
+	daemon := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(daemon.Close)
+	withDaemon(t, daemon.URL)
+	if err := cmdPool(st, []string{"add", "p", "--member", "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	out := captureStdout(t, func() error { return cmdPool(st, []string{"next", "p", "--json"}) })
+	var v poolNextView
+	if err := json.Unmarshal([]byte(out), &v); err != nil {
+		t.Fatalf("json: %v\n%s", err, out)
+	}
+	if v.Source != poolSourceLocal || v.Next == nil || v.Next.ProviderID != "claude" {
+		t.Fatalf("view = %+v", v)
 	}
 }

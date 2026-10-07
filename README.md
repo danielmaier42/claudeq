@@ -751,7 +751,12 @@ log says so.
 and the reasons, for example *Pool Claude chose Claude Max: Claude Max (14% of
 week left, resets in 2 d); Claude Team (100% of 5 hours used)*. The Log names
 the pool next to the provider. The Dashboard and `claudeq pool show` list the
-members in the order the next run would take them.
+members in the order the next run would take them, with each one's weight,
+urgency and the reason for its place; `claudeq pool next` names the member the
+next run goes to. Both commands ask the running daemon, so they show exactly
+what the Dashboard shows, rate-limit pauses included. With no daemon running
+they read the members' limits themselves and say so; a member waiting out a
+rate limit is then not recognised as such.
 
 **Rules.**
 - Every member must be of one type, so the model a task names means the same
@@ -773,6 +778,7 @@ members in the order the next run would take them.
 ```sh
 claudeq pool add claude-pool --name Claude --member claude --member claude-team
 claudeq add --id nightly --prompt "…" --dir ~/code/app --pool claude-pool
+claudeq pool next claude-pool
 claudeq pool show claude-pool
 ```
 
@@ -865,6 +871,7 @@ claudeq provider show ID [--json]
 claudeq provider check ID [--json]             # probe it now
 claudeq provider limits [ID] [--json]          # 5-hour/weekly windows, used and reset
 claudeq pool list [--json]                     # provider pools
+claudeq pool next ID [--json]                  # the member the next run goes to, with its urgency and the ranking
 claudeq pool show ID [--json]                  # members ranked as a run started now would take them
 claudeq pool add  ID --member PROVIDER[=WEIGHT]... [--name N]
 claudeq pool edit ID [--name N] [--member PROVIDER[=WEIGHT]]...   # --member replaces the list

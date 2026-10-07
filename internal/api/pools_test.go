@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/danielmaier42/claudeq/internal/provider"
 	"github.com/danielmaier42/claudeq/internal/store"
@@ -90,5 +91,42 @@ func TestATaskOnAPoolWithNoReadyMemberIsBlocked(t *testing.T) {
 	tk := map[string]any{"id": "b", "name": "b", "prompt": "p", "working_dir": "/tmp", "trigger": "asap", "enabled": true, "pool": "p"}
 	if r := do(t, srv, http.MethodPost, "/api/tasks", tk); r.Status != http.StatusBadRequest {
 		t.Fatalf("add on a dead pool = %d, want 400", r.Status)
+	}
+}
+
+func TestGetPoolRanksWithTheDaemonsRateLimits(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	if err := st.UpdateConfig(func(cfg *store.Config) error {
+		cfg.Providers = append(cfg.Providers, store.Provider{ID: "team", Kind: string(provider.KindClaudeCode), Name: "Team", Enabled: true})
+		cfg.Pools = []store.Pool{{ID: "p", Name: "P", Members: []store.PoolMember{{Provider: provider.DefaultInstanceID}, {Provider: "team"}}}}
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+	reg := provider.NewRegistry(stubAdapter{health: provider.Health{State: provider.HealthReady}})
+	srv := httptest.NewServer(Handler(Deps{
+		Store: st, Registry: reg, Providers: provider.NewChecker(reg),
+		BlockedProviders: func() map[string]time.Time {
+			return map[string]time.Time{provider.DefaultInstanceID: time.Now().Add(time.Hour)}
+		},
+	}))
+	t.Cleanup(srv.Close)
+
+	var v poolView
+	if r := do(t, srv, http.MethodGet, "/api/pools/p", nil); r.Status != http.StatusOK {
+		t.Fatalf("GET status = %d: %s", r.Status, r.Body)
+	} else {
+		r.into(t, &v)
+	}
+	// The member waiting out its rate limit goes last, behind the unread one.
+	if len(v.Ranking) != 2 || v.Ranking[0].ProviderID != "team" || v.Ranking[1].Tier != 3 ||
+		v.Ranking[1].Note != "waiting for its rate limit" {
+		t.Fatalf("ranking = %+v", v.Ranking)
+	}
+	if r := do(t, srv, http.MethodGet, "/api/pools/nope", nil); r.Status != http.StatusNotFound {
+		t.Fatalf("GET unknown = %d, want 404", r.Status)
 	}
 }
