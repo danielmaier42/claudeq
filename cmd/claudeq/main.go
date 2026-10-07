@@ -69,7 +69,8 @@ Usage:
   claudeq enable ID | claudeq disable ID
   claudeq move   ID INDEX          (0 = highest priority)
   claudeq run-now ID               (run once, now, for testing)
-  claudeq status [--all]           (recent runs; unread marked *)
+  claudeq status [--all] [--json]  (recent runs; unread marked *. --json adds the
+                 origin job, error and log path of each run)
   claudeq read RUNID | claudeq read-all
   claudeq provider ...             (the harnesses tasks run on; run it for its own help)
   claudeq pool ...                 (provider pools: one task, the best-suited account; run it for help)
@@ -760,9 +761,57 @@ func printLatestRun(st *store.Store, taskID string, since time.Time) error {
 	return nil
 }
 
+// statusRun is one run as `claudeq status --json` prints it: what a script
+// needs to sort runs by the job that started the chain and to follow up on a
+// failure, without the task snapshot or the final answer that history also
+// holds.
+type statusRun struct {
+	RunID       string          `json:"run_id"`
+	TaskID      string          `json:"task_id"`
+	TaskName    string          `json:"task_name"`
+	OriginID    string          `json:"origin_id"`
+	OriginName  string          `json:"origin_name"`
+	WorkflowID  string          `json:"workflow_id,omitempty"`
+	ParentRunID string          `json:"parent_run_id,omitempty"`
+	Status      store.RunStatus `json:"status"`
+	ExitCode    int             `json:"exit_code"`
+	Error       string          `json:"error,omitempty"`
+	LogPath     string          `json:"log_path"`
+	StartedAt   time.Time       `json:"started_at"`
+	FinishedAt  *time.Time      `json:"finished_at,omitempty"`
+	Unread      bool            `json:"unread"`
+}
+
+// newStatusRun flattens r for `status --json`. The origin is the job at the
+// root of the chain, the task itself when no job created it; a run recorded
+// without a task snapshot can only name its own task.
+func newStatusRun(r store.Run, unread bool) statusRun {
+	originID, originName := r.TaskID, r.TaskName
+	if r.Task != nil {
+		originID, originName = r.Task.Origin()
+	}
+	return statusRun{
+		RunID:       r.RunID,
+		TaskID:      r.TaskID,
+		TaskName:    r.TaskName,
+		OriginID:    originID,
+		OriginName:  originName,
+		WorkflowID:  r.WorkflowID,
+		ParentRunID: r.ParentRunID,
+		Status:      r.Status,
+		ExitCode:    r.ExitCode,
+		Error:       r.Error,
+		LogPath:     r.LogPath,
+		StartedAt:   r.StartedAt,
+		FinishedAt:  r.FinishedAt,
+		Unread:      unread,
+	}
+}
+
 func cmdStatus(st *store.Store, args []string) error {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	all := fs.Bool("all", false, "show all runs (default: last 20)")
+	asJSON := fs.Bool("json", false, "print the runs as JSON, with origin, error and log path")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -775,12 +824,19 @@ func cmdStatus(st *store.Store, args []string) error {
 	if err != nil {
 		return err
 	}
+	if !*all && len(runs) > 20 {
+		runs = runs[len(runs)-20:]
+	}
+	if *asJSON {
+		out := make([]statusRun, 0, len(runs))
+		for _, r := range runs {
+			out = append(out, newStatusRun(r, !state.IsRead(r.RunID)))
+		}
+		return printJSON(out)
+	}
 	if len(runs) == 0 {
 		fmt.Println("no runs yet")
 		return nil
-	}
-	if !*all && len(runs) > 20 {
-		runs = runs[len(runs)-20:]
 	}
 
 	unread := 0
