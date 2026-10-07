@@ -291,7 +291,9 @@ explains it.
   raw output, and replay.
 - **Continue in Chat…** opens Terminal in the task's folder and resumes the
   run's session interactively, with the harness and account that ran it (a run
-  a rate-limit fallback took over reopens on the fallback's account).
+  a rate-limit fallback took over reopens on the fallback's account). On a
+  running task the same button takes it over: the unattended run is stopped,
+  and its chat reopens in Terminal so you can write to it.
 - **Usage**: tokens, runs and API-equivalent cost per day over the last 14
   days.
 
@@ -374,7 +376,10 @@ Dashboard:
   interrupted session is discarded, the run is recorded as `canceled`, and a
   one-shot task leaves the queue instead of starting again (a recurring task
   keeps its schedule and starts fresh at its next occurrence); a finished
-  run offers **Continue in Chat…**, which opens Terminal in the task's folder
+  run offers **Continue in Chat…**, and so does a running one in its log view,
+  where it takes the run over: after a confirmation the unattended process is
+  stopped, the run is recorded as `canceled` ("taken over in Terminal"), and
+  only once it is gone does the session reopen. **Continue in Chat…** opens Terminal in the task's folder
   and resumes the run's session interactively — with the harness that owns it
   (`claude --resume`, `codex resume` for a Codex run, `opencode --session`
   for an opencode run) and the same permission

@@ -137,6 +137,7 @@ type Engine struct {
 	active            map[string]bool               // taskID -> currently running
 	cancels           map[string]context.CancelFunc // runID -> stops that run's process
 	canceled          map[string]bool               // runID -> user requested cancellation
+	takeovers         map[string]chan store.Run     // runID -> waits for the record of a run taken over by hand
 	nonParallelActive int
 	parallelActive    int
 	// runningOn counts the runs in flight per provider instance, which a pool
@@ -176,6 +177,7 @@ func New(st *store.Store, gates *limit.Gates, r Runner, c clock.Clock, providers
 		active:         map[string]bool{},
 		cancels:        map[string]context.CancelFunc{},
 		canceled:       map[string]bool{},
+		takeovers:      map[string]chan store.Run{},
 		runningOn:      map[string]int{},
 		providerHealth: map[string]string{},
 		holdLog:        os.Stdout,
@@ -916,6 +918,38 @@ func (e *Engine) CancelRun(runID string) error {
 	return e.cancelResume(runID)
 }
 
+// TakeOverRun stops a run in flight so its session can be continued by hand,
+// and returns the run as finally recorded. Two processes must never write to
+// one session, so it waits until the unattended one is gone and its record is
+// written — that record also carries the session id the harness reported,
+// which for some harnesses is only known once the run ends. The run is
+// recorded as canceled (a success that beat the kill stays a success), with a
+// reason that says where the conversation went.
+func (e *Engine) TakeOverRun(ctx context.Context, runID string) (store.Run, error) {
+	e.mu.Lock()
+	cancel, ok := e.cancels[runID]
+	if !ok {
+		e.mu.Unlock()
+		return store.Run{}, fmt.Errorf("run %q is not running", runID)
+	}
+	if e.canceled[runID] {
+		e.mu.Unlock()
+		return store.Run{}, fmt.Errorf("run %q is already being stopped", runID)
+	}
+	done := make(chan store.Run, 1)
+	e.takeovers[runID] = done
+	e.canceled[runID] = true
+	e.mu.Unlock()
+
+	cancel()
+	select {
+	case rec := <-done:
+		return rec, nil
+	case <-ctx.Done():
+		return store.Run{}, fmt.Errorf("wait for run %q to stop: %w", runID, ctx.Err())
+	}
+}
+
 // cancelResume drops the scheduled resume of a rate-limited run: the pending
 // session is forgotten, a one-shot task leaves the queue (so it never runs
 // again), and the run is recorded as canceled. A recurring task keeps its
@@ -1084,7 +1118,9 @@ func (e *Engine) sessionFor(t task.Task, st *store.State, providerID string) (se
 func (e *Engine) finish(t task.Task, providerID string, rec store.Run, res provider.Result, runErr error) {
 	e.mu.Lock()
 	wasCanceled := e.canceled[rec.RunID]
+	takeover := e.takeovers[rec.RunID]
 	delete(e.canceled, rec.RunID)
+	delete(e.takeovers, rec.RunID)
 	delete(e.cancels, rec.RunID)
 	if providerID != "" {
 		if e.runningOn[providerID]--; e.runningOn[providerID] <= 0 {
@@ -1129,6 +1165,9 @@ func (e *Engine) finish(t task.Task, providerID string, rec store.Run, res provi
 	if wasCanceled && rec.Status != store.StatusSuccess {
 		rec.Status = store.StatusCanceled
 		rec.Error = "stopped by the user"
+		if takeover != nil {
+			rec.Error = "taken over in Terminal by the user"
+		}
 	}
 
 	// Targeted state update: touch only this task's keys so a concurrent API
@@ -1190,6 +1229,10 @@ func (e *Engine) finish(t task.Task, providerID string, rec store.Run, res provi
 		if rec.Status != store.StatusSuccess {
 			e.logStatus(rec)
 		}
+	}
+
+	if takeover != nil {
+		takeover <- rec // buffered: the taker may have stopped waiting
 	}
 
 	if e.runFinished != nil && providerID != "" {

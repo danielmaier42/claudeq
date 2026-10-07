@@ -11,7 +11,7 @@ let logOpenTools=new Set(), logToolIdx=0; // remember expanded tool blocks acros
 export async function showLog(run){ logRunId=run.run_id; logTaskName=run.task_name; $('#logTitle').textContent='Log · '+run.task_name;
   logOpenTools=new Set(); logRun=run; logCanceled=false;
   setLogCancel(run);
-  setLogContinueVisible(canContinue(run));
+  setLogContinueVisible(canContinueHere(run));
   const prompt=await runPrompt(run);
   if(logRunId!==run.run_id) return;   // another run was opened while this one was being fetched
   logPrompt=prompt;
@@ -38,10 +38,25 @@ function setLogCancel(run){
 // rate-limited run is about to be resumed by the queue itself) and its Claude
 // session + working directory are on record.
 export function canContinue(r){ return !!(r && ['success','failed','auth_error','canceled'].includes(r.status) && r.session_id && r.task && r.task.working_dir); }
+// A running run can be taken over from its log: the unattended process is
+// stopped and its session reopens in Terminal, where the user writes the next
+// turn. A script has no session to take over.
+function canTakeOver(r){ return !!(r && r.status==='running' && r.session_id && r.task && r.task.working_dir && !(r.provider && r.provider.kind==='script')); }
+const canContinueHere=r=>canContinue(r)||canTakeOver(r);
 function setLogContinueVisible(on){ $('#logContinueBtn').hidden=!on; }
+// One request at a time: a second click during a take-over would find the
+// run already stopped and open a second Terminal on the same session.
+let logContinuing=false;
 async function continueLogRun(){
+  if(logContinuing) return;
+  const takeOver=canTakeOver(logRun);
+  if(takeOver && !await confirmSheetAsk('Take over “'+logTaskName+'” in Terminal? The unattended run is stopped and its chat reopens in Terminal, where you can write to it.','Take over','Keep running')) return;
+  logContinuing=true; $('#logContinueBtn').disabled=true;
+  if(takeOver) toast('Stopping the run…','ok');
   try{ await api('POST',`/api/runs/${logRunId}/continue`); toast('Opening Terminal…','ok'); }
   catch(e){ toast('Continue failed: '+e.message,'err'); }
+  finally{ logContinuing=false; $('#logContinueBtn').disabled=false; }
+  if(takeOver){ invalidateRuns(); await refreshLog(true); if(current==='news') loadRuns(); }
 }
 async function cancelLogRun(){
   if(logCancelMode==='resume'){
@@ -49,7 +64,7 @@ async function cancelLogRun(){
     if(!await cancelResume(run)) return;   // refused or failed: leave the button as it is
     logCanceled=true; setLogCancel(null);
     // The session is nobody's plan any more, so it can be picked up by hand.
-    run.status='canceled'; run.resume_pending=false; setLogContinueVisible(canContinue(run));
+    run.status='canceled'; run.resume_pending=false; setLogContinueVisible(canContinueHere(run));
     await refreshLog(true); return;
   }
   if(!await confirmSheetAsk('Cancel the running task “'+logTaskName+'”? Its Claude process is terminated.','Cancel task','Keep running')) return;
@@ -70,9 +85,9 @@ function startLogPolling(){ stopLogPolling(); logTimer=setInterval(async()=>{
   // changes mode rather than only disappearing. Once the user has cancelled,
   // stop following the poll: a stale response must not offer the action again.
   if(run && !logCanceled){ logRun=run; setLogCancel(run); }
-  // Continue is the mirror image: a terminal status is final, so a stale poll
-  // can only ever re-affirm the same visibility.
-  if(run) setLogContinueVisible(canContinue(run));
+  // Continue follows the run: offered as a take-over while it runs, as a plain
+  // resume once it has finished for good, hidden while it waits to resume.
+  if(run) setLogContinueVisible(canContinueHere(run));
   await refreshLog(false);
   if(run && run.status!=='running'){ stopLogPolling(); invalidateRuns(); if(current==='news') loadRuns(); }
 }, 1500); }
@@ -167,7 +182,7 @@ const sheetTemplate = `
   <div class="sheet-hd"><b id="logTitle">Log</b><div class="spacer" style="flex:1"></div>
     <div class="seg" id="logMode"><button data-v="chat" class="active">Chat</button><button data-v="raw">Raw</button></div></div>
   <div class="sheet-bd"><div id="logBody"></div></div>
-  <div class="sheet-ft"><button class="btn danger" id="logCancelBtn" hidden>Cancel task</button><button class="btn" id="logContinueBtn" hidden data-tip="Opens Terminal in the task's folder and resumes this chat interactively — with the full conversation context">Continue in Chat…</button><button class="btn" id="logDoneBtn">Done</button></div>
+  <div class="sheet-ft"><button class="btn danger" id="logCancelBtn" hidden>Cancel task</button><button class="btn" id="logContinueBtn" hidden data-tip="Opens Terminal in the task's folder and resumes this chat interactively — with the full conversation context. A running task is stopped first, so you can take it over">Continue in Chat…</button><button class="btn" id="logDoneBtn">Done</button></div>
 </dialog>
 `;
 

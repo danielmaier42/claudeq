@@ -846,6 +846,100 @@ func TestContinueRunGuards(t *testing.T) {
 	}
 }
 
+// stubTakeover stands in for the engine: it records which run it stopped and
+// answers with the record the run finished as.
+type stubTakeover struct {
+	got    string
+	rec    store.Run
+	err    error
+	before func() // runs before answering, e.g. to let the run end on its own
+}
+
+func (s *stubTakeover) TakeOverRun(_ context.Context, runID string) (store.Run, error) {
+	s.got = runID
+	if s.before != nil {
+		s.before()
+	}
+	return s.rec, s.err
+}
+
+// takeoverFixture is continueFixture with a running run and a take-over wired.
+func takeoverFixture(t *testing.T, to *stubTakeover) (*httptest.Server, *store.Store, *struct {
+	dir  string
+	argv []string
+}) {
+	t.Helper()
+	stubSrv, st, got := continueFixture(t, func(r *store.Run) { r.Status = store.StatusRunning }, nil)
+	stubSrv.Close()
+	srv := httptest.NewServer(handler(Deps{Store: st, TakeOver: to,
+		OpenTerminal: func(_ context.Context, dir string, argv []string) error {
+			got.dir, got.argv = dir, argv
+			return nil
+		}}))
+	t.Cleanup(srv.Close)
+	return srv, st, got
+}
+
+// TestContinueRunTakesOverARunningRun: a running run is stopped first, and the
+// terminal reopens the session the run finally reported.
+func TestContinueRunTakesOverARunningRun(t *testing.T) {
+	to := &stubTakeover{rec: store.Run{RunID: "r1", Status: store.StatusCanceled, SessionID: "sess-final"}}
+	srv, _, got := takeoverFixture(t, to)
+	if r := do(t, srv, "POST", "/api/runs/r1/continue", nil); r.Status != http.StatusNoContent {
+		t.Fatalf("continue status = %d (%s)", r.Status, r.Body)
+	}
+	if to.got != "r1" {
+		t.Fatalf("take-over got run %q, want r1", to.got)
+	}
+	if want := "/opt/claude --resume sess-final"; strings.Join(got.argv, " ") != want {
+		t.Fatalf("argv = %v, want %q", got.argv, want)
+	}
+}
+
+// TestContinueRunTakeOverFailureOpensNothing: a run that could not be stopped,
+// or stopped without a session, never gets a terminal of its own.
+func TestContinueRunTakeOverFailureOpensNothing(t *testing.T) {
+	cases := []struct {
+		name string
+		to   *stubTakeover
+	}{
+		{"run already gone", &stubTakeover{err: errors.New("run \"r1\" is not running")}},
+		{"no session reported", &stubTakeover{rec: store.Run{RunID: "r1", Status: store.StatusCanceled}}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			srv, _, got := takeoverFixture(t, c.to)
+			if r := do(t, srv, "POST", "/api/runs/r1/continue", nil); r.Status != http.StatusConflict {
+				t.Fatalf("status = %d (%s), want 409", r.Status, r.Body)
+			}
+			if got.argv != nil {
+				t.Fatalf("terminal opened with %v", got.argv)
+			}
+		})
+	}
+}
+
+// TestContinueRunTakeOverOfARunThatJustEnded: a run that finished on its own
+// between being read and being stopped is continued as the finished run it is.
+func TestContinueRunTakeOverOfARunThatJustEnded(t *testing.T) {
+	to := &stubTakeover{err: errors.New("run \"r1\" is not running")}
+	srv, st, got := takeoverFixture(t, to)
+	to.before = func() {
+		runs, _ := st.Runs()
+		done := runs[0]
+		done.Status, done.SessionID = store.StatusSuccess, "sess-done"
+		if err := st.AppendRun(done); err != nil {
+			t.Errorf("AppendRun: %v", err)
+		}
+	}
+	if r := do(t, srv, "POST", "/api/runs/r1/continue", nil); r.Status != http.StatusNoContent {
+		t.Fatalf("continue status = %d (%s)", r.Status, r.Body)
+	}
+	if want := "/opt/claude --resume sess-done"; strings.Join(got.argv, " ") != want {
+		t.Fatalf("argv = %v, want %q", got.argv, want)
+	}
+}
+
 func TestContinueRunNotFound(t *testing.T) {
 	srv, _, _ := continueFixture(t, nil, nil)
 	if r := do(t, srv, "POST", "/api/runs/nope/continue", nil); r.Status != http.StatusNotFound {
