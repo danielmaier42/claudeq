@@ -853,6 +853,7 @@ claudeq enable ID | claudeq disable ID
 claudeq move   ID INDEX                        # 0 = highest priority
 claudeq run-now ID                             # run once, now, for testing
 claudeq status [--all]                         # recent runs; unread marked *
+claudeq status [--all] --json                  # the same runs as JSON: origin job, error, log path
 claudeq read RUNID | claudeq read-all
 claudeq provider list [--json]                 # the harnesses tasks run on
 claudeq provider show ID [--json]
@@ -1615,7 +1616,7 @@ Everything lives under `~/Library/Application Support/claudeq` (override with th
 | Path | Contents |
 |------|----------|
 | `config.toml` | Global settings, the configured [providers](#providers) and [pools](#provider-pools), and the ordered task list — the order is the priority, and tasks of one group sit together in it (human-readable, versionable). No credentials: a provider entry holds its CLI's path and configuration directory, never what is inside them. |
-| `history.jsonl` | Append-only index of every run (except a quiet-history task's successful ones, which are never written). |
+| `history.jsonl` | Append-only index of every run (except a quiet-history task's successful ones, which are never written). Scripts read it through `claudeq status --all --json`. |
 | `runs/<run-id>.log` | Full log for each run. |
 | `artifacts.json` | Index of published artifacts (title, source task/run, its group and parent job, file name, size, type). |
 | `artifacts/<id>/<file>` | The published files themselves (snapshots copied at publish time). |
