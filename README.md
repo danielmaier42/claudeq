@@ -485,6 +485,7 @@ and the update button live.
 | | | Keep run history | How many runs (and their logs) to retain before pruning (default 500; Unlimited keeps everything). |
 | | Scheduler | Check for due tasks every | How often the daemon wakes to look for work (15 min – 6 h; also the wake safety-net interval). |
 | | Beta features | Beta features | Reveals the parts of ClaudeQ that are not finished yet — currently **Add provider** and the **Codex** and **opencode** providers. Presentation only: anything already set up keeps working and the CLI accepts it either way. |
+| | Uninstall | Remove ClaudeQ from this Mac | **Uninstall…** opens the uninstaller in the macOS Installer. Your tasks, history and settings are kept unless you select them under **Customize**. See [Uninstall](#uninstall). |
 
 ## Providers
 
@@ -880,6 +881,7 @@ claudeq settings [--json] [--default-provider ID]
                  [--pushover=BOOL] [--pushover-token T] [--pushover-user U]
                  [--ntfy=BOOL] [--ntfy-server S] [--ntfy-topic T] [--ntfy-token T]
                  [--webhook=BOOL] [--webhook-url U] [--webhook-template J]
+claudeq uninstall [--purge] [--yes]            # run the uninstaller in the terminal (see Uninstall)
 claudeq --version
 ```
 
@@ -1628,15 +1630,40 @@ The LaunchAgent itself is at
 
 ## Uninstall
 
+Dragging ClaudeQ.app to the Bin is not enough: the background agent stays
+registered and macOS keeps trying to start it. ClaudeQ ships its own
+uninstaller, `Uninstall ClaudeQ.pkg`, inside the app
+(`Contents/Resources`). **Settings → System → Uninstall…** opens it in the
+macOS Installer: read the welcome page, optionally click **Customize**, then
+**Install** (the Installer's button for running a package) and enter your
+password.
+
+It removes:
+
+| What | Where |
+|------|-------|
+| The app | `/Applications/ClaudeQ.app`, and the copy the background agent ran if that is another one |
+| The background agent | `~/Library/LaunchAgents/de.maierdaniel.claudeq.plist`; every running ClaudeQ daemon and window is stopped, and a run in progress is cancelled |
+| The wake permission | `/etc/sudoers.d/claudeq` |
+| The installer receipt | `pkgutil --forget de.maierdaniel.claudeq` |
+| **Customize → Tasks, history and settings** (off by default) | `~/Library/Application Support/claudeq`, and the app's own folders under `~/Library` (`WebKit`, `Caches`, `HTTPStorages`, `Saved Application State`, `Preferences`) |
+
+The uninstaller leaves no receipt of its own. It also cleans up after an app
+that was already dragged to the Bin: open the `.pkg` from the Bin's copy of
+ClaudeQ.app (right-click → Show Package Contents → `Contents/Resources`).
+
+From the terminal, the same package runs through `installer`; run it as the
+user logged in at the screen (not with sudo, it asks sudo for the password
+itself):
+
 ```sh
-/Applications/ClaudeQ.app/Contents/MacOS/claudeqd uninstall   # remove the LaunchAgent
-sudo rm -f /etc/sudoers.d/claudeq                             # remove the pmset wake permission
-rm -rf /Applications/ClaudeQ.app
+/Applications/ClaudeQ.app/Contents/MacOS/claudeq uninstall          # keep tasks and history
+/Applications/ClaudeQ.app/Contents/MacOS/claudeq uninstall --purge  # delete them too
 ```
 
-Or run [`scripts/uninstall.sh`](scripts/uninstall.sh) (does all of the above).
-Your tasks and history in `~/Library/Application Support/claudeq` are left in
-place; delete that folder to remove them too.
+The data choice deletes the default data directory only; the Installer cannot
+see a `CLAUDEQ_HOME` set in your shell, so delete such a folder yourself
+(`--purge` reminds you).
 
 ## Build from source
 

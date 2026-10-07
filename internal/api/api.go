@@ -105,6 +105,9 @@ type Deps struct {
 	// Limits remembers and reads each provider's allowance (5-hour and weekly
 	// windows). Optional; when nil the dashboard has no limits to show.
 	Limits *provider.LimitMonitor
+	// Uninstall opens ClaudeQ's uninstaller in the macOS Installer (Settings >
+	// System). Optional; when nil the endpoint reports "not implemented".
+	Uninstall func(ctx context.Context) error
 }
 
 // Handler builds the HTTP handler (REST API under /api + dashboard at /).
@@ -172,6 +175,7 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/update/dismiss", s.dismissUpdate)
 	mux.HandleFunc("POST /api/update/download", s.downloadUpdate)
 	mux.HandleFunc("POST /api/update/relaunch", s.relaunchUpdate)
+	mux.HandleFunc("POST /api/uninstall", s.uninstall)
 	mux.HandleFunc("GET /api/feedback", s.getFeedback)
 	mux.HandleFunc("POST /api/feedback/turn", s.feedbackTurn)
 	mux.HandleFunc("POST /api/feedback/url", s.feedbackURL)

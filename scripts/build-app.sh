@@ -43,6 +43,10 @@ go build -ldflags "$LDFLAGS" -o "$MACOS/claudeqd" "$ROOT/cmd/claudeqd"
 # follow-up work via it (claudeqd passes its absolute path as CLAUDEQ_BIN).
 go build -ldflags "$LDFLAGS" -o "$MACOS/claudeq" "$ROOT/cmd/claudeq"
 
+echo "==> Building the uninstaller"
+# Settings > System > Uninstall and `claudeq uninstall` run this package.
+"$ROOT/scripts/build-uninstall-pkg.sh" "$RES/Uninstall ClaudeQ.pkg"
+
 echo "==> Rendering icon from $LOGO"
 if command -v rsvg-convert >/dev/null 2>&1; then
   ICONSET="$(mktemp -d)/claudeq.iconset"

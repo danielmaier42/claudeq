@@ -171,6 +171,12 @@ async function loadSettings(){
           <div class="sub multi">Parts of ClaudeQ that are not finished yet. It decides what the app offers and nothing else: anything already set up keeps working, and the <code>claudeq</code> CLI accepts it either way.</div></div>
           <label class="switch"><input type="checkbox" id="s-beta"><span class="sl"></span></label></div>
       </div>
+      <div class="section-label">Uninstall</div>
+      <div class="group">
+        <div class="row"><div class="grow"><div class="title">Remove ClaudeQ from this Mac</div>
+          <div class="sub multi">Opens the uninstaller in the macOS Installer. It deletes the app, stops its background service and removes the wake permission. Your tasks and history stay unless you select them under Customize.</div></div>
+          <button class="btn danger" id="s-uninstall">Uninstall…</button></div>
+      </div>
     </div>
 
     <div class="sub" style="text-align:center;margin-top:10px">Made with <span style="color:var(--accent)">♥</span> by
@@ -233,6 +239,7 @@ async function loadSettings(){
   if(reviewOn) sysReview.restore();
   $('#s-check-updates').onclick=checkForUpdates;
   $('#s-notif-settings').onclick=openNotificationSettings;
+  $('#s-uninstall').onclick=uninstallApp;
   $('#s-add-provider').onclick=openAddProvider;
   $('#s-add-pool').onclick=openAddPool;
   $('#np-add').onclick=submitProvider;
@@ -273,6 +280,14 @@ function selectSettingsPane(pane){
   document.querySelectorAll('#s-tabs button').forEach(b=>b.classList.toggle('active',b.dataset.pane===pane));
   document.querySelectorAll('#settings .s-pane').forEach(p=>p.hidden=p.dataset.pane!==pane);
 }
+// The uninstaller is a package the macOS Installer runs: it asks to confirm,
+// offers the data under Customize, and closes this window when it removes
+// the app.
+async function uninstallApp(){
+  try{ await api('POST','/api/uninstall',{}); }
+  catch(err){ toast(err.message,'err'); }
+}
+
 // Jump to macOS' notification settings, where the alert style lives (Banners
 // disappear on their own, Alerts wait for a click). Only the app window can open
 // a System Settings URL — in a browser tab we just say where to look.

@@ -1,0 +1,37 @@
+#!/bin/sh
+# postinstall of "Uninstall ClaudeQ", the optional "Tasks, history and settings"
+# part (Customize in the installer): delete everything ClaudeQ stored for the
+# logged-in user. It runs after the main part, so no daemon is left to write
+# the data back.
+#
+# Only the default data directory is deleted: the installer cannot see a
+# CLAUDEQ_HOME set in the user's shell.
+set -u
+
+. "$(dirname "$0")/common.sh"
+
+if [ -z "$homeDir" ]; then
+	echo "claudeq: no console user; nothing to delete"
+	exit 0
+fi
+
+for item in \
+	"Application Support/claudeq" \
+	"Caches/$LABEL" \
+	"HTTPStorages/$LABEL" \
+	"HTTPStorages/$LABEL.binarycookies" \
+	"WebKit/$LABEL" \
+	"Saved Application State/$LABEL.savedState"; do
+	path="$homeDir/Library/$item"
+	if [ -e "$path" ]; then
+		rm -rf "$path"
+		echo "claudeq: removed $path"
+	fi
+done
+
+# Through cfprefsd, which would otherwise keep serving the deleted preferences
+# from its cache; then the file, in case cfprefsd did not know the domain.
+as_user defaults delete "$LABEL" >/dev/null 2>&1 || true
+rm -f "$homeDir/Library/Preferences/$LABEL.plist"
+
+exit 0

@@ -52,7 +52,7 @@ func installedApp(exePath, defaultApp string) *Installed {
 // exePath (…/ClaudeQ.app/Contents/MacOS/claudeqd) and the canonical location.
 func candidateApps(exePath, defaultApp string) []string {
 	apps := []string{}
-	if app := enclosingBundle(exePath); app != "" {
+	if app := EnclosingBundle(exePath); app != "" {
 		apps = append(apps, app)
 	}
 	if len(apps) == 0 || apps[0] != defaultApp {
@@ -61,9 +61,9 @@ func candidateApps(exePath, defaultApp string) []string {
 	return apps
 }
 
-// enclosingBundle returns the .app bundle a binary lives in, "" if it does not
+// EnclosingBundle returns the .app bundle a binary lives in, "" if it does not
 // sit inside one.
-func enclosingBundle(exePath string) string {
+func EnclosingBundle(exePath string) string {
 	if exePath == "" {
 		return ""
 	}

@@ -82,6 +82,10 @@ Usage:
                    [--webhook-url U] [--webhook-template J]
                    (--paused=true stops every run globally; nothing starts, not
                    even run-now, until it is set back to false)
+  claudeq uninstall [--purge] [--yes]
+                 (run the uninstaller package: remove the app, its background agent,
+                 the wake permission and the installer receipt; --purge also deletes
+                 tasks, history and settings. sudo asks for your password)
   claudeq --version`
 
 func main() {
@@ -99,6 +103,12 @@ func run(args []string) error {
 	if args[0] == "--version" || args[0] == "-version" {
 		fmt.Println(version.String())
 		return nil
+	}
+
+	// Before the store is opened: opening it would create the data directory
+	// the uninstall is about to remove.
+	if args[0] == "uninstall" {
+		return cmdUninstall(args[1:])
 	}
 
 	st, err := openStore()

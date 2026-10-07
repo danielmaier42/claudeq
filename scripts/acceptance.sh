@@ -69,7 +69,7 @@ chmod +x "$FAKE/claude"
 
 # Fake system tools (launchctl/sudo/pmset) log their args instead of touching
 # the real system, so Phase 3 install/wake can be checked safely.
-for tool in launchctl sudo pmset osascript pkill; do
+for tool in launchctl sudo pmset osascript pkill pkgutil; do
   cat > "$FAKE/$tool" <<EOF
 #!/bin/sh
 echo "\$*" >> "$WORK/$tool.log"
@@ -287,8 +287,57 @@ chmod +x "$FAKE/pgrep"
 sh "$ROOT/scripts/pkg/preinstall" >/dev/null 2>&1
 check "preinstall TERMs the window by exact process name"  contains "$WORK/pkill.log" "^-x claudeqapp$"
 check "preinstall does not force-quit a window that exits" bash -c '! grep -q -- "-9" "'"$WORK"'/pkill.log"'
-check "NFA-06 uninstall removes LaunchAgent and app"       contains "$ROOT/scripts/uninstall.sh" "uninstall"
-check "NFA-06 uninstall is valid shell"                    bash -n "$ROOT/scripts/uninstall.sh"
+
+# NFA-06: the uninstaller package. Build it, expand it, and run the scripts it
+# really carries against the fakes, with a scratch home, app and sudoers file
+# standing in for the real ones (CLAUDEQ_CONSOLE_*/CLAUDEQ_APP/CLAUDEQ_SUDOERS).
+U="$WORK/uninst"; UHOME="$U/home"; ULIB="$UHOME/Library"
+"$ROOT/scripts/build-uninstall-pkg.sh" "$U/Uninstall ClaudeQ.pkg" >/dev/null 2>&1
+/usr/sbin/pkgutil --expand "$U/Uninstall ClaudeQ.pkg" "$U/x" >/dev/null 2>&1
+check "NFA-06 uninstaller package builds and expands"  test -x "$U/x/uninstall.pkg/Scripts/postinstall"
+installer -showChoiceChangesXML -pkg "$U/Uninstall ClaudeQ.pkg" -target / >"$U/choices.xml" 2>/dev/null
+check "NFA-06 data deletion is an opt-in choice"        bash -c 'tr -d "\n\t " < "'"$U"'/choices.xml" | grep -q "<integer>0</integer><key>choiceAttribute</key><string>selected</string><key>choiceIdentifier</key><string>data</string>"'
+mk_app() { # mk_app <bundle> <bundle id>
+  mkdir -p "$1/Contents/MacOS"
+  printf '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>%s</string></dict></plist>\n' "$2" > "$1/Contents/Info.plist"
+}
+mk_app "$U/Applications/ClaudeQ.app" de.maierdaniel.claudeq
+mk_app "$U/Elsewhere/ClaudeQ.app" de.maierdaniel.claudeq
+mk_app "$U/Foreign.app" com.example.foreign
+mkdir -p "$ULIB/LaunchAgents" "$ULIB/Application Support/claudeq" "$ULIB/WebKit/de.maierdaniel.claudeq" "$ULIB/Preferences"
+printf '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>ProgramArguments</key><array><string>%s</string><string>run</string></array></dict></plist>\n' \
+  "$U/Elsewhere/ClaudeQ.app/Contents/MacOS/claudeqd" > "$ULIB/LaunchAgents/de.maierdaniel.claudeq.plist"
+touch "$ULIB/Application Support/claudeq/config.toml" "$ULIB/Preferences/de.maierdaniel.claudeq.plist" "$U/sudoers"
+: > "$WORK/launchctl.log"; : > "$WORK/pkgutil.log"; rm -f "$WORK/pkill.log"
+# Both the window and the daemon "run" until a TERM for them has been sent.
+cat > "$FAKE/pgrep" <<EOF
+#!/bin/sh
+for last; do :; done
+grep -q " \$last\$" "$WORK/pkill.log" 2>/dev/null && exit 1 || exit 0
+EOF
+chmod +x "$FAKE/pgrep"
+uenv() { env CLAUDEQ_CONSOLE_USER="$(id -un)" CLAUDEQ_CONSOLE_HOME="$UHOME" CLAUDEQ_APP="$1" CLAUDEQ_SUDOERS="$U/sudoers" sh "$2"; }
+uenv "$U/Applications/ClaudeQ.app" "$U/x/uninstall.pkg/Scripts/postinstall" >"$U/main.out" 2>&1
+num_check "NFA-06 uninstaller exits cleanly"               "$?" -eq 0
+check "NFA-06 uninstaller closes the user's window"         contains "$WORK/pkill.log" "^-x -u $(id -u) claudeqapp$"
+check "NFA-06 uninstaller stops the user's daemon"          contains "$WORK/pkill.log" "^-x -u $(id -u) claudeqd$"
+check "NFA-06 a daemon that exits on TERM is not killed"    bash -c '! grep -q -- "-9" "'"$WORK"'/pkill.log"'
+check "NFA-06 the agent goes before the daemon is stopped"  precedes "$U/main.out" "removed LaunchAgent" "stopping claudeqd"
+check "NFA-06 uninstaller boots out the LaunchAgent"        contains "$WORK/launchctl.log" "^asuser $(id -u) sudo -u $(id -un) launchctl bootout gui/$(id -u)/de.maierdaniel.claudeq$"
+check "NFA-06 uninstaller removes the LaunchAgent plist"    bash -c '[ ! -e "'"$ULIB"'/LaunchAgents/de.maierdaniel.claudeq.plist" ]'
+check "NFA-06 uninstaller removes the wake permission"      bash -c '[ ! -e "'"$U"'/sudoers" ]'
+check "NFA-06 uninstaller forgets the installer receipt"    contains "$WORK/pkgutil.log" "^--forget de.maierdaniel.claudeq$"
+check "NFA-06 uninstaller removes the app"                  bash -c '[ ! -e "'"$U"'/Applications/ClaudeQ.app" ]'
+check "NFA-06 uninstaller removes the copy the agent ran"   bash -c '[ ! -e "'"$U"'/Elsewhere/ClaudeQ.app" ]'
+check "NFA-06 uninstaller keeps the data by default"        test -f "$ULIB/Application Support/claudeq/config.toml"
+uenv "$U/Foreign.app" "$U/x/uninstall.pkg/Scripts/postinstall" >/dev/null 2>&1
+check "NFA-06 uninstaller never removes another app"        test -d "$U/Foreign.app"
+uenv "" "$U/x/uninstall-data.pkg/Scripts/postinstall" >"$U/data.out" 2>&1
+check "NFA-06 data choice deletes the data directory"       bash -c '[ ! -e "'"$ULIB"'/Application Support/claudeq" ]'
+check "NFA-06 data choice deletes the app's Library folders" bash -c '[ ! -e "'"$ULIB"'/WebKit/de.maierdaniel.claudeq" ] && [ ! -e "'"$ULIB"'/Preferences/de.maierdaniel.claudeq.plist" ]'
+check "NFA-06 data choice clears preferences via cfprefsd"  contains "$WORK/launchctl.log" "asuser $(id -u) sudo -u $(id -un) defaults delete de.maierdaniel.claudeq"
+CLAUDEQ_CONSOLE_USER=root sh "$U/x/uninstall-data.pkg/Scripts/postinstall" >/dev/null 2>&1
+num_check "NFA-06 data choice without a console user is a no-op" "$?" -eq 0
 check "release pipeline triggers on version tags"          contains "$ROOT/.github/workflows/release.yml" 'tags:'
 check "release pipeline attaches the installer pkg"        contains "$ROOT/.github/workflows/release.yml" "claudeq-.*.pkg"
 

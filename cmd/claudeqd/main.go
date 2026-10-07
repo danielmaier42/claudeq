@@ -42,6 +42,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/review"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/system"
+	"github.com/danielmaier42/claudeq/internal/uninstall"
 	"github.com/danielmaier42/claudeq/internal/update"
 	"github.com/danielmaier42/claudeq/internal/version"
 	"github.com/danielmaier42/claudeq/internal/wake"
@@ -229,6 +230,7 @@ func cmdRun(args []string) error {
 			Feedback:     feedback.New(asides), OSVersion: osVersion(system.Real{}),
 			Review:   &review.Reviewer{Ask: asides},
 			Registry: registry, Providers: checker, Limits: limits,
+			Uninstall: openUninstaller,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
@@ -470,8 +472,25 @@ func cmdUninstall() error {
 		return err
 	}
 	fmt.Printf("removed LaunchAgent %s\n", launchd.DefaultLabel)
-	fmt.Println("If you added the pmset sudoers entry, remove it with: sudo rm -f /etc/sudoers.d/claudeq")
+	cli := resolveQueueBin()
+	if cli == "" {
+		cli = filepath.Join(update.DefaultAppPath, "Contents", "MacOS", "claudeq")
+	}
+	fmt.Printf("To remove the app, the wake permission and the installer receipt as well, run: %s uninstall\n", cli)
 	return nil
+}
+
+// openUninstaller opens the uninstaller of the app bundle this daemon runs
+// from in the macOS Installer (Settings > System > Uninstall).
+func openUninstaller(ctx context.Context) error {
+	self, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("locate executable: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(self); err == nil {
+		self = resolved
+	}
+	return uninstall.Open(ctx, system.Real{}, self)
 }
 
 // resolveQueueBin finds the claudeq CLI shipped next to this daemon binary (in

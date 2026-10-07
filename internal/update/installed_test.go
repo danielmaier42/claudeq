@@ -73,8 +73,8 @@ func TestEnclosingBundle(t *testing.T) {
 		{"", ""},
 	}
 	for _, tc := range tests {
-		if got := enclosingBundle(tc.in); got != tc.want {
-			t.Fatalf("enclosingBundle(%q) = %q, want %q", tc.in, got, tc.want)
+		if got := EnclosingBundle(tc.in); got != tc.want {
+			t.Fatalf("EnclosingBundle(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }
