@@ -102,6 +102,12 @@ func (s *server) poolView(set provider.Set, p provider.Pool, health map[string]p
 	return v
 }
 
+// getPool is one pool with its ranking, as listPools shows it. It is what
+// `claudeq pool next` and `claudeq pool show` ask a running daemon for.
+func (s *server) getPool(w http.ResponseWriter, r *http.Request) {
+	s.writePool(w, r, r.PathValue("id"), http.StatusOK)
+}
+
 func (s *server) addPool(w http.ResponseWriter, r *http.Request) {
 	var in poolInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {

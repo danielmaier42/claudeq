@@ -4,8 +4,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -24,6 +28,7 @@ expiring unused: free share x weight / hours until it resets.
 
 Usage:
   claudeq pool list [--json]
+  claudeq pool next ID [--json]        (the member the next run goes to, and why)
   claudeq pool show ID [--json]        (the members, ranked as a run started now would try them)
   claudeq pool add  ID --member PROVIDER[=WEIGHT]... [--name N]
   claudeq pool edit ID [--name N] [--member PROVIDER[=WEIGHT]]...
@@ -31,7 +36,10 @@ Usage:
   claudeq pool rm ID
 
 WEIGHT is the plan's size relative to the others (Max 20x = 20). Leave it out
-to take what the provider reports about its plan, or 1 when it reports none.`
+to take what the provider reports about its plan, or 1 when it reports none.
+
+next and show ask the running daemon, as the Dashboard does, so rate-limit
+pauses count. Without a daemon they read the members here.`
 
 func cmdPool(st *store.Store, args []string) error {
 	if len(args) == 0 {
@@ -44,6 +52,8 @@ func cmdPool(st *store.Store, args []string) error {
 		return cmdPoolList(st, rest)
 	case "show":
 		return cmdPoolShow(st, rest)
+	case "next":
+		return cmdPoolNext(st, rest)
 	case "add":
 		return cmdPoolAdd(st, rest)
 	case "edit":
@@ -134,9 +144,22 @@ func cmdPoolList(st *store.Store, args []string) error {
 }
 
 // poolShowView is what `pool show --json` prints: the pool and its members in
-// the order a run started now would try them.
+// the order a run started now would try them. Source says where the ranking
+// came from: "daemon" when the running daemon was asked, as the Dashboard
+// does, or "local" when it was read here because no daemon answered.
 type poolShowView struct {
 	poolListView
+	Source  string                 `json:"source"`
+	Ranking []provider.MemberScore `json:"ranking"`
+}
+
+// poolNextView is what `pool next --json` prints: the member the next run
+// would go to (nil when none can take work) and the ranking behind it.
+type poolNextView struct {
+	Pool    string                 `json:"pool"`
+	Name    string                 `json:"name"`
+	Source  string                 `json:"source"`
+	Next    *provider.MemberScore  `json:"next"`
 	Ranking []provider.MemberScore `json:"ranking"`
 }
 
@@ -150,32 +173,163 @@ func cmdPoolShow(st *store.Store, args []string) error {
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
-	set, err := app.Providers(st)
+	v, err := poolRanking(st, id)
 	if err != nil {
 		return err
 	}
-	p, ok := set.LookupPool(id)
-	if !ok {
-		return fmt.Errorf("%w %q", provider.ErrUnknownPool, id)
-	}
-	ranking := rankPoolNow(set, p)
-	s := p.Stored()
-	v := poolShowView{poolListView: poolListView{ID: s.ID, Name: s.Name, Members: s.Members}, Ranking: ranking}
 	if *asJSON {
 		return printJSON(v)
 	}
 	fmt.Printf("pool %s (%s)\n\n", v.ID, v.Name)
+	if err := printRanking(v.Ranking); err != nil {
+		return err
+	}
+	fmt.Printf("\nA run started now goes to the first member that can take work. Urgency = free %% of the week x weight / hours to reset.\n%s\n", sourceNote(v.Source))
+	return nil
+}
+
+func cmdPoolNext(st *store.Store, args []string) error {
+	id, rest, err := splitPositional(args, "a pool id")
+	if err != nil {
+		return err
+	}
+	fs := flag.NewFlagSet("pool next", flag.ContinueOnError)
+	asJSON := fs.Bool("json", false, "print the chosen member and the ranking as JSON")
+	if err := fs.Parse(rest); err != nil {
+		return err
+	}
+	v, err := poolRanking(st, id)
+	if err != nil {
+		return err
+	}
+	out := poolNextView{Pool: v.ID, Name: v.Name, Source: v.Source, Ranking: v.Ranking}
+	for i := range v.Ranking {
+		if v.Ranking[i].Tier < 3 {
+			out.Next = &v.Ranking[i]
+			break
+		}
+	}
+	if *asJSON {
+		return printJSON(out)
+	}
+	if out.Next == nil {
+		fmt.Printf("pool %s (%s): no member can take work right now\n\n", out.Pool, out.Name)
+	} else {
+		n := out.Next
+		fmt.Printf("pool %s (%s): the next run goes to %s (%s)\n", out.Pool, out.Name, n.Name, n.ProviderID)
+		fmt.Printf("  %s · weight %s× · urgency %.2f\n\n", n.Note, strconv.FormatFloat(n.Weight, 'f', -1, 64), n.Urgency)
+	}
+	if err := printRanking(out.Ranking); err != nil {
+		return err
+	}
+	fmt.Println(sourceNote(out.Source))
+	return nil
+}
+
+// printRanking prints a pool's members, best first, the way the Dashboard
+// lists them: no urgency for a member that cannot take work.
+func printRanking(ranking []provider.MemberScore) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
 	fmt.Fprintln(w, "#\tPROVIDER\tWEIGHT\tURGENCY\tNOTE")
 	for i, r := range ranking {
-		fmt.Fprintf(w, "%d\t%s\t%s\t%.2f\t%s\n", i+1, r.ProviderID,
-			strconv.FormatFloat(r.Weight, 'f', -1, 64), r.Urgency, r.Note)
+		urgency := "-"
+		if r.Tier < 3 {
+			urgency = strconv.FormatFloat(r.Urgency, 'f', 2, 64)
+		}
+		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\n", i+1, r.ProviderID,
+			strconv.FormatFloat(r.Weight, 'f', -1, 64), urgency, r.Note)
 	}
-	if err := w.Flush(); err != nil {
-		return err
+	return w.Flush()
+}
+
+func sourceNote(source string) string {
+	if source == poolSourceDaemon {
+		return "(as the daemon sees it, rate-limit pauses included)"
 	}
-	fmt.Println("\nA run started now goes to #1. Urgency = free % of the week x weight / hours to reset.")
-	return nil
+	return "(read here: the daemon could not be asked, so rate-limit pauses are not known)"
+}
+
+const (
+	poolSourceDaemon = "daemon"
+	poolSourceLocal  = "local"
+)
+
+// daemonURL is where the running daemon serves its API; a variable so tests
+// can put a stub server (or nothing) in its place.
+var daemonURL = "http://127.0.0.1:10765"
+
+// errNoDaemon means the daemon could not be asked: it is not running, or is
+// too old to answer the question.
+var errNoDaemon = errors.New("no daemon answered")
+
+// poolRanking ranks a pool the way the Dashboard shows it. The running daemon
+// is asked first: it knows the rate-limit pauses and its readings are the ones
+// the scheduler goes by. Without one, the members are read here.
+func poolRanking(st *store.Store, id string) (poolShowView, error) {
+	v, err := daemonPool(id)
+	if err == nil {
+		v.Source = poolSourceDaemon
+		return v, nil
+	}
+	if !errors.Is(err, errNoDaemon) {
+		return poolShowView{}, err
+	}
+	set, err := app.Providers(st)
+	if err != nil {
+		return poolShowView{}, err
+	}
+	p, ok := set.LookupPool(id)
+	if !ok {
+		return poolShowView{}, fmt.Errorf("%w %q", provider.ErrUnknownPool, id)
+	}
+	s := p.Stored()
+	return poolShowView{
+		poolListView: poolListView{ID: s.ID, Name: s.Name, Members: s.Members},
+		Source:       poolSourceLocal,
+		Ranking:      rankPoolNow(set, p),
+	}, nil
+}
+
+// daemonPool asks the running daemon for a pool and its ranking.
+func daemonPool(id string) (poolShowView, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), providerCheckTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, daemonURL+"/api/pools/"+url.PathEscape(id), nil)
+	if err != nil {
+		return poolShowView{}, fmt.Errorf("pool request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		// Not running, or hung past the deadline: either way it has no answer.
+		return poolShowView{}, fmt.Errorf("%w: %w", errNoDaemon, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		var e struct {
+			Error string `json:"error"`
+		}
+		switch {
+		case json.NewDecoder(resp.Body).Decode(&e) == nil && e.Error != "":
+			return poolShowView{}, errors.New(e.Error)
+		case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed:
+			// A daemon from before GET /api/pools/{id}: its router answers
+			// without the API's error body.
+			return poolShowView{}, errNoDaemon
+		default:
+			return poolShowView{}, fmt.Errorf("daemon answered %s", resp.Status)
+		}
+	}
+	// The daemon's pool view: members as {provider, weight}, like store.PoolMember.
+	var body struct {
+		ID      string                 `json:"id"`
+		Name    string                 `json:"name"`
+		Members []store.PoolMember     `json:"members"`
+		Ranking []provider.MemberScore `json:"ranking"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return poolShowView{}, fmt.Errorf("read the daemon's answer: %w", err)
+	}
+	return poolShowView{poolListView: poolListView{ID: body.ID, Name: body.Name, Members: body.Members}, Ranking: body.Ranking}, nil
 }
 
 // rankPoolNow ranks a pool from fresh readings: each member's allowance and
