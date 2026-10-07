@@ -219,7 +219,7 @@ func cmdRun(args []string) error {
 	httpSrv := &http.Server{
 		Addr: *addr,
 		Handler: api.Handler(api.Deps{
-			Store: st, Runner: eng, Canceler: eng,
+			Store: st, Runner: eng, Canceler: eng, TakeOver: eng,
 			ChooseFolder: api.OSAScriptFolderChooser(system.Real{}), ActiveTasks: eng.ActiveTaskIDs,
 			SaveFile:     api.OSAScriptSaveFileDialog(system.Real{}),
 			OpenTerminal: api.OSAScriptTerminalOpener(system.Real{}),

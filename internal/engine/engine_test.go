@@ -447,6 +447,76 @@ func TestCancelRunMarksRunCanceled(t *testing.T) {
 	}
 }
 
+// TestTakeOverRunWaitsForTheRecord: taking a run over hands back the record
+// only once the process is gone and the run is written down, so the caller can
+// reopen the session without two processes writing to it.
+func TestTakeOverRunWaitsForTheRecord(t *testing.T) {
+	fc := clock.NewFake(time.Now())
+	r := &ctxStub{}
+	e, st := newTestEngine(t, r, fc)
+	saveTasks(t, st, asapTask("a", false))
+
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	waitFor(t, func() bool { return r.activeStarted() == 1 })
+
+	rec, err := e.TakeOverRun(context.Background(), "run-1")
+	if err != nil {
+		t.Fatalf("TakeOverRun: %v", err)
+	}
+	if rec.Status != store.StatusCanceled || rec.SessionID == "" {
+		t.Fatalf("returned record = %+v, want a canceled run with its session", rec)
+	}
+	if rec.Error != "taken over in Terminal by the user" {
+		t.Fatalf("unexpected error text: %q", rec.Error)
+	}
+	runs, _ := st.Runs()
+	if len(runs) != 1 || runs[0].Status != store.StatusCanceled {
+		t.Fatalf("history should already hold the canceled run, got %+v", runs)
+	}
+	if _, err := e.TakeOverRun(context.Background(), "run-1"); err == nil {
+		t.Fatal("TakeOverRun on a finished run should error")
+	}
+	e.WaitIdle()
+}
+
+// TestTakeOverRunRefusesACanceledRun: a run the user already asked to stop
+// is not reopened behind their back by a take-over that came second.
+func TestTakeOverRunRefusesACanceledRun(t *testing.T) {
+	fc := clock.NewFake(time.Now())
+	r := &ctxStub{}
+	e, st := newTestEngine(t, r, fc)
+	saveTasks(t, st, asapTask("a", false))
+
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	waitFor(t, func() bool { return r.activeStarted() == 1 })
+	e.mu.Lock()
+	e.canceled["run-1"] = true // as CancelRun leaves it before the process is gone
+	e.mu.Unlock()
+	if _, err := e.TakeOverRun(context.Background(), "run-1"); err == nil {
+		t.Fatal("TakeOverRun on a run being canceled should error")
+	}
+	if err := e.CancelRun("run-1"); err != nil {
+		t.Fatalf("CancelRun: %v", err)
+	}
+	e.WaitIdle()
+	runs, _ := st.Runs()
+	if len(runs) != 1 || runs[0].Error != "stopped by the user" {
+		t.Fatalf("run should stay a plain cancel, got %+v", runs)
+	}
+}
+
+func TestTakeOverRunUnknownID(t *testing.T) {
+	fc := clock.NewFake(time.Now())
+	e, _ := newTestEngine(t, &stub{}, fc)
+	if _, err := e.TakeOverRun(context.Background(), "nope"); err == nil {
+		t.Fatal("expected error for unknown run id")
+	}
+}
+
 func TestCancelRunUnknownID(t *testing.T) {
 	fc := clock.NewFake(time.Now())
 	e, _ := newTestEngine(t, &stub{}, fc)

@@ -45,6 +45,13 @@ type RunCanceler interface {
 	CancelRun(runID string) error
 }
 
+// RunTakeover stops a running run so its session can be continued by hand and
+// returns the run as finally recorded (satisfied by *engine.Engine). Optional;
+// lets the continue endpoint take over a run that is still in flight.
+type RunTakeover interface {
+	TakeOverRun(ctx context.Context, runID string) (store.Run, error)
+}
+
 // FolderChooser opens a native folder-selection dialog and returns the chosen
 // POSIX path (chosen=false if the user cancelled). Optional.
 type FolderChooser func(ctx context.Context, start string) (path string, chosen bool, err error)
@@ -59,6 +66,7 @@ type Deps struct {
 	Store        *store.Store
 	Runner       RunNower        // optional; enables the run-now endpoint
 	Canceler     RunCanceler     // optional; enables the cancel-run endpoint
+	TakeOver     RunTakeover     // optional; lets continue take over a running run
 	OpenTerminal TerminalOpener  // optional; enables the continue-run endpoint
 	ChooseFolder FolderChooser   // optional; enables the native folder dialog
 	SaveFile     SaveFileDialog  // optional; enables the task export dialog
@@ -777,9 +785,10 @@ func (s *server) cancelRun(w http.ResponseWriter, r *http.Request) {
 
 // continueRun opens a Terminal window that resumes the run's session
 // interactively, in the run's provider and in the task's working directory,
-// so a finished unattended chat can be picked up by hand with its full
-// context. Only finished runs qualify: a running one still owns its session,
-// and a rate-limited one will be resumed by the queue itself.
+// so an unattended chat can be picked up by hand with its full context. A
+// finished run qualifies as it is. A running one still owns its session, so it
+// is taken over: its process is stopped first and the terminal opens only once
+// it is gone. A rate-limited one will be resumed by the queue itself.
 func (s *server) continueRun(w http.ResponseWriter, r *http.Request) {
 	if s.d.OpenTerminal == nil {
 		writeErr(w, http.StatusServiceUnavailable, errors.New("continue not available"))
@@ -798,14 +807,15 @@ func (s *server) continueRun(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+	running := run != nil && run.Status == store.StatusRunning
 	switch {
 	case run == nil:
 		writeErr(w, http.StatusNotFound, errors.New("run not found"))
 		return
-	case run.Status == store.StatusRunning:
+	case running && s.d.TakeOver == nil:
 		writeErr(w, http.StatusConflict, errors.New("the run is still in progress; wait for it to finish (or cancel it)"))
 		return
-	case !run.Status.Terminal():
+	case !running && !run.Status.Terminal():
 		writeErr(w, http.StatusConflict, errors.New("the run is waiting to resume automatically; continue it after it finishes"))
 		return
 	case run.SessionID == "":
@@ -824,16 +834,70 @@ func (s *server) continueRun(w http.ResponseWriter, r *http.Request) {
 	// The interactive resume goes to the provider instance that owns the
 	// session, and the adapter says how that harness reopens one. claudeq never
 	// offers to continue a session on another account, let alone another harness.
+	// Asked before a take-over too, so a run that could not be reopened by hand
+	// is never stopped for nothing.
 	argv, err := s.resumeCommand(*run, *run.Task)
 	if err != nil {
 		writeErr(w, http.StatusConflict, err)
 		return
 	}
-	if err := s.d.OpenTerminal(r.Context(), run.Task.WorkingDir, argv); err != nil {
+	// Once a run is being stopped for the user, the terminal has to open even
+	// if the app stops waiting for the answer — otherwise the run is gone and
+	// nothing took its place.
+	ctx := r.Context()
+	if running {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), takeOverTimeout)
+		defer cancel()
+		stopped, err := s.takeOver(ctx, run.RunID)
+		switch {
+		case errors.Is(err, context.DeadlineExceeded):
+			writeErr(w, http.StatusGatewayTimeout, err)
+			return
+		case err != nil:
+			writeErr(w, http.StatusConflict, err)
+			return
+		}
+		// A harness may report the session it really used only when the run
+		// ends, so the command is built again from what was finally recorded.
+		if stopped.SessionID == "" {
+			writeErr(w, http.StatusConflict, errors.New("the run was stopped before it had a session to continue"))
+			return
+		}
+		if argv, err = s.resumeCommand(stopped, *run.Task); err != nil {
+			writeErr(w, http.StatusConflict, err)
+			return
+		}
+	}
+	if err := s.d.OpenTerminal(ctx, run.Task.WorkingDir, argv); err != nil {
 		writeErr(w, http.StatusBadGateway, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// takeOverTimeout bounds the wait for a taken-over run's process to go; the
+// executor's own kill escalation is far shorter.
+const takeOverTimeout = time.Minute
+
+// takeOver stops a running run and returns its final record. A run that ended
+// on its own between being read and being stopped is not an error: it is
+// finished now, and continuing it is exactly what was asked.
+func (s *server) takeOver(ctx context.Context, runID string) (store.Run, error) {
+	stopped, err := s.d.TakeOver.TakeOverRun(ctx, runID)
+	if err == nil || ctx.Err() != nil {
+		return stopped, err
+	}
+	runs, rerr := s.d.Store.Runs()
+	if rerr != nil {
+		return store.Run{}, err
+	}
+	for _, r := range runs {
+		if r.RunID == runID && r.Status.Terminal() {
+			return r, nil
+		}
+	}
+	return store.Run{}, err
 }
 
 // resumeCommand builds the argv that reopens a run's session in a terminal.
