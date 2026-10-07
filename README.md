@@ -856,6 +856,7 @@ claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [-
                                                   # (a script reads them on stdin)
                [--json]                           # print the new job, id included
 claudeq publish --file PATH [--title T] [--description D]   # publish a file as an artifact
+claudeq artifacts list [--json] [--origin ID] [--since TS]   # published artifacts, oldest first; TS is RFC3339 or a duration like 24h
 claudeq notify --title T --message M [--url U]  # send a notification, no artifact
 claudeq export ID [--out PATH] [--force]       # write the task to a .claudeq file
 claudeq import PATH [--id ID] [--provider ID] [--model NAME]   # add the task from a .claudeq file
@@ -1032,8 +1033,9 @@ this document to work with ClaudeQ.
 - **Invoke it by full path.** `/Applications/ClaudeQ.app/Contents/MacOS/claudeq`
   is not on `PATH`.
 - **Read with `--json`.** `claudeq list --json`, `claudeq show ID --json`,
-  `claudeq settings --json` and `claudeq provider list --json` emit structured
-  output. The other commands print for humans.
+  `claudeq settings --json`, `claudeq provider list --json` and
+  `claudeq artifacts list --json` emit structured output. The other commands
+  print for humans.
 - **A task is refused when its provider cannot run it.** `--provider ID` selects
   one; leaving it out uses the default. An unknown or unready provider exits
   non-zero with the reason, so ask `claudeq provider list --json` first rather
@@ -1239,6 +1241,24 @@ recorded are traced back through run history where it still has the runs. When
 the run itself does not name a parent, they get one only if the trace leads to a
 job still in the queue (or to that job's parent); otherwise they have none and
 show up under **All parents** only.
+
+### Listing artifacts from a script
+
+`claudeq artifacts list` prints the artifacts oldest first, with an unread
+mark, the parent and the publish time. With `--json` each entry carries the
+title, description, file name, the absolute **path of the stored copy**, size,
+content type, publishing task and run, group, parent and the unread flag. The
+parent and group are resolved exactly as the Artifacts view shows them, so
+`--origin ID` keeps the same artifacts as picking that job in the parent menu.
+`--since` keeps what was published after an RFC3339 time, or within a duration
+such as `24h`:
+
+```sh
+claudeq artifacts list --json --origin pr-watcher --since 24h
+claudeq artifacts list --json --since 2026-10-07T09:00:00.123456Z   # the last published_at seen
+```
+
+Listing does not mark anything read.
 
 ## Letting a task send a notification
 
