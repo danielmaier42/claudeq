@@ -149,7 +149,7 @@ fi
 # Allow the daemon to schedule wake-ups (pmset) without a password, so timed
 # tasks can wake the Mac from sleep. The console user is detected here (not
 # hardcoded); the entry is validated with visudo before install so a bad file
-# can never break sudo. `claudeq uninstall` removes it.
+# can never break sudo. The uninstaller (Uninstall ClaudeQ.pkg) removes it.
 sudoers="/etc/sudoers.d/claudeq"
 tmp="$(mktemp)"
 printf '%s ALL=(root) NOPASSWD: /usr/bin/pmset\n' "$consoleUser" > "$tmp"

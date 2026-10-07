@@ -83,9 +83,9 @@ Usage:
                    (--paused=true stops every run globally; nothing starts, not
                    even run-now, until it is set back to false)
   claudeq uninstall [--purge] [--yes]
-                 (remove the app, its background agent, the wake permission and the
-                 installer receipt; --purge also deletes tasks, history and settings.
-                 macOS asks for an administrator password where one is needed)
+                 (run the uninstaller package: remove the app, its background agent,
+                 the wake permission and the installer receipt; --purge also deletes
+                 tasks, history and settings. sudo asks for your password)
   claudeq --version`
 
 func main() {

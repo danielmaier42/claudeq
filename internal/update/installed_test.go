@@ -17,7 +17,6 @@ func writeBundle(t *testing.T, dir, version string) string {
 <plist version="1.0">
 <dict>
 	<key>CFBundleName</key><string>ClaudeQ</string>
-	<key>CFBundleIdentifier</key><string>de.maierdaniel.claudeq</string>
 	<key>CFBundleShortVersionString</key><string>` + version + `</string>
 	<key>LSUIElement</key><false/>
 </dict>
@@ -39,16 +38,6 @@ func TestBundleVersion(t *testing.T) {
 	}
 	if got := BundleVersion(""); got != "" {
 		t.Fatalf("empty path: got %q, want empty", got)
-	}
-}
-
-func TestBundleIdentifier(t *testing.T) {
-	app := writeBundle(t, t.TempDir(), "0.8.1")
-	if got := BundleIdentifier(app); got != "de.maierdaniel.claudeq" {
-		t.Fatalf("BundleIdentifier = %q, want de.maierdaniel.claudeq", got)
-	}
-	if got := BundleIdentifier(filepath.Join(t.TempDir(), "Nope.app")); got != "" {
-		t.Fatalf("missing bundle: got %q, want empty", got)
 	}
 }
 

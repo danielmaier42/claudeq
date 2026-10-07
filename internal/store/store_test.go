@@ -759,15 +759,3 @@ func TestAppearanceIsWrittenOnlyWhenPinned(t *testing.T) {
 		t.Fatalf("appearance = %q after reload, want dark", cfg.Settings.Appearance)
 	}
 }
-
-func TestIsEntry(t *testing.T) {
-	for name, want := range map[string]bool{
-		"config.toml": true, "history.jsonl": true, "runs": true, "artifacts": true,
-		".lock": true, ".daemon.lock": true, "claudeqd.err.log": true, ".tmp-123": true,
-		"usage.json": true, "deploy.sh": false, "notes.md": false, ".tmp": false,
-	} {
-		if got := IsEntry(name); got != want {
-			t.Errorf("IsEntry(%q) = %v, want %v", name, got, want)
-		}
-	}
-}

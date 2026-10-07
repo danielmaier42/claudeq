@@ -1,0 +1,90 @@
+#!/bin/sh
+# postinstall of "Uninstall ClaudeQ", the always-selected part: remove ClaudeQ
+# from this Mac. The window and the background service are stopped (a run in
+# progress is cancelled), then the LaunchAgent, the pmset sudoers entry, the
+# installer receipt and the app go. Tasks, history and settings stay; the
+# optional "data" part of the package removes those, after this one.
+#
+# Every step tolerates something that is already gone, so the uninstaller also
+# cleans up after an app that was dragged to the Bin.
+#
+# CLAUDEQ_APP and CLAUDEQ_SUDOERS stand in for the real paths in
+# scripts/acceptance.sh (see common.sh).
+set -u
+
+. "$(dirname "$0")/common.sh"
+
+APP="${CLAUDEQ_APP:-/Applications/ClaudeQ.app}"
+SUDOERS="${CLAUDEQ_SUDOERS:-/etc/sudoers.d/claudeq}"
+
+# is_claudeq_app succeeds only for an app bundle that says it is ClaudeQ, so a
+# path read from a plist can never delete anything else.
+is_claudeq_app() {
+	case "$1" in
+	/*.app) ;;
+	*) return 1 ;;
+	esac
+	[ -d "$1" ] &&
+		[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$1/Contents/Info.plist" 2>/dev/null)" = "$LABEL" ]
+}
+
+# stop ends the user's processes named exactly $1: TERM, up to $2 tenths of a
+# second to exit, then KILL. The daemon cancels its runs on TERM, which takes a
+# few seconds per run.
+stop() {
+	[ -n "$uid" ] || return 0
+	pgrep -x -u "$uid" "$1" >/dev/null 2>&1 || return 0
+	echo "claudeq: stopping $1"
+	pkill -x -u "$uid" "$1" 2>/dev/null || true
+	i=0
+	while pgrep -x -u "$uid" "$1" >/dev/null 2>&1 && [ "$i" -lt "$2" ]; do
+		sleep 0.1
+		i=$((i + 1))
+	done
+	if pgrep -x -u "$uid" "$1" >/dev/null 2>&1; then
+		pkill -9 -x -u "$uid" "$1" 2>/dev/null || true
+		sleep 1
+	fi
+}
+
+plist=""
+[ -n "$homeDir" ] && plist="$homeDir/Library/LaunchAgents/$LABEL.plist"
+
+# The agent may run a copy of the app other than $APP. Read which before the
+# plist goes, so that copy is removed as well.
+agentApp=""
+if [ -n "$plist" ] && [ -f "$plist" ]; then
+	bin=$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$plist" 2>/dev/null || echo "")
+	case "$bin" in
+	*.app/Contents/MacOS/*) agentApp="${bin%/Contents/MacOS/*}" ;;
+	esac
+fi
+
+# The window first: it would only show a daemon that is gone.
+stop claudeqapp 50
+
+# From inside the user's session, as the installer's postinstall does.
+if [ -n "$uid" ]; then
+	as_user launchctl bootout "gui/$uid/$LABEL" 2>/dev/null || true
+fi
+if [ -n "$plist" ] && [ -f "$plist" ]; then
+	rm -f "$plist"
+	echo "claudeq: removed LaunchAgent $plist"
+fi
+# A daemon launchd does not manage (started by the window) keeps running too.
+stop claudeqd 150
+
+if [ -f "$SUDOERS" ]; then
+	rm -f "$SUDOERS"
+	echo "claudeq: removed pmset wake permission $SUDOERS"
+fi
+pkgutil --forget "$LABEL" >/dev/null 2>&1 && echo "claudeq: forgot installer receipt $LABEL"
+
+for app in "$APP" "$agentApp"; do
+	if [ -n "$app" ] && is_claudeq_app "$app"; then
+		rm -rf "$app"
+		echo "claudeq: removed $app"
+	fi
+done
+
+exit 0

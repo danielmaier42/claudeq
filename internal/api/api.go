@@ -105,9 +105,9 @@ type Deps struct {
 	// Limits remembers and reads each provider's allowance (5-hour and weekly
 	// windows). Optional; when nil the dashboard has no limits to show.
 	Limits *provider.LimitMonitor
-	// Uninstall removes ClaudeQ from this Mac (Settings > System). Optional;
-	// when nil the endpoint reports "not implemented".
-	Uninstall Uninstaller
+	// Uninstall opens ClaudeQ's uninstaller in the macOS Installer (Settings >
+	// System). Optional; when nil the endpoint reports "not implemented".
+	Uninstall func(ctx context.Context) error
 }
 
 // Handler builds the HTTP handler (REST API under /api + dashboard at /).

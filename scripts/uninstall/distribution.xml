@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- "Uninstall ClaudeQ": a product archive of two script-only packages, built
+     by scripts/build-uninstall-pkg.sh. "claudeq" always runs; "data" is the
+     optional Customize choice and runs after it, once nothing writes the data
+     any more. Script-only packages leave no receipt, so the uninstaller leaves
+     no trace of its own. -->
+<installer-gui-script minSpecVersion="2">
+  <title>Uninstall ClaudeQ</title>
+  <welcome file="welcome.html" mime-type="text/html"/>
+  <conclusion file="conclusion.html" mime-type="text/html"/>
+  <options customize="allow" require-scripts="true" hostArchitectures="arm64,x86_64"/>
+  <domains enable_localSystem="true"/>
+  <choices-outline>
+    <line choice="claudeq"/>
+    <line choice="data"/>
+  </choices-outline>
+  <choice id="claudeq" title="ClaudeQ"
+          description="The app, its background service, the permission to wake the Mac for scheduled tasks, and the installer's record of ClaudeQ. A run in progress is stopped."
+          enabled="false" selected="true">
+    <pkg-ref id="de.maierdaniel.claudeq.uninstall"/>
+  </choice>
+  <choice id="data" title="Tasks, history and settings"
+          description="Also delete your tasks, run history, artifacts and settings (~/Library/Application Support/claudeq) and the app's caches. This cannot be undone."
+          start_selected="false">
+    <pkg-ref id="de.maierdaniel.claudeq.uninstall.data"/>
+  </choice>
+  <pkg-ref id="de.maierdaniel.claudeq.uninstall">uninstall.pkg</pkg-ref>
+  <pkg-ref id="de.maierdaniel.claudeq.uninstall.data">uninstall-data.pkg</pkg-ref>
+</installer-gui-script>

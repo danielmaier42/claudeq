@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -36,26 +35,6 @@ const (
 	stateFile   = "state.json"
 	runsDir     = "runs"
 )
-
-// tempPrefix starts the name of a file being written atomically; one is left
-// behind only when a write was interrupted.
-const tempPrefix = ".tmp-"
-
-// IsEntry reports whether name is something ClaudeQ keeps in its data
-// directory: the store's own files, the daemon's logs (the LaunchAgent writes
-// them here), files older versions left behind, and an interrupted write.
-// Purging a CLAUDEQ_HOME that may be shared deletes exactly these.
-func IsEntry(name string) bool {
-	switch name {
-	case configFile, historyFile, stateFile, runsDir,
-		artifactsFile, artifactsDir, notificationsFile, inboxFile,
-		lockFile, daemonLockFile,
-		"claudeqd.out.log", "claudeqd.err.log",
-		"usage.json": // the Claude usage cache of releases before providers
-		return true
-	}
-	return strings.HasPrefix(name, tempPrefix)
-}
 
 // Store provides serialized access to the on-disk data directory.
 type Store struct {
@@ -508,7 +487,7 @@ func (s *Store) SaveState(st *State) error {
 // into place, so a crash never leaves a half-written file.
 func writeAtomic(path string, data []byte) error {
 	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, tempPrefix+"*")
+	tmp, err := os.CreateTemp(dir, ".tmp-*")
 	if err != nil {
 		return fmt.Errorf("create temp: %w", err)
 	}

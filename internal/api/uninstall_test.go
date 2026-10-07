@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -39,32 +40,30 @@ func TestUninstallEndpoint(t *testing.T) {
 	tests := []struct {
 		name        string
 		contentType string
-		body        string
 		depErr      error
 		status      int
-		calls       []bool
+		opened      bool
 	}{
-		{"keep data", "application/json", `{}`, nil, http.StatusAccepted, []bool{false}},
-		{"purge", "application/json; charset=utf-8", `{"purge":true}`, nil, http.StatusAccepted, []bool{true}},
+		{"opens the uninstaller", "application/json", nil, http.StatusNoContent, true},
+		{"json with charset", "application/json; charset=utf-8", nil, http.StatusNoContent, true},
 		// What a web page can send cross-origin without a preflight.
-		{"form post", "application/x-www-form-urlencoded", `purge=true`, nil, http.StatusUnsupportedMediaType, nil},
-		{"text post", "text/plain", `{"purge":true}`, nil, http.StatusUnsupportedMediaType, nil},
-		{"no content type", "", `{"purge":true}`, nil, http.StatusUnsupportedMediaType, nil},
-		{"bad json", "application/json", `{`, nil, http.StatusBadRequest, nil},
-		{"cannot start", "application/json", `{}`, errors.New("no cli"), http.StatusInternalServerError, []bool{false}},
+		{"form post", "application/x-www-form-urlencoded", nil, http.StatusUnsupportedMediaType, false},
+		{"text post", "text/plain", nil, http.StatusUnsupportedMediaType, false},
+		{"no content type", "", nil, http.StatusUnsupportedMediaType, false},
+		{"cannot open", "application/json", errors.New("not found"), http.StatusInternalServerError, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			var calls []bool
+			opened := false
 			srv := httptest.NewServer(Handler(Deps{
-				Uninstall: func(purge bool) error { calls = append(calls, purge); return tc.depErr },
+				Uninstall: func(context.Context) error { opened = true; return tc.depErr },
 			}))
 			defer srv.Close()
-			if got := postUninstall(t, srv, tc.contentType, tc.body); got != tc.status {
+			if got := postUninstall(t, srv, tc.contentType, `{}`); got != tc.status {
 				t.Fatalf("status = %d, want %d", got, tc.status)
 			}
-			if len(calls) != len(tc.calls) || (len(calls) == 1 && calls[0] != tc.calls[0]) {
-				t.Fatalf("uninstall calls = %v, want %v", calls, tc.calls)
+			if opened != tc.opened {
+				t.Fatalf("opened = %v, want %v", opened, tc.opened)
 			}
 		})
 	}
@@ -74,7 +73,7 @@ func TestUninstallEndpoint(t *testing.T) {
 // Host header gives it away.
 func TestUninstallEndpointRejectsRebinding(t *testing.T) {
 	called := false
-	srv := httptest.NewServer(Handler(Deps{Uninstall: func(bool) error { called = true; return nil }}))
+	srv := httptest.NewServer(Handler(Deps{Uninstall: func(context.Context) error { called = true; return nil }}))
 	defer srv.Close()
 	if got := postUninstallAs(t, srv, "evil.example:10765", "application/json", `{"purge":true}`); got != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403", got)
@@ -94,11 +93,5 @@ func TestUninstallEndpointUnsupported(t *testing.T) {
 	defer srv.Close()
 	if got := postUninstall(t, srv, "application/json", `{}`); got != http.StatusNotImplemented {
 		t.Fatalf("status = %d, want 501", got)
-	}
-}
-
-func TestDetachedUninstallerNeedsTheCLI(t *testing.T) {
-	if DetachedUninstaller("") != nil {
-		t.Fatal("an uninstaller without a CLI to run")
 	}
 }

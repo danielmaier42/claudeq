@@ -97,19 +97,6 @@ func BundleVersion(appPath string) string {
 	return plistString(string(b), "CFBundleShortVersionString")
 }
 
-// BundleIdentifier reads CFBundleIdentifier from an app bundle's Info.plist,
-// "" if the bundle or the key is missing.
-func BundleIdentifier(appPath string) string {
-	if appPath == "" {
-		return ""
-	}
-	b, err := os.ReadFile(filepath.Join(appPath, "Contents", "Info.plist"))
-	if err != nil {
-		return ""
-	}
-	return plistString(string(b), "CFBundleIdentifier")
-}
-
 // plistString returns the <string> value following <key>name</key> in an XML
 // plist, "" if the key has no string value.
 func plistString(plist, name string) string {

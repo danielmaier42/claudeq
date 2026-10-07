@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -10,44 +9,40 @@ import (
 	"testing"
 
 	"github.com/danielmaier42/claudeq/internal/store"
-	"github.com/danielmaier42/claudeq/internal/uninstall"
 )
 
-type fakeMac struct {
-	plan     uninstall.Plan
-	planErr  error
-	runErr   error
-	purge    bool
-	ran      bool
-	planned  bool
-	runInput uninstall.Plan
+type uninstallRun struct {
+	name string
+	args []string
+	// choices is the content of the -applyChoiceChangesXML file, read while
+	// it still exists.
+	choices string
 }
 
-func (f *fakeMac) Plan(_ context.Context, purge bool) (uninstall.Plan, error) {
-	f.planned, f.purge = true, purge
-	return f.plan, f.planErr
-}
-
-func (f *fakeMac) Run(_ context.Context, p uninstall.Plan) error {
-	f.ran, f.runInput = true, p
-	return f.runErr
-}
-
-type alertCall struct {
-	title, message string
-	critical       bool
-}
-
-func newUninstallEnv(mac *fakeMac, stdin string) (uninstallEnv, *bytes.Buffer, *[]alertCall) {
+func newUninstallEnv(t *testing.T, stdin string) (uninstallEnv, *bytes.Buffer, *[]uninstallRun) {
+	t.Helper()
 	out := &bytes.Buffer{}
-	alerts := &[]alertCall{}
+	runs := &[]uninstallRun{}
+	stageDir := t.TempDir()
 	return uninstallEnv{
-		mac: mac, dataDir: "/data", uid: 501, in: strings.NewReader(stdin), out: out,
-		alert: func(title, message string, critical bool) error {
-			*alerts = append(*alerts, alertCall{title, message, critical})
+		exe: "/Applications/ClaudeQ.app/Contents/MacOS/claudeq", in: strings.NewReader(stdin), out: out,
+		user: "dm", consoleUser: "dm",
+		locate: func(string) (string, error) {
+			return "/Applications/ClaudeQ.app/Contents/Resources/Uninstall ClaudeQ.pkg", nil
+		},
+		stage: func(string) (string, error) { return filepath.Join(stageDir, "Uninstall ClaudeQ.pkg"), nil },
+		run: func(name string, args ...string) error {
+			r := uninstallRun{name: name, args: args}
+			for i, a := range args {
+				if a == "-applyChoiceChangesXML" {
+					b, _ := os.ReadFile(args[i+1])
+					r.choices = string(b)
+				}
+			}
+			*runs = append(*runs, r)
 			return nil
 		},
-	}, out, alerts
+	}, out, runs
 }
 
 func TestUninstallAsksFirst(t *testing.T) {
@@ -64,98 +59,71 @@ func TestUninstallAsksFirst(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			mac := &fakeMac{plan: uninstall.Plan{Apps: []string{"/Applications/ClaudeQ.app"}}}
-			env, out, _ := newUninstallEnv(mac, tc.stdin)
+			env, out, runs := newUninstallEnv(t, tc.stdin)
 			if err := runUninstall(tc.args, env); err != nil {
 				t.Fatal(err)
 			}
-			if mac.ran != tc.run {
-				t.Fatalf("ran = %v, want %v\n%s", mac.ran, tc.run, out)
-			}
-			if !strings.Contains(out.String(), "/Applications/ClaudeQ.app") {
-				t.Fatalf("plan not shown:\n%s", out)
+			if (len(*runs) == 1) != tc.run {
+				t.Fatalf("runs = %v, want run=%v\n%s", *runs, tc.run, out)
 			}
 		})
 	}
 }
 
-func TestUninstallPurgeFlag(t *testing.T) {
-	mac := &fakeMac{}
-	env, out, _ := newUninstallEnv(mac, "")
-	if err := runUninstall([]string{"--purge", "--yes"}, env); err != nil {
+func TestUninstallRunsTheStagedPackage(t *testing.T) {
+	for _, purge := range []bool{false, true} {
+		env, _, runs := newUninstallEnv(t, "")
+		args := []string{"--yes"}
+		if purge {
+			args = append(args, "--purge")
+		}
+		if err := runUninstall(args, env); err != nil {
+			t.Fatal(err)
+		}
+		r := (*runs)[0]
+		got := r.name + " " + strings.Join(r.args, " ")
+		if !strings.HasPrefix(got, "sudo /usr/sbin/installer -pkg ") || !strings.Contains(got, " -target /") {
+			t.Fatalf("ran %q", got)
+		}
+		if strings.Contains(got, "/Applications/ClaudeQ.app") {
+			t.Fatalf("ran the package from inside the bundle it deletes: %q", got)
+		}
+		if purge != strings.Contains(r.choices, "<string>data</string>") {
+			t.Fatalf("purge=%v but choices = %q", purge, r.choices)
+		}
+	}
+}
+
+func TestUninstallOnlyForTheConsoleUser(t *testing.T) {
+	for _, u := range []string{"root", "other"} {
+		env, _, runs := newUninstallEnv(t, "")
+		env.user = u
+		if err := runUninstall([]string{"--yes"}, env); err == nil || len(*runs) != 0 {
+			t.Fatalf("user %q: err = %v, runs = %v; want a refusal", u, err, *runs)
+		}
+	}
+}
+
+func TestUninstallPurgeWarnsAboutCustomHome(t *testing.T) {
+	env, out, _ := newUninstallEnv(t, "")
+	env.dataHome = "/Users/dm/claudeq-data"
+	if err := runUninstall([]string{"--yes", "--purge"}, env); err != nil {
 		t.Fatal(err)
 	}
-	if !mac.purge {
-		t.Fatal("--purge was not passed on")
-	}
-	if !strings.Contains(out.String(), "deleted too") {
-		t.Fatalf("output does not say the data went:\n%s", out)
+	if !strings.Contains(out.String(), "delete /Users/dm/claudeq-data yourself") {
+		t.Fatalf("no CLAUDEQ_HOME warning:\n%s", out)
 	}
 }
 
-func TestUninstallRefusesRoot(t *testing.T) {
-	mac := &fakeMac{}
-	env, _, _ := newUninstallEnv(mac, "")
-	env.uid = 0
-	if err := runUninstall([]string{"--yes"}, env); err == nil || !strings.Contains(err.Error(), "sudo") {
-		t.Fatalf("err = %v, want a refusal that mentions sudo", err)
-	}
-	if mac.planned {
-		t.Fatal("planned an uninstall as root")
+func TestUninstallReportsInstallerFailure(t *testing.T) {
+	env, _, _ := newUninstallEnv(t, "")
+	env.run = func(string, ...string) error { return errors.New("exit status 1") }
+	if err := runUninstall([]string{"--yes"}, env); err == nil {
+		t.Fatal("a failed installer run was reported as success")
 	}
 }
 
-func TestUninstallCancelledIsNotAnError(t *testing.T) {
-	mac := &fakeMac{runErr: uninstall.ErrCancelled}
-	env, out, _ := newUninstallEnv(mac, "")
-	if err := runUninstall([]string{"--yes"}, env); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out.String(), "Nothing was removed") {
-		t.Fatalf("output:\n%s", out)
-	}
-}
-
-func TestUninstallGUIReportsInAlerts(t *testing.T) {
-	tests := []struct {
-		name     string
-		mac      fakeMac
-		wantErr  bool
-		alert    string // "" = no alert
-		critical bool
-	}{
-		{"success", fakeMac{}, false, "ClaudeQ was removed", false},
-		{"password prompt dismissed", fakeMac{runErr: uninstall.ErrCancelled}, false, "", false},
-		{"removal fails", fakeMac{runErr: errors.New("rm: denied")}, true, "ClaudeQ could not be removed", true},
-		{"plan fails", fakeMac{planErr: errors.New("refusing")}, true, "ClaudeQ could not be removed", true},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			mac := tc.mac
-			// No stdin: the GUI mode must never wait for an answer.
-			env, out, alerts := newUninstallEnv(&mac, "")
-			err := runUninstall([]string{"--gui"}, env)
-			if (err != nil) != tc.wantErr {
-				t.Fatalf("err = %v, want error=%v", err, tc.wantErr)
-			}
-			if tc.alert == "" {
-				if len(*alerts) != 0 {
-					t.Fatalf("unexpected alert %+v", *alerts)
-				}
-				return
-			}
-			if len(*alerts) != 1 || (*alerts)[0].title != tc.alert || (*alerts)[0].critical != tc.critical {
-				t.Fatalf("alerts = %+v, want one %q (critical=%v)", *alerts, tc.alert, tc.critical)
-			}
-			if out.Len() != 0 {
-				t.Fatalf("GUI mode wrote to the terminal:\n%s", out)
-			}
-		})
-	}
-}
-
-// The uninstall must not open the store: opening it creates the data directory
-// that a purge is about to delete.
+// The uninstall must not open the store: opening it creates the data directory.
 func TestUninstallDoesNotCreateDataDir(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "claudeq")
 	t.Setenv(store.EnvHome, home)
