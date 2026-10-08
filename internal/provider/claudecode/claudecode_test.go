@@ -111,6 +111,29 @@ func TestCommandGoldenArgs(t *testing.T) {
 	}
 }
 
+func TestCommandForwardsEffortOnFreshAndResumedSessions(t *testing.T) {
+	for _, effort := range []string{"", "low", "medium", "high", "xhigh", "max"} {
+		for _, resume := range []bool{false, true} {
+			t.Run(effort+"/"+map[bool]string{false: "fresh", true: "resume"}[resume], func(t *testing.T) {
+				cmd, err := New().Command(instance(), provider.Request{
+					Prompt: "task", SessionID: "sid", Resume: resume, ReasoningEffort: effort,
+				})
+				if err != nil {
+					t.Fatalf("Command: %v", err)
+				}
+				index := slices.Index(cmd.Args, "--effort")
+				if effort == "" {
+					if index != -1 {
+						t.Fatal("an empty effort must preserve the CLI default")
+					}
+				} else if index == -1 || index+1 >= len(cmd.Args) || cmd.Args[index+1] != effort {
+					t.Fatalf("effort %q missing from args %q", effort, cmd.Args)
+				}
+			})
+		}
+	}
+}
+
 func TestCommandOmitsAnEmptyModelAndAccessFlag(t *testing.T) {
 	// Compare whole arguments: the appended system prompt legitimately mentions
 	// "--model" when it documents the queue overrides.
@@ -219,8 +242,8 @@ func TestCapabilitiesDoNotClaimSandboxesClaudeCodeCannotEnforce(t *testing.T) {
 			t.Fatalf("capabilities must not claim %q", unsupported)
 		}
 	}
-	if caps.ReasoningEffort {
-		t.Fatal("Claude Code takes no reasoning-effort setting")
+	if !caps.ReasoningEffort {
+		t.Fatal("Claude Code accepts a per-session effort setting")
 	}
 	if !caps.SessionResume || !caps.StructuredOutput || !caps.RateLimitResume {
 		t.Fatalf("capabilities understate the adapter: %+v", caps)

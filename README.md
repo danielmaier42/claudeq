@@ -515,7 +515,7 @@ Three harnesses are supported:
 
 | Type | CLI | Notes |
 |------|-----|-------|
-| Claude (`claude-code`) | [Claude Code](https://claude.com/claude-code) | Reports token counts and cost. Its only authority settings are "ask" and "skip every prompt". |
+| Claude (`claude-code`) | [Claude Code](https://claude.com/claude-code) | Passes a task's reasoning effort through Claude Code's `--effort` flag. Reports token counts and cost. Its only authority settings are "ask" and "skip every prompt". |
 | Codex (`codex`) | [Codex](https://learn.chatgpt.com/docs/developer-commands?surface=cli) | **Beta.** Takes a reasoning effort and a real sandbox mode, so read-only and workspace-write actually mean something. Tasks may use a working folder that is not itself a Git repository. Reports tokens but no cost — ClaudeQ never invents one. |
 | opencode (`opencode`) | [opencode](https://opencode.ai) | **Beta.** Runs whatever model opencode is configured for, including local ones (it was brought up against LM Studio). Takes a reasoning effort as opencode's *variant*. Permission handling is all or nothing: the CLI's own prompts, or none. Reports tokens and cost as opencode states them. It cannot answer ClaudeQ's own questions yet, so the prompt review and the feedback assistant are not offered on it, and its errors do not tell a rate limit from any other failure, so a limited run fails instead of pausing. |
 
@@ -966,7 +966,9 @@ claudeq edit prod-watch --kind script --prompt-file ./watch.sh   # make it a scr
 - `--model ""` drops a per-task model override back to the provider's default
   model, and `--provider ""` back to the default provider.
 - `--reasoning-effort` asks the model to think harder or less hard, for the
-  harnesses that take such a setting (Codex does, Claude Code does not). It is
+  harnesses that take such a setting. Claude Code receives `--effort`, Codex its
+  reasoning-effort configuration, and opencode its variant. An empty value leaves
+  the harness default unchanged. It is
   ignored by the ones that do not, so it survives a move between providers.
 - Changing `--provider` without naming a `--model` clears the model too, so the
   new provider's own default applies — one harness's model is never carried into
