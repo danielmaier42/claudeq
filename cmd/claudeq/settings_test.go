@@ -43,6 +43,11 @@ func TestSettingsPatchApply(t *testing.T) {
 			want: func(s store.Settings) store.Settings { return s },
 		},
 		{
+			name: "the backfill threshold",
+			args: []string{"--backfill-urgency", "2.5"},
+			want: func(s store.Settings) store.Settings { s.BackfillUrgency = 2.5; return s },
+		},
+		{
 			name: "the default provider",
 			args: []string{"--default-provider", "claude-secondary"},
 			want: func(s store.Settings) store.Settings { s.DefaultProvider = "claude-secondary"; return s },
@@ -135,6 +140,11 @@ func TestSettingsPatchRejects(t *testing.T) {
 	}
 	if err := p.resolve(fs, failingRead); err == nil {
 		t.Error("expected an error when both system-prompt flags are given")
+	}
+
+	high := parsePatch(t, []string{"--backfill-urgency=9"}, failingRead)
+	if _, err := high.apply(store.Settings{}); err == nil {
+		t.Error("expected an error for a backfill threshold out of range")
 	}
 
 	neg := parsePatch(t, []string{"--heartbeat-minutes=-5"}, failingRead)

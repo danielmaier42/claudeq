@@ -108,10 +108,12 @@ type MemberScore struct {
 	// 0 has room in both windows, 1 has no reading to judge by, 2 is nearly out
 	// of its 5-hour or weekly window, 3 cannot take work at all.
 	Tier int `json:"tier"`
-	// Urgency is the member's allowance that would expire unused, per hour
-	// left until it resets, weighted by plan size and shared with the runs
-	// already on it. Higher goes first.
+	// Urgency is the provider's own (see [ScoreProvider]): how far behind it
+	// is on spending its long window, shared with the runs already on it.
 	Urgency float64 `json:"urgency"`
+	// Score is what a pool ranks its members by: urgency times weight, so a
+	// larger plan with the same slack has more to lose. Higher goes first.
+	Score float64 `json:"score"`
 	// Weight is the plan size used for this member.
 	Weight float64 `json:"weight"`
 	// WeekFree is how much of the long window is left, in percent, and
@@ -171,11 +173,10 @@ const (
 // RankPool orders a pool's members, best first.
 //
 // The members that can take work and have room in both windows come first,
-// ordered by urgency: free share of the long (weekly) window, times the
-// member's weight, divided by the hours until that window resets, divided by
-// one plus the runs already on it. That puts work where the most allowance
-// would otherwise expire unused soonest: an account with 10% left that resets
-// in four hours goes before one with 60% left for five more days.
+// ordered by their urgency (see [ScoreProvider]) times their weight. That puts
+// work where the most allowance would otherwise expire unused soonest: an
+// account with 10% left that resets in four hours goes before one with 60%
+// left for five more days.
 //
 // Members with no reading follow, then members whose 5-hour or weekly window
 // is all but full, then the ones that cannot take work. Within a tier, ties go
@@ -199,8 +200,8 @@ func RankPool(set Set, p Pool, in RankInputs) []MemberScore {
 		if a.Tier != b.Tier {
 			return a.Tier < b.Tier
 		}
-		if a.Urgency != b.Urgency {
-			return a.Urgency > b.Urgency
+		if a.Score != b.Score {
+			return a.Score > b.Score
 		}
 		if a.Running != b.Running {
 			return a.Running < b.Running
@@ -208,6 +209,26 @@ func RankPool(set Set, p Pool, in RankInputs) []MemberScore {
 		return order[a.ProviderID] < order[b.ProviderID]
 	})
 	return out
+}
+
+// ScoreProvider is where one provider stands on its own, outside any pool: the
+// same tiers and notes a pool ranks by, and its urgency.
+//
+// Urgency is how far behind the provider is on spending its long (weekly)
+// window: the free share of it, times the window's length, over the hours left
+// until it resets, shared with the runs already on it. 1 means an even pace
+// from now on uses up exactly what is left; 2 means it would take twice that
+// pace, so half of what is left is at risk of expiring unused. A window that
+// has just started over is at 1.
+func ScoreProvider(inst Instance, in RankInputs) MemberScore {
+	return scoreMember(inst, PoolMember{ProviderID: inst.ID, Weight: 1}, in)
+}
+
+// Spare reports whether a provider's allowance is at risk of going unused, as
+// a backfill task asks it: it has room in both windows and its urgency is
+// above threshold.
+func (s MemberScore) Spare(threshold float64) bool {
+	return s.Tier == 0 && s.Urgency > threshold
 }
 
 func scoreMember(inst Instance, m PoolMember, in RankInputs) MemberScore {
@@ -256,7 +277,8 @@ func scoreMember(inst Instance, m PoolMember, in RankInputs) MemberScore {
 	if long.ResetsAt != nil {
 		hours = math.Max(poolMinHours, long.ResetsAt.Sub(in.Now).Hours())
 	}
-	s.Urgency = s.WeekFree * s.Weight / hours / float64(1+s.Running)
+	s.Urgency = s.WeekFree / 100 * windowHours(long.ID) / hours / float64(1+s.Running)
+	s.Score = s.Urgency * s.Weight
 	switch {
 	case long.UsedPercent >= poolLongWindowFull:
 		s.Tier, s.Note = 2, fmt.Sprintf("%s used up", strings.ToLower(long.Label))

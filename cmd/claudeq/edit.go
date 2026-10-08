@@ -99,6 +99,7 @@ func printTask(t task.Task) {
 		fmt.Printf("model:             %s\n", model)
 		fmt.Printf("reasoning_effort:  %s\n", orDefault(t.ReasoningEffort, "(the provider's own)"))
 		fmt.Printf("permissions:       %s\n", t.Permissions)
+		fmt.Printf("backfill:          %t\n", t.Backfill)
 	}
 	fmt.Printf("notify_on_result:  %t\n", t.NotifyOnResult)
 	fmt.Printf("quiet_history:     %t\n", t.QuietHistory)
@@ -186,6 +187,7 @@ type taskSettings struct {
 	skipPerms    bool
 	notify       bool
 	quietHistory bool
+	backfill     bool
 }
 
 // register declares the setting flags on fs. dflt names what applies when a
@@ -201,6 +203,7 @@ func (s *taskSettings) register(fs *flag.FlagSet, dflt string) {
 	fs.BoolVar(&s.skipPerms, "skip-permissions", false, "bypass permission prompts (default: "+dflt+")")
 	fs.BoolVar(&s.notify, "notify", false, "notify on the run's result, not just failures (default: "+dflt+")")
 	fs.BoolVar(&s.quietHistory, "quiet-history", false, "drop successful runs from history (default: "+dflt+")")
+	fs.BoolVar(&s.backfill, "backfill", false, "run only while the provider's weekly allowance would otherwise go unused (default: "+dflt+")")
 }
 
 // apply copies onto t every setting whose flag was passed, per has.
@@ -216,6 +219,7 @@ func (s taskSettings) apply(t *task.Task, has func(string) bool) {
 		if t.IsScript() {
 			t.Provider, t.Pool, t.Model, t.ReasoningEffort = "", "", "", ""
 			t.Permissions = task.PermissionsDefault
+			t.Backfill = false
 		}
 	}
 	// Changing the provider without naming a model drops the old provider's
@@ -259,6 +263,9 @@ func (s taskSettings) apply(t *task.Task, has func(string) bool) {
 	}
 	if has("quiet-history") {
 		t.QuietHistory = s.quietHistory
+	}
+	if has("backfill") {
+		t.Backfill = s.backfill
 	}
 	if has("skip-permissions") {
 		t.Permissions = task.PermissionsFor(s.skipPerms)
@@ -429,6 +436,7 @@ type taskDoc struct {
 	Permissions     string `toml:"permissions"`
 	NotifyOnResult  bool   `toml:"notify_on_result"`
 	QuietHistory    bool   `toml:"quiet_history"`
+	Backfill        bool   `toml:"backfill"`
 	Prompt          string `toml:"prompt,multiline"`
 }
 
@@ -450,6 +458,9 @@ const taskDocHeader = `# claudeq task — edit, save, and close this file to app
 #   reasoning_effort   empty = the provider's own; ignored by providers without it
 #   permissions        default | skip  (skip bypasses permission prompts)
 #   quiet_history      true drops successful runs from history (frequent watcher jobs)
+#   backfill           true runs only while the provider's weekly allowance would
+#                      otherwise go unused (urgency above claudeq settings
+#                      --backfill-urgency); never for a script job
 `
 
 func encodeTaskDoc(t task.Task) ([]byte, error) {
@@ -458,7 +469,7 @@ func encodeTaskDoc(t task.Task) ([]byte, error) {
 		Trigger: string(t.Trigger), Cron: t.Cron, Parallel: t.Parallel,
 		Provider: t.Provider, Pool: t.Pool, Model: t.Model, ReasoningEffort: t.ReasoningEffort,
 		Permissions:    string(t.Permissions),
-		NotifyOnResult: t.NotifyOnResult, QuietHistory: t.QuietHistory, Prompt: t.Prompt,
+		NotifyOnResult: t.NotifyOnResult, QuietHistory: t.QuietHistory, Backfill: t.Backfill, Prompt: t.Prompt,
 	}
 	if !t.FixedAt.IsZero() {
 		d.FixedAt = t.FixedAt.Local().Format(time.RFC3339)
@@ -490,7 +501,7 @@ func decodeTaskDoc(data []byte, orig task.Task) (task.Task, error) {
 		Trigger: task.Trigger(d.Trigger), Cron: d.Cron, Parallel: d.Parallel,
 		Enabled: d.Enabled, Provider: d.Provider, Pool: d.Pool, Model: d.Model, ReasoningEffort: d.ReasoningEffort,
 		Permissions: task.Permissions(d.Permissions), NotifyOnResult: d.NotifyOnResult,
-		QuietHistory: d.QuietHistory,
+		QuietHistory: d.QuietHistory, Backfill: d.Backfill,
 	}
 	if t.Permissions == "" {
 		t.Permissions = task.PermissionsDefault

@@ -4,6 +4,7 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	"io"
 	"maps"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -95,6 +97,15 @@ func (e *Engine) LimitedUntil() time.Time { return e.gates.BlockedUntil() }
 // the waiting banner names which account it is waiting on, not just "the
 // queue".
 func (e *Engine) BlockedProviders() map[string]time.Time { return e.gates.Blocked() }
+
+// RunningOn returns how many runs are in flight per provider instance, which
+// is part of a provider's urgency (see provider.ScoreProvider). Surfaced on the
+// Dashboard, so the urgency it shows is the one the scheduler acts on.
+func (e *Engine) RunningOn() map[string]int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return maps.Clone(e.runningOn)
+}
 
 // Holds returns, per task, why the last tick did not start it although it was
 // due, and since when it has been waiting. Surfaced in the queue, so a task
@@ -231,7 +242,7 @@ func (e *Engine) Tick(ctx context.Context) error {
 	// held collects why each due task does not start this tick; whatever is
 	// left in it at the end is what the queue shows.
 	held := map[string]string{}
-	assigned := e.assign(ctx, providers, due, held)
+	assigned := e.assign(ctx, providers, due, cfg.Settings.BackfillUrgencyOrDefault(), held)
 
 	// Their harnesses are then probed *outside* the lock. A readiness check
 	// spawns a CLI and a CLI can hang; holding e.mu across that would stall the
@@ -282,6 +293,11 @@ func (e *Engine) Tick(ctx context.Context) error {
 		ready[a.task.ID] = a.resolved
 	}
 
+	// Backfill work only soaks up allowance nothing else wants, so it never
+	// goes ahead of a task that is not backfill, nor holds one up behind it.
+	slices.SortStableFunc(runnable, func(a, b task.Task) int {
+		return cmp.Compare(b2i(a.Backfill), b2i(b.Backfill))
+	})
 	selected := schedule.Select(runnable, e.runningState())
 	maps.Copy(held, schedule.Held(runnable, e.runningState()))
 	e.holds.update(held, now, e.holdLog)
@@ -390,8 +406,11 @@ type assignment struct {
 // is kept, carrying the reason: it is reported as blocked further down rather
 // than silently disappearing from the tick.
 //
+// A backfill task goes only to a provider whose urgency is above backfill
+// (see provider.Selection.Backfill); while there is none it is dropped too.
+//
 // Why a dropped task does not start is filed in held, by task id.
-func (e *Engine) assign(ctx context.Context, set provider.Set, due []task.Task, held map[string]string) []assignment {
+func (e *Engine) assign(ctx context.Context, set provider.Set, due []task.Task, backfill float64, held map[string]string) []assignment {
 	out := make([]assignment, 0, len(due))
 	// Which pool member holds a task's interrupted session is read once per
 	// pass. Without it a pool would pick by rank and drop the session.
@@ -421,18 +440,33 @@ func (e *Engine) assign(ctx context.Context, set provider.Set, due []task.Task, 
 			held[t.ID] = "The scheduling state could not be read; the pool picks a member on the next tick."
 			continue
 		}
-		res, err := set.ResolveAvailable(selectionFor(t, st), av)
+		sel := selectionFor(t, st)
+		sel.Backfill, sel.MinUrgency = t.Backfill, backfill
+		res, err := set.ResolveAvailable(sel, av)
+		if errors.Is(err, provider.ErrNoSpare) {
+			// Waiting for spare allowance is the normal state of backfill work,
+			// not a provider problem worth announcing.
+			held[t.ID] = "Backfill: " + strings.TrimPrefix(err.Error(), provider.ErrNoSpare.Error()+": ") + "."
+			continue
+		}
 		if err == nil && !e.gateOpen(res.Instance.ID) {
 			held[t.ID] = fmt.Sprintf("%s is out of allowance until %s.",
 				res.Instance.Label(), reopenText(e.gates.For(res.Instance.ID).BlockedUntil(), e.clock.Now()))
 			continue
 		}
-		if err == nil && res.Pool != nil {
+		if err == nil && (res.Pool != nil || t.Backfill) {
 			planned[res.Instance.ID]++
 		}
 		out = append(out, assignment{task: t, resolved: res, err: err})
 	}
 	return out
+}
+
+func b2i(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // reopenText is when a gate reopens, as a time of day, with the date in front

@@ -16,7 +16,7 @@ function prefillTask(t){
   $('#f-name').value=t.name||''; $('#f-prompt').value=t.prompt||''; $('#f-dir').value=t.working_dir||'';
   setKind(t.kind||'agent');
   $('#f-parallel').checked=!!t.parallel; $('#f-skip').checked=(t.permissions==='skip'); $('#f-notify').checked=!!t.notify_on_result;
-  $('#f-quiet').checked=!!t.quiet_history;
+  $('#f-quiet').checked=!!t.quiet_history; $('#f-backfill').checked=!!t.backfill;
   fillProviderChoices(t.pool?'pool:'+t.pool:(t.provider||''), t.model||'', t.reasoning_effort||'');
   setSeg(t.trigger||'asap');
   $('#f-at').value=(t.trigger==='fixed'&&t.fixed_at)?toLocalDT(t.fixed_at):'';
@@ -101,7 +101,7 @@ function openSheet(title,submitLabel,fresh){ $('#addErr').textContent=''; $('#f-
 export function openAdd(){ taskMode='add'; taskEditId='';
   ['f-name','f-prompt','f-dir','f-at','f-cron'].forEach(x=>$('#'+x).value='');
   $('#f-dir').value=DEFAULT_WORKING_DIR;
-  $('#f-parallel').checked=false; $('#f-skip').checked=false; $('#f-notify').checked=false; $('#f-quiet').checked=false; setSeg('asap');
+  $('#f-parallel').checked=false; $('#f-skip').checked=false; $('#f-notify').checked=false; $('#f-quiet').checked=false; $('#f-backfill').checked=false; setSeg('asap');
   setKind('agent');
   fillProviderChoices('','','');
   openSheet('New task','Add task'); }
@@ -125,10 +125,10 @@ function setKind(v){
   $('#f-prompt-label').textContent=script?'Script':'Prompt';
   $('#f-prompt').placeholder=script?'#!/bin/zsh\n\ncurl -s …':'What should Claude do?';
   $('#f-provider-row').hidden=script;
-  $('#f-skip-row').hidden=script;
+  $('#f-skip-row').hidden=script; $('#f-backfill-row').hidden=script;
   // A finding about the text as the other kind says nothing about this one, and
   // a review armed by the last keystroke would still ask about the wrong kind.
-  if(script) $('#f-skip').checked=false;
+  if(script){ $('#f-skip').checked=false; $('#f-backfill').checked=false; }
   if(taskReview) taskReview.reset();
 }
 // scriptMode reports what the sheet is currently editing.
@@ -184,6 +184,7 @@ async function submitTask(){
     cron: trig==='cron'?$('#f-cron').value.trim():undefined,
     parallel:$('#f-parallel').checked, enabled:true,
     notify_on_result:$('#f-notify').checked, quiet_history:$('#f-quiet').checked,
+    backfill:!script&&$('#f-backfill').checked,
     // What only an agent job has is left off entirely for a script, rather than
     // sent empty: the daemon refuses a script that names any of it.
     model:script?undefined:($('#f-model').value||undefined),
@@ -303,6 +304,8 @@ const sheetTemplate = `
         <label class="switch"><input type="checkbox" id="f-notify"><span class="sl"></span></label></div>
       <div class="row"><div class="grow"><div class="title">Quiet history</div><div class="sub">Drop successful runs from the Log; failures are kept. For frequent watcher jobs</div></div>
         <label class="switch"><input type="checkbox" id="f-quiet"><span class="sl"></span></label></div>
+      <div class="row" id="f-backfill-row"><div class="grow"><div class="title">Backfill</div><div class="sub">Runs only while its provider's weekly allowance would otherwise go unused: urgency above the threshold on the Dashboard. On a pool, only such members take it</div></div>
+        <label class="switch"><input type="checkbox" id="f-backfill"><span class="sl"></span></label></div>
     </div>
     <p id="addErr" class="hint" style="color:var(--danger)"></p>
   </div>

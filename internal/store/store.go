@@ -708,6 +708,10 @@ type Settings struct {
 	// SystemPrompt is the operator's custom system prompt, appended to claudeq's
 	// built-in one on every run (built-in first, this last). Empty means none.
 	SystemPrompt string `toml:"system_prompt" json:"system_prompt"`
+	// BackfillUrgency is the provider urgency above which backfill tasks run
+	// (see task.Task.Backfill). Zero means the default (see
+	// BackfillUrgencyOrDefault).
+	BackfillUrgency float64 `toml:"backfill_urgency,omitempty" json:"backfill_urgency"`
 	// Paused is the global stop switch: while it is true no run starts at all —
 	// neither a due task nor a manual "run now" — and the machine is no longer
 	// woken for scheduled work. Runs already in flight are left alone.
@@ -783,6 +787,38 @@ func (s Settings) HeartbeatOrDefault() time.Duration {
 		m = DefaultHeartbeatMinutes
 	}
 	return time.Duration(m) * time.Minute
+}
+
+// DefaultBackfillUrgency is the backfill threshold when unset: a provider
+// that would need half again its even pace to use up its week.
+const DefaultBackfillUrgency = 1.5
+
+// Backfill thresholds the settings accept: below the lower one a fresh week
+// would already count as at risk, above the upper one nothing ever is.
+const (
+	MinBackfillUrgency = 0.5
+	MaxBackfillUrgency = 5.0
+)
+
+// BackfillUrgencyOrDefault returns the configured backfill threshold, or the
+// default if unset.
+func (s Settings) BackfillUrgencyOrDefault() float64 {
+	if s.BackfillUrgency <= 0 {
+		return DefaultBackfillUrgency
+	}
+	return s.BackfillUrgency
+}
+
+// ErrInvalidBackfillUrgency is returned for a threshold outside the range.
+var ErrInvalidBackfillUrgency = fmt.Errorf("backfill urgency must be between %.1f and %.1f", MinBackfillUrgency, MaxBackfillUrgency)
+
+// CheckBackfillUrgency reports whether v is a threshold the settings accept;
+// zero (the default) always is.
+func CheckBackfillUrgency(v float64) error {
+	if v == 0 || v >= MinBackfillUrgency && v <= MaxBackfillUrgency {
+		return nil
+	}
+	return ErrInvalidBackfillUrgency
 }
 
 // DefaultIdleTimeoutMinutes is the no-output kill threshold when unset.

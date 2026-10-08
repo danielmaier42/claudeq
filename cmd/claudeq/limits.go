@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -27,6 +28,11 @@ type limitsView struct {
 	TypeName string          `json:"type_name"`
 	Default  bool            `json:"default"`
 	Limits   provider.Limits `json:"limits"`
+	// Urgency and Backfill are what the Dashboard shows next to the windows:
+	// how far behind the provider is on spending its week, and whether that
+	// is above the backfill threshold. Absent for a provider switched off.
+	Urgency  *provider.MemberScore `json:"urgency,omitempty"`
+	Backfill bool                  `json:"backfill"`
 }
 
 // cmdProviderLimits reads every provider's allowance (or one provider's) right
@@ -68,24 +74,62 @@ func cmdProviderLimits(st *store.Store, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), providerCheckTimeout)
 	defer cancel()
 	limits := provider.NewLimitMonitor(reg, nil).Get(ctx, insts, true)
+	cfg, err := st.LoadConfig()
+	if err != nil {
+		return err
+	}
+	threshold := cfg.Settings.BackfillUrgencyOrDefault()
+	byID := make(map[string]provider.Limits, len(insts))
+	for i, inst := range insts {
+		byID[inst.ID] = limits[i]
+	}
+	// Read from here, nothing is known about runs in flight or rate-limit
+	// gates: the urgency is the allowance's alone.
+	in := provider.DisplayInputs(time.Now(),
+		func(inst provider.Instance) (provider.Limits, bool) {
+			l, ok := byID[inst.ID]
+			return l, ok && len(l.Windows) > 0
+		},
+		func(provider.Instance) provider.Health { return provider.Health{State: provider.HealthReady} }, nil)
 	views := make([]limitsView, len(insts))
 	for i, inst := range insts {
 		views[i] = limitsView{ID: inst.ID, Name: inst.Label(), Default: inst.ID == set.DefaultID(), Limits: limits[i]}
 		if ad, err := reg.Lookup(inst.Kind); err == nil {
 			views[i].TypeName = ad.Describe().Name
 		}
+		if inst.Enabled {
+			sc := provider.ScoreProvider(inst, in)
+			views[i].Urgency, views[i].Backfill = &sc, sc.Spare(threshold)
+		}
 	}
 	if *asJSON {
 		return printJSON(views)
 	}
-	return printLimits(views, time.Now())
+	if err := printLimits(views, time.Now()); err != nil {
+		return err
+	}
+	fmt.Printf("\nBackfill tasks run above urgency %.1f.\n%s\n", threshold, urgencyNote)
+	return nil
+}
+
+// urgencyCell is a provider's urgency as the limits table shows it, marked
+// when backfill tasks may run on it.
+func urgencyCell(v limitsView) string {
+	if v.Urgency == nil || v.Urgency.Tier > 0 {
+		return "-"
+	}
+	s := strconv.FormatFloat(v.Urgency.Urgency, 'f', 1, 64)
+	if v.Backfill {
+		s += " backfill"
+	}
+	return s
 }
 
 // printLimits writes one line per window, and one line for a provider that has
 // none to show, with the reason in the last column.
 func printLimits(views []limitsView, now time.Time) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tWINDOW\tUSED\tRESETS\tNOTE")
+	fmt.Fprintln(w, "ID\tWINDOW\tUSED\tRESETS\tURGENCY\tNOTE")
 	for _, v := range views {
 		l := v.Limits
 		note := ""
@@ -101,11 +145,14 @@ func printLimits(views []limitsView, now time.Time) error {
 			}
 		}
 		if len(l.Windows) == 0 {
-			fmt.Fprintf(w, "%s\t-\t-\t-\t%s\n", v.ID, note)
+			fmt.Fprintf(w, "%s\t-\t-\t-\t-\t%s\n", v.ID, note)
 			continue
 		}
+		// The urgency is the provider's, so it is printed once, on its first row.
+		urgency := urgencyCell(v)
 		for _, win := range l.Windows {
-			fmt.Fprintf(w, "%s\t%s\t%.0f%%\t%s\t%s\n", v.ID, win.Label, win.UsedPercent, resetsText(win.ResetsAt, now), note)
+			fmt.Fprintf(w, "%s\t%s\t%.0f%%\t%s\t%s\t%s\n", v.ID, win.Label, win.UsedPercent, resetsText(win.ResetsAt, now), urgency, note)
+			urgency = ""
 		}
 	}
 	return w.Flush()

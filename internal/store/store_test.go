@@ -759,3 +759,17 @@ func TestAppearanceIsWrittenOnlyWhenPinned(t *testing.T) {
 		t.Fatalf("appearance = %q after reload, want dark", cfg.Settings.Appearance)
 	}
 }
+
+func TestBackfillUrgency(t *testing.T) {
+	if got := (Settings{}).BackfillUrgencyOrDefault(); got != DefaultBackfillUrgency {
+		t.Errorf("unset = %v, want the default", got)
+	}
+	if got := (Settings{BackfillUrgency: 3}).BackfillUrgencyOrDefault(); got != 3 {
+		t.Errorf("set = %v, want 3", got)
+	}
+	for v, ok := range map[float64]bool{0: true, 0.5: true, 5: true, 0.4: false, 5.1: false, -1: false} {
+		if err := CheckBackfillUrgency(v); (err == nil) != ok {
+			t.Errorf("CheckBackfillUrgency(%v) = %v, want ok=%v", v, err, ok)
+		}
+	}
+}

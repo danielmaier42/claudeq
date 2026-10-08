@@ -3,6 +3,7 @@ package provider
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/danielmaier42/claudeq/internal/store"
@@ -26,6 +27,9 @@ var (
 	ErrProviderDisabled = errors.New("provider is disabled")
 	// ErrNoProviders means nothing is configured to run at all.
 	ErrNoProviders = errors.New("no provider is configured")
+	// ErrNoSpare means a backfill selection found no provider whose allowance
+	// is at risk of going unused. It is a wait, not a fault.
+	ErrNoSpare = errors.New("no spare allowance")
 )
 
 // Selection is what a task or a queue override asked for. An empty field
@@ -43,6 +47,13 @@ type Selection struct {
 	// chosen over the ranking while it can take the work, because only there
 	// can the session continue.
 	Prefer string
+	// Backfill takes only a provider whose allowance is at risk of going
+	// unused: urgency above MinUrgency and room in both windows (see
+	// MemberScore.Spare). A pool picks among its members that are; a single
+	// provider that is not refuses with ErrNoSpare, and never hands the work to
+	// its fallback, whose allowance is not the one at risk.
+	Backfill   bool
+	MinUrgency float64
 }
 
 // Resolved is the effective execution identity for one run.
@@ -248,6 +259,9 @@ func (s Set) ResolveAvailable(sel Selection, av Availability) (Resolved, error) 
 		return s.resolvePool(sel, av)
 	}
 	res, err := s.Resolve(sel)
+	if err == nil && sel.Backfill {
+		return res, av.checkSpare(res.Instance, sel.MinUrgency)
+	}
 	if err != nil || av.OutOfAllowance == nil || !av.OutOfAllowance(res.Instance.ID) {
 		return res, err
 	}
@@ -265,6 +279,43 @@ func (s Set) ResolveAvailable(sel Selection, av Availability) (Resolved, error) 
 		cur = next
 	}
 	return res, nil
+}
+
+// rankInputs is what ranking needs from an Availability: the readings, the
+// runs in flight and the time, and which instances can take work at all.
+func (a Availability) rankInputs() RankInputs {
+	in := RankInputs{Limits: a.Limits, Running: a.Running}
+	if a.Now != nil {
+		in.Now = a.Now()
+	}
+	in.Usable = func(inst Instance) (bool, string) {
+		switch {
+		case a.OutOfAllowance != nil && a.OutOfAllowance(inst.ID):
+			return false, "waiting for its rate limit"
+		case !a.usable(inst):
+			return false, "cannot run right now"
+		}
+		return true, ""
+	}
+	return in
+}
+
+// checkSpare refuses a backfill run on inst unless its allowance is at risk
+// of going unused, saying why in the words the queue shows.
+func (a Availability) checkSpare(inst Instance, threshold float64) error {
+	sc := ScoreProvider(inst, a.rankInputs())
+	if sc.Spare(threshold) {
+		return nil
+	}
+	return fmt.Errorf("%w: %s", ErrNoSpare, spareNote(sc, threshold))
+}
+
+// spareNote says why a provider is not taking backfill work.
+func spareNote(sc MemberScore, threshold float64) string {
+	if sc.Tier > 0 {
+		return fmt.Sprintf("%s takes no backfill work (%s)", sc.Name, sc.Note)
+	}
+	return fmt.Sprintf("%s is at urgency %.1f, backfill runs above %.1f", sc.Name, sc.Urgency, threshold)
 }
 
 // usable answers CanTakeWork for one hop, with the two things every caller
@@ -332,28 +383,37 @@ func (s Set) resolvePool(sel Selection, av Availability) (Resolved, error) {
 		return Resolved{Instance: inst, Model: model(inst), Pool: &c}
 	}
 	blocked := func(inst Instance) bool { return av.OutOfAllowance != nil && av.OutOfAllowance(inst.ID) }
+	in := av.rankInputs()
+	if sel.Backfill {
+		// Only the members whose allowance is at risk take backfill work; the
+		// rest rank as unable to, saying why.
+		base := in
+		in.Usable = func(inst Instance) (bool, string) {
+			if sc := ScoreProvider(inst, base); !sc.Spare(sel.MinUrgency) {
+				return false, spareNote(sc, sel.MinUrgency)
+			}
+			return true, ""
+		}
+	}
 	for _, inst := range enabled {
-		if inst.ID == sel.Prefer && !blocked(inst) && av.usable(inst) {
+		if inst.ID != sel.Prefer || blocked(inst) || !av.usable(inst) {
+			continue
+		}
+		if ok, _ := in.Usable(inst); ok {
 			return out(inst, PoolChoice{Resumed: true}), nil
 		}
-	}
-	in := RankInputs{Limits: av.Limits, Running: av.Running}
-	if av.Now != nil {
-		in.Now = av.Now()
-	}
-	in.Usable = func(inst Instance) (bool, string) {
-		switch {
-		case blocked(inst):
-			return false, "waiting for its rate limit"
-		case !av.usable(inst):
-			return false, "cannot run right now"
-		}
-		return true, ""
 	}
 	scores := RankPool(s, p, in)
 	if len(scores) > 0 && scores[0].Tier < 3 {
 		inst, _ := s.Lookup(scores[0].ProviderID)
 		return out(inst, PoolChoice{Scores: scores}), nil
+	}
+	if sel.Backfill {
+		notes := make([]string, 0, len(scores))
+		for _, sc := range scores {
+			notes = append(notes, sc.Note)
+		}
+		return Resolved{}, fmt.Errorf("%w in pool %s: %s", ErrNoSpare, p.Label(), strings.Join(notes, "; "))
 	}
 	for _, inst := range enabled {
 		if blocked(inst) {

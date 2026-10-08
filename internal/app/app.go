@@ -165,6 +165,19 @@ func SetPaused(s *store.Store, paused bool) error {
 	})
 }
 
+// SetBackfillUrgency sets the provider urgency above which backfill tasks run
+// (see store.Settings.BackfillUrgency). Only that one field is touched, so the
+// Dashboard's slider never clobbers a concurrent settings change.
+func SetBackfillUrgency(s *store.Store, v float64) error {
+	if err := store.CheckBackfillUrgency(v); err != nil {
+		return err
+	}
+	return s.UpdateConfig(func(cfg *store.Config) error {
+		cfg.Settings.BackfillUrgency = v
+		return nil
+	})
+}
+
 // Move changes a task's position in the list, which is its priority: index 0 is
 // highest (FA-11). The target index is clamped to the valid range.
 func Move(s *store.Store, id string, to int) error {

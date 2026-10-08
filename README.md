@@ -53,6 +53,9 @@ workflow engine:
   phone straight from the notification.
 - **Turn a backlog into tasks**: one run reads the list and queues one task per
   item, so each gets its own session, log and outcome.
+- **Keep a list of nice-to-have work** for allowance that would otherwise
+  expire: a *backfill* task runs only while a provider is so far behind on its
+  week that part of it would go unused, and waits otherwise.
 - **Hand a task to a colleague** as a `.claudeq` file. They import it, adjust
   the folder, and get the same job on their Mac.
 
@@ -79,6 +82,7 @@ workflow engine:
 - [Letting a task send a notification](#letting-a-task-send-a-notification)
 - [Script jobs](#script-jobs)
 - [Quiet history for frequent jobs](#quiet-history-for-frequent-jobs)
+- [Backfill tasks](#backfill-tasks)
 - [Sharing tasks as files](#sharing-tasks-as-files)
 - [The prompt review](#the-prompt-review)
 - [Sending feedback](#sending-feedback)
@@ -263,6 +267,9 @@ explains it.
   [Letting a task send a notification](#letting-a-task-send-a-notification).
 - **Quiet history** for frequent watchers: successful runs leave no record,
   failures do. See [Quiet history for frequent jobs](#quiet-history-for-frequent-jobs).
+- **Backfill tasks** soak up allowance that would otherwise expire: they run
+  only while a provider's urgency is above a threshold you set on the
+  Dashboard. See [Backfill tasks](#backfill-tasks).
 - **Share a task** as a `.claudeq` file; the importer adjusts folder and prompt
   before it is queued. See [Sharing tasks as files](#sharing-tasks-as-files).
 
@@ -323,10 +330,14 @@ Dashboard:
   window, for Codex the windows its account has) and when each one resets. Each
   bar shows the percent left and empties as the window is used; it turns orange
   at 25% left and red at 10%. Read without spending any usage;
-  see [How much is left](#how-much-is-left) for when and how. Below them,
-  every [pool](#provider-pools) lists its members in the order a run started
-  now would take them, with the reason and the urgency of each, and says which
-  one the next run goes to.
+  see [How much is left](#how-much-is-left) for when and how. Under each
+  provider's name is its **urgency**, how far behind it is on spending its
+  week; a provider above the **backfill threshold** is lit up green, because
+  [backfill tasks](#backfill-tasks) may run on it right now. The threshold is
+  the slider at the top of the list and applies on release, without Save.
+  Below the providers, every [pool](#provider-pools) lists its members in the
+  order a run started now would take them, with the reason and the weight of
+  each, and says which one the next run goes to.
 - **Queue** — the pending tasks in priority order. Add, edit, delete, enable/pause,
   reorder, or **run now** (a manual test run, independent of the trigger). Each
   row carries its task's name, what it runs on (the provider and the model that
@@ -688,15 +699,19 @@ claudeq provider limits claude --json   # one provider, in the shape the API ser
 ```
 
 ```
-ID           WINDOW   USED  RESETS                 NOTE
-claude       5 hours  10%   Sat 01:19 (in 4h 36m)
+ID           WINDOW   USED  RESETS                 URGENCY       NOTE
+claude       5 hours  10%   Sat 01:19 (in 4h 36m)  0.3
 claude       Week     85%   Mon 02:59 (in 2d 6h)
-opencode     -        -     -                      No limit
+codex        Week     20%   Tue 09:00 (in 3d 2h)   1.8 backfill
+opencode     -        -     -                      -             No limit
 ```
 
-A running job can ask before it hands work to another account: `used_percent`
-per window and `state` (`ok`, `unavailable`, `unsupported`, `disabled`) are in
-the JSON.
+The **urgency** column is the one the Dashboard shows (see
+[Backfill tasks](#backfill-tasks)); *backfill* marks a provider above the
+threshold. Read from the CLI, it does not know about runs in flight, which
+share the daemon's figure. A running job can ask before it hands work to
+another account: `used_percent` per window, `state` (`ok`, `unavailable`,
+`unsupported`, `disabled`), `urgency` and `backfill` are in the JSON.
 
 ### Credentials
 
@@ -727,12 +742,15 @@ expires unused.
    or waiting out a rate limit.
 2. Members whose 5-hour window is at 90% or more, or whose week is used up, go
    to the back. They are still tried if nothing else can run.
-3. Among the rest, the highest **urgency** wins:
+3. Among the rest, the highest **urgency × weight** wins. Urgency is the
+   provider's own, the figure the Dashboard shows next to it:
 
-   `urgency = free % of the week × weight ÷ hours until the week resets ÷ (1 + runs already on it)`
+   `urgency = free share of the week × hours in a week ÷ hours until the week resets ÷ (1 + runs already on it)`
 
-   It measures how much allowance would expire unused per hour. 10% left that
-   resets in 4 hours beats 60% left for another five days. The **weight** is
+   1 means spending evenly from now on uses up exactly what is left; 2 means it
+   would take twice that pace, so half of what is left is at risk of expiring
+   unused. 10% left that resets in 4 hours (urgency 4.2) beats 60% left for
+   another five days (0.84). The **weight** is
    the plan's size: ClaudeQ reads it from the Claude login (Max 20x = 20, a
    Team seat on Max 5x = 5, Pro = 1), so 10% of a large plan counts for more
    than 10% of a small one. Codex does not say how its plans compare, so a
@@ -751,8 +769,8 @@ log says so.
 and the reasons, for example *Pool Claude chose Claude Max: Claude Max (14% of
 week left, resets in 2 d); Claude Team (100% of 5 hours used)*. The Log names
 the pool next to the provider. The Dashboard and `claudeq pool show` list the
-members in the order the next run would take them, with each one's weight,
-urgency and the reason for its place; `claudeq pool next` names the member the
+members in the order the next run would take them, with each one's weight
+and the reason for its place (the commands add the urgency); `claudeq pool next` names the member the
 next run goes to. Both commands ask the running daemon, so they show exactly
 what the Dashboard shows, rate-limit pauses included. With no daemon running
 they read the members' limits themselves and say so; a member waiting out a
@@ -838,6 +856,7 @@ claudeq add    --id ID --prompt P --dir DIR [--name N] [--group G]
                [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR]
                [--provider ID] [--model M] [--reasoning-effort E] [--parallel]
                [--skip-permissions] [--notify] [--quiet-history]
+               [--backfill]                    # run only on allowance that would go unused
 claudeq edit   ID                              # open the whole task in $EDITOR
 claudeq edit   ID [--name N] [--prompt P | --prompt-file PATH] [--dir DIR]
                [--group G]                     # "" takes it out of its group
@@ -846,11 +865,12 @@ claudeq edit   ID [--name N] [--prompt P | --prompt-file PATH] [--dir DIR]
                [--provider ID] [--model M] [--reasoning-effort E]
                [--parallel=BOOL] [--enabled=BOOL]
                [--skip-permissions=BOOL] [--notify=BOOL] [--quiet-history=BOOL]
+               [--backfill=BOOL]
 claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [--name N]
                [--group G] [--kind agent|script]   # a queued job is an agent job unless told
                [--provider ID] [--model M] [--reasoning-effort E]
                [--parallel=BOOL] [--skip-permissions=BOOL]
-               [--notify=BOOL] [--quiet-history=BOOL]
+               [--notify=BOOL] [--quiet-history=BOOL] [--backfill=BOOL]
                [--depends-on JOBID]...            # wait for these jobs to finish
                [--include-results]                # and put their answers in the prompt
                                                   # (a script reads them on stdin)
@@ -870,7 +890,7 @@ claudeq read RUNID | claudeq read-all
 claudeq provider list [--json]                 # the harnesses tasks run on
 claudeq provider show ID [--json]
 claudeq provider check ID [--json]             # probe it now
-claudeq provider limits [ID] [--json]          # 5-hour/weekly windows, used and reset
+claudeq provider limits [ID] [--json]          # 5-hour/weekly windows, used and reset, and the urgency
 claudeq pool list [--json]                     # provider pools
 claudeq pool next ID [--json]                  # the member the next run goes to, with its urgency and the ranking
 claudeq pool show ID [--json]                  # members ranked as a run started now would take them
@@ -892,6 +912,7 @@ claudeq settings [--json] [--default-provider ID]
                  [--idle-timeout-minutes N] [--max-run-history N]
                  [--system-prompt S | --system-prompt-file PATH]
                  [--paused=BOOL]                # pause/resume every run
+                 [--backfill-urgency X]         # backfill tasks run above this urgency (0.5-5)
                  [--pushover=BOOL] [--pushover-token T] [--pushover-user U]
                  [--ntfy=BOOL] [--ntfy-server S] [--ntfy-topic T] [--ntfy-token T]
                  [--webhook=BOOL] [--webhook-url U] [--webhook-template J]
@@ -982,6 +1003,7 @@ claudeq settings --default-working-dir ~/Code            # a new task's folder s
 claudeq settings --idle-timeout-minutes 45 --max-run-history 1000
 claudeq settings --paused=true                          # stop every run
 claudeq settings --paused=false                         # let the queue run again
+claudeq settings --backfill-urgency 2                   # backfill only when half of what is left would expire
 claudeq settings --prompt-review=false                  # turn the prompt review off
 claudeq settings --prompt-review-provider claude-cheap   # who answers the review ("" = default provider)
 claudeq settings --prompt-review-model haiku            # ("" = the provider's default model)
@@ -1390,6 +1412,59 @@ quiet itself unless the call says `--quiet-history`: follow-up work is real
 work, and you will want to see its run.
 The trade-off: successful quiet runs leave no log to look at afterwards and are
 absent from the Usage statistics.
+
+## Backfill tasks
+
+Some work is worth doing only when it costs nothing: a dependency audit, a
+documentation pass, the refactor that is nice to have. Mark such a task
+**Backfill** (the switch in the task form, or `--backfill` on `claudeq add` /
+`claudeq edit` / `claudeq queue`) and it runs only on allowance that would
+otherwise expire unused.
+
+**Urgency** says how far behind a provider is on spending its week:
+
+`urgency = free share of the week × hours in a week ÷ hours until the week resets ÷ (1 + runs already on it)`
+
+At 1, spending evenly from now on uses up exactly what is left; a fresh week
+starts there. At 2 it would take twice that pace, so half of what is left is
+at risk. The Dashboard shows each provider's urgency and lights up the ones
+above the **backfill threshold**, the slider at the top of the provider list
+(0.5 to 5, default 1.5). `claudeq settings --backfill-urgency X` sets the same
+value.
+
+A backfill task is due by its trigger as usual (once, at a time, or on a cron
+schedule) and then:
+
+- **On a provider** it starts only while that provider's urgency is above the
+  threshold, it has room in its 5-hour window (under 90%), it can run, and it
+  is not waiting out a rate limit. It never goes to the provider's fallback:
+  that allowance is not the one at risk.
+- **On a pool** it goes only to members that meet the same test, the best of
+  them by the pool's ranking. So one list of backfill tasks on a pool feeds
+  whichever account is about to waste its week.
+- Until then it **stays due and waits**, and the Queue says why, for example
+  *Backfill: Codex is at urgency 0.8, backfill runs above 1.5*. A cron task
+  that waited through several occurrences runs once when it can, not once per
+  occurrence missed.
+- It goes **after every other due task**: a backfill task at the top of the
+  queue never takes the slot of real work due at the same time.
+- Runs in flight **share** a provider's urgency. Parallel backfill tasks
+  therefore start one after another until what is at risk is covered: at
+  urgency 3.5 and threshold 1.5, two start (3.5, then 1.75) and the third waits
+  (1.17).
+- **Run now** ignores the threshold: it is a deliberate start.
+
+Backfill is for agent jobs: a script job spends no allowance and cannot be
+marked. A job queued from a backfill task inherits the flag, like its other
+settings; pass `--backfill=false` to queue real work.
+
+```sh
+claudeq add --id audit --prompt "Audit the dependencies and file issues" \
+            --dir ~/code/app --pool claude-pool --backfill
+claudeq add --id docs --prompt "Tidy the docs" --dir ~/code/app \
+            --provider codex --cron "0 * * * *" --backfill
+claudeq provider limits        # the urgency of each provider
+```
 
 ## Sharing tasks as files
 

@@ -14,6 +14,13 @@ type limitsView struct {
 	TypeName string          `json:"type_name"`
 	Default  bool            `json:"default"`
 	Limits   provider.Limits `json:"limits"`
+	// Urgency is how far behind the provider is on spending its week (see
+	// provider.ScoreProvider), with the tier and note behind it. Absent for a
+	// provider that is switched off.
+	Urgency *provider.MemberScore `json:"urgency,omitempty"`
+	// Backfill reports that the urgency is above the backfill threshold, so
+	// backfill tasks may run on the provider right now.
+	Backfill bool `json:"backfill"`
 }
 
 // listLimits answers with every configured provider's allowance, in
@@ -32,10 +39,34 @@ func (s *server) listLimits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	limits := s.d.Limits.Get(r.Context(), insts, r.URL.Query().Get("fresh") == "1")
+	cfg, err := s.d.Store.LoadConfig()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	threshold := cfg.Settings.BackfillUrgencyOrDefault()
+	// Readiness counts like it does for a pool: a provider that cannot run is
+	// not one backfill work could go to, whatever its allowance says.
+	health := make(map[string]provider.Health, len(insts))
+	if s.d.Providers != nil {
+		for i, h := range s.d.Providers.CheckEach(r.Context(), insts) {
+			health[insts[i].ID] = h
+		}
+	}
+	in := s.displayInputs(func(inst provider.Instance) provider.Health {
+		if h, ok := health[inst.ID]; ok {
+			return h
+		}
+		return provider.Health{State: provider.HealthReady} // nothing known against it
+	})
 	for i, inst := range insts {
 		v := limitsView{ID: inst.ID, Name: inst.Label(), Default: inst.ID == set.DefaultID(), Limits: limits[i]}
 		if ad, err := s.d.Registry.Lookup(inst.Kind); err == nil {
 			v.TypeName = ad.Describe().Name
+		}
+		if inst.Enabled {
+			sc := provider.ScoreProvider(inst, in)
+			v.Urgency, v.Backfill = &sc, sc.Spare(threshold)
 		}
 		out = append(out, v)
 	}

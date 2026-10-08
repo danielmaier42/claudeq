@@ -2,6 +2,7 @@ package provider
 
 import (
 	"errors"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -269,5 +270,105 @@ func TestRankPoolTreatsAPassedResetAsFresh(t *testing.T) {
 	if first(scores) != "team" || scores[0].Tier != 0 || scores[0].WeekFree != 100 ||
 		!strings.Contains(scores[0].Note, "has reset") {
 		t.Fatalf("scores = %+v, want the reset member first as fresh", scores)
+	}
+}
+
+// TestScoreProvider pins what urgency means: 1 is on pace to spend what is
+// left by the reset, 2 needs twice that pace, and runs in flight share it.
+func TestScoreProvider(t *testing.T) {
+	inst := Instance{ID: "max", Kind: KindClaudeCode, Name: "Claude Max", Enabled: true}
+	cases := []struct {
+		name    string
+		limits  Limits
+		read    bool
+		running int
+		want    float64
+		tier    int
+	}{
+		{"half left, half the week to go", reading(20, 0, 50, 84*time.Hour), true, 0, 1, 0},
+		{"half left, a quarter of the week to go", reading(20, 0, 50, 42*time.Hour), true, 0, 2, 0},
+		{"plan size does not count", reading(1, 0, 50, 42*time.Hour), true, 0, 2, 0},
+		{"a run in flight shares it", reading(20, 0, 50, 42*time.Hour), true, 1, 1, 0},
+		{"a full 5-hour window", reading(20, 95, 50, 42*time.Hour), true, 0, 2, 2},
+		{"no reading", Limits{}, false, 0, 0, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ScoreProvider(inst, RankInputs{
+				Now:     poolNow,
+				Limits:  func(Instance) (Limits, bool) { return tc.limits, tc.read },
+				Running: func(string) int { return tc.running },
+			})
+			if got.Tier != tc.tier || math.Abs(got.Urgency-tc.want) > 1e-9 {
+				t.Fatalf("tier %d urgency %v, want tier %d urgency %v", got.Tier, got.Urgency, tc.tier, tc.want)
+			}
+		})
+	}
+}
+
+func TestSpare(t *testing.T) {
+	for _, tc := range []struct {
+		s    MemberScore
+		want bool
+	}{
+		{MemberScore{Tier: 0, Urgency: 2}, true},
+		{MemberScore{Tier: 0, Urgency: 1.5}, false}, // above, not at
+		{MemberScore{Tier: 2, Urgency: 9}, false},   // its 5-hour window is full
+	} {
+		if got := tc.s.Spare(1.5); got != tc.want {
+			t.Errorf("%+v.Spare(1.5) = %v, want %v", tc.s, got, tc.want)
+		}
+	}
+}
+
+// TestResolveBackfill: a backfill selection takes a provider only while its
+// allowance is at risk, never its fallback, and in a pool only such members.
+func TestResolveBackfill(t *testing.T) {
+	set, p := poolSet(t)
+	maxInst, _ := set.Lookup("max")
+	maxInst.FallbackProvider = "team"
+	set, err := NewSet("max", []Instance{maxInst, func() Instance { i, _ := set.Lookup("team"); return i }()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	set = set.WithPools([]Pool{p})
+	atRisk := reading(1, 0, 50, 24*time.Hour) // 3.5
+	onPace := reading(1, 0, 50, 6*24*time.Hour)
+	av := func(limits map[string]Limits, blocked string) Availability {
+		return Availability{
+			OutOfAllowance: func(id string) bool { return id == blocked },
+			Limits:         limitsOf(limits),
+			Now:            func() time.Time { return poolNow },
+		}
+	}
+	cases := []struct {
+		name    string
+		sel     Selection
+		limits  map[string]Limits
+		blocked string
+		want    string
+		errHas  string
+	}{
+		{"provider at risk", Selection{ProviderID: "max"}, map[string]Limits{"max": atRisk}, "", "max", ""},
+		{"provider on pace", Selection{ProviderID: "max"}, map[string]Limits{"max": onPace}, "", "", "Claude Max is at urgency 0.6, backfill runs above 1.5"},
+		{"limited provider, no fallback", Selection{ProviderID: "max"}, map[string]Limits{"max": atRisk, "team": atRisk}, "max", "", "waiting for its rate limit"},
+		{"pool member at risk", Selection{PoolID: p.ID}, map[string]Limits{"max": onPace, "team": atRisk}, "", "team", ""},
+		{"pool session waits on a member on pace", Selection{PoolID: p.ID, Prefer: "max"}, map[string]Limits{"max": onPace, "team": atRisk}, "", "team", ""},
+		{"pool on pace", Selection{PoolID: p.ID}, map[string]Limits{"max": onPace, "team": onPace}, "", "", "in pool Claude"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.sel.Backfill, tc.sel.MinUrgency = true, 1.5
+			res, err := set.ResolveAvailable(tc.sel, av(tc.limits, tc.blocked))
+			if tc.errHas != "" {
+				if !errors.Is(err, ErrNoSpare) || !strings.Contains(err.Error(), tc.errHas) {
+					t.Fatalf("err = %v, want ErrNoSpare with %q", err, tc.errHas)
+				}
+				return
+			}
+			if err != nil || res.Instance.ID != tc.want {
+				t.Fatalf("resolved %q (%v), want %q", res.Instance.ID, err, tc.want)
+			}
+		})
 	}
 }

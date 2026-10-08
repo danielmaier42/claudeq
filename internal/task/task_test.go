@@ -246,3 +246,14 @@ func TestValidatePool(t *testing.T) {
 		t.Fatalf("script on a pool: %v", err)
 	}
 }
+
+func TestBackfillIsForAgentJobsOnly(t *testing.T) {
+	tk := Task{ID: "a", Prompt: "echo", WorkingDir: "/tmp", Trigger: TriggerASAP, Permissions: PermissionsDefault, Backfill: true}
+	if err := tk.Validate(); err != nil {
+		t.Fatalf("agent backfill: %v", err)
+	}
+	tk.Kind = KindScript
+	if err := tk.Validate(); err == nil {
+		t.Fatal("a script job was accepted as backfill work")
+	}
+}

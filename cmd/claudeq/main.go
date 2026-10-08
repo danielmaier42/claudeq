@@ -38,7 +38,7 @@ Usage:
                  [--trigger asap|fixed|cron]
                  [--at RFC3339] [--cron EXPR] [--provider ID | --pool ID] [--model M]
                  [--reasoning-effort E] [--parallel] [--skip-permissions]
-                 [--notify] [--quiet-history]
+                 [--notify] [--quiet-history] [--backfill]
                  (--kind script runs --prompt as a program instead of sending it to a
                  model: no provider, no model, no allowance, never held up by a limit)
   claudeq edit   ID                (open the whole task in $EDITOR)
@@ -47,11 +47,12 @@ Usage:
                  [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR]
                  [--provider ID | --pool ID] [--model M] [--reasoning-effort E]
                  [--parallel=BOOL] [--enabled=BOOL] [--skip-permissions=BOOL]
-                 [--notify=BOOL] [--quiet-history=BOOL]  (only the flags you pass are changed)
+                 [--notify=BOOL] [--quiet-history=BOOL] [--backfill=BOOL]
+                 (only the flags you pass are changed)
   claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [--name N]
                  [--kind agent|script] [--provider ID | --pool ID] [--model M] [--reasoning-effort E]
                  [--parallel=BOOL] [--skip-permissions=BOOL]
-                 [--notify=BOOL] [--quiet-history=BOOL]
+                 [--notify=BOOL] [--quiet-history=BOOL] [--backfill=BOOL]
                  [--depends-on JOBID]... [--include-results] [--json]
                  (queue a follow-up task; settings you do not pass are inherited from
                  the calling task, except the kind: a queued job is an agent job
@@ -81,12 +82,13 @@ Usage:
   claudeq settings [--json] [--default-provider ID] [--heartbeat-minutes N]
                    [--idle-timeout-minutes N] [--max-run-history N]
                    [--system-prompt S | --system-prompt-file PATH]
-                   [--paused=BOOL] [--pushover=BOOL] [--pushover-token T]
+                   [--paused=BOOL] [--backfill-urgency X] [--pushover=BOOL] [--pushover-token T]
                    [--pushover-user U] [--ntfy=BOOL] [--ntfy-server S]
                    [--ntfy-topic T] [--ntfy-token T] [--webhook=BOOL]
                    [--webhook-url U] [--webhook-template J]
                    (--paused=true stops every run globally; nothing starts, not
-                   even run-now, until it is set back to false)
+                   even run-now, until it is set back to false. --backfill-urgency
+                   is the provider urgency above which backfill tasks run)
   claudeq uninstall [--purge] [--yes]
                  (run the uninstaller package: remove the app, its background agent,
                  the wake permission and the installer receipt; --purge also deletes
@@ -249,7 +251,7 @@ func cmdAdd(st *store.Store, args []string) error {
 		Provider: s.provider, Pool: s.pool, Model: s.model, ReasoningEffort: s.reasoning,
 		Group:    strings.TrimSpace(s.group),
 		Parallel: s.parallel, NotifyOnResult: s.notify,
-		QuietHistory: s.quietHistory, Permissions: task.PermissionsFor(s.skipPerms),
+		QuietHistory: s.quietHistory, Backfill: s.backfill, Permissions: task.PermissionsFor(s.skipPerms),
 	}
 	if t.Name == "" {
 		t.Name = t.ID

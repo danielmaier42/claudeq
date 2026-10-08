@@ -66,6 +66,7 @@ type settingsPatch struct {
 	systemPrompt     string
 	systemPromptFile string
 	paused           bool
+	backfillUrgency  float64
 	promptReview     bool
 	promptReviewMdl  string
 	promptReviewProv string
@@ -92,6 +93,7 @@ func (p *settingsPatch) register(fs *flag.FlagSet) {
 	fs.StringVar(&p.systemPrompt, "system-prompt", "", "custom system prompt appended to every run")
 	fs.StringVar(&p.systemPromptFile, "system-prompt-file", "", "read the custom system prompt from a file ('-' = stdin)")
 	fs.BoolVar(&p.paused, "paused", false, "pause every run globally (nothing starts while on)")
+	fs.Float64Var(&p.backfillUrgency, "backfill-urgency", 0, fmt.Sprintf("provider urgency above which backfill tasks run, %.1f to %.1f (0 = default)", store.MinBackfillUrgency, store.MaxBackfillUrgency))
 	fs.BoolVar(&p.promptReview, "prompt-review", true, "let Claude check a task's prompt against this machine before it is queued")
 	fs.StringVar(&p.promptReviewProv, "prompt-review-provider", "", "provider that answers that check (empty = the default provider)")
 	fs.StringVar(&p.promptReviewMdl, "prompt-review-model", "", "model for that check (empty = the provider's default model)")
@@ -153,6 +155,12 @@ func (p settingsPatch) apply(s store.Settings) (store.Settings, error) {
 	if p.set["paused"] {
 		s.Paused = p.paused
 	}
+	if p.set["backfill-urgency"] {
+		if err := store.CheckBackfillUrgency(p.backfillUrgency); err != nil {
+			return store.Settings{}, fmt.Errorf("--backfill-urgency: %w", err)
+		}
+		s.BackfillUrgency = p.backfillUrgency
+	}
 	if p.set["prompt-review"] {
 		s.PromptReviewDisabled = !p.promptReview
 	}
@@ -208,28 +216,29 @@ func (p settingsPatch) apply(s store.Settings) (store.Settings, error) {
 // credentials reduced to whether they are set — config.toml holds them in clear
 // text and printing them would leak them into terminal scrollback and logs.
 type settingsView struct {
-	DefaultProvider    string `json:"default_provider"`
-	HeartbeatMinutes   int    `json:"heartbeat_minutes"`
-	IdleTimeoutMinutes int    `json:"idle_timeout_minutes"`
-	MaxRunHistory      int    `json:"max_run_history"`
-	SystemPrompt       string `json:"system_prompt"`
-	PromptReview       bool   `json:"prompt_review"`
-	PromptReviewProv   string `json:"prompt_review_provider"`
-	PromptReviewModel  string `json:"prompt_review_model"`
-	FeedbackProvider   string `json:"feedback_provider"`
-	FeedbackModel      string `json:"feedback_model"`
-	DefaultWorkingDir  string `json:"default_working_dir"`
-	BetaFeatures       bool   `json:"beta_features"`
-	Appearance         string `json:"appearance"`
-	Paused             bool   `json:"paused"`
-	PushoverEnabled    bool   `json:"pushover_enabled"`
-	PushoverConfigured bool   `json:"pushover_configured"`
-	NtfyEnabled        bool   `json:"ntfy_enabled"`
-	NtfyServer         string `json:"ntfy_server"`
-	NtfyTopic          string `json:"ntfy_topic"`
-	NtfyTokenSet       bool   `json:"ntfy_token_set"`
-	WebhookEnabled     bool   `json:"webhook_enabled"`
-	WebhookConfigured  bool   `json:"webhook_configured"`
+	DefaultProvider    string  `json:"default_provider"`
+	HeartbeatMinutes   int     `json:"heartbeat_minutes"`
+	IdleTimeoutMinutes int     `json:"idle_timeout_minutes"`
+	MaxRunHistory      int     `json:"max_run_history"`
+	SystemPrompt       string  `json:"system_prompt"`
+	PromptReview       bool    `json:"prompt_review"`
+	PromptReviewProv   string  `json:"prompt_review_provider"`
+	PromptReviewModel  string  `json:"prompt_review_model"`
+	FeedbackProvider   string  `json:"feedback_provider"`
+	FeedbackModel      string  `json:"feedback_model"`
+	DefaultWorkingDir  string  `json:"default_working_dir"`
+	BetaFeatures       bool    `json:"beta_features"`
+	Appearance         string  `json:"appearance"`
+	Paused             bool    `json:"paused"`
+	BackfillUrgency    float64 `json:"backfill_urgency"`
+	PushoverEnabled    bool    `json:"pushover_enabled"`
+	PushoverConfigured bool    `json:"pushover_configured"`
+	NtfyEnabled        bool    `json:"ntfy_enabled"`
+	NtfyServer         string  `json:"ntfy_server"`
+	NtfyTopic          string  `json:"ntfy_topic"`
+	NtfyTokenSet       bool    `json:"ntfy_token_set"`
+	WebhookEnabled     bool    `json:"webhook_enabled"`
+	WebhookConfigured  bool    `json:"webhook_configured"`
 }
 
 func newSettingsView(s store.Settings) settingsView {
@@ -248,6 +257,7 @@ func newSettingsView(s store.Settings) settingsView {
 		BetaFeatures:       s.BetaFeatures,
 		Appearance:         s.Appearance,
 		Paused:             s.Paused,
+		BackfillUrgency:    s.BackfillUrgencyOrDefault(),
 		PushoverEnabled:    s.Pushover.Enabled,
 		PushoverConfigured: s.Pushover.Token != "" && s.Pushover.UserKey != "",
 		NtfyEnabled:        s.Ntfy.Enabled,
@@ -263,6 +273,7 @@ func printSettings(s store.Settings) {
 	v := newSettingsView(s)
 	fmt.Printf("paused:                    %s\n", pausedLabel(v.Paused))
 	fmt.Printf("default_provider:          %s\n", orDefault(v.DefaultProvider, "(the first configured one)"))
+	fmt.Printf("backfill_urgency:          %s\n", backfillLabel(s.BackfillUrgency))
 	fmt.Printf("heartbeat_minutes:         %s\n", numericLabel(v.HeartbeatMinutes, store.DefaultHeartbeatMinutes, ""))
 	fmt.Printf("idle_timeout_minutes:      %s\n", numericLabel(v.IdleTimeoutMinutes, store.DefaultIdleTimeoutMinutes, "never kill a run"))
 	fmt.Printf("max_run_history:           %s\n", numericLabel(v.MaxRunHistory, store.DefaultMaxRunHistory, "keep every run"))
@@ -284,6 +295,14 @@ func printSettings(s store.Settings) {
 		return
 	}
 	fmt.Printf("\nsystem_prompt:\n%s\n", v.SystemPrompt)
+}
+
+// backfillLabel is the backfill threshold, with "(default)" when it is unset.
+func backfillLabel(v float64) string {
+	if v <= 0 {
+		return fmt.Sprintf("%.1f (default)", store.DefaultBackfillUrgency)
+	}
+	return fmt.Sprintf("%.1f", v)
 }
 
 // pausedLabel spells out what the pause switch means, so the line reads as a

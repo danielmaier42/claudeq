@@ -80,6 +80,10 @@ type Deps struct {
 	// rate limit, each with the time its own gate reopens, so the dashboard can
 	// name which account it is waiting on. Optional (engine.Engine.BlockedProviders).
 	BlockedProviders func() map[string]time.Time
+	// RunningOn reports how many runs are in flight per provider instance,
+	// which the urgency the Dashboard shows takes into account. Optional
+	// (engine.Engine.RunningOn); nil counts none.
+	RunningOn func() map[string]int
 	// Holds reports, per task, why the scheduler's last pass did not start it
 	// although it was due, and since when it waits. Optional (engine.Engine.Holds).
 	Holds func() map[string]schedule.Hold
@@ -170,6 +174,7 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("PUT /api/settings", s.putSettings)
 	mux.HandleFunc("POST /api/pause", s.setPaused)
+	mux.HandleFunc("POST /api/backfill", s.setBackfill)
 	mux.HandleFunc("GET /api/models", s.listModels)
 	mux.HandleFunc("GET /api/cron/check", s.checkCron)
 	mux.HandleFunc("POST /api/review/prompt", s.reviewPrompt)
@@ -1272,6 +1277,8 @@ func (s *server) putSettings(w http.ResponseWriter, r *http.Request) {
 	// Same for the default provider, which the Providers section sets on its own
 	// endpoint: a form that does not show it must not be able to reset it.
 	in.DefaultProvider = cfg.Settings.DefaultProvider
+	// And for the backfill threshold, which the Dashboard's slider sets.
+	in.BackfillUrgency = cfg.Settings.BackfillUrgency
 	cfg.Settings = in
 	if err := s.d.Store.SaveConfig(cfg); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
@@ -1297,6 +1304,27 @@ func (s *server) setPaused(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"paused": in.Paused})
+}
+
+// setBackfill sets the backfill threshold on its own, the way setPaused flips
+// the pause switch: the Dashboard's slider applies on release, without Save.
+func (s *server) setBackfill(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Urgency float64 `json:"urgency"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := app.SetBackfillUrgency(s.d.Store, in.Urgency); err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrInvalidBackfillUrgency) {
+			status = http.StatusBadRequest
+		}
+		writeErr(w, status, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]float64{"urgency": in.Urgency})
 }
 
 func (s *server) getStats(w http.ResponseWriter, _ *http.Request) {
