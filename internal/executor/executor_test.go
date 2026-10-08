@@ -304,6 +304,41 @@ func TestRunUsesTheInstanceBinary(t *testing.T) {
 	}
 }
 
+func TestRunDeliversEffortToClaudeBinary(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake shell binary is POSIX-only")
+	}
+	for _, resume := range []bool{false, true} {
+		t.Run(strconv.FormatBool(resume), func(t *testing.T) {
+			dir := t.TempDir()
+			bin := filepath.Join(dir, "claude")
+			script := `#!/bin/sh
+printf '%s\n' "$@" > args.txt
+printf '%s\n' '{"type":"result","is_error":false,"result":"OK","session_id":"assigned-sid"}'
+`
+			if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			tk := sampleTask()
+			tk.WorkingDir = dir
+			res, err := claudeExecutor().Run(context.Background(), Request{
+				Task: tk, Provider: claudeInstance(bin), SessionID: "assigned-sid",
+				Resume: resume, ReasoningEffort: "medium",
+			})
+			if err != nil || res.Status != store.StatusSuccess {
+				t.Fatalf("Run = %+v, %v", res, err)
+			}
+			args, err := os.ReadFile(filepath.Join(dir, "args.txt"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(args), "--effort\nmedium\n") {
+				t.Fatalf("Claude binary received no effort setting: %s", args)
+			}
+		})
+	}
+}
+
 func TestRunRejectsAnUnregisteredProviderKind(t *testing.T) {
 	e := &Executor{Registry: provider.NewRegistry(claudecode.New())}
 	inst := claudeInstance("/nonexistent/claude")

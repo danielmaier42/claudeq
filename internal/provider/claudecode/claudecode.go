@@ -67,7 +67,7 @@ func (a *Adapter) Capabilities() provider.Capabilities {
 		InteractiveResume: true,
 		StructuredOutput:  true,
 		ModelDiscovery:    true,
-		ReasoningEffort:   false,
+		ReasoningEffort:   true,
 		UsageMetrics:      true,
 		CostMetrics:       true,
 		RateLimitResume:   true,
@@ -111,6 +111,9 @@ func (a *Adapter) Command(inst provider.Instance, req provider.Request) (provide
 	args := []string{"-p", "--output-format", "stream-json", "--verbose"}
 	if req.Model != "" {
 		args = append(args, "--model", req.Model)
+	}
+	if req.ReasoningEffort != "" {
+		args = append(args, "--effort", req.ReasoningEffort)
 	}
 	if access == provider.AccessFullAccess {
 		args = append(args, "--dangerously-skip-permissions")
