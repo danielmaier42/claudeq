@@ -239,6 +239,12 @@ func (e *Engine) Tick(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Backfill work only soaks up allowance nothing else wants, so it never
+	// goes ahead of a task that is not backfill: not to a pool's best member,
+	// and not into the exclusive slot.
+	slices.SortStableFunc(due, func(a, b task.Task) int {
+		return cmp.Compare(b2i(a.Backfill), b2i(b.Backfill))
+	})
 	// held collects why each due task does not start this tick; whatever is
 	// left in it at the end is what the queue shows.
 	held := map[string]string{}
@@ -293,11 +299,6 @@ func (e *Engine) Tick(ctx context.Context) error {
 		ready[a.task.ID] = a.resolved
 	}
 
-	// Backfill work only soaks up allowance nothing else wants, so it never
-	// goes ahead of a task that is not backfill, nor holds one up behind it.
-	slices.SortStableFunc(runnable, func(a, b task.Task) int {
-		return cmp.Compare(b2i(a.Backfill), b2i(b.Backfill))
-	})
 	selected := schedule.Select(runnable, e.runningState())
 	maps.Copy(held, schedule.Held(runnable, e.runningState()))
 	e.holds.update(held, now, e.holdLog)
@@ -418,8 +419,9 @@ func (e *Engine) assign(ctx context.Context, set provider.Set, due []task.Task, 
 	if stErr != nil {
 		fmt.Fprintf(os.Stderr, "claudeqd: load state for pool assignment: %v; pool tasks wait for the next tick\n", stErr)
 	}
-	// Runs planned onto a member in this pass count as running on it, so two
-	// pool tasks due in the same tick do not both pick the same account.
+	// Runs planned onto a provider in this pass count as running on it, so two
+	// pool tasks due in the same tick do not both pick the same account, and a
+	// backfill task sees the urgency the work placed before it leaves.
 	planned := map[string]int{}
 	av := e.availability(ctx)
 	running := av.Running
@@ -454,7 +456,7 @@ func (e *Engine) assign(ctx context.Context, set provider.Set, due []task.Task, 
 				res.Instance.Label(), reopenText(e.gates.For(res.Instance.ID).BlockedUntil(), e.clock.Now()))
 			continue
 		}
-		if err == nil && (res.Pool != nil || t.Backfill) {
+		if err == nil {
 			planned[res.Instance.ID]++
 		}
 		out = append(out, assignment{task: t, resolved: res, err: err})

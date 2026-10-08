@@ -192,3 +192,28 @@ func TestParallelBackfillSharesTheUrgency(t *testing.T) {
 		t.Fatalf("runs = %+v, want two", got)
 	}
 }
+
+// TestBackfillDoesNotTakeAPoolsBestMember: a backfill task listed above real
+// work on the same pool does not claim the best member before it.
+func TestBackfillDoesNotTakeAPoolsBestMember(t *testing.T) {
+	r := &stub{}
+	e, st, _ := newTestEngineWithProvider(t, r, clock.NewFake(backfillNow))
+	e.SetLimits(readings(map[string]provider.Limits{
+		store.DefaultProviderID: weekReading(backfillNow, 10, 24*time.Hour), // 6.3
+		"second":                atRisk(),                                   // 3.5
+	}))
+	bt := backfillTask("spare", true)
+	bt.Pool = "claude-pool"
+	if err := st.SaveConfig(poolConfig(bt, poolTask("real", true))); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	tickOnce(t, e)
+	on := map[string]string{}
+	for _, req := range r.requests() {
+		on[req.Task.ID] = req.Provider.ID
+	}
+	if on["real"] != store.DefaultProviderID {
+		t.Fatalf("ran %v, want the real task on the best member", on)
+	}
+}

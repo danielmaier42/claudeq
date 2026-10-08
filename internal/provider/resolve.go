@@ -413,7 +413,7 @@ func (s Set) resolvePool(sel Selection, av Availability) (Resolved, error) {
 		for _, sc := range scores {
 			notes = append(notes, sc.Note)
 		}
-		return Resolved{}, fmt.Errorf("%w in pool %s: %s", ErrNoSpare, p.Label(), strings.Join(notes, "; "))
+		return Resolved{}, fmt.Errorf("%w: pool %s: %s", ErrNoSpare, p.Label(), strings.Join(notes, "; "))
 	}
 	for _, inst := range enabled {
 		if blocked(inst) {

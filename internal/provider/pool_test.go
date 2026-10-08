@@ -306,6 +306,23 @@ func TestScoreProvider(t *testing.T) {
 	}
 }
 
+// TestUrgencyOfOtherWindowLengths: a window of another length is measured
+// against its own length, so a day or a month on pace is at 1 too.
+func TestUrgencyOfOtherWindowLengths(t *testing.T) {
+	inst := Instance{ID: "codex", Kind: KindCodex, Name: "Codex", Enabled: true}
+	for _, tc := range []struct {
+		id    string
+		hours float64
+	}{{"window_1440", 24}, {"window_43200", 720}} {
+		reset := poolNow.Add(time.Duration(tc.hours/2) * time.Hour)
+		l := Limits{State: LimitsOK, Windows: []LimitWindow{{ID: tc.id, Label: tc.id, UsedPercent: 50, ResetsAt: &reset}}}
+		got := ScoreProvider(inst, RankInputs{Now: poolNow, Limits: func(Instance) (Limits, bool) { return l, true }})
+		if math.Abs(got.Urgency-1) > 1e-9 {
+			t.Errorf("%s half used half way: urgency %v, want 1", tc.id, got.Urgency)
+		}
+	}
+}
+
 func TestSpare(t *testing.T) {
 	for _, tc := range []struct {
 		s    MemberScore
@@ -354,7 +371,7 @@ func TestResolveBackfill(t *testing.T) {
 		{"limited provider, no fallback", Selection{ProviderID: "max"}, map[string]Limits{"max": atRisk, "team": atRisk}, "max", "", "waiting for its rate limit"},
 		{"pool member at risk", Selection{PoolID: p.ID}, map[string]Limits{"max": onPace, "team": atRisk}, "", "team", ""},
 		{"pool session waits on a member on pace", Selection{PoolID: p.ID, Prefer: "max"}, map[string]Limits{"max": onPace, "team": atRisk}, "", "team", ""},
-		{"pool on pace", Selection{PoolID: p.ID}, map[string]Limits{"max": onPace, "team": onPace}, "", "", "in pool Claude"},
+		{"pool on pace", Selection{PoolID: p.ID}, map[string]Limits{"max": onPace, "team": onPace}, "", "", "pool Claude: "},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -47,10 +47,16 @@ func (s *server) listLimits(w http.ResponseWriter, r *http.Request) {
 	threshold := cfg.Settings.BackfillUrgencyOrDefault()
 	// Readiness counts like it does for a pool: a provider that cannot run is
 	// not one backfill work could go to, whatever its allowance says.
-	health := make(map[string]provider.Health, len(insts))
+	var enabled []provider.Instance
+	for _, inst := range insts {
+		if inst.Enabled {
+			enabled = append(enabled, inst)
+		}
+	}
+	health := make(map[string]provider.Health, len(enabled))
 	if s.d.Providers != nil {
-		for i, h := range s.d.Providers.CheckEach(r.Context(), insts) {
-			health[insts[i].ID] = h
+		for i, h := range s.d.Providers.CheckEach(r.Context(), enabled) {
+			health[enabled[i].ID] = h
 		}
 	}
 	in := s.displayInputs(func(inst provider.Instance) provider.Health {

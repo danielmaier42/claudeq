@@ -67,7 +67,9 @@ function backfillRow(){
       <div class="sub multi">Backfill tasks run on a provider whose urgency is above this. Urgency 1 means spending evenly from now on uses up the week; 2 means half of what is left would expire unused.</div></div>
     <div class="backfill-slider"><input type="range" id="d-backfill" min="0.5" max="5" step="0.1" value="${threshold}"><b id="d-backfill-val">${threshold.toFixed(1)}</b></div>`;
   const input=row.querySelector('input'), val=row.querySelector('b');
+  // A press that moves nothing fires no change, so letting go ends it too.
   input.addEventListener('pointerdown',()=>{ sliding=true; });
+  for(const ev of ['pointerup','pointercancel','blur']) input.addEventListener(ev,()=>{ sliding=false; });
   input.addEventListener('input',()=>{ sliding=true; val.textContent=Number(input.value).toFixed(1); });
   input.addEventListener('change',async()=>{
     try{ await api('POST','/api/backfill',{urgency:Number(input.value)}); }

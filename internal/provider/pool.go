@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -295,11 +296,20 @@ func scoreMember(inst Instance, m PoolMember, in RankInputs) MemberScore {
 	return s
 }
 
-// windowHours is how long a window of this id lasts, for one that has just
-// started over and so has no reset time of its own yet.
+// windowHours is how long a window of this id lasts: "five_hour", "week",
+// or "window_<minutes>" as a harness names any other length. An id that says
+// nothing counts as a week.
 func windowHours(id string) float64 {
-	if id == "five_hour" {
+	switch id {
+	case "five_hour":
 		return 5
+	case "week":
+		return 7 * 24
+	}
+	if rest, ok := strings.CutPrefix(id, "window_"); ok {
+		if mins, err := strconv.Atoi(rest); err == nil && mins > 0 {
+			return float64(mins) / 60
+		}
 	}
 	return 7 * 24
 }
