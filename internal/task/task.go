@@ -101,6 +101,13 @@ type Task struct {
 	// provider.RankPool). It excludes Provider; empty means the task names a
 	// provider (or the default) instead.
 	Pool string `toml:"pool,omitempty" json:"pool,omitempty"`
+	// Backfill makes the task spare-capacity work: it runs only on a provider
+	// whose allowance is at risk of going unused, its urgency above the
+	// threshold in the settings (see provider.ScoreProvider). On a pool only
+	// such members take it; on a provider it waits until that one is. Until
+	// then it stays due and holds, whatever its trigger, and it never goes to a
+	// fallback. Among due tasks it comes after every other.
+	Backfill bool `toml:"backfill,omitempty" json:"backfill,omitempty"`
 	// Model overrides the effective provider's default model when non-empty.
 	Model string `toml:"model,omitempty" json:"model,omitempty"`
 	// ReasoningEffort asks the model to think harder or less hard. It is passed
@@ -266,6 +273,9 @@ func (t Task) checkKind() error {
 	}
 	if t.Permissions == PermissionsSkip {
 		return fmt.Errorf("%w: a script job runs no model, so it cannot skip permission prompts", ErrInvalidTask)
+	}
+	if t.Backfill {
+		return fmt.Errorf("%w: a script job spends no allowance, so it cannot be backfill work", ErrInvalidTask)
 	}
 	return nil
 }

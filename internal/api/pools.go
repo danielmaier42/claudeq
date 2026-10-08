@@ -88,6 +88,14 @@ func (s *server) poolView(set provider.Set, p provider.Pool, health map[string]p
 	for i, m := range p.Members {
 		v.Members[i] = poolMemberView{Provider: m.ProviderID, Weight: m.Weight}
 	}
+	v.Ranking = provider.RankPool(set, p, s.displayInputs(func(inst provider.Instance) provider.Health { return health[inst.ID] }))
+	return v
+}
+
+// displayInputs is what the Dashboard ranks and scores providers by: the last
+// limit readings (never read here), the readiness verdicts health answers, the
+// rate-limit gates and the runs in flight — what the scheduler would see.
+func (s *server) displayInputs(health func(provider.Instance) provider.Health) provider.RankInputs {
 	var blocked map[string]time.Time
 	if s.d.BlockedProviders != nil {
 		blocked = s.d.BlockedProviders()
@@ -96,10 +104,13 @@ func (s *server) poolView(set provider.Set, p provider.Pool, health map[string]p
 	if s.d.Limits != nil {
 		limits = s.d.Limits.Cached
 	}
-	v.Ranking = provider.RankPool(set, p, provider.DisplayInputs(time.Now(), limits,
-		func(inst provider.Instance) provider.Health { return health[inst.ID] },
-		func(id string) bool { _, limited := blocked[id]; return limited }))
-	return v
+	in := provider.DisplayInputs(time.Now(), limits, health,
+		func(id string) bool { _, limited := blocked[id]; return limited })
+	if s.d.RunningOn != nil {
+		running := s.d.RunningOn()
+		in.Running = func(id string) int { return running[id] }
+	}
+	return in
 }
 
 // getPool is one pool with its ranking, as listPools shows it. It is what

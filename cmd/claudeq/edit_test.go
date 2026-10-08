@@ -39,6 +39,11 @@ func TestTaskPatchApply(t *testing.T) {
 			want: func(t task.Task) task.Task { t.Prompt = "new prompt"; return t },
 		},
 		{
+			name: "backfill on",
+			args: []string{"--backfill"},
+			want: func(t task.Task) task.Task { t.Backfill = true; return t },
+		},
+		{
 			name: "group re-files the task",
 			args: []string{"--group", "  Nightly  "},
 			want: func(t task.Task) task.Task { t.Group = "Nightly"; return t },
@@ -204,6 +209,7 @@ func TestTaskDocRoundTrip(t *testing.T) {
 	orig.Model = "opus"
 	orig.NotifyOnResult = true
 	orig.QuietHistory = true
+	orig.Backfill = true
 	orig.Trigger = task.TriggerFixed
 	orig.Cron = ""
 	orig.FixedAt = time.Date(2026, 9, 1, 2, 0, 0, 0, time.UTC)
@@ -229,7 +235,7 @@ func TestTaskDocRoundTrip(t *testing.T) {
 	// The document is meant to be edited by hand: every setting must be visible.
 	for _, field := range []string{"id", "name", "enabled", "working_dir", "trigger",
 		"fixed_at", "cron", "parallel", "model", "permissions", "notify_on_result", "quiet_history",
-		"group", "prompt"} {
+		"backfill", "group", "prompt"} {
 		if !strings.Contains(string(data), "\n"+field+" ") {
 			t.Errorf("document is missing the %q field:\n%s", field, data)
 		}

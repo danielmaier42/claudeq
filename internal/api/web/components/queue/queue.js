@@ -72,7 +72,7 @@ export async function loadTasks(){
   if(gen!==tasksGen) return;
   tasks=tasks||[];
   const shown=tasksOnlyActive?tasks.filter(t=>t.enabled):tasks;
-  const sig=JSON.stringify([paused,tasksOnlyActive,tasks.length,LIMITED_UNTIL&&LIMITED_UNTIL.toISOString(),GROUPS,shown.map(t=>[t.id,t.name,t.kind||'',t.trigger,t.enabled,t.parallel,t.permissions,t.notify_on_result,t.quiet_history,t.fixed_at,t.cron,t.next_run,t.last_run,t.running,t.waiting_for_limit,t.blocked_reason,t.provider,t.pool||'',t.pool?(poolByID(t.pool)||{}).name:'',t.model,t.group||'',(t.waiting_for||[]).join(','),t.hold?[t.hold.reason,waitedFor(t.hold.since)]:''])]);
+  const sig=JSON.stringify([paused,tasksOnlyActive,tasks.length,LIMITED_UNTIL&&LIMITED_UNTIL.toISOString(),GROUPS,shown.map(t=>[t.id,t.name,t.kind||'',t.trigger,t.enabled,t.parallel,t.permissions,t.notify_on_result,t.quiet_history,t.backfill,t.fixed_at,t.cron,t.next_run,t.last_run,t.running,t.waiting_for_limit,t.blocked_reason,t.provider,t.pool||'',t.pool?(poolByID(t.pool)||{}).name:'',t.model,t.group||'',(t.waiting_for||[]).join(','),t.hold?[t.hold.reason,waitedFor(t.hold.since)]:''])]);
   if(sig===tasksSig && $('#tasks').childElementCount) return;   // avoid flicker on poll
   tasksSig=sig;
   const c=$('#tasks'); c.innerHTML='';
@@ -162,6 +162,7 @@ function taskRow(t,i,block,tasks,paused){
   // that sits in the queue says what it waits for, and since when.
   if(t.hold&&!t.blocked_reason) tags.push(`<span class="chip warn" title="${esc(t.hold.reason+' Due since '+new Date(t.hold.since).toLocaleTimeString()+'; it starts by itself once that changes.')}">waiting${waitedFor(t.hold.since)}</span>`);
   if((t.waiting_for||[]).length) tags.push(`<span class="chip" title="${esc('Starts by itself once these jobs have finished: '+t.waiting_for.join(', ')+'. It runs even if one of them fails.')}">waiting for ${t.waiting_for.length} job${t.waiting_for.length>1?'s':''}</span>`);
+  if(t.backfill) tags.push('<span class="chip accent" title="Runs only while its provider\'s weekly allowance would otherwise go unused (urgency above the threshold on the Dashboard)">backfill</span>');
   if(t.parallel) tags.push('<span class="chip" title="Runs alongside other parallel tasks">parallel</span>');
   if(t.permissions==='skip') tags.push('<span class="chip warn" title="Skips permission prompts">granted</span>');
   if(t.notify_on_result) tags.push('<span class="chip accent" title="Sends outcome and last message when it finishes">notifies</span>');

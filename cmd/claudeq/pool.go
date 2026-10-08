@@ -184,7 +184,7 @@ func cmdPoolShow(st *store.Store, args []string) error {
 	if err := printRanking(v.Ranking); err != nil {
 		return err
 	}
-	fmt.Printf("\nA run started now goes to the first member that can take work. Urgency = free %% of the week x weight / hours to reset.\n%s\n", sourceNote(v.Source))
+	fmt.Printf("\nA run started now goes to the first member that can take work, ranked by urgency x weight.\n%s\n%s\n", urgencyNote, sourceNote(v.Source))
 	return nil
 }
 
@@ -241,6 +241,9 @@ func printRanking(ranking []provider.MemberScore) error {
 	}
 	return w.Flush()
 }
+
+// urgencyNote says what the urgency figure means, wherever the CLI prints one.
+const urgencyNote = "Urgency = free share of the week x its length / hours to reset, shared by the runs on it: 1 is on pace, 2 means half of what is left would expire unused."
 
 func sourceNote(source string) string {
 	if source == poolSourceDaemon {
