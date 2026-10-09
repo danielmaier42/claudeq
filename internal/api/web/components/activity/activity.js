@@ -13,20 +13,21 @@ import {EYE, REPLAY} from '../../core/icons.js';
 import {toast} from '../../core/toast.js';
 
 let runsGen=0, runsSig='', actFrom='', actTo='', actPage=0; const ACT_PAGE=25;
-// The other filters: unread only, the task's queue group, the task itself, the
-// outcome, and the search. NO_GROUP stands for "no group": a real group name
-// never starts with a space.
-let actUnread=false, actGroup='', actTask='', actStatus='', actQuery=''; const NO_GROUP=' none';
-let searchIn=null, unreadSeg=null, groupSel=null, taskSel=null, statusSel=null, listEl=null;
+// The other filters: all, unread only or running only (actShow), the task's
+// queue group, the task itself, the outcome, and the search. NO_GROUP stands
+// for "no group": a real group name never starts with a space.
+let actShow='', actGroup='', actTask='', actStatus='', actQuery=''; const NO_GROUP=' none';
+let searchIn=null, showSeg=null, groupSel=null, taskSel=null, statusSel=null, listEl=null;
 const groupKey=r=>(r.task&&r.task.group)||NO_GROUP;
 // What the search looks through: the task, its folder, the harness and model,
 // the group, the outcome and the error, if any. The outcome is in both of its
 // spellings, so "rate limited" also finds a run the row calls "rescheduled".
 const haystack=r=>[r.task_name,r.task&&r.task.working_dir,r.provider&&r.provider.name,r.provider&&r.provider.model,
   r.provider&&r.provider.pool,r.task&&r.task.group,statusLabel(r),r.status.replace(/_/g,' '),r.error].join('\n');
-const shown=r=>inDateRange(r.started_at,actFrom,actTo)&&(!actUnread||r.unread)&&(!actGroup||groupKey(r)===actGroup)
+const showMatch=r=>actShow==='unread'?r.unread:actShow==='running'?r.status==='running':true;
+const shown=r=>inDateRange(r.started_at,actFrom,actTo)&&showMatch(r)&&(!actGroup||groupKey(r)===actGroup)
   &&(!actTask||r.task_id===actTask)&&(!actStatus||r.status===actStatus)&&matchesWords(actQuery,haystack(r));
-const anyFilter=()=>!!(actFrom||actTo||actUnread||actGroup||actTask||actStatus||actQuery);
+const anyFilter=()=>!!(actFrom||actTo||actShow||actGroup||actTask||actStatus||actQuery);
 function refilter(){ actPage=0; runsSig=''; loadRuns(); }
 // Refill the menus from the runs there are: groups and tasks that occur, the
 // outcomes that occur. The task menu only offers tasks in the chosen group,
@@ -52,8 +53,9 @@ function renderFilters(){
   const top=row(), where=row();
   searchIn=searchField(actQuery,v=>{ if(v.trim()===actQuery.trim()) return; actQuery=v; refilter(); },
     'Search runs','Search by task, folder, harness, model, group, outcome or error (⌘F)');
-  unreadSeg=segFilter([[false,'All','Show every run'],[true,'Unread','Show only the runs you have not looked at yet']],actUnread,v=>{ actUnread=v; refilter(); });
-  top.append(searchIn,unreadSeg);
+  showSeg=segFilter([['','All','Show every run'],['unread','Unread','Show only the runs you have not looked at yet'],
+    ['running','Running','Show only the runs that are executing right now']],actShow,v=>{ actShow=v; refilter(); });
+  top.append(searchIn,showSeg);
   groupSel=selectFilter('Show the runs of one queue group',v=>{ actGroup=v; actTask=''; refilter(); });
   taskSel=selectFilter('Show the runs of one task',v=>{ actTask=v; refilter(); });
   statusSel=selectFilter('Show the runs with one outcome',v=>{ actStatus=v; refilter(); });
@@ -79,8 +81,9 @@ export async function loadRuns(){
   }catch(e){ setConn(false); return; }
   if(gen!==runsGen) return;   // a newer load superseded us
   const unread=runs.filter(r=>r.unread).length; const badge=$('#unreadCount'); badge.hidden=unread===0; badge.textContent=unread;
-  // With "Unread" the menus offer only groups, tasks and outcomes with something unread.
-  fillFilters(actUnread?runs.filter(r=>r.unread):runs);
+  // With "Unread" or "Running" the menus offer only groups, tasks and outcomes
+  // that the segment lets through.
+  fillFilters(actShow?runs.filter(showMatch):runs);
   const filtered=runs.filter(shown);
   const pages=Math.max(1,Math.ceil(filtered.length/ACT_PAGE));
   if(actPage>pages-1) actPage=pages-1; if(actPage<0) actPage=0;
@@ -88,7 +91,7 @@ export async function loadRuns(){
   // Re-render only when the data or view actually changed, so the 5s poll doesn't
   // rebuild the DOM (and make the buttons flicker) on every tick.
   if(!listEl) listEl=listOf($('#news'));
-  const sig=JSON.stringify([actFrom,actTo,actUnread,actGroup,actTask,actStatus,actQuery,actPage,LIMITED_UNTIL&&LIMITED_UNTIL.toISOString(),PROVIDERS.length,
+  const sig=JSON.stringify([actFrom,actTo,actShow,actGroup,actTask,actStatus,actQuery,actPage,LIMITED_UNTIL&&LIMITED_UNTIL.toISOString(),PROVIDERS.length,
     pageRuns.map(r=>[r.run_id,r.status,r.unread,r.resume_pending,r.resume_at,r.workflow_id])]);
   if(sig===runsSig && listEl.childElementCount) return;
   runsSig=sig;
@@ -96,7 +99,8 @@ export async function loadRuns(){
   if(!runs.length){ c.append(emptyState('Nothing logged yet','Runs will appear here after tasks execute.')); return; }
   if(!filtered.length){
     const why=actQuery?`Nothing matches “${actQuery.trim()}”. Try fewer or different words.`
-      : actUnread?'Everything here has been looked at. Switch to All to see the rest.':'Adjust the date, group, task or outcome filter to see runs.';
+      : actShow==='unread'?'Everything here has been looked at. Switch to All to see the rest.'
+      : actShow==='running'?'Nothing is running right now. Switch to All to see the rest.':'Adjust the date, group, task or outcome filter to see runs.';
     c.append(emptyState('No runs match',why)); return; }
   const list=el('div','act-list');
   // Runs that came out of one piece of work are shown together: a fan-out and
