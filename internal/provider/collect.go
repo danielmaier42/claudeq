@@ -93,6 +93,12 @@ func (c *Collector) noteDetail(detail string) {
 // reported one, otherwise the one claudeq assigned.
 func (c *Collector) SessionID() string { return c.sessionID }
 
+// CompletedRateLimit reports a terminal, resumable limit result. A rejection
+// alone may come from a subagent while the main run is still doing useful work.
+func (c *Collector) CompletedRateLimit() bool {
+	return c.completed && c.Result(0).Status == store.StatusRateLimited
+}
+
 // Result classifies the run now that the process has exited with exitCode.
 //
 // The order matters. An authentication problem outranks everything, because no

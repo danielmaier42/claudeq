@@ -586,3 +586,19 @@ func TestRunRejectedRateLimitEventAloneClassifies(t *testing.T) {
 		t.Fatalf("status = %q, want rate_limited_waiting", res.Status)
 	}
 }
+
+func TestRunSubagentLimitDoesNotStopSuccessfulParent(t *testing.T) {
+	for _, scope := range []string{`"parent_tool_use_id":"tool-1"`, `"agent_id":"agent-1"`} {
+		t.Run(scope, func(t *testing.T) {
+			out := strings.Join([]string{
+				`{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1791544800}}`,
+				`{"type":"result","is_error":true,"api_error_status":429,` + scope + `}`,
+				`{"type":"result","is_error":false,"result":"Parent finished","session_id":"parent-session"}`,
+			}, "\n")
+			res := runFake(t, out, 0)
+			if res.Status != store.StatusSuccess || res.FinalOutput != "Parent finished" || res.SessionID != "parent-session" {
+				t.Fatalf("subagent failure stopped parent: %+v", res)
+			}
+		})
+	}
+}

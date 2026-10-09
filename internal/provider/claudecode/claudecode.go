@@ -187,20 +187,22 @@ const orgBlockedDetail = "this organisation has disabled Claude subscription acc
 // the final `result` envelope, intermediate `api_retry` system events, and
 // `rate_limit_event`. Unknown fields are ignored.
 type streamEvent struct {
-	Type           string         `json:"type"`
-	IsError        bool           `json:"is_error"`
-	APIErrorStatus *int           `json:"api_error_status"`
-	APIErrorCode   string         `json:"api_error_code"`
-	ErrorStatus    *int           `json:"error_status"`
-	Error          string         `json:"error"`
-	RetryDelayMS   *int           `json:"retry_delay_ms"`
-	SessionID      string         `json:"session_id"`
-	ResultText     string         `json:"result"`
-	TotalCostUSD   float64        `json:"total_cost_usd"`
-	NumTurns       int            `json:"num_turns"`
-	DurationMS     int64          `json:"duration_ms"`
-	Usage          *usageTokens   `json:"usage"`
-	RateLimitInfo  *rateLimitInfo `json:"rate_limit_info"`
+	Type            string         `json:"type"`
+	ParentToolUseID string         `json:"parent_tool_use_id"`
+	AgentID         string         `json:"agent_id"`
+	IsError         bool           `json:"is_error"`
+	APIErrorStatus  *int           `json:"api_error_status"`
+	APIErrorCode    string         `json:"api_error_code"`
+	ErrorStatus     *int           `json:"error_status"`
+	Error           string         `json:"error"`
+	RetryDelayMS    *int           `json:"retry_delay_ms"`
+	SessionID       string         `json:"session_id"`
+	ResultText      string         `json:"result"`
+	TotalCostUSD    float64        `json:"total_cost_usd"`
+	NumTurns        int            `json:"num_turns"`
+	DurationMS      int64          `json:"duration_ms"`
+	Usage           *usageTokens   `json:"usage"`
+	RateLimitInfo   *rateLimitInfo `json:"rate_limit_info"`
 }
 
 // rateLimitInfo is the payload of a `rate_limit_event`. ResetsAt is the
@@ -279,7 +281,7 @@ func (p *parser) Parse(line []byte) []provider.Event {
 		}
 		out = append(out, pause)
 	}
-	if ev.Type == "result" {
+	if ev.Type == "result" && ev.ParentToolUseID == "" && ev.AgentID == "" {
 		m := &provider.Metrics{CostUSD: ev.TotalCostUSD, NumTurns: ev.NumTurns, DurationMS: ev.DurationMS}
 		if ev.Usage != nil {
 			m.InputTokens = ev.Usage.InputTokens
