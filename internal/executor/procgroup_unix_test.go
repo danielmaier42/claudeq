@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/danielmaier42/claudeq/internal/store"
 )
 
 // TestKillTreeTakesDescendantsInTheirOwnGroups is the case the Codex spike
@@ -141,5 +143,43 @@ func TestDescendantsToleratesACycle(t *testing.T) {
 func TestDescendantsWithoutASnapshot(t *testing.T) {
 	if got := descendants(nil, 100); got != nil {
 		t.Fatalf("generations = %+v, want none without a process table", got)
+	}
+}
+
+func TestTerminalRateLimitStopsHarnessAndChildren(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "claude")
+	pidFile := filepath.Join(dir, "child.pid")
+	body := `#!/bin/sh
+sleep 300 &
+echo $! > "` + pidFile + `"
+printf '%s\n' '{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1791544800}}'
+printf '%s\n' '{"type":"result","subtype":"success","is_error":true,"api_error_status":429,"session_id":"resume-session","result":"Session limit","total_cost_usd":4.15,"num_turns":48}'
+wait
+`
+	if err := os.WriteFile(bin, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	res, err := claudeExecutor().Run(ctx, Request{
+		Task: sampleTask(), Provider: claudeInstance(bin), SessionID: "initial-session",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ctx.Err() != nil {
+		t.Fatal("terminal limit waited for the caller's timeout")
+	}
+	if res.Status != store.StatusRateLimited || res.SessionID != "resume-session" || !res.ResetAt.Equal(time.Unix(1791544800, 0)) {
+		t.Fatalf("lost resumable limit result: %+v", res)
+	}
+	if res.Metrics == nil || res.Metrics.NumTurns != 48 || res.Metrics.CostUSD != 4.15 || res.FinalOutput != "Session limit" {
+		t.Fatalf("lost final result evidence: %+v", res)
+	}
+	child := waitForPID(t, pidFile)
+	if alive(child) {
+		_ = syscall.Kill(child, syscall.SIGKILL)
+		t.Fatalf("tool child %d survived terminal rate limit", child)
 	}
 }

@@ -204,3 +204,26 @@ func TestCollectorWithoutAProviderNameStillReads(t *testing.T) {
 		t.Fatalf("message = %q", got)
 	}
 }
+
+func TestCollectorCompletedRateLimit(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		events []Event
+		want   bool
+	}{
+		{"rejection without terminal result", []Event{{Type: EventRateLimited}}, false},
+		{"terminal limit", []Event{{Type: EventRateLimited}, {Type: EventCompleted, IsError: true}}, true},
+		{"success after rejection", []Event{{Type: EventRateLimited}, {Type: EventCompleted}}, false},
+		{"ordinary error", []Event{{Type: EventCompleted, IsError: true}}, false},
+		{"auth outranks limit", []Event{{Type: EventRateLimited}, {Type: EventAuthFailed}, {Type: EventCompleted, IsError: true}}, false},
+		{"model rejection outranks limit", []Event{{Type: EventRateLimited}, {Type: EventModelRejected}, {Type: EventCompleted, IsError: true}}, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			c := NewCollector("session", "provider")
+			c.AddAll(tt.events)
+			if got := c.CompletedRateLimit(); got != tt.want {
+				t.Fatalf("CompletedRateLimit = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

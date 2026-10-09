@@ -1685,6 +1685,10 @@ that.
   new starts on *that provider* pause until the reset; the other providers carry
   on. The wait comes from the reset time the CLI reports, then from its
   `retry_delay_ms` signal, and falls back to 15 minutes when neither is exposed.
+  A terminal rate-limit result is recorded even if the CLI stays alive after
+  emitting it. ClaudeQ stops that CLI and its remaining tool processes, preserving
+  the session and reset time. A warning or subagent rejection alone does not stop
+  a working run.
   At reset the gate reopens and the blocked task **resumes its session** rather
   than starting over.
 - **An account that may not run at all counts as a limit.** When Claude Code

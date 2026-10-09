@@ -386,6 +386,12 @@ func (e *Executor) Run(ctx context.Context, req Request) (provider.Result, error
 		lastActivity.Store(time.Now().UnixNano())
 		_, _ = log.Write(append(cloneLine(line), '\n'))
 		collector.AddAll(parser.Parse(line))
+		if collector.CompletedRateLimit() {
+			// Some harnesses emit their final limit result but stay alive with
+			// tool or lock-holder children. Release those before scheduling resume.
+			cancel()
+			break
+		}
 	}
 	scanErr := sc.Err()
 
@@ -395,11 +401,11 @@ func (e *Executor) Run(ctx context.Context, req Request) (provider.Result, error
 		var ee *exec.ExitError
 		if errors.As(waitErr, &ee) {
 			exitCode = ee.ExitCode()
-		} else if !idleKilled.Load() {
+		} else if !idleKilled.Load() && !collector.CompletedRateLimit() {
 			return provider.Result{}, fmt.Errorf("wait %s: %w", invocation.Path, waitErr)
 		}
 	}
-	if idleKilled.Load() {
+	if idleKilled.Load() && !collector.CompletedRateLimit() {
 		return provider.Result{
 			Status:    store.StatusFailed,
 			SessionID: collector.SessionID(),
