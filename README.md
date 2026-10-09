@@ -401,7 +401,8 @@ Dashboard:
   all read; page through history; and replay a task. Above the list sits the
   same filter bar as in Artifacts: a **search field** (⌘F jumps to it, Escape
   clears it) where every word has to occur somewhere in the run — task, folder,
-  harness, model, group, outcome or error —, **All | Unread**, and menus for
+  harness, model, group, outcome or error —, **All | Unread | Running**
+  (Running shows only the runs executing right now), and menus for
   the queue **group**, the **task** and the **outcome** (success, failed, rate
   limited, …), plus a from–to date range. Runs of a *quiet history* task
   appear here only if they did not succeed.
