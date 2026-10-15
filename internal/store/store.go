@@ -720,6 +720,11 @@ type Settings struct {
 	// prompt against this machine before it is queued. The zero value keeps the
 	// review on, so an existing config gains the feature without being edited.
 	PromptReviewDisabled bool `toml:"prompt_review_disabled" json:"prompt_review_disabled"`
+	// ArtifactNotifyDisabled silences the "new artifact" notification on every
+	// channel. The artifact is still published and listed; it just arrives
+	// without a ping. The zero value keeps the notification on, so an existing
+	// config behaves as before.
+	ArtifactNotifyDisabled bool `toml:"artifact_notify_disabled,omitempty" json:"artifact_notify_disabled"`
 	// PromptReviewProvider is the provider instance that answers the review.
 	// Empty means the default provider. It is chosen separately from the one
 	// tasks run on: reviewing a prompt is cheap, frequent work that has no

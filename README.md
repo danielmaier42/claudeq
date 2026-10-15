@@ -495,6 +495,7 @@ and the update button live.
 | | | **Add provider** | Below the blocks, and only with beta features on: opens a sheet asking for an id, a type and optionally a configuration directory. |
 | **Pools** (beta) | One block per pool | Its settings | Name, and per provider of the pool's type a switch for membership and a weight. An empty weight takes the plan size the provider reports (shown as the placeholder, e.g. *auto · 20×*). Written by **Save**; **Remove** acts at once and is refused while a task uses the pool. **Add pool** below asks for an id, a name and the members. The tab is there with [beta features](#beta-features) on, or while a pool exists. See [Provider pools](#provider-pools). |
 | **Notifications** | macOS | Alerts that wait for you | Opens System Settings → Notifications, where ClaudeQ's alert style lives: *Banners* disappear on their own, *Alerts* stay until you click them. |
+| | Artifacts | Notify about new artifacts | On by default. Off: a published artifact still lands in Artifacts with its unread flag, but raises no notification on any channel and no entry in Notifications. Switching it back on does not announce what was published in the meantime. |
 | | Pushover | Send to Pushover | Toggle plus API token and user key for phone push. |
 | | ntfy | Send to ntfy | Toggle, server (empty = ntfy.sh), topic, and an optional access token for a protected topic. |
 | | Webhook | Post to a webhook | Toggle, endpoint URL, and a JSON body template using `{{title}}`, `{{message}}`, `{{url}}` (empty = ClaudeQ's own body). |
@@ -914,6 +915,7 @@ claudeq settings [--json] [--default-provider ID]
                  [--system-prompt S | --system-prompt-file PATH]
                  [--paused=BOOL]                # pause/resume every run
                  [--backfill-urgency X]         # backfill tasks run above this urgency (0.5-5)
+                 [--artifact-notify=BOOL]       # notify when a task publishes an artifact
                  [--pushover=BOOL] [--pushover-token T] [--pushover-user U]
                  [--ntfy=BOOL] [--ntfy-server S] [--ntfy-topic T] [--ntfy-token T]
                  [--webhook=BOOL] [--webhook-url U] [--webhook-template J]
@@ -1012,6 +1014,7 @@ claudeq settings --prompt-review-provider claude-cheap   # who answers the revie
 claudeq settings --prompt-review-model haiku            # ("" = the provider's default model)
 claudeq settings --feedback-provider claude-cheap       # who drafts the GitHub issue
 claudeq settings --feedback-model haiku                 # ("" = claudeq's own small, fast choice)
+claudeq settings --artifact-notify=false               # publish artifacts without a notification
 claudeq settings --pushover=true --pushover-token T --pushover-user U
 claudeq settings --ntfy=true --ntfy-topic claudeq-daniel   # server defaults to ntfy.sh
 claudeq settings --webhook=true --webhook-url https://hooks.slack.com/services/... \
@@ -1237,7 +1240,8 @@ The file is **copied into ClaudeQ** (a permanent snapshot — later changes to t
 original don't affect it) and appears in the **Artifacts** view, attributed to
 the task and run that produced it, with an unread flag that clears as soon as you
 open it. Each publish also raises a notification (macOS, plus every remote channel that
-is configured); clicking the macOS one brings up ClaudeQ with that artifact open — in
+is configured; **Settings → Notifications → Notify about new artifacts** or
+`claudeq settings --artifact-notify=false` turns it off); clicking the macOS one brings up ClaudeQ with that artifact open — in
 the in-app viewer for HTML, PDF, images and text, in your browser for anything
 else. Artifacts that were already there when this version first ran are not
 announced retroactively. HTML and PDF open in an in-app viewer; any type can be opened in your

@@ -68,6 +68,7 @@ type settingsPatch struct {
 	paused           bool
 	backfillUrgency  float64
 	promptReview     bool
+	artifactNotify   bool
 	promptReviewMdl  string
 	promptReviewProv string
 	feedbackProvider string
@@ -100,6 +101,7 @@ func (p *settingsPatch) register(fs *flag.FlagSet) {
 	fs.StringVar(&p.feedbackProvider, "feedback-provider", "", "provider the feedback assistant drafts on (empty = the default provider)")
 	fs.StringVar(&p.feedbackModel, "feedback-model", "", "model it drafts with (empty = claudeq's own small, fast choice)")
 	fs.StringVar(&p.defaultWorkDir, "default-working-dir", "", "prefills a new task's working directory (empty = no prefill)")
+	fs.BoolVar(&p.artifactNotify, "artifact-notify", true, "notify when a task publishes an artifact")
 	fs.BoolVar(&p.pushoverOn, "pushover", false, "send notifications to Pushover")
 	fs.StringVar(&p.pushoverToken, "pushover-token", "", "Pushover API token")
 	fs.StringVar(&p.pushoverUser, "pushover-user", "", "Pushover user key")
@@ -179,6 +181,9 @@ func (p settingsPatch) apply(s store.Settings) (store.Settings, error) {
 	if p.set["default-working-dir"] {
 		s.DefaultWorkingDir = p.defaultWorkDir
 	}
+	if p.set["artifact-notify"] {
+		s.ArtifactNotifyDisabled = !p.artifactNotify
+	}
 	if p.set["pushover"] {
 		s.Pushover.Enabled = p.pushoverOn
 	}
@@ -227,6 +232,7 @@ type settingsView struct {
 	FeedbackProvider   string  `json:"feedback_provider"`
 	FeedbackModel      string  `json:"feedback_model"`
 	DefaultWorkingDir  string  `json:"default_working_dir"`
+	ArtifactNotify     bool    `json:"artifact_notify"`
 	BetaFeatures       bool    `json:"beta_features"`
 	Appearance         string  `json:"appearance"`
 	Paused             bool    `json:"paused"`
@@ -254,6 +260,7 @@ func newSettingsView(s store.Settings) settingsView {
 		FeedbackProvider:   s.FeedbackProvider,
 		FeedbackModel:      s.FeedbackModel,
 		DefaultWorkingDir:  s.DefaultWorkingDir,
+		ArtifactNotify:     !s.ArtifactNotifyDisabled,
 		BetaFeatures:       s.BetaFeatures,
 		Appearance:         s.Appearance,
 		Paused:             s.Paused,
@@ -287,6 +294,7 @@ func printSettings(s store.Settings) {
 	// accepts every provider either way. Settings → System owns it.
 	fmt.Printf("beta_features:             %s (app only)\n", boolLabel(v.BetaFeatures))
 	fmt.Printf("appearance:                %s (app only)\n", orDefault(v.Appearance, "(follows macOS)"))
+	fmt.Printf("artifact_notify:           %s\n", boolLabel(v.ArtifactNotify))
 	fmt.Printf("pushover:                  %s\n", pushoverLabel(v))
 	fmt.Printf("ntfy:                      %s\n", ntfyLabel(v))
 	fmt.Printf("webhook:                   %s\n", webhookLabel(v))

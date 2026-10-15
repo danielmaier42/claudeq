@@ -213,3 +213,74 @@ func inodeOf(t *testing.T, path string) uint64 {
 	}
 	return sys.Ino
 }
+
+// With artifact notifications switched off, a new artifact raises nothing on
+// any channel and leaves no inbox entry, and switching them back on does not
+// deliver what was published in the meantime.
+func TestArtifactNotifyDisabledStaysSilentAndDoesNotCatchUp(t *testing.T) {
+	e, st, n := newArtifactEngine(t)
+	e.notifyNewArtifacts() // prime on an empty store
+
+	setArtifactNotifyDisabled(t, st, true)
+	publish(t, st, artifact("a-quiet", "Quiet report", "Nightly"))
+	e.notifyNewArtifacts()
+	if got := n.all(); len(got) != 0 {
+		t.Fatalf("disabled artifact notifications must stay silent, got %+v", got)
+	}
+	inbox, err := st.Inbox()
+	if err != nil {
+		t.Fatalf("Inbox: %v", err)
+	}
+	if len(inbox) != 0 {
+		t.Fatalf("disabled artifact notifications must not reach the inbox, got %+v", inbox)
+	}
+
+	setArtifactNotifyDisabled(t, st, false)
+	e.notifyNewArtifacts()
+	if got := n.all(); len(got) != 0 {
+		t.Fatalf("re-enabling must not announce artifacts published while off, got %+v", got)
+	}
+
+	publish(t, st, artifact("a-loud", "Loud report", "Nightly"))
+	e.notifyNewArtifacts()
+	got := n.all()
+	if len(got) != 1 || got[0].ArtifactID != "a-loud" {
+		t.Fatalf("expected one notification for a-loud after re-enabling, got %+v", got)
+	}
+}
+
+func setArtifactNotifyDisabled(t *testing.T, st *store.Store, off bool) {
+	t.Helper()
+	if err := st.UpdateConfig(func(cfg *store.Config) error {
+		cfg.Settings.ArtifactNotifyDisabled = off
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+}
+
+// An unreadable config must not consume pending artifacts: they stay pending
+// and are announced once the config can be read again.
+func TestArtifactNotifyUnreadableConfigKeepsArtifactsPending(t *testing.T) {
+	e, st, n := newArtifactEngine(t)
+	e.notifyNewArtifacts() // prime on an empty store
+
+	cfgPath := filepath.Join(st.Home(), "config.toml")
+	if err := os.WriteFile(cfgPath, []byte("not = [valid toml"), 0o600); err != nil {
+		t.Fatalf("write broken config: %v", err)
+	}
+	publish(t, st, artifact("a-wait", "Waiting report", "Nightly"))
+	e.notifyNewArtifacts()
+	if got := n.all(); len(got) != 0 {
+		t.Fatalf("nothing may be sent while the config is unreadable, got %+v", got)
+	}
+
+	if err := os.Remove(cfgPath); err != nil {
+		t.Fatalf("remove broken config: %v", err)
+	}
+	e.notifyNewArtifacts()
+	got := n.all()
+	if len(got) != 1 || got[0].ArtifactID != "a-wait" {
+		t.Fatalf("the artifact should be announced once the config reads again, got %+v", got)
+	}
+}

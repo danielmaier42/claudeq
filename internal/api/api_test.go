@@ -545,13 +545,13 @@ func TestRunLogNotFound(t *testing.T) {
 
 func TestSettingsRoundTrip(t *testing.T) {
 	srv, _ := newServer(t, nil)
-	in := store.Settings{SystemPrompt: "be brief", HeartbeatMinutes: 30}
+	in := store.Settings{SystemPrompt: "be brief", HeartbeatMinutes: 30, ArtifactNotifyDisabled: true}
 	if r := do(t, srv, "PUT", "/api/settings", in); r.Status != http.StatusOK {
 		t.Fatalf("put status = %d", r.Status)
 	}
 	var out store.Settings
 	do(t, srv, "GET", "/api/settings", nil).into(t, &out)
-	if out.SystemPrompt != "be brief" || out.HeartbeatMinutes != 30 {
+	if out.SystemPrompt != "be brief" || out.HeartbeatMinutes != 30 || !out.ArtifactNotifyDisabled {
 		t.Fatalf("settings round-trip mismatch: %+v", out)
 	}
 }

@@ -76,6 +76,11 @@ func TestSettingsPatchApply(t *testing.T) {
 			want: func(s store.Settings) store.Settings { s.PromptReviewDisabled = true; return s },
 		},
 		{
+			name: "artifact notifications off",
+			args: []string{"--artifact-notify=false"},
+			want: func(s store.Settings) store.Settings { s.ArtifactNotifyDisabled = true; return s },
+		},
+		{
 			name: "prompt review model",
 			args: []string{"--prompt-review-model", "haiku"},
 			want: func(s store.Settings) store.Settings { s.PromptReviewModel = "haiku"; return s },
