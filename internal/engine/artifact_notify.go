@@ -21,12 +21,26 @@ const artifactNotifyBodyLimit = 300
 // Artifacts are recorded as notified *before* the notification is sent, and in a
 // single state write: a broken notification channel then costs one message
 // instead of re-firing on every tick.
+//
+// With artifact notifications switched off in Settings, new artifacts are still
+// taken off the pending list, just without a notification: switching them back
+// on must not deliver everything published in the meantime at once. The switch
+// is read before anything is taken, so an unreadable config leaves the pending
+// artifacts for a later pass instead of consuming them unannounced.
 func (e *Engine) notifyNewArtifacts() {
 	if e.notifier == nil {
 		return
 	}
+	cfg, err := e.store.LoadConfig()
+	if err != nil {
+		noteErr(&e.lastArtifactErr, "artifact notification failed", err)
+		return
+	}
 	pending, err := e.takeUnnotifiedArtifacts()
 	noteErr(&e.lastArtifactErr, "artifact notification failed", err)
+	if cfg.Settings.ArtifactNotifyDisabled {
+		return
+	}
 	for _, a := range pending {
 		e.send(notify.Notification{
 			Kind:       store.InboxKindArtifact,

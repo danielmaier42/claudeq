@@ -124,6 +124,12 @@ async function loadSettings(){
           <div class="sub">macOS decides how long a notification lingers — pick Alerts, not Banners</div></div>
           <button class="btn" id="s-notif-settings">Open System Settings</button></div>
       </div>
+      <div class="section-label">Artifacts</div>
+      <div class="group">
+        <div class="row"><div class="grow"><div class="title">Notify about new artifacts</div>
+          <div class="sub">Off: a published artifact still shows up under Artifacts, just without a notification</div></div>
+          <label class="switch"><input type="checkbox" id="s-artifact-notify"><span class="sl"></span></label></div>
+      </div>
       <div class="section-label">Pushover</div>
       <div class="group">
         <div class="row"><div class="grow"><div class="title">Send to Pushover</div><div class="sub">Push run alerts to your phone</div></div>
@@ -193,6 +199,7 @@ async function loadSettings(){
     catch(err){ toast(err.message,'err'); appearance=before; appearanceSeg.set(before); applyAppearance(before); }
   });
   $('#s-appearance').replaceWith(appearanceSeg);
+  $('#s-artifact-notify').checked=!s.artifact_notify_disabled;
   $('#s-po-enabled').checked=poOn; $('#s-po-token').value=s.pushover?.token||''; $('#s-po-user').value=s.pushover?.user_key||'';
   $('#s-ntfy-enabled').checked=!!s.ntfy?.enabled; $('#s-ntfy-server').value=s.ntfy?.server||'';
   $('#s-ntfy-topic').value=s.ntfy?.topic||''; $('#s-ntfy-token').value=s.ntfy?.token||'';
@@ -322,6 +329,7 @@ async function saveSettings(){
     system_prompt:$('#s-sysprompt').value,
     default_working_dir:$('#s-default-dir').value.trim(),
     prompt_review_disabled:!$('#s-review').checked,
+    artifact_notify_disabled:!$('#s-artifact-notify').checked,
     prompt_review_provider:$('#s-review-provider').value,
     prompt_review_model:$('#s-review-model').value,
     feedback_provider:$('#s-feedback-provider').value,
