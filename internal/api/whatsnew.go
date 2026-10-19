@@ -81,7 +81,7 @@ func (s *server) markRenameCheckDone() error {
 }
 
 // settled reports whether a finished check leaves nothing to do: every prompt
-// was reviewed and no rewrite is waiting to be applied. Callers hold j.mu.
+// was reviewed and no rewrite is waiting to be applied.
 func (c renameCheck) settled() bool {
 	if c.State != "done" || len(c.Errors) > 0 {
 		return false
@@ -227,17 +227,22 @@ func (s *server) startRenameCheck(w http.ResponseWriter, _ *http.Request) {
 			}()
 		}
 		wg.Wait()
+		// Remembered before "done" is published: the dialog asks for the
+		// banner's state as soon as it sees "done", and must not read the old one.
+		s.rename.mu.Lock()
+		finished := s.rename.check
+		finished.State = "done"
+		s.rename.mu.Unlock()
+		var persistErr error
+		if finished.settled() {
+			persistErr = s.markRenameCheckDone()
+		}
 		s.rename.mu.Lock()
 		s.rename.check.State = "done"
-		settled := s.rename.check.settled()
-		s.rename.mu.Unlock()
-		if settled {
-			if err := s.markRenameCheckDone(); err != nil {
-				s.rename.mu.Lock()
-				s.rename.check.Errors = append(s.rename.check.Errors, "remembering the check: "+err.Error())
-				s.rename.mu.Unlock()
-			}
+		if persistErr != nil {
+			s.rename.check.Errors = append(s.rename.check.Errors, "remembering the check: "+persistErr.Error())
 		}
+		s.rename.mu.Unlock()
 	}()
 	writeJSON(w, http.StatusOK, s.rename.snapshot())
 }

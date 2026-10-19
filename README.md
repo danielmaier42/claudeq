@@ -1757,8 +1757,9 @@ limit is exhausted — the page keeps what you typed and lets you write the issu
 by hand.
 
 The chat runs as an *aside* (see [The prompt review](#the-prompt-review)): tools,
-MCP servers, skills and `CLAUDE.md` files all switched off, in an empty
-throwaway directory, so it can neither touch your machine nor pull project
+MCP servers, skills and `CLAUDE.md` files all switched off (on Codex: a
+read-only sandbox without your own Codex config), in an empty throwaway
+directory, so it can neither touch your machine nor pull project
 context into a public issue. Only a provider that can hold such a conversation
 is offered for it. It is told not to put
 personal data (paths, names, addresses, prompt contents) in the issue — and

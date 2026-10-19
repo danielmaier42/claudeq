@@ -290,3 +290,17 @@ func TestIssueURLKeepsAShortBodyIntact(t *testing.T) {
 		t.Fatalf("short body was shortened: %q", u)
 	}
 }
+
+// TestTurnLeavesOtherHarnessesOnTheirOwnDefault: "haiku" is a Claude name; a
+// Codex turn with no model named runs on Codex's own default instead of a
+// model it would reject.
+func TestTurnLeavesOtherHarnessesOnTheirOwnDefault(t *testing.T) {
+	r := &stubAsker{answers: []provider.Aside{validated(`{"status":"ready","title":"T","body":"B"}`)}}
+	codex := provider.Instance{ID: "codex", Kind: provider.KindCodex}
+	if _, err := New(r).Turn(context.Background(), codex, "", "", "hi"); err != nil {
+		t.Fatalf("turn: %v", err)
+	}
+	if r.reqs[0].Model != "" {
+		t.Errorf("model = %q, want the harness default", r.reqs[0].Model)
+	}
+}

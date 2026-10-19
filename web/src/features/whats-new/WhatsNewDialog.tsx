@@ -45,6 +45,8 @@ export function WhatsNewDialog() {
     if (!status.data?.show) return
     try {
       await post('/api/whats-new/dismiss')
+      // Closed, the dialog hands over to the banner if the check is still due.
+      invalidate(whatsNewKey)
     } catch (e) {
       toast.error('Could not save that you have seen this', {description: errorMessage(e)})
     }
