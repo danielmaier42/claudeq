@@ -142,10 +142,10 @@ func (c *Config) migrate() bool {
 		c.Settings.DefaultProvider = c.Providers[0].ID
 		changed = true
 	}
-	// The preference grew from "show Codex" to "show the unfinished parts", and
-	// an operator who had already asked for the one wants the other.
-	if c.Settings.LegacyShowCodexBeta {
-		c.Settings.BetaFeatures, c.Settings.LegacyShowCodexBeta = true, false
+	// Every feature that sat behind the beta switch is public now, so the
+	// switch (and the name it had before) means nothing any more.
+	if c.Settings.LegacyBetaFeatures != nil || c.Settings.LegacyShowCodexBeta != nil {
+		c.Settings.LegacyBetaFeatures, c.Settings.LegacyShowCodexBeta = nil, nil
 		changed = true
 	}
 	// The instances own these two values now; leaving copies behind would give
@@ -741,18 +741,14 @@ type Settings struct {
 	// choice: drafting an issue out of two short messages is cheap work, and it
 	// must not silently land on an expensive model picked for real tasks.
 	FeedbackModel string `toml:"feedback_model,omitempty" json:"feedback_model"`
-	// BetaFeatures reveals the parts of the app claudeq does not consider
-	// finished: adding provider instances, and the Codex provider itself.
-	//
-	// It is presentation state and nothing else. Every adapter is always
-	// registered, the API and the CLI always accept every provider, and the
-	// scheduler never looks at this flag — so a Codex task made from the command
-	// line runs, and stays visible in Queue and Log, whatever the app is
-	// showing. Hiding setup controls must never hide actual work.
-	BetaFeatures bool `toml:"beta_features,omitempty" json:"beta_features"`
-	// LegacyShowCodexBeta is what that preference was called when it governed
-	// only Codex. Read to migrate old configs (see migrate); never written back.
-	LegacyShowCodexBeta bool `toml:"show_codex_beta,omitempty" json:"-"`
+	// LegacyBetaFeatures is the retired switch that revealed the features
+	// claudeq did not consider finished; they are all public now. A pointer, so
+	// the key is noticed whatever it says, and dropped from old configs (see
+	// migrate); never written back or exposed.
+	LegacyBetaFeatures *bool `toml:"beta_features,omitempty" json:"-"`
+	// LegacyShowCodexBeta is what that switch was called when it governed only
+	// Codex. Read only to drop it from old configs; never written back.
+	LegacyShowCodexBeta *bool `toml:"show_codex_beta,omitempty" json:"-"`
 	// DefaultWorkingDir prefills a new task's working directory. Empty means no
 	// prefill — the field starts blank, as before this setting existed.
 	DefaultWorkingDir string `toml:"default_working_dir,omitempty" json:"default_working_dir"`

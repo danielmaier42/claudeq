@@ -53,7 +53,6 @@ export function PoolCard({pool}: {pool: Pool}) {
           <div className="flex flex-wrap items-center gap-1.5">
             <h3 className="text-[13.5px] font-semibold">{label}</h3>
             <Badge tone="outline">Pool</Badge>
-            <Badge tone="ai">Beta</Badge>
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[12.5px] text-muted-foreground">
             <span className="font-mono">{pool.id}</span>

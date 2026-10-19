@@ -1,6 +1,5 @@
 import {ArrowRight} from 'lucide-react'
 import {Section} from '@/components/layout/view-layout'
-import {Badge} from '@/components/ui/badge'
 import {Card} from '@/components/ui/card'
 import {Tooltip} from '@/components/ui/tooltip'
 import {usePools} from '@/lib/queries'
@@ -9,18 +8,13 @@ import {cn} from '@/lib/utils'
 import {fmtWeight} from './limits'
 
 // PoolsSection shows, per pool, where a run started now would go and how the
-// members stand: the same order the daemon takes them in. A configured pool
-// shows here whether or not beta features are on.
+// members stand: the same order the daemon takes them in.
 export function PoolsSection() {
   const pools = usePools().data ?? []
   if (!pools.length) return null
   return (
     <Section
-      title={
-        <span className="flex items-center gap-1.5">
-          Pools <Badge tone="ai">beta</Badge>
-        </span>
-      }
+      title="Pools"
       description="A pool task runs on the member whose weekly allowance would otherwise expire unused soonest."
     >
       <Card className="divide-y divide-border">

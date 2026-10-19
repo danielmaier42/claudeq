@@ -77,11 +77,6 @@ export function ProviderCard({
                 </Badge>
               </Tooltip>
             )}
-            {p.beta && (
-              <Tooltip content="This harness is not considered finished yet. Its tasks run either way.">
-                <Badge tone="ai">Beta</Badge>
-              </Tooltip>
-            )}
           </div>
           <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px]">
             <Tooltip content={p.health.checked_at ? 'Checked ' + fullTime(p.health.checked_at) : undefined}>

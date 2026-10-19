@@ -15,10 +15,9 @@ func TestDefaultRegistersEveryShippedAdapter(t *testing.T) {
 	}
 }
 
-// TestBetaAdaptersAreRegisteredUnconditionally is the Beta rule in one test:
-// a beta adapter is part of the build, whatever the app is currently willing
-// to show. Hiding setup controls must never hide the ability to run.
-func TestBetaAdaptersAreRegisteredUnconditionally(t *testing.T) {
+// TestEveryHarnessIsRegistered: Codex and opencode are part of the build like
+// Claude Code, nothing to switch on first.
+func TestEveryHarnessIsRegistered(t *testing.T) {
 	for _, kind := range []provider.Kind{provider.KindCodex, provider.KindOpencode} {
 		if _, err := Default().Lookup(kind); err != nil {
 			t.Fatalf("Lookup %q: %v", kind, err)

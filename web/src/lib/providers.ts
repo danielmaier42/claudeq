@@ -1,11 +1,5 @@
-import {useModels, useProviders, useSettings} from './queries'
+import {useModels, useProviders} from './queries'
 import type {Model, Provider} from './types'
-
-// useBeta reports whether Settings → System → Beta features is on. It only
-// decides what the app offers; the API and the scheduler accept everything.
-export function useBeta(): boolean {
-  return !!useSettings().data?.beta_features
-}
 
 export const providerName = (p: Pick<Provider, 'id' | 'name'>) => p.name || p.id
 

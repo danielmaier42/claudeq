@@ -22,9 +22,6 @@ type providerView struct {
 	// Detected is the binary claudeq would use when no path is configured, so
 	// the Settings card can offer it instead of asking the operator to find it.
 	Detected string `json:"detected,omitempty"`
-	// Beta marks an instance of an adapter claudeq does not consider finished,
-	// so the app can say so wherever it names the provider.
-	Beta bool `json:"beta,omitempty"`
 	// ReasoningEffort reports whether this harness takes a reasoning-effort
 	// setting, so the task form can offer the field where it means something
 	// instead of the app having to know which kinds those are.
@@ -50,10 +47,6 @@ type providerKind struct {
 	// DefaultConfigDir is where this CLI keeps its configuration when nothing
 	// points it elsewhere, for the placeholder of the field that overrides it.
 	DefaultConfigDir string `json:"default_config_dir,omitempty"`
-	// Beta marks a kind claudeq does not consider finished. The app offers it
-	// only after the operator asks for beta features; everything else about it —
-	// the API, the CLI, the scheduler — works either way.
-	Beta bool `json:"beta"`
 }
 
 // listProviderKinds reports the adapters this build supports. The app needs it
@@ -69,10 +62,7 @@ func (s *server) listProviderKinds(w http.ResponseWriter, _ *http.Request) {
 			continue
 		}
 		desc := ad.Describe()
-		out = append(out, providerKind{
-			Kind: string(k), Name: desc.Name, DefaultConfigDir: desc.DefaultConfigDir,
-			Beta: ad.Capabilities().Beta,
-		})
+		out = append(out, providerKind{Kind: string(k), Name: desc.Name, DefaultConfigDir: desc.DefaultConfigDir})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -101,7 +91,7 @@ func (s *server) views(ctx context.Context, set provider.Set, only string, fresh
 		v := providerView{Instance: inst, Health: h, Default: inst.ID == set.DefaultID()}
 		if ad, err := s.d.Registry.Lookup(inst.Kind); err == nil {
 			caps, desc := ad.Capabilities(), ad.Describe()
-			v.Beta, v.ReasoningEffort, v.Asides = caps.Beta, caps.ReasoningEffort, caps.Asides
+			v.ReasoningEffort, v.Asides = caps.ReasoningEffort, caps.Asides
 			v.TypeName, v.DefaultConfigDir = desc.Name, desc.DefaultConfigDir
 			if inst.BinaryPath == "" {
 				v.Detected = ad.DetectBinary()

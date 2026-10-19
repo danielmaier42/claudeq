@@ -6,7 +6,6 @@ import {Separator} from '@/components/ui/separator'
 import {SheetBody, SheetClose, SheetFooter, SheetHeader} from '@/components/ui/sheet'
 import {toast} from '@/components/ui/toaster'
 import {api, errorMessage} from '@/lib/api'
-import {useBeta} from '@/lib/providers'
 import {invalidate, keys, usePools, useProviders} from '@/lib/queries'
 import type {Task, TaskKind} from '@/lib/types'
 import {
@@ -52,7 +51,6 @@ export function EditorForm({session, onDirty}: {session: EditorSession; onDirty:
   const [providerHint, setProviderHint] = useState(session.providerHint)
   const providers = useProviders().data ?? []
   const pools = usePools().data ?? []
-  const beta = useBeta()
   const effort = takesEffort(form.target, providers, pools)
   // The footer reads the setup back in the words the queue row will use.
   const runsOn = useRunsOn()
@@ -184,7 +182,6 @@ export function EditorForm({session, onDirty}: {session: EditorSession; onDirty:
           setTarget={setTarget}
           providers={providers}
           pools={pools}
-          beta={beta}
           effort={effort}
           providerHint={providerHint}
         />

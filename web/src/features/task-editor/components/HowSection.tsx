@@ -10,16 +10,7 @@ import {EditorSection, Hint, ToggleRow} from './parts'
 
 const asOption = (o: TargetOption): SelectOption => ({
   value: o.value,
-  label: (
-    <span className={o.broken ? 'text-danger' : undefined}>
-      {o.label}
-      {o.beta && (
-        <span className="ml-1.5 rounded bg-ai-soft px-1 text-[10.5px] font-semibold text-ai uppercase">
-          beta
-        </span>
-      )}
-    </span>
-  ),
+  label: <span className={o.broken ? 'text-danger' : undefined}>{o.label}</span>,
   description: o.note,
 })
 
@@ -34,7 +25,6 @@ export function HowSection({
   setTarget,
   providers,
   pools,
-  beta,
   effort,
   providerHint,
 }: {
@@ -44,12 +34,11 @@ export function HowSection({
   setTarget: (t: string) => void
   providers: Provider[]
   pools: Pool[]
-  beta: boolean
   effort: boolean
   providerHint?: string
 }) {
   const script = form.kind === 'script'
-  const targets = targetOptions(providers, pools, beta, form.target)
+  const targets = targetOptions(providers, pools, form.target)
   const groups: SelectGroupDef[] = [{options: targets.providers.map(asOption)}]
   if (targets.pools.length) groups.push({label: 'Pools', options: targets.pools.map(asOption)})
 

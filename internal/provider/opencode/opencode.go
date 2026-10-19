@@ -69,9 +69,8 @@ func (a *Adapter) Capabilities() provider.Capabilities {
 		// Not claimed: opencode has no tool-free, schema-constrained turn like
 		// Claude Code's --safe-mode aside; see AsideCommand.
 		Asides: false,
-		// Beta: this adapter's error classification is the weakest of the
-		// three claudeq ships — see the package doc and parse.go.
-		Beta: true,
+		// Known gap: every failure comes back in one generic shape (see parse.go),
+		// so a limit or a lost login cannot be told from any other error.
 		AccessModes: []provider.AccessMode{
 			provider.AccessProviderDefault,
 			provider.AccessFullAccess,

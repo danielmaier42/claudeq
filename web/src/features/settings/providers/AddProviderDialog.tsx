@@ -15,7 +15,6 @@ import {Input} from '@/components/ui/input'
 import {Select} from '@/components/ui/select'
 import {toast} from '@/components/ui/toaster'
 import {errorMessage} from '@/lib/api'
-import {useBeta} from '@/lib/providers'
 import {useProviderKinds} from '@/lib/queries'
 import type {ProviderKind} from '@/lib/types'
 import {addProvider} from './actions'
@@ -38,8 +37,7 @@ export function AddProviderDialog({
 }
 
 function AddForm({onDone}: {onDone: () => void}) {
-  const beta = useBeta()
-  const kinds = (useProviderKinds().data ?? []).filter((k) => !k.beta || beta)
+  const kinds = useProviderKinds().data ?? []
   const [id, setId] = useState('')
   const [kind, setKind] = useState<ProviderKind | ''>('')
   const [name, setName] = useState('')
@@ -107,7 +105,7 @@ function AddForm({onDone}: {onDone: () => void}) {
               placeholder="Loading…"
               options={kinds.map((k) => ({
                 value: k.kind,
-                label: (k.name || k.kind) + (k.beta ? ' (beta)' : ''),
+                label: k.name || k.kind,
               }))}
             />
           </Field>

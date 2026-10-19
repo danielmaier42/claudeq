@@ -255,9 +255,6 @@ func TestCapabilitiesDoNotClaimWhatWasNotVerified(t *testing.T) {
 	if c.Asides {
 		t.Error("Asides: AsideCommand refuses")
 	}
-	if !c.Beta {
-		t.Error("Beta: this adapter must stay beta")
-	}
 }
 
 func TestDescribeAndKind(t *testing.T) {

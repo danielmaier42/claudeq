@@ -73,17 +73,6 @@ export function taskChips(t: QueueTask, ctx: QueueContext): Chip[] {
       tone: 'neutral',
       tip: 'Runs as a program, without a model: no provider, no usage, and a rate limit never holds it up',
     })
-  const beta = ctx.beta(t)
-  if (beta)
-    out.push({
-      key: 'beta',
-      label: 'Beta',
-      tone: 'ai',
-      tip:
-        beta === 'pool'
-          ? 'This task runs on a provider pool, which is still in beta'
-          : 'This task runs on a provider that is still in beta',
-    })
   if (t.backfill)
     out.push({
       key: 'backfill',

@@ -232,24 +232,20 @@ func TestListProviderKinds(t *testing.T) {
 	}
 	reg := provider.NewRegistry(
 		stubAdapter{health: provider.Health{State: provider.HealthReady}},
-		betaAdapter{},
+		codexAdapter{},
 	)
 	srv := httptest.NewServer(Handler(Deps{Store: st, Registry: reg, Providers: provider.NewChecker(reg)}))
 	t.Cleanup(srv.Close)
 
 	var got []providerKind
 	do(t, srv, http.MethodGet, "/api/providers/kinds", nil).into(t, &got)
-	want := map[string]bool{string(provider.KindClaudeCode): false, string(provider.KindCodex): true}
+	want := map[string]bool{string(provider.KindClaudeCode): true, string(provider.KindCodex): true}
 	if len(got) != len(want) {
 		t.Fatalf("kinds = %+v, want one per registered adapter", got)
 	}
 	for _, k := range got {
-		beta, known := want[k.Kind]
-		if !known {
+		if !want[k.Kind] {
 			t.Fatalf("unexpected kind %q", k.Kind)
-		}
-		if k.Beta != beta {
-			t.Fatalf("kind %q beta = %t, want %t", k.Kind, k.Beta, beta)
 		}
 	}
 }
@@ -262,7 +258,7 @@ func TestProviderViewReportsWhatTheAdapterCan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
-	reg := provider.NewRegistry(betaAdapter{})
+	reg := provider.NewRegistry(codexAdapter{})
 	srv := httptest.NewServer(Handler(Deps{Store: st, Registry: reg, Providers: provider.NewChecker(reg)}))
 	t.Cleanup(srv.Close)
 	if err := st.UpdateConfig(func(cfg *store.Config) error {
@@ -277,18 +273,18 @@ func TestProviderViewReportsWhatTheAdapterCan(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("got %d providers, want one", len(got))
 	}
-	if !got[0].Beta || !got[0].ReasoningEffort {
-		t.Fatalf("view = %+v, want the adapter's beta and reasoning-effort capabilities reported", got[0])
+	if !got[0].ReasoningEffort {
+		t.Fatalf("view = %+v, want the adapter's reasoning-effort capability reported", got[0])
 	}
 }
 
-// betaAdapter stands in for a harness claudeq does not consider finished.
-type betaAdapter struct{ stubAdapter }
+// codexAdapter stands in for a second harness with capabilities of its own.
+type codexAdapter struct{ stubAdapter }
 
-func (betaAdapter) Kind() provider.Kind { return provider.KindCodex }
+func (codexAdapter) Kind() provider.Kind { return provider.KindCodex }
 
-func (betaAdapter) Capabilities() provider.Capabilities {
-	return provider.Capabilities{Beta: true, ReasoningEffort: true}
+func (codexAdapter) Capabilities() provider.Capabilities {
+	return provider.Capabilities{ReasoningEffort: true}
 }
 
 // TestProviderSurfaceNamesTheHarness: the app says "Claude", not "claude-code",

@@ -64,16 +64,9 @@ export const SECTIONS: SectionDef[] = [
     icon: Sparkles,
     description: 'The jobs Claude does for ClaudeQ itself',
   },
-  {id: 'system', label: 'System', icon: Wrench, description: 'Beta features and removing ClaudeQ'},
+  {id: 'system', label: 'System', icon: Wrench, description: 'Removing ClaudeQ from this Mac'},
   {id: 'about', label: 'About', icon: Info, description: 'Version and software updates'},
 ]
-
-// Pools are a beta feature. Without beta features the app offers none and the
-// section is gone, but a pool that already exists keeps it: hiding setup never
-// hides work that is set up.
-export function visibleSections(beta: boolean, poolCount: number): SectionDef[] {
-  return SECTIONS.filter((s) => s.id !== 'pools' || beta || poolCount > 0)
-}
 
 export const isSectionId = (v: string): v is SectionId => (SECTION_IDS as readonly string[]).includes(v)
 
@@ -84,15 +77,12 @@ export function pickSection({
   requested,
   last,
   updatePending,
-  visible,
 }: {
   requested: string
   last: string
   updatePending: boolean
-  visible: SectionDef[]
 }): SectionId {
-  const ok = (v: string) => isSectionId(v) && visible.some((s) => s.id === v)
-  if (ok(requested)) return requested as SectionId
-  if (ok(last)) return last as SectionId
+  if (isSectionId(requested)) return requested
+  if (isSectionId(last)) return last
   return updatePending ? 'about' : 'general'
 }
