@@ -15,16 +15,14 @@ const sizes = {
   full: 'max-w-[min(1200px,calc(100vw-48px))] h-[calc(100vh-48px)]',
 }
 
+// The dimmed backdrop. Shared with the alert dialog (confirm.tsx), whose own
+// Overlay primitive has to be used there: Radix overlays only work inside
+// their own root.
+export const overlayClass =
+  'fixed inset-0 z-50 bg-overlay data-[state=closed]:animate-fade-out data-[state=open]:animate-fade-in'
+
 export function DialogOverlay({className, ...props}: ComponentProps<typeof DialogPrimitive.Overlay>) {
-  return (
-    <DialogPrimitive.Overlay
-      className={cn(
-        'fixed inset-0 z-50 bg-overlay data-[state=closed]:animate-fade-out data-[state=open]:animate-fade-in',
-        className,
-      )}
-      {...props}
-    />
-  )
+  return <DialogPrimitive.Overlay className={cn(overlayClass, className)} {...props} />
 }
 
 // DialogContent is a centred modal. The body scrolls on its own between a fixed

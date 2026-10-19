@@ -2,7 +2,7 @@ import {AlertDialog as A} from 'radix-ui'
 import {useRef, useState, type ReactNode} from 'react'
 import {create} from 'zustand'
 import {Button} from './button'
-import {DialogOverlay} from './dialog'
+import {overlayClass} from './dialog'
 import {Input} from './input'
 
 // confirm() and promptText() ask one question and resolve with the answer, so a
@@ -61,7 +61,7 @@ export function ConfirmHost() {
   return (
     <A.Root open={!!pending} onOpenChange={(o) => !o && finish(false)}>
       <A.Portal>
-        <DialogOverlay />
+        <A.Overlay className={overlayClass} />
         <A.Content
           onOpenAutoFocus={(e) => {
             if (pending?.kind === 'prompt') {
