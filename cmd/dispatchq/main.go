@@ -5,8 +5,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -24,6 +22,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/limit"
 	"github.com/danielmaier42/claudeq/internal/provider"
 	"github.com/danielmaier42/claudeq/internal/provider/adapters"
+	"github.com/danielmaier42/claudeq/internal/randid"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
 	"github.com/danielmaier42/claudeq/internal/version"
@@ -647,7 +646,7 @@ func newArtifactID(now time.Time) string { return newID("a-", now) }
 // newID builds a unique-ish, time-sortable id; the random suffix disambiguates
 // several ids minted within the same second.
 func newID(prefix string, now time.Time) string {
-	return prefix + now.UTC().Format("20060102T150405") + "-" + shortHex(3)
+	return prefix + now.UTC().Format("20060102T150405") + "-" + randid.Hex(3)
 }
 
 // queueWhen describes when a just-queued task will run, for the CLI confirmation.
@@ -698,15 +697,7 @@ func defaultQueueName(prompt string) string {
 // newQueueID builds a unique-ish task id; the random suffix disambiguates
 // several tasks queued within the same second.
 func newQueueID(now time.Time) string {
-	return "q-" + now.UTC().Format("20060102T150405") + "-" + shortHex(3)
-}
-
-func shortHex(n int) string {
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		return strings.Repeat("0", n*2)
-	}
-	return hex.EncodeToString(b)
+	return "q-" + now.UTC().Format("20060102T150405") + "-" + randid.Hex(3)
 }
 
 func cmdMove(st *store.Store, args []string) error {

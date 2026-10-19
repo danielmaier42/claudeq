@@ -6,7 +6,6 @@ package engine
 import (
 	"cmp"
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,6 +24,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/limit"
 	"github.com/danielmaier42/claudeq/internal/notify"
 	"github.com/danielmaier42/claudeq/internal/provider"
+	"github.com/danielmaier42/claudeq/internal/randid"
 	"github.com/danielmaier42/claudeq/internal/schedule"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
@@ -197,9 +197,9 @@ func New(st *store.Store, gates *limit.Gates, r Runner, c clock.Clock, providers
 	// immediately kill in-flight Claude processes; shutdown drains them first.
 	e.runCtx, e.runCancel = context.WithCancel(context.Background())
 	e.newRunID = func() string {
-		return e.clock.Now().UTC().Format("20060102T150405") + "-" + shortHex(4)
+		return e.clock.Now().UTC().Format("20060102T150405") + "-" + randid.Hex(4)
 	}
-	e.newSessionID = uuidV4
+	e.newSessionID = randid.UUID
 	return e
 }
 
@@ -1382,7 +1382,7 @@ func (e *Engine) notifyOutcome(t task.Task, rec store.Run, resultText string) {
 // leaves it where the operator can find it.
 func (e *Engine) send(n notify.Notification) {
 	now := e.clock.Now()
-	n.ID = "i-" + now.UTC().Format("20060102T150405") + "-" + shortHex(3)
+	n.ID = "i-" + now.UTC().Format("20060102T150405") + "-" + randid.Hex(3)
 	if err := e.store.AddInboxEntry(inboxEntry(n, now)); err != nil {
 		fmt.Fprintf(os.Stderr, "dispatchqd: notification %q not recorded: %v\n", n.Title, err)
 		n.ID = "" // nothing to mark read; a click falls back to the target alone
@@ -1641,28 +1641,4 @@ func accessMode(p task.Permissions) provider.AccessMode {
 		return provider.AccessFullAccess
 	}
 	return provider.AccessProviderDefault
-}
-
-func shortHex(n int) string {
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		return "0000"
-	}
-	const hexdigits = "0123456789abcdef"
-	out := make([]byte, n*2)
-	for i, v := range b {
-		out[i*2] = hexdigits[v>>4]
-		out[i*2+1] = hexdigits[v&0x0f]
-	}
-	return string(out)
-}
-
-func uuidV4() string {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "00000000-0000-4000-8000-000000000000"
-	}
-	b[6] = (b[6] & 0x0f) | 0x40 // version 4
-	b[8] = (b[8] & 0x3f) | 0x80 // variant 10
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }

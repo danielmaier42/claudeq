@@ -160,15 +160,12 @@ func (r *Reviewer) Review(ctx context.Context, req Request) (Result, error) {
 // that wraps its JSON in a code fence or a sentence has still answered, so the
 // object is pulled out rather than the whole thing rejected.
 func parseResult(answer provider.Aside) (Result, error) {
-	body := string(answer.Structured)
-	if body == "" {
-		body = jsonObject(answer.Text)
-	}
-	if body == "" {
+	body := answer.JSON()
+	if body == nil {
 		return Result{}, fmt.Errorf("no review in the answer: %s", shorten(answer.Text, 200))
 	}
 	var res Result
-	if err := json.Unmarshal([]byte(body), &res); err != nil {
+	if err := json.Unmarshal(body, &res); err != nil {
 		return Result{}, fmt.Errorf("parse review: %w", err)
 	}
 	return normalize(res), nil
@@ -186,17 +183,6 @@ func normalize(res Result) Result {
 		return Result{OK: true}
 	}
 	return res
-}
-
-// jsonObject pulls the outermost JSON object out of a model answer, tolerating
-// the code fence and the odd sentence models like to wrap it in.
-func jsonObject(s string) string {
-	start := strings.IndexByte(s, '{')
-	end := strings.LastIndexByte(s, '}')
-	if start < 0 || end <= start {
-		return ""
-	}
-	return s[start : end+1]
 }
 
 func shorten(s string, n int) string {
