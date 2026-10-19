@@ -6,7 +6,6 @@ package api
 import (
 	"context"
 	"crypto/rand"
-	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -30,9 +29,6 @@ import (
 	"github.com/danielmaier42/claudeq/internal/update"
 	"github.com/danielmaier42/claudeq/internal/workflow"
 )
-
-//go:embed web/*
-var webFS embed.FS
 
 // RunNower runs a task immediately (satisfied by *engine.Engine). Optional.
 type RunNower interface {
@@ -106,6 +102,9 @@ type Deps struct {
 	// Review checks a draft prompt against this machine before it is queued.
 	// Optional; when nil the dashboard shows no suggestions.
 	Review PromptReviewer
+	// Web is the UI the daemon serves at /. Optional; nil serves the build
+	// embedded at compile time (see webHandler).
+	Web fs.FS
 	// Registry holds the provider adapters this build supports. Required for the
 	// provider endpoints.
 	Registry *provider.Registry
@@ -194,18 +193,21 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/feedback/turn", s.feedbackTurn)
 	mux.HandleFunc("POST /api/feedback/url", s.feedbackURL)
 
-	sub, _ := fs.Sub(webFS, "web")
-	mux.Handle("GET /", http.FileServer(http.FS(sub)))
+	mux.Handle("GET /", webHandler(d.Web))
 	return noCache(mux)
 }
 
 // noCache tells the WKWebView (and any client) never to reuse a cached copy of
-// anything the daemon serves: a rebuilt daemon's new logo/CSS/JS always shows
-// instead of a stale cached version, and a list of tasks or runs is always the
-// present one rather than what the queue looked like on an earlier request.
+// anything the daemon serves: a rebuilt daemon's new page always shows instead
+// of a stale cached version, and a list of tasks or runs is always the present
+// one rather than what the queue looked like on an earlier request. The UI's
+// bundles under /assets/ are the exception (see webHandler): their names carry
+// a hash of their content, so a cached copy can never be a stale one.
 func noCache(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		if !strings.HasPrefix(r.URL.Path, assetsPrefix) {
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		}
 		h.ServeHTTP(w, r)
 	})
 }
@@ -1270,6 +1272,11 @@ func (s *server) putSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, fmt.Errorf("appearance %q: want %q, %q or empty to follow macOS", in.Appearance, store.AppearanceLight, store.AppearanceDark))
 		return
 	}
+	if !store.ValidAccent(in.Accent) {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("accent %q: want a colour like #0a84ff, or empty to follow macOS", in.Accent))
+		return
+	}
+	in.Accent = strings.ToLower(in.Accent)
 	// The pause switch belongs to POST /api/pause alone. It can be flipped from
 	// the Queue banner or the CLI at any time, so a settings form filled in
 	// before that must not carry a stale value back and quietly resume the queue.
@@ -1327,13 +1334,20 @@ func (s *server) setBackfill(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]float64{"urgency": in.Urgency})
 }
 
-func (s *server) getStats(w http.ResponseWriter, _ *http.Request) {
+// getStats answers with the consumption summary over the window the optional
+// `days` query parameter names (see parseStatsWindow).
+func (s *server) getStats(w http.ResponseWriter, r *http.Request) {
+	win, err := parseStatsWindow(r.URL.Query().Get("days"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
 	runs, err := s.d.Store.Runs()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, computeStats(runs, time.Now()))
+	writeJSON(w, http.StatusOK, computeStats(runs, time.Now(), win))
 }
 
 // listModels answers with the models one provider suggests. The provider is

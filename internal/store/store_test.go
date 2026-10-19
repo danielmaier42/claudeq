@@ -731,6 +731,19 @@ func TestValidAppearance(t *testing.T) {
 	}
 }
 
+func TestValidAccent(t *testing.T) {
+	for _, v := range []string{"", "#0a84ff", "#FF9F0A"} {
+		if !ValidAccent(v) {
+			t.Errorf("ValidAccent(%q) = false", v)
+		}
+	}
+	for _, v := range []string{"blue", "0a84ff", "#0a84f", "#0a84ffaa", "#0a84fg"} {
+		if ValidAccent(v) {
+			t.Errorf("ValidAccent(%q) = true", v)
+		}
+	}
+}
+
 // The key is written only once a scheme is pinned: an untouched config keeps
 // following macOS without saying so.
 func TestAppearanceIsWrittenOnlyWhenPinned(t *testing.T) {

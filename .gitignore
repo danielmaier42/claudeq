@@ -10,7 +10,9 @@ coverage.*
 # macOS
 .DS_Store
 
-# Wails / frontend (added in build phase 5)
-build/bin/
-frontend/node_modules/
-frontend/dist/
+
+# The web UI is built from web/ into internal/api/web (embedded by the daemon);
+# only the placeholder that keeps go:embed happy is tracked.
+/internal/api/web/*
+!/internal/api/web/.gitkeep
+web/node_modules/

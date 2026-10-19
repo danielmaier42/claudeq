@@ -235,6 +235,7 @@ type settingsView struct {
 	ArtifactNotify     bool    `json:"artifact_notify"`
 	BetaFeatures       bool    `json:"beta_features"`
 	Appearance         string  `json:"appearance"`
+	Accent             string  `json:"accent"`
 	Paused             bool    `json:"paused"`
 	BackfillUrgency    float64 `json:"backfill_urgency"`
 	PushoverEnabled    bool    `json:"pushover_enabled"`
@@ -263,6 +264,7 @@ func newSettingsView(s store.Settings) settingsView {
 		ArtifactNotify:     !s.ArtifactNotifyDisabled,
 		BetaFeatures:       s.BetaFeatures,
 		Appearance:         s.Appearance,
+		Accent:             s.Accent,
 		Paused:             s.Paused,
 		BackfillUrgency:    s.BackfillUrgencyOrDefault(),
 		PushoverEnabled:    s.Pushover.Enabled,
@@ -294,6 +296,7 @@ func printSettings(s store.Settings) {
 	// accepts every provider either way. Settings → System owns it.
 	fmt.Printf("beta_features:             %s (app only)\n", boolLabel(v.BetaFeatures))
 	fmt.Printf("appearance:                %s (app only)\n", orDefault(v.Appearance, "(follows macOS)"))
+	fmt.Printf("accent:                    %s (app only)\n", orDefault(v.Accent, "(follows macOS)"))
 	fmt.Printf("artifact_notify:           %s\n", boolLabel(v.ArtifactNotify))
 	fmt.Printf("pushover:                  %s\n", pushoverLabel(v))
 	fmt.Printf("ntfy:                      %s\n", ntfyLabel(v))

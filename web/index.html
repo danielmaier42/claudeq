@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ClaudeQ</title>
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <script>
+      // The last appearance and accent are put on <html> before the first paint,
+      // so a dark window never flashes light while the settings load.
+      ;(function () {
+        try {
+          var a = localStorage.getItem('cq-appearance')
+          var dark = a === 'dark' || (a !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)
+          document.documentElement.classList.toggle('dark', dark)
+          if (a === 'light' || a === 'dark') window.cqSetAppearance && window.cqSetAppearance(a)
+          var c = localStorage.getItem('cq-accent')
+          if (c) document.documentElement.style.setProperty('--accent', c)
+        } catch (e) {}
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

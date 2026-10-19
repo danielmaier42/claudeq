@@ -196,7 +196,7 @@ func (a *Adapter) login(ctx context.Context, inst provider.Instance) (oauthLogin
 		return oauthLogin{}, errors.New("the stored Claude login is not in a format claudeq understands")
 	}
 	if c.OAuth == nil || c.OAuth.AccessToken == "" {
-		return oauthLogin{}, errors.New("this account is not logged in with a Claude plan, so it has no plan limits to show")
+		return oauthLogin{}, provider.ErrNoPlanLimits
 	}
 	if c.OAuth.ExpiresAt > 0 && a.now().After(time.UnixMilli(c.OAuth.ExpiresAt)) {
 		return oauthLogin{}, errors.New("the stored Claude login has expired; it is renewed on the next run on this account")

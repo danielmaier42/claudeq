@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -116,6 +117,16 @@ func TestLimitMonitorKeepsLastWindowsWhenAReadFails(t *testing.T) {
 	}
 	if !got.CheckedAt.Equal(*now) {
 		t.Fatalf("checked at %v, want %v", got.CheckedAt, *now)
+	}
+}
+
+// An account on an API key has no plan: nothing failed, so it must not read as
+// a broken reading with a warning, wrapped or not.
+func TestLimitMonitorReportsAnAccountWithoutAPlanAsUnsupported(t *testing.T) {
+	m, _, inst, _ := newLimitMonitor(limitAnswer{err: fmt.Errorf("claude: %w", ErrNoPlanLimits)})
+	got := m.Get(context.Background(), []Instance{inst}, true)[0]
+	if got.State != LimitsUnsupported || got.Reason != "No plan limits for API-key accounts" {
+		t.Fatalf("limits = %+v, want unsupported with the no-plan reason", got)
 	}
 }
 

@@ -48,6 +48,10 @@ type LimitReading struct {
 	Capacity float64
 }
 
+// ErrNoPlanLimits is what a LimitReader answers for an account that is not on a
+// plan (an API-key login): there are no plan windows to read.
+var ErrNoPlanLimits = errors.New("this account is not logged in with a Claude plan, so it has no plan limits to show")
+
 // LimitsState says what the latest attempt to read an instance's limits found.
 type LimitsState string
 
@@ -57,7 +61,8 @@ const (
 	// LimitsUnavailable means the read failed; the windows, if any, are the
 	// last ones that were read and Reason says why they are not newer.
 	LimitsUnavailable LimitsState = "unavailable"
-	// LimitsUnsupported means the harness has no allowance it can report.
+	// LimitsUnsupported means there is no allowance to report: the harness has
+	// none, or the account is not on a plan (ErrNoPlanLimits).
 	LimitsUnsupported LimitsState = "unsupported"
 	// LimitsDisabled means the instance is switched off and is not asked.
 	LimitsDisabled LimitsState = "disabled"
@@ -291,6 +296,11 @@ func (m *LimitMonitor) read(ctx context.Context, inst Instance, prev Limits) Lim
 	ctx, cancel := context.WithTimeout(ctx, LimitsTimeout)
 	defer cancel()
 	reading, err := r.ReadLimits(ctx, inst)
+	if errors.Is(err, ErrNoPlanLimits) {
+		// Nothing failed and the next read will find the same: an account on an
+		// API key has no plan, so there is no allowance to show, not a broken one.
+		return Limits{State: LimitsUnsupported, Reason: "No plan limits for API-key accounts", CheckedAt: now}
+	}
 	if err != nil {
 		reason := sentence(err.Error())
 		if errors.Is(err, context.DeadlineExceeded) {

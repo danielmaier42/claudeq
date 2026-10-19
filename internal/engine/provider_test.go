@@ -334,6 +334,37 @@ func TestProviderHealthNotifiesOncePerTransition(t *testing.T) {
 	}
 }
 
+// TestProviderHealthIgnoresAProbeCutShortByShutdown: stopping the daemon (an
+// update installs, a restart) cancels the probe in flight. That says nothing
+// about the provider, so it must not be announced as unable to run tasks.
+func TestProviderHealthIgnoresAProbeCutShortByShutdown(t *testing.T) {
+	fc := clock.NewFake(time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC))
+	r := &stub{}
+	e, st, ad := newTestEngineWithProvider(t, r, fc)
+	n := &recordingNotifier{}
+	e.SetNotifier(n)
+	saveTasks(t, st, asapTask("a", false))
+	ctx, cancel := context.WithCancel(context.Background())
+	ad.set(notInstalled)
+	ad.onHealth(cancel)
+
+	_ = e.Tick(ctx)
+	e.WaitIdle()
+	if got := n.titles(); len(got) != 0 {
+		t.Fatalf("notifications = %v, want none for a probe cut short by shutdown", got)
+	}
+	state, err := st.LoadState()
+	if err != nil {
+		t.Fatalf("LoadState: %v", err)
+	}
+	if got := state.NotifiedProviderState("claude"); got != "" {
+		t.Fatalf("recorded provider state = %q, want nothing recorded", got)
+	}
+	if h, held := e.Holds()["a"]; held {
+		t.Fatalf("task held with %+v, want no verdict from a cut-short probe", h)
+	}
+}
+
 // TestProviderHealthMemoSurvivesARestart: the daemon restarting is not a change
 // in the provider's state, so it must not re-announce it.
 func TestProviderHealthMemoSurvivesARestart(t *testing.T) {

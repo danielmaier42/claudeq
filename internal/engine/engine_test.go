@@ -64,6 +64,14 @@ func (s *stub) requests() []executor.Request {
 type healthAdapter struct {
 	mu     sync.Mutex
 	health provider.Health
+	// during runs inside every probe, e.g. to cancel the context mid-check.
+	during func()
+}
+
+func (a *healthAdapter) onHealth(f func()) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.during = f
 }
 
 func (a *healthAdapter) set(h provider.Health) {
@@ -89,6 +97,9 @@ func (a *healthAdapter) ResolveBinary(inst provider.Instance) string { return in
 func (a *healthAdapter) CheckHealth(context.Context, provider.Instance, provider.Prober) provider.Health {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.during != nil {
+		a.during()
+	}
 	return a.health
 }
 
