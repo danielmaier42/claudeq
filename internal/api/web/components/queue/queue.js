@@ -151,22 +151,22 @@ function taskRow(t,i,block,tasks,paused){
   const row=el('div','row');
   row.dataset.id=t.id; row.dataset.group=t.group||'';
   const tags=[];
-  if(t.kind==='script') tags.push('<span class="chip" title="Runs as a program, without a model: no provider, no usage, and a rate limit never holds it up">script</span>');
-  if(t.pool) tags.push('<span class="chip beta" title="This task runs on a provider pool, which is still in beta">beta</span>');
-  else if(BETA_PROVIDERS.has(t.provider||'')) tags.push('<span class="chip beta" title="This task runs on a provider that is still in beta">beta</span>');
-  if(t.blocked_reason) tags.push(`<span class="chip danger" title="${esc(t.blocked_reason+' The task keeps its place and starts by itself once the provider works again.')}">blocked</span>`);
-  if(t.waiting_for_limit) tags.push(`<span class="chip warn" title="${esc('The rate limit interrupted this task. Its Claude session '+resumeTimeText(LIMITED_UNTIL)+' — drop the resume in the Log with “Cancel resume”.')}">rescheduled</span>`);
+  if(t.kind==='script') tags.push('<span class="chip" data-tip="Runs as a program, without a model: no provider, no usage, and a rate limit never holds it up">script</span>');
+  if(t.pool) tags.push('<span class="chip beta" data-tip="This task runs on a provider pool, which is still in beta">beta</span>');
+  else if(BETA_PROVIDERS.has(t.provider||'')) tags.push('<span class="chip beta" data-tip="This task runs on a provider that is still in beta">beta</span>');
+  if(t.blocked_reason) tags.push(`<span class="chip danger" data-tip="${esc(t.blocked_reason+' The task keeps its place and starts by itself once the provider works again.')}">blocked</span>`);
+  if(t.waiting_for_limit) tags.push(`<span class="chip warn" data-tip="${esc('The rate limit interrupted this task. Its Claude session '+resumeTimeText(LIMITED_UNTIL)+' — drop the resume in the Log with “Cancel resume”.')}">rescheduled</span>`);
   // A job that waits for other jobs looks like one that never starts, unless
   // the queue says what it is waiting for.
   // The scheduler's own verdict on why a due task did not start, so a task
   // that sits in the queue says what it waits for, and since when.
-  if(t.hold&&!t.blocked_reason) tags.push(`<span class="chip warn" title="${esc(t.hold.reason+' Due since '+new Date(t.hold.since).toLocaleTimeString()+'; it starts by itself once that changes.')}">waiting${waitedFor(t.hold.since)}</span>`);
-  if((t.waiting_for||[]).length) tags.push(`<span class="chip" title="${esc('Starts by itself once these jobs have finished: '+t.waiting_for.join(', ')+'. It runs even if one of them fails.')}">waiting for ${t.waiting_for.length} job${t.waiting_for.length>1?'s':''}</span>`);
-  if(t.backfill) tags.push('<span class="chip accent" title="Runs only while its provider\'s weekly allowance would otherwise go unused (urgency above the threshold on the Dashboard)">backfill</span>');
-  if(t.parallel) tags.push('<span class="chip" title="Runs alongside other parallel tasks">parallel</span>');
-  if(t.permissions==='skip') tags.push('<span class="chip warn" title="Skips permission prompts">granted</span>');
-  if(t.notify_on_result) tags.push('<span class="chip accent" title="Sends outcome and last message when it finishes">notifies</span>');
-  if(t.quiet_history) tags.push('<span class="chip" title="Successful runs stay out of the Log; failures are kept">silent</span>');
+  if(t.hold&&!t.blocked_reason) tags.push(`<span class="chip warn" data-tip="${esc(t.hold.reason+' Due since '+new Date(t.hold.since).toLocaleTimeString()+'; it starts by itself once that changes.')}">waiting${waitedFor(t.hold.since)}</span>`);
+  if((t.waiting_for||[]).length) tags.push(`<span class="chip" data-tip="${esc('Starts by itself once these jobs have finished: '+t.waiting_for.join(', ')+'. It runs even if one of them fails.')}">waiting for ${t.waiting_for.length} job${t.waiting_for.length>1?'s':''}</span>`);
+  if(t.backfill) tags.push('<span class="chip accent" data-tip="Runs only while its provider\'s weekly allowance would otherwise go unused (urgency above the threshold on the Dashboard)">backfill</span>');
+  if(t.parallel) tags.push('<span class="chip" data-tip="Runs alongside other parallel tasks">parallel</span>');
+  if(t.permissions==='skip') tags.push('<span class="chip warn" data-tip="Skips permission prompts">granted</span>');
+  if(t.notify_on_result) tags.push('<span class="chip accent" data-tip="Sends outcome and last message when it finishes">notifies</span>');
+  if(t.quiet_history) tags.push('<span class="chip" data-tip="Successful runs stay out of the Log; failures are kept">silent</span>');
   const grip=el('span','grip',GRIP);
   grip.title='Drag to reorder, or onto a group to move it there';
   dragSource(grip,row,t);
