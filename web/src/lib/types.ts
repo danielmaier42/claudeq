@@ -548,13 +548,25 @@ export interface StatsProvider extends StatsBucket {
   name: string
 }
 
+// GET /api/stats?days= query: a number of calendar days (1..366) or 'all'.
+// Without it the window is 14 days.
+export type StatsRange = number | 'all'
+
 // GET /api/stats response.
 export interface Stats {
+  // Everything recorded, whatever the window.
   totals: StatsBucket
+  // Rolling 7×24h, whatever the window.
   last_7d: StatsBucket
-  // Last 14 days, oldest first.
+  // The chosen window's totals.
+  period: StatsBucket
+  // Calendar days the window covers, today included. For all: from the first
+  // recorded run's day to today.
+  days: number
+  all?: boolean
+  // One entry per day of the window, oldest first, cut to the newest 366.
   per_day: StatsDay[]
-  // Busiest first; absent when all runs came from one provider.
+  // The window's split, busiest first; absent when its runs came from one provider.
   by_provider?: StatsProvider[]
 }
 
@@ -706,7 +718,7 @@ export type UninstallRequest = Record<string, never>
 // GET     /api/review/context                    -                            ReviewContext
 // POST    /api/fs/choose?path=                   -                            PathResult | 204 cancelled
 // POST    /api/fs/warm                           -                            202 | 204
-// GET     /api/stats                             -                            Stats
+// GET     /api/stats?days=<n|all>                -                            Stats
 // GET     /api/health                            -                            Health
 // GET     /api/ping                              -                            204
 // GET     /api/update                            -                            UpdateStatus

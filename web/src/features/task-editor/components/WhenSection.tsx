@@ -37,6 +37,7 @@ export function WhenSection({
   return (
     <EditorSection icon={Clock} title="When">
       <Segmented<TaskTrigger>
+        tone="accent"
         aria-label="Trigger"
         className="self-start"
         value={form.trigger}

@@ -1,4 +1,4 @@
-import {compact, localDate, usd} from '@/lib/format'
+import {compact, usd} from '@/lib/format'
 import type {StatsBucket, StatsDay} from '@/lib/types'
 
 export type Metric = 'tokens' | 'runs' | 'cost'
@@ -43,20 +43,6 @@ export function niceTicks(max: number, integer = false, target = 4): number[] {
   for (let v = 0; v < max + step * 1e-9; v += step) ticks.push(Number(v.toPrecision(12)))
   if (ticks[ticks.length - 1] < max) ticks.push(Number((ticks[ticks.length - 1] + step).toPrecision(12)))
   return ticks
-}
-
-// dayAxisLabel names a chart column: the month on the first day and where it
-// changes, Today for today, else the day of the month.
-export function dayAxisLabel(days: StatsDay[], i: number, today = localDate(new Date())): string {
-  const d = days[i]
-  if (d.date === today) return 'Today'
-  const [y, m, day] = d.date.split('-').map(Number)
-  const date = new Date(y, m - 1, day)
-  const prev = days[i - 1]
-  if (!prev || prev.date.slice(0, 7) !== d.date.slice(0, 7)) {
-    return date.toLocaleDateString(undefined, {month: 'short', day: 'numeric'})
-  }
-  return String(day)
 }
 
 export function dayLong(date: string): string {

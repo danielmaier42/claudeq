@@ -7,7 +7,7 @@ export function Checkbox({className, ...props}: ComponentProps<typeof CheckboxPr
   return (
     <CheckboxPrimitive.Root
       className={cn(
-        'peer size-4 shrink-0 rounded-[5px] border border-border-strong bg-surface shadow-xs outline-none focus-visible:ring-3 focus-visible:ring-accent/25 disabled:opacity-50 data-[state=checked]:border-accent data-[state=checked]:bg-accent data-[state=checked]:text-accent-foreground',
+        'peer size-4 shrink-0 rounded-[5px] border border-border-strong bg-surface shadow-xs outline-none focus-visible:ring-3 focus-visible:ring-accent/25 disabled:opacity-50 aria-checked:border-accent aria-checked:bg-accent aria-checked:text-accent-foreground',
         className,
       )}
       {...props}

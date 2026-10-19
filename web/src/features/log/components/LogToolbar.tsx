@@ -1,17 +1,26 @@
-import {X} from 'lucide-react'
-import {Button} from '@/components/ui/button'
-import {DateRange} from '@/components/ui/date-range'
+import {DateRange, dateRangeLabel} from '@/components/ui/date-range'
+import {FilterChip} from '@/components/ui/filter-chip'
+import {FilterPopover, FilterSelect, optionLabel} from '@/components/ui/filter-popover'
+import {Field} from '@/components/ui/field'
 import {SearchInput} from '@/components/ui/search-input'
 import {Segmented} from '@/components/ui/segmented'
-import {Select} from '@/components/ui/select'
-import {clearLogFilters, setLogFilters} from '../filters-store'
-import {anyFilter, type FilterMenus, type LogFilters, type MenuOption, type Show} from '../runs'
+import {setLogFilters} from '../filters-store'
+import type {FilterMenus, LogFilters, Show} from '../runs'
 
-// The filter row under the Log's title: search and the All | Running
-// switch first, then the menus (filled from the runs there are) and the days.
-// A menu with a single entry has nothing to choose and stays out of the way.
+// The filter row under the Log's title: search and the All | Running switch
+// stay in sight, the menus (filled from the runs there are) and the days sit
+// behind the Filter button, and whatever is set there shows as a chip.
 // `f` is what the list applies: a stale menu choice already fell back to all.
 export function LogToolbar({f, menus}: {f: LogFilters; menus: FilterMenus}) {
+  const menu = [
+    {key: 'group', label: 'Group', value: f.group, options: menus.groups},
+    {key: 'task', label: 'Task', value: f.task, options: menus.tasks},
+    {key: 'provider', label: 'Provider', value: f.provider, options: menus.providers},
+    {key: 'status', label: 'Outcome', value: f.status, options: menus.statuses},
+  ] as const
+  const days = dateRangeLabel(f.from, f.to)
+  const active = menu.filter((m) => m.value).length + (days ? 1 : 0)
+
   return (
     <>
       <SearchInput
@@ -30,72 +39,60 @@ export function LogToolbar({f, menus}: {f: LogFilters; menus: FilterMenus}) {
           {value: 'running', label: 'Running', tip: 'Show only the runs that are executing right now'},
         ]}
       />
-      <Menu
-        label="All groups"
-        tip="Runs of one queue group"
-        value={f.group}
-        options={menus.groups}
-        set={(group) => setLogFilters({group, task: ''})}
-      />
-      <Menu
-        label="All tasks"
-        tip="Runs of one task"
-        value={f.task}
-        options={menus.tasks}
-        set={(task) => setLogFilters({task})}
-      />
-      <Menu
-        label="All providers"
-        tip="Runs on one provider"
-        value={f.provider}
-        options={menus.providers}
-        set={(provider) => setLogFilters({provider})}
-      />
-      <Menu
-        label="All outcomes"
-        tip="Runs with one outcome"
-        value={f.status}
-        options={menus.statuses}
-        set={(status) => setLogFilters({status})}
-      />
-      <div className="flex-1" />
-      <DateRange
-        from={f.from}
-        to={f.to}
-        onFrom={(from) => setLogFilters({from})}
-        onTo={(to) => setLogFilters({to})}
-      />
-      {anyFilter(f) && (
-        <Button variant="ghost" size="sm" onClick={clearLogFilters}>
-          <X />
-          Clear
-        </Button>
+      <FilterPopover
+        active={active}
+        onReset={() => setLogFilters({group: '', task: '', provider: '', status: '', from: '', to: ''})}
+      >
+        <FilterSelect
+          label="Group"
+          all="All groups"
+          value={f.group}
+          options={menus.groups}
+          onChange={(group) => setLogFilters({group, task: ''})}
+        />
+        <FilterSelect
+          label="Task"
+          hint={f.group ? 'Tasks of the chosen group' : undefined}
+          all="All tasks"
+          value={f.task}
+          options={menus.tasks}
+          onChange={(task) => setLogFilters({task})}
+        />
+        <FilterSelect
+          label="Provider"
+          all="All providers"
+          value={f.provider}
+          options={menus.providers}
+          onChange={(provider) => setLogFilters({provider})}
+        />
+        <FilterSelect
+          label="Outcome"
+          all="All outcomes"
+          value={f.status}
+          options={menus.statuses}
+          onChange={(status) => setLogFilters({status})}
+        />
+        <Field label="Started">
+          <DateRange
+            from={f.from}
+            to={f.to}
+            onFrom={(from) => setLogFilters({from})}
+            onTo={(to) => setLogFilters({to})}
+          />
+        </Field>
+      </FilterPopover>
+      {menu.map(
+        (m) =>
+          m.value && (
+            <FilterChip
+              key={m.key}
+              label={m.label}
+              value={optionLabel(m.options, m.value)}
+              onRemove={() => setLogFilters({[m.key]: ''})}
+            />
+          ),
       )}
+      {days && <FilterChip value={days} onRemove={() => setLogFilters({from: '', to: ''})} />}
     </>
-  )
-}
-
-function Menu({
-  label,
-  tip,
-  value,
-  options,
-  set,
-}: {
-  label: string
-  tip: string
-  value: string
-  options: MenuOption[]
-  set: (v: string) => void
-}) {
-  if (options.length < 2 && !value) return null
-  return (
-    <Select
-      aria-label={tip}
-      value={value}
-      onValueChange={set}
-      options={[{value: '', label}, ...options]}
-      className="w-auto max-w-48"
-    />
   )
 }

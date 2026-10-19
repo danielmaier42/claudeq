@@ -40,6 +40,7 @@ export function WhatSection({
         </Field>
         <Field label="Job type">
           <Segmented<TaskKind>
+            tone="accent"
             aria-label="Job type"
             value={form.kind}
             onValueChange={setKind}

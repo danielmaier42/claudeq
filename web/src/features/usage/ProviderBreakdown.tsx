@@ -5,14 +5,15 @@ import type {StatsProvider} from '@/lib/types'
 import {bucketTokens, fmtTokens} from './usage'
 
 // Several providers mean several allowances, so the split says which account
-// the work went to. With one provider the daemon sends none: nothing to split.
-export function ProviderBreakdown({providers}: {providers: StatsProvider[]}) {
+// the work went to. With one provider in the period the daemon sends none:
+// nothing to split.
+export function ProviderBreakdown({providers, period}: {providers: StatsProvider[]; period: string}) {
   const total = providers.reduce((n, p) => n + bucketTokens(p), 0)
   const runs = providers.reduce((n, p) => n + p.runs, 0)
   return (
     <Section
       title="By provider"
-      description="All recorded runs, busiest first. The bar is the provider's share of the tokens, or of the runs when none were recorded."
+      description={`${period}, busiest first. The bar is the provider's share of the tokens, or of the runs when none were recorded.`}
     >
       <Card className="divide-y divide-border">
         {providers.map((p) => {

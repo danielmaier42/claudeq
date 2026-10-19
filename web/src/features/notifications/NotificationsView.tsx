@@ -1,14 +1,14 @@
-import {BellOff, Eye, SearchX, X} from 'lucide-react'
+import {BellOff, Eye, SearchX} from 'lucide-react'
 import {useMemo, useState, type KeyboardEvent} from 'react'
 import {DayHeading, ViewLayout} from '@/components/layout/view-layout'
 import {Alert} from '@/components/ui/alert'
 import {Button} from '@/components/ui/button'
 import {EmptyState} from '@/components/ui/empty-state'
+import {FilterChip} from '@/components/ui/filter-chip'
+import {FilterPopover, FilterSelect, optionLabel} from '@/components/ui/filter-popover'
 import {SearchInput} from '@/components/ui/search-input'
 import {Segmented} from '@/components/ui/segmented'
-import {Select} from '@/components/ui/select'
 import {Skeleton} from '@/components/ui/skeleton'
-import {Tooltip} from '@/components/ui/tooltip'
 import {errorMessage} from '@/lib/api'
 import {groupByDay} from '@/lib/format'
 import {useNotifications} from '@/lib/queries'
@@ -80,23 +80,25 @@ export function NotificationsView() {
                 },
               ]}
             />
-            <span className="flex-1" />
-            {anyFilter(filters) && (
-              <Button variant="ghost" size="sm" onClick={clearNotificationFilters}>
-                <X />
-                Clear
-              </Button>
-            )}
-            <Tooltip content="Show one kind of notification">
-              <div className="w-40">
-                <Select
-                  aria-label="Kind"
+            {/* With a single kind there is nothing to filter by. */}
+            {(options.length > 1 || kind) && (
+              <FilterPopover active={kind ? 1 : 0} onReset={() => setNotificationFilters({kind: ''})}>
+                <FilterSelect
+                  label="Kind"
+                  all="All kinds"
                   value={kind}
-                  onValueChange={(v) => setNotificationFilters({kind: v})}
-                  options={[{value: '', label: 'All kinds'}, ...options]}
+                  options={options}
+                  onChange={(v) => setNotificationFilters({kind: v})}
                 />
-              </div>
-            </Tooltip>
+              </FilterPopover>
+            )}
+            {kind && (
+              <FilterChip
+                label="Kind"
+                value={optionLabel(options, kind)}
+                onRemove={() => setNotificationFilters({kind: ''})}
+              />
+            )}
           </>
         ) : undefined
       }

@@ -1,15 +1,15 @@
-import {X} from 'lucide-react'
-import {Button} from '@/components/ui/button'
-import {DateRange} from '@/components/ui/date-range'
+import {DateRange, dateRangeLabel} from '@/components/ui/date-range'
+import {Field} from '@/components/ui/field'
+import {FilterChip} from '@/components/ui/filter-chip'
+import {FilterPopover, FilterSelect, optionLabel} from '@/components/ui/filter-popover'
 import {SearchInput} from '@/components/ui/search-input'
-import {Select} from '@/components/ui/select'
-import {Tooltip} from '@/components/ui/tooltip'
-import {anyFilter, type ArtifactFilters, type Option} from './logic'
-import {clearArtifactFilters, setArtifactFilters} from './use-filters'
+import type {ArtifactFilters, Option} from './logic'
+import {setArtifactFilters} from './use-filters'
 
 // The filter bar sits above the list, not in the view's header: the header
 // keeps the one action that applies to everything, the filters stay with what
-// they filter.
+// they filter. Search stays in sight; group, parent and days sit behind the
+// Filter button and show as chips once set.
 export function ArtifactsToolbar({
   filters,
   groups,
@@ -24,6 +24,9 @@ export function ArtifactsToolbar({
   group: string
   origin: string
 }) {
+  const days = dateRangeLabel(filters.from, filters.to)
+  const active = (group ? 1 : 0) + (origin ? 1 : 0) + (days ? 1 : 0)
+
   return (
     <>
       <SearchInput
@@ -33,39 +36,50 @@ export function ArtifactsToolbar({
         placeholder="Search artifacts"
         className="w-60"
       />
-      <Tooltip content="Show the artifacts of one queue group">
-        <div className="w-40">
-          <Select
-            aria-label="Group"
-            value={group}
-            onValueChange={(v) => setArtifactFilters({group: v, origin: ''})}
-            options={[{value: '', label: 'All groups'}, ...groups]}
+      <FilterPopover
+        active={active}
+        onReset={() => setArtifactFilters({group: '', origin: '', from: '', to: ''})}
+      >
+        <FilterSelect
+          label="Group"
+          hint="The artifacts of one queue group"
+          all="All groups"
+          value={group}
+          options={groups}
+          onChange={(v) => setArtifactFilters({group: v, origin: ''})}
+        />
+        <FilterSelect
+          label="Parent job"
+          hint="What one job produced, directly or through the jobs it created"
+          all="All parents"
+          value={origin}
+          options={origins}
+          onChange={(v) => setArtifactFilters({origin: v})}
+        />
+        <Field label="Published">
+          <DateRange
+            from={filters.from}
+            to={filters.to}
+            onFrom={(from) => setArtifactFilters({from})}
+            onTo={(to) => setArtifactFilters({to})}
           />
-        </div>
-      </Tooltip>
-      <Tooltip content="Show the artifacts one job produced, directly or through the jobs it created">
-        <div className="w-48">
-          <Select
-            aria-label="Parent job"
-            value={origin}
-            onValueChange={(v) => setArtifactFilters({origin: v})}
-            options={[{value: '', label: 'All parents'}, ...origins]}
-          />
-        </div>
-      </Tooltip>
-      <span className="flex-1" />
-      <DateRange
-        from={filters.from}
-        to={filters.to}
-        onFrom={(from) => setArtifactFilters({from})}
-        onTo={(to) => setArtifactFilters({to})}
-      />
-      {anyFilter(filters) && (
-        <Button variant="ghost" size="sm" onClick={clearArtifactFilters}>
-          <X />
-          Clear
-        </Button>
+        </Field>
+      </FilterPopover>
+      {group && (
+        <FilterChip
+          label="Group"
+          value={optionLabel(groups, group)}
+          onRemove={() => setArtifactFilters({group: ''})}
+        />
       )}
+      {origin && (
+        <FilterChip
+          label="Parent"
+          value={optionLabel(origins, origin)}
+          onRemove={() => setArtifactFilters({origin: ''})}
+        />
+      )}
+      {days && <FilterChip value={days} onRemove={() => setArtifactFilters({from: '', to: ''})} />}
     </>
   )
 }

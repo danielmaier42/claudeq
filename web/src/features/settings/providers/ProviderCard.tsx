@@ -1,5 +1,6 @@
 import {MoreHorizontal, Pencil, RefreshCw, Star, Trash2} from 'lucide-react'
 import {useState, type ReactNode} from 'react'
+import {ProviderLogoTile} from '@/components/domain/provider-logo'
 import {Badge} from '@/components/ui/badge'
 import {Button} from '@/components/ui/button'
 import {Card} from '@/components/ui/card'
@@ -63,12 +64,12 @@ export function ProviderCard({
   return (
     <Card className="group/card overflow-hidden">
       <div className="flex items-start gap-3 px-4 pt-3.5 pb-3">
+        <ProviderLogoTile kind={p.kind} className={cn('mt-0.5', !p.enabled && 'opacity-50')} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
             <h3 className={cn('text-[13.5px] font-semibold', !p.enabled && 'text-muted-foreground')}>
               {label}
             </h3>
-            <Badge tone="outline">{p.type_name || p.kind}</Badge>
             {p.default && (
               <Tooltip content="Tasks that name no provider run here">
                 <Badge tone="accent">

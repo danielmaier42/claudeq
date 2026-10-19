@@ -1334,13 +1334,20 @@ func (s *server) setBackfill(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]float64{"urgency": in.Urgency})
 }
 
-func (s *server) getStats(w http.ResponseWriter, _ *http.Request) {
+// getStats answers with the consumption summary over the window the optional
+// `days` query parameter names (see parseStatsWindow).
+func (s *server) getStats(w http.ResponseWriter, r *http.Request) {
+	win, err := parseStatsWindow(r.URL.Query().Get("days"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
 	runs, err := s.d.Store.Runs()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, computeStats(runs, time.Now()))
+	writeJSON(w, http.StatusOK, computeStats(runs, time.Now(), win))
 }
 
 // listModels answers with the models one provider suggests. The provider is

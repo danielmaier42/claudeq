@@ -420,9 +420,12 @@ window opens on the Dashboard:
   same filter bar as in Artifacts: a **search field** (⌘F jumps to it, Escape
   clears it) where every word has to occur somewhere in the run — task, folder,
   harness, model, group, outcome or error —, **All | Running**
-  (Running shows only the runs executing right now), and menus for
-  the queue **group**, the **task** and the **outcome** (success, failed, rate
-  limited, …), plus a from–to date range. Runs of a *quiet history* task
+  (Running shows only the runs executing right now), and **Filter**, which
+  holds the queue **group**, the **task**, the **provider**, the **outcome**
+  (success, failed, rate limited, …) and the start date (Any time, Today,
+  7 days, 30 days, or a From/To day). Its badge counts what is set; each active
+  filter also shows as a chip next to it, × removes that one, and **Reset** in
+  the popover clears them all. Runs of a *quiet history* task
   appear here only if they did not succeed.
 - **Artifacts** — files your tasks published, newest first.
   The list is grouped by day (Today, Yesterday, then the date), one card per
@@ -449,9 +452,10 @@ window opens on the Dashboard:
   jumps to it, Escape clears it): every word you type has to occur somewhere
   in the artifact — title, description, file name, task, parent, group or
   file type — so "adr 0050" finds the ADR-0050 review and "seo pdf" the PDF
-  of the SEO job. Next to it, as in the Log, a from–to date filter; the list
-  shows 25 artifacts at a time with a footer holding the count and **Show more**.
-  **All groups** narrows the list to one queue group, and **All parents** to the
+  of the SEO job. Next to it, as in the Log, **Filter** holds the publish date,
+  the queue group and the parent job, with each active one shown as a removable
+  chip; the list shows 25 artifacts at a time with a footer holding the count
+  and **Show more**. The group narrows the list to one queue group, and the parent to the
   artifacts one top-level job produced, itself or through the jobs it created
   (see [where an artifact comes from](#where-an-artifact-comes-from)). The
   parent menu lists only jobs at the root of a chain, never the one-off jobs a
@@ -472,14 +476,17 @@ window opens on the Dashboard:
   an artifact or a run's log from its own view also reads the notification
   about it, and **Mark all read** in the toolbar does what it says. Above the
   list: a **search field** (⌘F; every word has to occur in the title, message,
-  task or kind), **All | Unread**, and a menu for the **kind** (run succeeded,
-  run failed, new artifact, provider, from a task). The daemon keeps the last
+  task or kind), **All | Unread**, and **Filter** with the **kind** (run
+  succeeded, run failed, new artifact, provider, from a task), shown as a
+  removable chip once set. The daemon keeps the last
   200 notifications; older ones make room. Notifications macOS is set to hide
   still arrive here, so nothing is lost while the banner is off.
-- **Usage** — a per-day bar chart for the last 14 days with a **Tokens | Runs |
-  Cost** switch; hovering a day (or the arrow keys) shows all three for it.
-  Above it the totals and a 7-day summary, below it one row per provider with
-  its runs, outcomes, runtime, tokens and cost.
+- **Usage** — tokens, runs and cost for the period chosen in the header: 7, 14
+  (the default), 30 or 90 days, or All. A bar chart per day (per week beyond 45
+  days) with a **Tokens | Runs | Cost** switch; hovering a bar (or the arrow
+  keys) shows all three for it. Above it the period's totals with the all-time
+  figures beside them, below it one row per provider with its runs, outcomes,
+  runtime, tokens and cost in that period.
 - **Settings** — global defaults and integrations (below). The custom system
   prompt gets the same review banner as a task prompt. A red badge here means
   an update is available.
@@ -575,8 +582,10 @@ One provider is the **default**: tasks that name none run on it. It cannot be
 switched off or removed while it holds that role — make another one the default
 first — because most tasks name no provider and would all stop at once.
 
-**Settings → Providers manages all of this.** Each provider gets its own card,
-headed by its name and type, with an on/off switch that applies at once and
+**Settings → Providers manages all of this.** The providers are listed under
+their harness (Claude, Codex, opencode), each group headed by its logo; the
+default provider always comes first. Each provider gets its own card,
+headed by its name, with an on/off switch that applies at once and
 **Edit**, which opens a dialog for the name, binary, configuration directory,
 default model and fallback and saves that provider alone. *Check*, *Make
 default* and *Remove* are actions and take effect at once. Below them sits **Add provider**, which opens a dialog asking for the two things

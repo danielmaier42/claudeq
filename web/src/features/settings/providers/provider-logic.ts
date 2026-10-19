@@ -23,6 +23,29 @@ export function healthInfo(state: string): {tone: HealthTone; label: string} {
 
 export const byName = (a: Provider, b: Provider) => (a.name || a.id).localeCompare(b.name || b.id)
 
+export interface KindGroup {
+  kind: string
+  name: string
+  providers: Provider[]
+}
+
+// groupByKind files the providers under their harness. The default provider
+// always comes first: its group leads, and it leads its group; the rest follow
+// by name.
+export function groupByKind(list: Provider[]): KindGroup[] {
+  const groups = new Map<string, KindGroup>()
+  for (const p of list) {
+    const g = groups.get(p.kind) ?? {kind: p.kind, name: p.type_name || p.kind, providers: []}
+    g.providers.push(p)
+    groups.set(p.kind, g)
+  }
+  const first = (p: Provider) => (p.default ? 0 : 1)
+  const out = [...groups.values()]
+  for (const g of out) g.providers.sort((a, b) => first(a) - first(b) || byName(a, b))
+  const hasDefault = (g: KindGroup) => (g.providers[0]?.default ? 0 : 1)
+  return out.sort((a, b) => hasDefault(a) - hasDefault(b) || a.name.localeCompare(b.name))
+}
+
 // fallbackOptions offers every other configured provider as the one that takes
 // over while this one is rate-limited. A stored id that has since gone keeps
 // its place, marked, so saving does not quietly drop the fallback the operator

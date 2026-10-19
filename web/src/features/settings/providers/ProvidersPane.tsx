@@ -1,5 +1,6 @@
 import {Plus, Server} from 'lucide-react'
 import {useState} from 'react'
+import {ProviderLogo} from '@/components/domain/provider-logo'
 import {Section} from '@/components/layout/view-layout'
 import {Alert} from '@/components/ui/alert'
 import {Button} from '@/components/ui/button'
@@ -11,7 +12,7 @@ import {useBeta} from '@/lib/providers'
 import {useLimits, useProviders} from '@/lib/queries'
 import {AddProviderDialog} from './AddProviderDialog'
 import {ProviderCard} from './ProviderCard'
-import {byName} from './provider-logic'
+import {byName, groupByKind} from './provider-logic'
 
 // ProvidersPane is Settings → Providers: one card per configured harness.
 // Every action on a card takes effect at once; there is no page-wide Save.
@@ -38,7 +39,6 @@ export function ProvidersPane() {
 
   return (
     <Section
-      title="Providers"
       description="The CLIs ClaudeQ runs tasks with. Each one is checked by the daemon itself, without spending usage."
       actions={add}
     >
@@ -72,9 +72,20 @@ export function ProvidersPane() {
           action={add}
         />
       ) : (
-        <div className="flex flex-col gap-3">
-          {list.map((p) => (
-            <ProviderCard key={p.id} provider={p} providers={list} limits={limitsOf(p.id)} />
+        <div className="flex flex-col gap-6">
+          {groupByKind(list).map((g) => (
+            <div key={g.kind}>
+              <div className="mb-2 flex items-center gap-2">
+                <ProviderLogo kind={g.kind} className="size-4" />
+                <h3 className="text-[12.5px] font-semibold">{g.name}</h3>
+                <span className="text-[12px] text-subtle-foreground">{g.providers.length}</span>
+              </div>
+              <div className="flex flex-col gap-3">
+                {g.providers.map((p) => (
+                  <ProviderCard key={p.id} provider={p} providers={list} limits={limitsOf(p.id)} />
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       )}

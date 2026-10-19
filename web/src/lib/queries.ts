@@ -1,4 +1,4 @@
-import {QueryClient, useQuery, type QueryKey} from '@tanstack/react-query'
+import {keepPreviousData, QueryClient, useQuery, type QueryKey} from '@tanstack/react-query'
 import {get} from './api'
 import type {
   AppNotification,
@@ -15,6 +15,7 @@ import type {
   Run,
   Settings,
   Stats,
+  StatsRange,
   UpdateStatus,
 } from './types'
 
@@ -49,7 +50,9 @@ export const keys = {
   pools: ['pools'] as const,
   settings: ['settings'] as const,
   models: (provider = '') => ['models', provider] as const,
+  // stats is the prefix of every range's entry, for invalidate.
   stats: ['stats'] as const,
+  statsRange: (range: StatsRange) => ['stats', range] as const,
   health: ['health'] as const,
   update: ['update'] as const,
   feedback: ['feedback'] as const,
@@ -89,7 +92,19 @@ export const useModels = (provider = '') =>
     ),
     staleTime: 5 * 60_000,
   })
-export const useStats = () => useQuery(poll<Stats>(keys.stats, '/api/stats', 30_000))
+export const DEFAULT_STATS_RANGE: StatsRange = 14
+// useStats reads one window of the usage history. Without a range it is the
+// daemon's default of 14 days, which is what the Dashboard shows. Switching the
+// range keeps the previous window on screen until the new one arrives.
+export const useStats = (range: StatsRange = DEFAULT_STATS_RANGE) =>
+  useQuery({
+    ...poll<Stats>(
+      keys.statsRange(range),
+      '/api/stats' + (range === DEFAULT_STATS_RANGE ? '' : '?days=' + range),
+      30_000,
+    ),
+    placeholderData: keepPreviousData,
+  })
 export const useHealth = () => useQuery(poll<Health>(keys.health, '/api/health', 30_000))
 export const useUpdate = () => useQuery(poll<UpdateStatus>(keys.update, '/api/update', 60_000))
 export const useFeedbackInfo = () =>

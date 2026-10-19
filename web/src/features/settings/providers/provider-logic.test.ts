@@ -2,6 +2,7 @@ import {describe, expect, it} from 'vitest'
 import type {Provider, ProviderLimits} from '@/lib/types'
 import {
   fallbackOptions,
+  groupByKind,
   hasLimitsRow,
   healthInfo,
   limitStatusText,
@@ -64,5 +65,20 @@ describe('limits', () => {
     expect(
       hasLimitsRow({state: 'ok', windows: [{id: 'w', label: 'W', used_percent: 1}], checked_at: ''}),
     ).toBe(true)
+  })
+})
+
+describe('groupByKind', () => {
+  it('puts the default first, its group first, the rest by name', () => {
+    const p = (id: string, kind: string, dflt = false) =>
+      ({id, name: id, kind, type_name: kind, default: dflt, enabled: true}) as Provider
+    const groups = groupByKind([
+      p('alpha', 'claude-code'),
+      p('beta', 'codex'),
+      p('zed', 'codex', true),
+      p('aaa', 'codex'),
+    ])
+    expect(groups.map((g) => g.kind)).toEqual(['codex', 'claude-code'])
+    expect(groups[0].providers.map((x) => x.id)).toEqual(['zed', 'aaa', 'beta'])
   })
 })
