@@ -10,6 +10,9 @@ import {errorMessage} from '@/lib/api'
 import {groupByDay} from '@/lib/format'
 import {useArtifacts} from '@/lib/queries'
 import {ArtifactCard} from './ArtifactCard'
+import {ArtifactRow} from './ArtifactRow'
+import {LayoutToggle} from './LayoutToggle'
+import {useArtifactLayout} from './layout'
 import {ArtifactsToolbar} from './ArtifactsToolbar'
 import {anyFilter, shown, sourceOptions} from './logic'
 import {openArtifact} from './store'
@@ -22,6 +25,7 @@ const BATCH = 48
 export function ArtifactsView() {
   const {data: arts, isPending, error} = useArtifacts()
   const filters = useArtifactFilters()
+  const layout = useArtifactLayout((st) => st.layout)
   // A new filter starts again from the first batch.
   const [paging, setPaging] = useState({filters, limit: BATCH})
   const limit = paging.filters === filters ? paging.limit : BATCH
@@ -47,7 +51,12 @@ export function ArtifactsView() {
       title="Artifacts"
       subtitle={subtitle}
       wide
-      actions={<ArtifactNotifyToggle />}
+      actions={
+        <>
+          <LayoutToggle />
+          <ArtifactNotifyToggle />
+        </>
+      }
       toolbar={
         arts?.length ? (
           <ArtifactsToolbar
@@ -92,11 +101,19 @@ export function ArtifactsView() {
           {days.map((d) => (
             <section key={d.day} className="mb-5 last:mb-0">
               <DayHeading>{d.label}</DayHeading>
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3">
-                {d.items.map((a) => (
-                  <ArtifactCard key={a.id} a={a} onOpen={() => open(a.id)} />
-                ))}
-              </div>
+              {layout === 'grid' ? (
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3">
+                  {d.items.map((a) => (
+                    <ArtifactCard key={a.id} a={a} onOpen={() => open(a.id)} />
+                  ))}
+                </div>
+              ) : (
+                <div className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface shadow-xs">
+                  {d.items.map((a) => (
+                    <ArtifactRow key={a.id} a={a} onOpen={() => open(a.id)} />
+                  ))}
+                </div>
+              )}
             </section>
           ))}
           <div className="mt-6 flex items-center justify-between gap-3 border-t border-border pt-3 text-[12.5px] text-muted-foreground">

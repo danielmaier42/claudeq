@@ -426,7 +426,9 @@ window opens on the Dashboard:
   appear here only if they did not succeed.
 - **Artifacts** — files your tasks published, newest first.
   The list is grouped by day (Today, Yesterday, then the date), one card per
-  artifact with an icon and colour for its file type: its title, its
+  artifact with an icon and colour for its file type (the switch next to
+  **Notify me** turns the cards into a compact list; the choice is kept for
+  this window): its title, its
   description, the file name and size, a type tag, who made it, and when. "Who made it" is the parent job when
   another job created the publisher (a watcher that filed a review job), else
   the publisher itself; hovering it spells out the whole chain, clicking it
