@@ -171,7 +171,7 @@ func TestCheckHealthUnreadyStates(t *testing.T) {
 			reason: "claude auth login",
 		},
 		{
-			name: "the login status is not the shape claudeq knows",
+			name: "the login status is not the shape dispatchq knows",
 			inst: func(*testing.T) provider.Instance {
 				return provider.Instance{ID: "claude", BinaryPath: bin, Enabled: true}
 			},

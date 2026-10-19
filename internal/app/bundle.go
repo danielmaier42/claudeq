@@ -18,7 +18,7 @@ import (
 // ErrNotFound is returned when no task has the requested id.
 var ErrNotFound = errors.New("task not found")
 
-// ExportTask writes the task with the given id to w as a .claudeq bundle.
+// ExportTask writes the task with the given id to w as a .dispatchq bundle.
 //
 // The bundle carries a hint about the harness the task was written for, never
 // the local provider instance: a hint travels, an instance is one account on
@@ -62,7 +62,7 @@ func exportHint(cfg store.Config, t task.Task) bundle.ProviderHint {
 	}
 }
 
-// ImportTask adds a task read from a .claudeq bundle to the queue, settings
+// ImportTask adds a task read from a .dispatchq bundle to the queue, settings
 // as they are in the file. Only what the file cannot decide is filled in: a
 // missing id is derived from the name, a missing name from the id, missing
 // permissions mean "default", and an id already in use gets a numeric suffix
@@ -100,7 +100,7 @@ func uniqueID(tasks []task.Task, want string) string {
 	}
 }
 
-// ImportDraft is a task read from a .claudeq bundle, prepared for review before
+// ImportDraft is a task read from a .dispatchq bundle, prepared for review before
 // anything is queued: the app prefills its task sheet with it so the importer
 // can adjust the prompt and the paths, which come from the exporter's machine.
 type ImportDraft struct {
@@ -129,7 +129,7 @@ func ReadImport(s *store.Store, t task.Task, hint bundle.ProviderHint) (ImportDr
 		d.MissingWorkingDir = t.WorkingDir
 		d.Task.WorkingDir = ""
 	}
-	// A file with no hint was written before providers existed, or by a claudeq
+	// A file with no hint was written before providers existed, or by a dispatchq
 	// that had nothing to say about them. It keeps the task exactly as it is and
 	// runs on the default provider, which is what such a file always did. A
 	// script job has no provider to resolve at all.
@@ -158,7 +158,7 @@ type HintMatch struct {
 // ResolveHint finds the local provider a bundle was written for, and reports
 // whether the answer is unambiguous.
 //
-// One enabled instance of that kind is the answer. Several is not: claudeq does
+// One enabled instance of that kind is the answer. Several is not: dispatchq does
 // not pick an account on the operator's behalf, because the accounts are not
 // interchangeable — they have separate allowances, separate logins and often
 // separate employers. None is not either. In both cases the importer chooses.

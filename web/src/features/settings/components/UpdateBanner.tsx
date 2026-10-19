@@ -5,7 +5,7 @@ import {openExternal} from '@/lib/native'
 import type {UpdateStatus} from '@/lib/types'
 import {dismissUpdate, downloadUpdate, finishUpdate, httpsOnly} from '../update'
 
-// UpdateBanner offers a newer ClaudeQ with the notes of every version since
+// UpdateBanner offers a newer DispatchQ with the notes of every version since
 // the running one, or, when the installer already replaced the app but the
 // background service still runs the old build, the hand-over instead of
 // another download of a version that is already on disk.
@@ -23,7 +23,7 @@ export function UpdateBanner({update}: {update: UpdateStatus}) {
 
   if (update.restart_required) {
     return (
-      <Shell title={`ClaudeQ ${update.installed} is installed, but not running`}>
+      <Shell title={`DispatchQ ${update.installed} is installed, but not running`}>
         <p>
           The background service is still on {update.current || '?'}. Finish the update to switch it over;
           your queue and running tasks are untouched.
@@ -45,7 +45,7 @@ export function UpdateBanner({update}: {update: UpdateStatus}) {
   const downloading = busy === 'download' || update.downloading
 
   return (
-    <Shell title={`Update available: ClaudeQ ${update.latest}`}>
+    <Shell title={`Update available: DispatchQ ${update.latest}`}>
       <p>
         {skipped > 1
           ? `You’re on ${update.current || '?'}; ${skipped} newer versions are available. Their changes are below.`

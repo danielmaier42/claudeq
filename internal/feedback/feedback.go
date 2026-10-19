@@ -1,9 +1,9 @@
 // Package feedback turns a short chat with the user into a GitHub issue draft
-// for the ClaudeQ repository. It asks a harness as an aside — locked down,
+// for the DispatchQ repository. It asks a harness as an aside — locked down,
 // tool-free, in a directory of its own — and hands the resulting draft to the
 // dashboard, which
 // shows it for review before the user opens a prefilled "new issue" page in
-// their browser. ClaudeQ itself never talks to GitHub and holds no credentials:
+// their browser. DispatchQ itself never talks to GitHub and holds no credentials:
 // the issue is created by the user, in their own logged-in browser session.
 package feedback
 
@@ -49,7 +49,7 @@ var Labels = []string{"bug", "enhancement"}
 
 // systemPrompt drives the whole conversation. It is deliberately explicit about
 // privacy: the issue it writes ends up on a public tracker.
-const systemPrompt = `You are the feedback assistant built into ClaudeQ, a local-only macOS app that queues Claude Code tasks during the day and runs them unattended at night through the Claude Code CLI. ClaudeQ is a background daemon (claudeqd, a launchd LaunchAgent), a native window wrapping a local web dashboard (the Queue, Log, Artifacts, Usage and Settings views), and a claudeq command-line tool.
+const systemPrompt = `You are the feedback assistant built into DispatchQ, a local-only macOS app that queues Claude Code tasks during the day and runs them unattended at night through the Claude Code CLI. DispatchQ is a background daemon (dispatchqd, a launchd LaunchAgent), a native window wrapping a local web dashboard (the Queue, Log, Artifacts, Usage and Settings views), and a dispatchq command-line tool.
 
 A user is reporting a bug or suggesting an improvement. Turn that into one GitHub issue for the project's public repository.
 
@@ -236,7 +236,7 @@ func sanitize(d Draft) (Draft, error) {
 		d.Status = "ready"
 		d.Question = ""
 		if d.Title == "" {
-			d.Title = "Feedback from the ClaudeQ app"
+			d.Title = "Feedback from the DispatchQ app"
 		}
 		return d, nil
 	}

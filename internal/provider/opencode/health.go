@@ -45,7 +45,7 @@ func (a *Adapter) CheckHealth(ctx context.Context, inst provider.Instance, p pro
 	// a failed check, not a missing install: CLI start-up misses the deadline on
 	// a busy machine. Reporting that as "not installed" would be a verdict —
 	// KnownUnready, so follow-up tasks are not even filed for the provider —
-	// where claudeq in fact knows nothing yet.
+	// where dispatchq in fact knows nothing yet.
 	version, err := p.Probe(ctx, a.probeCommand(inst, bin, "--version"))
 	if err != nil {
 		return provider.Health{

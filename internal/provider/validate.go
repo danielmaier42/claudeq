@@ -9,7 +9,7 @@ import (
 )
 
 // ErrInvalidProvider is the base error for a provider configuration that
-// claudeq refuses to store. It is the first of the three check levels: a
+// dispatchq refuses to store. It is the first of the three check levels: a
 // configuration that fails here is rejected outright, where a *readiness*
 // problem (see [Health]) only keeps the instance from running, and a runtime
 // problem is recorded on the run.
@@ -37,7 +37,7 @@ func CheckID(id string) error {
 // ExpandHome resolves a leading "~" to the current user's home directory, so a
 // path field accepts what people actually type. Only the plain forms are
 // expanded ("~" and "~/…"); "~someone/…" names another user's home, which
-// claudeq does not resolve and which the absolute-path check then rejects by
+// dispatchq does not resolve and which the absolute-path check then rejects by
 // name. An unresolvable home leaves the path untouched, for the same check to
 // refuse.
 func ExpandHome(p string) string {

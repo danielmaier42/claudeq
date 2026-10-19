@@ -80,7 +80,7 @@ func TestScriptHonoursItsShebang(t *testing.T) {
 		t.Fatalf("status = %v, want success", status)
 	}
 	// With a shebang the file itself is executed, so $0 is the script's path —
-	// not the interpreter claudeq would otherwise have picked.
+	// not the interpreter dispatchq would otherwise have picked.
 	if !strings.Contains(out, "ran") || strings.Contains(out, defaultShell+" ran") {
 		t.Fatalf("output = %q, want the script to have been executed directly", out)
 	}
@@ -100,16 +100,16 @@ func TestScriptRunsInTheWorkingDirectory(t *testing.T) {
 
 func TestScriptGetsTheSelfQueueEnvironment(t *testing.T) {
 	// A script job exists to file agent work, so it needs exactly what an agent
-	// run needs to call `claudeq queue`.
-	e := &Executor{Home: "/tmp/home", QueueBin: "/bin/claudeq"}
+	// run needs to call `dispatchq queue`.
+	e := &Executor{Home: "/tmp/home", QueueBin: "/bin/dispatchq"}
 	req := Request{
-		Task:       scriptTask(`printf '%s|%s|%s|%s\n' "$CLAUDEQ_HOME" "$CLAUDEQ_BIN" "$CLAUDEQ_RUN_ID" "$CLAUDEQ_TASK_ID"; echo "$CLAUDEQ_PARENT_TASK"`),
+		Task:       scriptTask(`printf '%s|%s|%s|%s\n' "$DISPATCHQ_HOME" "$DISPATCHQ_BIN" "$DISPATCHQ_RUN_ID" "$DISPATCHQ_TASK_ID"; echo "$DISPATCHQ_PARENT_TASK"`),
 		RunID:      "run-1",
 		WorkflowID: "wf-1",
 	}
 	out, _, _, _ := runScriptTask(t, e, req)
 	head, rest, _ := strings.Cut(out, "\n")
-	if head != "/tmp/home|/bin/claudeq|run-1|t1" {
+	if head != "/tmp/home|/bin/dispatchq|run-1|t1" {
 		t.Fatalf("environment = %q, want home, bin, run id and task id", head)
 	}
 	var parent task.Task

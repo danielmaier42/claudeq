@@ -11,7 +11,7 @@ import (
 // It is what the task sheet shows under the cron field while it is being typed,
 // so the schedule is confirmed (or rejected) before the task is saved.
 type cronCheck struct {
-	// Valid is true when the expression is a schedule claudeq can run.
+	// Valid is true when the expression is a schedule dispatchq can run.
 	Valid bool `json:"valid"`
 	// Error explains the problem in the words of whoever typed it (empty when valid).
 	Error string `json:"error,omitempty"`

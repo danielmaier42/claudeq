@@ -1,6 +1,6 @@
 #!/bin/sh
 # postinstall — hand the machine over to the version that was just installed:
-# set up the per-user LaunchAgent so the claudeq daemon starts at login, make
+# set up the per-user LaunchAgent so the dispatchq daemon starts at login, make
 # sure the *new* daemon is the one actually running, and reopen the app.
 #
 # The installer runs as root, but the LaunchAgent belongs to the logged-in user,
@@ -15,10 +15,16 @@
 # this script fails the install rather than reporting success.
 set -e
 
-APP="/Applications/ClaudeQ.app"
-DAEMON="$APP/Contents/MacOS/claudeqd"
-LABEL="de.maierdaniel.claudeq"
+APP="/Applications/DispatchQ.app"
+DAEMON="$APP/Contents/MacOS/dispatchqd"
+LABEL="de.maierdaniel.dispatchq"
 PORT=10765
+# The app was called ClaudeQ before 2.0. An update from there finds its app,
+# LaunchAgent, wake permission and receipt under these names; they are retired
+# once DispatchQ runs (see retire_claudeq). The data directory moves with the
+# first DispatchQ start (internal/store/rename.go).
+LEGACY_LABEL="de.maierdaniel.claudeq"
+LEGACY_APP="/Applications/ClaudeQ.app"
 # The port ClaudeQ used before 10765. An old daemon still listens there, and
 # with the dashboard moved it no longer collides with the new one — so nothing
 # would stop the two from running the queue side by side. The takeover sweeps
@@ -26,7 +32,7 @@ PORT=10765
 LEGACY_PORT=8765
 
 if [ ! -x "$DAEMON" ]; then
-	echo "claudeq: daemon not found at $DAEMON; skipping autostart setup"
+	echo "dispatchq: daemon not found at $DAEMON; skipping autostart setup"
 	exit 0
 fi
 
@@ -34,7 +40,7 @@ consoleUser=$(stat -f "%Su" /dev/console 2>/dev/null || echo "")
 if [ -z "$consoleUser" ] || [ "$consoleUser" = "root" ]; then
 	# Headless / no GUI login window user — the app will set up autostart on its
 	# first launch instead. Don't fail the install over it.
-	echo "claudeq: no console user; the app will set up autostart on first launch"
+	echo "dispatchq: no console user; the app will set up autostart on first launch"
 	exit 0
 fi
 uid=$(id -u "$consoleUser")
@@ -43,14 +49,16 @@ uid=$(id -u "$consoleUser")
 # LaunchAgents directory, which this script must never touch.
 homeDir=$(dscl . -read "/Users/$consoleUser" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
 plist=""
+legacyPlist=""
 if [ -n "$homeDir" ] && [ -d "$homeDir" ]; then
 	plist="$homeDir/Library/LaunchAgents/$LABEL.plist"
+	legacyPlist="$homeDir/Library/LaunchAgents/$LEGACY_LABEL.plist"
 fi
 
 # The version this package just put in /Applications. The running daemon must
 # report exactly this once the takeover is done.
 want=$("$DAEMON" --version 2>/dev/null | tr -d ' \t\n' | sed 's/^v//' || true)
-echo "claudeq: installed version ${want:-unknown}"
+echo "dispatchq: installed version ${want:-unknown}"
 
 # asuser runs a command in the console user's GUI launchd domain; sudo -u adopts
 # their identity and HOME so launchctl and the plist land in the right place.
@@ -65,18 +73,19 @@ running_version() {
 		sed -n 's/.*"current":"\([^"]*\)".*/\1/p'
 }
 
-# stop_daemons kills every claudeq daemon, by name and by whoever holds the
+# stop_daemons kills every dispatchq daemon, by name and by whoever holds the
 # port. Matching the name alone is not enough: a daemon from an older layout,
 # or one started from a copy of the app somewhere else, still squats the port
-# and would keep serving the old version. `-f 'claudeqd run'` never matches this
-# script or the `claudeqd install` we run below.
+# and would keep serving the old version. `-f 'dispatchqd run'` never matches this
+# script or the `dispatchqd install` we run below.
 stop_daemons() {
 	sig="$1"
+	pkill "$sig" -f 'dispatchqd run' 2>/dev/null || true
 	pkill "$sig" -f 'claudeqd run' 2>/dev/null || true
-	# -a ANDs the name against the ports (lsof ORs the -i filters with each
-	# other): only a *claudeqd* that listens on one of our ports. An unrelated
-	# process holding one is not ours to kill.
-	holders=$(lsof -ti -a -c claudeqd -sTCP:LISTEN -i "tcp:$PORT" -i "tcp:$LEGACY_PORT" 2>/dev/null || true)
+	# -a ANDs the name against the ports (lsof ORs the -c and the -i filters
+	# among themselves): only a *dispatchqd* or *claudeqd* that listens on one
+	# of our ports. An unrelated process holding one is not ours to kill.
+	holders=$(lsof -ti -a -c dispatchqd -c claudeqd -sTCP:LISTEN -i "tcp:$PORT" -i "tcp:$LEGACY_PORT" 2>/dev/null || true)
 	if [ -n "$holders" ]; then
 		# shellcheck disable=SC2086 # deliberate word splitting: one pid per line
 		kill $sig $holders 2>/dev/null || true
@@ -85,11 +94,44 @@ stop_daemons() {
 	sleep 1
 }
 
+# stop_claudeq drops ClaudeQ's LaunchAgent before the takeover. launchd keeps
+# restarting a daemon its job still owns, so killing the process alone would
+# leave the ClaudeQ daemon running the queue next to the new one.
+stop_claudeq() {
+	as_user launchctl bootout "gui/$uid/$LEGACY_LABEL" 2>/dev/null || true
+	if [ -n "$legacyPlist" ] && [ -f "$legacyPlist" ]; then
+		rm -f "$legacyPlist"
+		echo "dispatchq: removed ClaudeQ LaunchAgent $legacyPlist"
+	fi
+}
+
+# retire_claudeq clears away what is left of ClaudeQ once DispatchQ runs: its
+# wake permission (DispatchQ installs its own below), its installer receipt,
+# and the app. Nothing under /Applications is ever deleted here (see the guard
+# in scripts/acceptance.sh): the old app goes to the user's Bin, and only a
+# bundle that says it is ClaudeQ.
+retire_claudeq() {
+	if [ -n "$homeDir" ] && [ -d "$homeDir/.Trash" ] && [ -d "$LEGACY_APP" ] &&
+		[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$LEGACY_APP/Contents/Info.plist" 2>/dev/null)" = "$LEGACY_LABEL" ]; then
+		dest="$homeDir/.Trash/ClaudeQ.app"
+		[ -e "$dest" ] && dest="$homeDir/.Trash/ClaudeQ $(date +%Y-%m-%d-%H%M%S).app"
+		if mv "$LEGACY_APP" "$dest"; then
+			chown -R "$consoleUser" "$dest" 2>/dev/null || true
+			echo "dispatchq: moved $LEGACY_APP to the Bin"
+		fi
+	fi
+	if [ -f /etc/sudoers.d/claudeq ]; then
+		rm -f /etc/sudoers.d/claudeq
+		echo "dispatchq: removed ClaudeQ wake permission"
+	fi
+	pkgutil --forget "$LEGACY_LABEL" >/dev/null 2>&1 && echo "dispatchq: forgot ClaudeQ installer receipt" || true
+}
+
 # takeover points the LaunchAgent at the freshly installed daemon and starts it.
 takeover() {
 	stop_daemons "-TERM"
 	if ! as_user "$DAEMON" install; then
-		echo "claudeq: launchctl hand-over failed"
+		echo "dispatchq: launchctl hand-over failed"
 		return 1
 	fi
 	return 0
@@ -110,12 +152,13 @@ settled() {
 	return 1
 }
 
+stop_claudeq
 takeover || true
 
 if [ -n "$want" ] && ! settled; then
-	echo "claudeq: the running daemon is still $(running_version), not $want — retrying"
+	echo "dispatchq: the running daemon is still $(running_version), not $want — retrying"
 	# A LaunchAgent left over from an older install can point at a copy of the
-	# app somewhere else entirely (a second ClaudeQ.app the user kept around).
+	# app somewhere else entirely (a second DispatchQ.app the user kept around).
 	# launchd then keeps restarting *that* binary, and the new one never gets
 	# the port. Drop the stale job and its plist before trying again.
 	as_user launchctl bootout "gui/$uid/$LABEL" 2>/dev/null || true
@@ -127,48 +170,50 @@ if [ -n "$want" ] && ! settled; then
 fi
 
 if [ -n "$want" ] && ! settled; then
-	echo "claudeq: FAILED to start ClaudeQ $want — the machine is still running $(running_version)"
-	echo "claudeq: LaunchAgent plist: ${plist:-<unknown home>}"
+	echo "dispatchq: FAILED to start DispatchQ $want — the machine is still running $(running_version)"
+	echo "dispatchq: LaunchAgent plist: ${plist:-<unknown home>}"
 	[ -n "$plist" ] && grep -A1 'ProgramArguments' "$plist" 2>/dev/null || true
-	echo "claudeq: port $PORT is held by:"
+	echo "dispatchq: port $PORT is held by:"
 	lsof -i "tcp:$PORT" -i "tcp:$LEGACY_PORT" -sTCP:LISTEN 2>/dev/null || true
-	echo "claudeq: ClaudeQ.app copies on this machine:"
+	echo "dispatchq: DispatchQ.app copies on this machine:"
 	as_user mdfind "kMDItemCFBundleIdentifier == '$LABEL'" 2>/dev/null || true
 	exit 1
 fi
+
+retire_claudeq
 
 # Warn about other copies of the app even on success: whichever one the user
 # opens, the dashboard talks to the daemon installed here — but a second copy
 # is what makes a future update look like it did nothing.
 others=$(as_user mdfind "kMDItemCFBundleIdentifier == '$LABEL'" 2>/dev/null | grep -v "^$APP$" || true)
 if [ -n "$others" ]; then
-	echo "claudeq: other ClaudeQ.app copies found (delete them to avoid confusion):"
+	echo "dispatchq: other DispatchQ.app copies found (delete them to avoid confusion):"
 	echo "$others"
 fi
 
 # Allow the daemon to schedule wake-ups (pmset) without a password, so timed
 # tasks can wake the Mac from sleep. The console user is detected here (not
 # hardcoded); the entry is validated with visudo before install so a bad file
-# can never break sudo. The uninstaller (Uninstall ClaudeQ.pkg) removes it.
-sudoers="/etc/sudoers.d/claudeq"
+# can never break sudo. The uninstaller (Uninstall DispatchQ.pkg) removes it.
+sudoers="/etc/sudoers.d/dispatchq"
 tmp="$(mktemp)"
 printf '%s ALL=(root) NOPASSWD: /usr/bin/pmset\n' "$consoleUser" > "$tmp"
 if visudo -cf "$tmp" >/dev/null 2>&1; then
 	install -m 0440 -o root -g wheel "$tmp" "$sudoers"
-	echo "claudeq: installed pmset wake permission for $consoleUser"
+	echo "dispatchq: installed pmset wake permission for $consoleUser"
 else
-	echo "claudeq: could not install pmset sudoers entry; scheduled wake will need manual setup"
+	echo "dispatchq: could not install pmset sudoers entry; scheduled wake will need manual setup"
 fi
 rm -f "$tmp"
 
-# Reopen ClaudeQ for the user (preinstall closed the old window) so the new
+# Reopen DispatchQ for the user (preinstall closed the old window) so the new
 # version is running as soon as the installer finishes. `open` must run inside
 # the user's GUI session, or the window would belong to the installer's root
 # context and never show up on their desktop.
 if as_user open "$APP"; then
-	echo "claudeq: opened $APP for $consoleUser"
+	echo "dispatchq: opened $APP for $consoleUser"
 else
-	echo "claudeq: could not open ClaudeQ automatically; open it from Applications"
+	echo "dispatchq: could not open DispatchQ automatically; open it from Applications"
 fi
 
 exit 0

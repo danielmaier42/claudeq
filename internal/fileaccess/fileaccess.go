@@ -1,7 +1,7 @@
-// Package fileaccess probes whether claudeq can read a task's working directory,
+// Package fileaccess probes whether dispatchq can read a task's working directory,
 // used to provoke the macOS privacy (TCC) consent prompt at a safe time.
 //
-// Background: claudeq's daemon runs unattended overnight from a LaunchAgent. The
+// Background: dispatchq's daemon runs unattended overnight from a LaunchAgent. The
 // first time it touches a protected location (~/Documents, ~/Desktop,
 // ~/Downloads, external volumes, …) macOS shows the automatic "allow access?"
 // consent prompt and blocks the access until someone answers — which never

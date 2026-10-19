@@ -58,7 +58,7 @@ static const char *cqAuthorizationStatus(void) {
 // the app's icon. The inbox id and the click target (artifact, run or link)
 // travel along in the userInfo, where the window app picks them up when the
 // user clicks the notification (the keys are kept in sync with the cq*Key
-// constants in cmd/claudeqapp/notifyclick_cocoa.m). Returns 0 on success,
+// constants in cmd/dispatchqapp/notifyclick_cocoa.m). Returns 0 on success,
 // non-zero on failure.
 static void cqPutInfo(NSMutableDictionary *info, NSString *key, const char *value) {
     if (value && value[0] != '\0') {

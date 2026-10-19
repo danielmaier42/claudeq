@@ -97,3 +97,15 @@ func TestUserMessageMarksFileContentAsData(t *testing.T) {
 		t.Errorf("quoted file content must be framed as data:\n%s", msg)
 	}
 }
+
+func TestSystemPromptForTheRenameCheck(t *testing.T) {
+	got := systemPrompt(KindRename)
+	for _, want := range []string{"ClaudeQ.app", "DispatchQ.app", "CLAUDEQ_BIN", "DISPATCHQ_BIN", "revised_prompt"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("rename prompt lacks %q", want)
+		}
+	}
+	if got == systemPrompt(KindTask) {
+		t.Error("the rename check must not use the task rules")
+	}
+}

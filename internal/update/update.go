@@ -1,4 +1,4 @@
-// Package update checks GitHub for newer claudeq releases and downloads the
+// Package update checks GitHub for newer dispatchq releases and downloads the
 // installer package, so the app can offer an in-app "Check for updates" flow
 // plus a background hourly check (see the app's Settings pane). It talks only to
 // GitHub's public releases API and downloads the release's own signed-off `.pkg`
@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// Release describes a published claudeq release and its installer asset.
+// Release describes a published dispatchq release and its installer asset.
 type Release struct {
 	// Version is the normalized dotted version, e.g. "0.1.4" (no leading "v").
 	Version string `json:"version"`
@@ -22,7 +22,7 @@ type Release struct {
 	// PkgURL is the browser download URL of the release's `.pkg` asset, empty if
 	// the release has no installer attached.
 	PkgURL string `json:"pkg_url"`
-	// PkgName is the asset file name, e.g. "claudeq-0.1.4.pkg".
+	// PkgName is the asset file name, e.g. "dispatchq-0.1.4.pkg".
 	PkgName string `json:"pkg_name"`
 	// Notes is the release body (GitHub-flavoured markdown).
 	Notes string `json:"notes"`

@@ -10,9 +10,9 @@ const COST_TIP =
   'The API-equivalent price Claude Code reports: what these requests would cost at pay-as-you-go API rates. On a subscription you are not billed for it; it draws on your usage limit.'
 
 // UsageSummary leads with the one figure that matters most, the tokens
-// claudeq consumed in the chosen period, and puts how the runs went next to
+// dispatchq consumed in the chosen period, and puts how the runs went next to
 // it. The all-time total stays in view as a smaller figure, so a short period
-// never hides how much has gone through claudeq overall.
+// never hides how much has gone through dispatchq overall.
 export function UsageSummary({stats}: {stats: Stats}) {
   const p = stats.period
   const t = stats.totals
@@ -22,7 +22,7 @@ export function UsageSummary({stats}: {stats: Stats}) {
   return (
     <div className="grid gap-3 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
       <Card className="flex flex-col px-5 py-4">
-        <div className="text-[12.5px] text-muted-foreground">Consumed via claudeq · {label}</div>
+        <div className="text-[12.5px] text-muted-foreground">Consumed via dispatchq · {label}</div>
         <div className="mt-1 text-[44px] leading-[1.1] font-semibold tracking-[-0.02em] tabular-nums">
           {fmtTokens(bucketTokens(p))}
         </div>

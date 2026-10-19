@@ -20,7 +20,7 @@ var cronFieldNames = [5]struct{ name, accepts string }{
 	{"weekday", "0-6 or SUN-SAT"},
 }
 
-// CheckCron reports whether expr is a crontab schedule claudeq can run. The
+// CheckCron reports whether expr is a crontab schedule dispatchq can run. The
 // error is written for the person who typed the expression: it names the field
 // at fault and the values that field accepts, because the parser alone only
 // says that the whole line is unparseable.

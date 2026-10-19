@@ -18,7 +18,7 @@ import {UsageChart} from './UsageChart'
 import {UsageSummary} from './UsageSummary'
 import {emptyText, METRICS, metricDef, type Metric} from './usage'
 
-// Usage counts only what claudeq's own runs consumed (tokens recorded per
+// Usage counts only what dispatchq's own runs consumed (tokens recorded per
 // run), not the account's overall usage. The poll keeps it current; the query
 // cache keeps a hovered bar in place when the numbers have not changed.
 export function UsageView() {
@@ -27,7 +27,7 @@ export function UsageView() {
   return (
     <ViewLayout
       title="Usage"
-      subtitle="Tokens, runs and API-equivalent cost of claudeq's own runs"
+      subtitle="Tokens, runs and API-equivalent cost of dispatchq's own runs"
       actions={
         <Segmented
           aria-label="Period"
@@ -56,7 +56,7 @@ export function UsageView() {
         <EmptyState
           icon={<ChartNoAxesColumn />}
           title="Nothing consumed yet"
-          description="Token usage appears here after claudeq has run some tasks."
+          description="Token usage appears here after dispatchq has run some tasks."
         />
       ) : (
         // The previous period stays on screen, dimmed, until the new one is
@@ -113,7 +113,7 @@ function UsageContent({stats}: {stats: Stats}) {
       </Section>
       {!!stats.by_provider?.length && <ProviderBreakdown providers={stats.by_provider} period={label} />}
       <p className="text-[12px] text-muted-foreground">
-        Counts only what claudeq's own runs consumed (tokens recorded per run), not your overall Claude
+        Counts only what dispatchq's own runs consumed (tokens recorded per run), not your overall Claude
         account usage. Cost is the API-equivalent price Claude Code reports: what these requests would cost at
         pay-as-you-go API rates. On a subscription you are not billed for it; it draws on your usage limit.
       </p>

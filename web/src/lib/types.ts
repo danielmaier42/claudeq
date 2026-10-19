@@ -1,4 +1,4 @@
-// JSON shapes of the claudeq daemon's HTTP API (internal/api).
+// JSON shapes of the dispatchq daemon's HTTP API (internal/api).
 //
 // Conventions: Go time.Time arrives as an RFC 3339 string (ISOTime). A Go field
 // tagged omitempty/omitzero is optional here (`?`), because the key is left out
@@ -95,7 +95,7 @@ export interface TaskMoveQuery {
   group?: string
 }
 
-// POST /api/tasks/import response (request body: raw .claudeq bundle bytes).
+// POST /api/tasks/import response (request body: raw .dispatchq bundle bytes).
 export interface ImportResult {
   task: Task
   // Working dir named in the bundle that does not exist here; task.working_dir is "" then.
@@ -274,7 +274,7 @@ export interface ProviderInstance {
 export interface Provider extends ProviderInstance {
   health: ProviderHealth
   default: boolean
-  // Binary claudeq would use when binary_path is empty.
+  // Binary dispatchq would use when binary_path is empty.
   detected?: string
   // Harness accepts a reasoning-effort setting.
   reasoning_effort: boolean
@@ -417,7 +417,7 @@ export interface NtfySettings {
 export interface WebhookSettings {
   enabled: boolean
   url: string
-  // "" means claudeq's default JSON body.
+  // "" means dispatchq's default JSON body.
   template: string
 }
 
@@ -588,7 +588,7 @@ export interface UpdateStatus {
   has_installer: boolean
   published_at?: ISOTime
   dismissed?: string
-  // Version of the newest ClaudeQ.app on disk.
+  // Version of the newest DispatchQ.app on disk.
   installed?: string
   // A newer build is installed than the one running; relaunch instead of downloading.
   restart_required?: boolean
@@ -606,7 +606,7 @@ export interface UpdateDismissRequest {
 // POST /api/update/relaunch response (202).
 export interface RelaunchResult {
   version: string
-  // Path of the installed ClaudeQ.app.
+  // Path of the installed DispatchQ.app.
   app: string
 }
 
@@ -663,7 +663,7 @@ export type UninstallRequest = Record<string, never>
 // Method  Path                                   Request                      Response
 // GET     /api/tasks                             -                            QueueTask[]
 // POST    /api/tasks                             TaskInput                    Task (201)
-// POST    /api/tasks/import                      raw .claudeq bytes           ImportResult
+// POST    /api/tasks/import                      raw .dispatchq bytes           ImportResult
 // POST    /api/tasks/{id}/export                 -                            PathResult | 204 cancelled
 // PUT     /api/tasks/{id}                        TaskInput                    Task
 // DELETE  /api/tasks/{id}                        -                            204
@@ -728,3 +728,33 @@ export type UninstallRequest = Record<string, never>
 // POST    /api/feedback/turn                     FeedbackTurnRequest          FeedbackDraft
 // POST    /api/feedback/url                      FeedbackUrlRequest           FeedbackUrlResponse
 // Any error                                                                   ApiErrorBody
+
+export interface WhatsNewStatus {
+  edition: string
+  show: boolean
+}
+
+export interface RenameFinding {
+  task_id: string
+  name: string
+  message: string
+  revised_prompt?: string
+}
+
+export interface RenameCheck {
+  state: 'idle' | 'running' | 'done' | 'unavailable'
+  total: number
+  checked: number
+  skipped: number
+  findings: RenameFinding[]
+  errors?: string[]
+}
+
+export interface RenameApplyRequest {
+  task_ids: string[]
+}
+
+export interface RenameApplyResult {
+  applied: string[]
+  changed?: string[]
+}

@@ -102,7 +102,7 @@ export function PromptSection({
           shebang (<code className={mono}>#!/bin/zsh</code>,{' '}
           <code className={mono}>#!/usr/bin/env python3</code>) to pick the interpreter, or leave it out for{' '}
           <code className={mono}>/bin/sh</code>. It runs in the working directory below and can queue agent
-          jobs with <code className={mono}>"$CLAUDEQ_BIN" queue --prompt …</code>.
+          jobs with <code className={mono}>"$DISPATCHQ_BIN" queue --prompt …</code>.
         </p>
       )}
       <Field htmlFor="te-prompt" error={errors.prompt}>

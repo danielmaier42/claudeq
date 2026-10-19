@@ -1,4 +1,4 @@
-// Package task defines the claudeq task model and its validation rules.
+// Package task defines the dispatchq task model and its validation rules.
 package task
 
 import (

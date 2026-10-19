@@ -12,7 +12,7 @@ import (
 // DetectBinary finds the Claude Code CLI. It returns an absolute path, or ""
 // if it cannot be located.
 //
-// This exists because claudeq's daemon and app run under launchd with a minimal
+// This exists because dispatchq's daemon and app run under launchd with a minimal
 // PATH (/usr/bin:/bin:…) that excludes the usual CLI install locations like
 // ~/.local/bin — so a plain `claude` lookup fails even when the CLI is
 // installed and works from the user's terminal. We therefore check the common
@@ -21,7 +21,7 @@ import (
 func DetectBinary() string {
 	// An explicit env override wins — used by CI/tests and power users whose
 	// claude lives somewhere unusual.
-	if p := os.Getenv("CLAUDEQ_CLAUDE_BIN"); p != "" {
+	if p := os.Getenv("DISPATCHQ_CLAUDE_BIN"); p != "" {
 		return p
 	}
 	home, _ := os.UserHomeDir()

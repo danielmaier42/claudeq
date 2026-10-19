@@ -31,10 +31,10 @@ func writePkg(t *testing.T, app string) string {
 
 func TestLocate(t *testing.T) {
 	dir := t.TempDir()
-	own := filepath.Join(dir, "Own", "ClaudeQ.app")
-	def := filepath.Join(dir, "Applications", "ClaudeQ.app")
+	own := filepath.Join(dir, "Own", "DispatchQ.app")
+	def := filepath.Join(dir, "Applications", "DispatchQ.app")
 	defPkg := writePkg(t, def)
-	exe := filepath.Join(own, "Contents", "MacOS", "claudeq")
+	exe := filepath.Join(own, "Contents", "MacOS", "dispatchq")
 
 	// The running bundle has none: the one in /Applications is used.
 	if got, err := locate(exe, def); err != nil || got != defPkg {
@@ -46,14 +46,14 @@ func TestLocate(t *testing.T) {
 		t.Fatalf("locate = %q, %v; want %q", got, err, ownPkg)
 	}
 	// Outside any bundle and with nothing installed: a clear error.
-	if _, err := locate(filepath.Join(dir, "bin", "claudeq"), filepath.Join(dir, "Nope.app")); err == nil || !strings.Contains(err.Error(), PkgName) {
+	if _, err := locate(filepath.Join(dir, "bin", "dispatchq"), filepath.Join(dir, "Nope.app")); err == nil || !strings.Contains(err.Error(), PkgName) {
 		t.Fatalf("err = %v, want one naming %s", err, PkgName)
 	}
 }
 
 func TestStageCopiesOutOfTheBundle(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
-	pkg := writePkg(t, filepath.Join(t.TempDir(), "ClaudeQ.app"))
+	pkg := writePkg(t, filepath.Join(t.TempDir(), "DispatchQ.app"))
 	staged, err := Stage(pkg)
 	if err != nil {
 		t.Fatal(err)
@@ -72,10 +72,10 @@ func TestStageCopiesOutOfTheBundle(t *testing.T) {
 
 func TestOpenHandsTheStagedCopyToTheInstaller(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
-	app := filepath.Join(t.TempDir(), "ClaudeQ.app")
+	app := filepath.Join(t.TempDir(), "DispatchQ.app")
 	writePkg(t, app)
 	r := &fakeRunner{}
-	if err := Open(context.Background(), r, filepath.Join(app, "Contents", "MacOS", "claudeqd")); err != nil {
+	if err := Open(context.Background(), r, filepath.Join(app, "Contents", "MacOS", "dispatchqd")); err != nil {
 		t.Fatal(err)
 	}
 	if len(r.calls) != 1 || !strings.HasPrefix(r.calls[0], "open ") || strings.Contains(r.calls[0], app) {

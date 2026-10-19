@@ -13,7 +13,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/bundle"
 )
 
-// readImport reads a .claudeq bundle sent as the request body (the dashboard
+// readImport reads a .dispatchq bundle sent as the request body (the dashboard
 // uploads the file the user picked) and answers 200 with the task it holds —
 // without queueing anything. The dashboard prefills its task sheet with the
 // draft so the prompt and the paths, which come from the exporter's machine,
@@ -50,7 +50,7 @@ func readAllLimited(w http.ResponseWriter, r *http.Request, limit int64) ([]byte
 	return buf.Bytes(), err
 }
 
-// exportTask asks the user where to save the task as a .claudeq file (native
+// exportTask asks the user where to save the task as a .dispatchq file (native
 // "Save as" panel) and writes it there. 200 {"path"} on success, 204 when the
 // user cancelled, 503 when no dialog is available (headless daemon).
 func (s *server) exportTask(w http.ResponseWriter, r *http.Request) {

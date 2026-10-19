@@ -182,14 +182,14 @@ function EditForm({provider: p, onDone}: {provider: Provider; onDone: () => void
             <Field
               label="Model there"
               htmlFor="pe-fallback-model"
-              hint="What those substituted runs are given. Decided by ClaudeQ keeps the task's model between two accounts of the same CLI and takes the other provider's default model otherwise."
+              hint="What those substituted runs are given. Decided by DispatchQ keeps the task's model between two accounts of the same CLI and takes the other provider's default model otherwise."
             >
               <ModelSelect
                 id="pe-fallback-model"
                 provider={fallback}
                 value={fallbackModel}
                 onValueChange={setFallbackModel}
-                emptyLabel="Decided by ClaudeQ"
+                emptyLabel="Decided by DispatchQ"
               />
             </Field>
           )}

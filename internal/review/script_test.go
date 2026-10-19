@@ -39,7 +39,7 @@ func TestExtractCommands(t *testing.T) {
 		{"prefixes name the real command", "sudo -n launchctl list\nFOO=1 BAR=2 make all\nnohup rsync a b", []string{"launchctl", "make", "rsync"}},
 		{"command substitution", "n=$(wc -l < f)\nx=`date +%s`", []string{"wc", "date"}},
 		{"quoted text is data", "echo \"run jq; then gh\" 'x | yq'", nil},
-		{"paths and variables are not names", "/opt/homebrew/bin/jq .\n$CLAUDEQ_BIN queue\n./build.sh", nil},
+		{"paths and variables are not names", "/opt/homebrew/bin/jq .\n$DISPATCHQ_BIN queue\n./build.sh", nil},
 		{"functions the script defines", "notify() { osascript -e x; }\nfunction sync_it { :; }\nnotify\nsync_it", []string{"osascript"}},
 		{"here-document body is data", "cat <<EOF > out.txt\nfoo bar\nbaz | qux\nEOF\ntail out.txt", []string{"cat", "tail"}},
 		{"here-string is not a here-document", "grep x <<< hello\nsort f", []string{"grep", "sort"}},

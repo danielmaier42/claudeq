@@ -9,7 +9,7 @@ import (
 )
 
 // fakeAdapter is a third harness that exists only in tests. Registering it must
-// be all it takes for the rest of claudeq to run jobs on it — no scheduler,
+// be all it takes for the rest of dispatchq to run jobs on it — no scheduler,
 // store or executor change.
 type fakeAdapter struct {
 	kind   Kind

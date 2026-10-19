@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Build claudeq-<version>.pkg — a macOS installer that drops ClaudeQ.app into
+# Build dispatchq-<version>.pkg — a macOS installer that drops DispatchQ.app into
 # /Applications and (via postinstall) sets up the per-user LaunchAgent so the
 # daemon starts at login.
 #
 # Unsigned by default. To sign + notarize (notarization-ready hooks below), set:
-#   CLAUDEQ_SIGN_APP_ID   Developer ID Application: … (signs the .app)
-#   CLAUDEQ_SIGN_PKG_ID   Developer ID Installer: …   (signs the .pkg)
-#   CLAUDEQ_NOTARY_PROFILE  notarytool keychain profile name (staples the .pkg)
+#   DISPATCHQ_SIGN_APP_ID   Developer ID Application: … (signs the .app)
+#   DISPATCHQ_SIGN_PKG_ID   Developer ID Installer: …   (signs the .pkg)
+#   DISPATCHQ_NOTARY_PROFILE  notarytool keychain profile name (staples the .pkg)
 #
 # Usage: scripts/build-pkg.sh [output-dir]   (default: dist/)
 # Requires: go, rsvg-convert, iconutil, pkgbuild (all macOS tools).
@@ -14,15 +14,15 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${1:-$ROOT/dist}"
-IDENTIFIER="de.maierdaniel.claudeq"
+IDENTIFIER="de.maierdaniel.dispatchq"
 
-# An explicit CLAUDEQ_VERSION wins — the release workflow sets it from the
+# An explicit DISPATCHQ_VERSION wins — the release workflow sets it from the
 # pushed tag, so only that CI build carries a real version number. Every other
 # build (local, or CI on a branch) is a dev build, versioned "dev-<branch>".
 # build-app.sh honours the same variable, so the app bundle and the .pkg file
 # name stay in lockstep.
-if [ -n "${CLAUDEQ_VERSION:-}" ]; then
-  VERSION="${CLAUDEQ_VERSION#v}"
+if [ -n "${DISPATCHQ_VERSION:-}" ]; then
+  VERSION="${DISPATCHQ_VERSION#v}"
 else
   BRANCH="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
   VERSION="dev-${BRANCH//\//-}"
@@ -30,13 +30,13 @@ fi
 
 echo "==> Building app bundle"
 "$ROOT/scripts/build-app.sh" "$ROOT/build"
-APP="$ROOT/build/ClaudeQ.app"
+APP="$ROOT/build/DispatchQ.app"
 
 # Optionally sign the app (notarization requires a hardened, signed app).
-if [ -n "${CLAUDEQ_SIGN_APP_ID:-}" ]; then
-  echo "==> Signing app with $CLAUDEQ_SIGN_APP_ID"
+if [ -n "${DISPATCHQ_SIGN_APP_ID:-}" ]; then
+  echo "==> Signing app with $DISPATCHQ_SIGN_APP_ID"
   codesign --deep --force --options runtime --timestamp \
-    --sign "$CLAUDEQ_SIGN_APP_ID" "$APP"
+    --sign "$DISPATCHQ_SIGN_APP_ID" "$APP"
 fi
 
 echo "==> Staging payload"
@@ -46,14 +46,14 @@ mkdir -p "$STAGE/Applications"
 # executable's com.apple.provenance xattr as an AppleDouble entry in the payload
 # — that is standard and the installer decodes it back to an xattr; no visible
 # ._ files end up in /Applications.)
-ditto "$APP" "$STAGE/Applications/ClaudeQ.app"
+ditto "$APP" "$STAGE/Applications/DispatchQ.app"
 
 echo "==> Building installer package"
 mkdir -p "$OUT"
-PKG="$OUT/claudeq-$VERSION.pkg"
+PKG="$OUT/dispatchq-$VERSION.pkg"
 
 # Disable bundle relocation. By default pkgbuild marks .app bundles relocatable,
-# so if a copy of de.maierdaniel.claudeq is already indexed by Spotlight the installer
+# so if a copy of de.maierdaniel.dispatchq is already indexed by Spotlight the installer
 # overwrites THAT copy instead of installing to /Applications. Force a fixed
 # /Applications install by setting BundleIsRelocatable=false in a component plist.
 #
@@ -81,15 +81,15 @@ PKGARGS=(
   --scripts "$ROOT/scripts/pkg"
 )
 # Sign the installer if a Developer ID Installer identity is provided.
-if [ -n "${CLAUDEQ_SIGN_PKG_ID:-}" ]; then
-  PKGARGS+=(--sign "$CLAUDEQ_SIGN_PKG_ID")
+if [ -n "${DISPATCHQ_SIGN_PKG_ID:-}" ]; then
+  PKGARGS+=(--sign "$DISPATCHQ_SIGN_PKG_ID")
 fi
 pkgbuild "${PKGARGS[@]}" "$PKG"
 
 # Notarize + staple if a notarytool profile is configured (no-op otherwise).
-if [ -n "${CLAUDEQ_NOTARY_PROFILE:-}" ]; then
-  echo "==> Notarizing (profile $CLAUDEQ_NOTARY_PROFILE)"
-  xcrun notarytool submit "$PKG" --keychain-profile "$CLAUDEQ_NOTARY_PROFILE" --wait
+if [ -n "${DISPATCHQ_NOTARY_PROFILE:-}" ]; then
+  echo "==> Notarizing (profile $DISPATCHQ_NOTARY_PROFILE)"
+  xcrun notarytool submit "$PKG" --keychain-profile "$DISPATCHQ_NOTARY_PROFILE" --wait
   xcrun stapler staple "$PKG"
 fi
 

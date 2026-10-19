@@ -32,7 +32,7 @@ func TestWebhookPostsTheDefaultBody(t *testing.T) {
 		"title":   "Task failed",
 		"message": "nightly-sweep: exit 1",
 		"url":     "https://example.com/run/7",
-		"source":  "claudeq",
+		"source":  "dispatchq",
 	}
 	for k, v := range want {
 		if body[k] != v {
@@ -55,14 +55,14 @@ func TestWebhookPostsACustomTemplate(t *testing.T) {
 	defer srv.Close()
 
 	wh := Webhook{URL: srv.URL, Template: `{"text":"{{title}} — {{message}}"}`, Client: srv.Client()}
-	if err := wh.Notify(context.Background(), Notification{Title: "ClaudeQ", Message: "done"}); err != nil {
+	if err := wh.Notify(context.Background(), Notification{Title: "DispatchQ", Message: "done"}); err != nil {
 		t.Fatalf("Notify: %v", err)
 	}
 	var slack struct{ Text string }
 	if err := json.Unmarshal([]byte(raw), &slack); err != nil {
 		t.Fatalf("body %q is not JSON: %v", raw, err)
 	}
-	if slack.Text != "ClaudeQ — done" {
+	if slack.Text != "DispatchQ — done" {
 		t.Fatalf("text = %q", slack.Text)
 	}
 }

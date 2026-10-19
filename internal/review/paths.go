@@ -24,7 +24,7 @@ const (
 	maxTotalFileBytes = 48 * 1024
 )
 
-// Candidate is a path mentioned in a prompt, together with what claudeq found
+// Candidate is a path mentioned in a prompt, together with what dispatchq found
 // at that location on this machine.
 type Candidate struct {
 	// Raw is the path exactly as it appears in the prompt.
@@ -32,10 +32,10 @@ type Candidate struct {
 	// Resolved is the absolute path Raw refers to. Empty when a relative path
 	// cannot be resolved because the task has no usable working directory.
 	Resolved string
-	// Exists reports whether something is at Resolved. A path claudeq is not
+	// Exists reports whether something is at Resolved. A path dispatchq is not
 	// allowed to look at counts as existing (see Unreadable).
 	Exists bool
-	// Unreadable marks a path macOS refused to let claudeq stat, so Exists and
+	// Unreadable marks a path macOS refused to let dispatchq stat, so Exists and
 	// IsDir are not actually known.
 	Unreadable bool
 	// IsDir reports whether Resolved is a directory.
@@ -68,7 +68,7 @@ var knownExts = map[string]bool{
 	"css": true, "scss": true, "sql": true, "csv": true, "tsv": true, "log": true, "lock": true,
 	"pdf": true, "png": true, "jpg": true, "jpeg": true, "gif": true, "svg": true, "webp": true,
 	"zip": true, "tar": true, "gz": true, "sqlite": true, "db": true, "mod": true, "sum": true,
-	"claudeq": true, "plantuml": true, "puml": true, "tf": true, "gradle": true, "make": true,
+	"dispatchq": true, "plantuml": true, "puml": true, "tf": true, "gradle": true, "make": true,
 }
 
 // tokenSeparators end a path token. Quotes, brackets and markdown punctuation
@@ -134,7 +134,7 @@ func looksLikePath(p string) bool {
 	// URLs, scp-style remotes and shell/template placeholders are not local
 	// paths. A colon survives only in those forms here: a "file.go:42" location
 	// suffix has already been cut by cleanToken. "$HOME/" is the one variable
-	// whose value claudeq knows, so a path under it is checked like "~/".
+	// whose value dispatchq knows, so a path under it is checked like "~/".
 	if strings.ContainsAny(strings.TrimPrefix(p, homeVar), ":$@") {
 		return false
 	}

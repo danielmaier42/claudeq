@@ -1,4 +1,4 @@
-// What the macOS app window (cmd/claudeqapp) binds into the page. Every member
+// What the macOS app window (cmd/dispatchqapp) binds into the page. Every member
 // is optional: in a plain browser tab none of them exist, and the UI has to
 // work there too.
 // What a click on a macOS notification hands the page: the inbox entry's id

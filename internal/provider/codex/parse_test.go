@@ -58,7 +58,7 @@ func TestParseCapturedRuns(t *testing.T) {
 			wantInput: 32176, wantOutTok: 14,
 		},
 		{
-			// Codex coordinates its own subagents; claudeq counts the whole thing
+			// Codex coordinates its own subagents; dispatchq counts the whole thing
 			// as one job and reads only the parent's answer and totals.
 			name: "a run with provider-owned subagents", fixture: "subagent.jsonl", exitCode: 0,
 			wantStatus: store.StatusSuccess, wantOutput: "PARENT_OK",
@@ -105,7 +105,7 @@ func TestParseCapturedRuns(t *testing.T) {
 			if got.Metrics.InputTokens != tc.wantInput || got.Metrics.OutputTokens != tc.wantOutTok {
 				t.Fatalf("usage = %+v, want %d in / %d out", got.Metrics, tc.wantInput, tc.wantOutTok)
 			}
-			// Codex reports no money, and claudeq does not invent any.
+			// Codex reports no money, and dispatchq does not invent any.
 			if got.Metrics.CostUSD != 0 {
 				t.Fatalf("cost = %v, want none — Codex reports none", got.Metrics.CostUSD)
 			}
@@ -136,7 +136,7 @@ func TestUsageLimitReportsItsOwnResetTime(t *testing.T) {
 
 // TestParseToleratesNoise covers what a real stream carries besides its records:
 // blank lines, stderr text, half-written JSON, and record types this version of
-// claudeq has never heard of. None of it may change the outcome.
+// dispatchq has never heard of. None of it may change the outcome.
 func TestParseToleratesNoise(t *testing.T) {
 	p := (&Adapter{}).NewParser()
 	c := provider.NewCollector("assigned", "Codex")

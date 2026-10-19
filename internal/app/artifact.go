@@ -102,7 +102,7 @@ func PublishArtifact(s *store.Store, in PublishInput) (store.Artifact, error) {
 
 // ResolveArtifactSources fills in the group and origin the Artifacts view
 // filters by, in place. An artifact keeps what it recorded when it was
-// published; one published before claudeq recorded either is traced back
+// published; one published before dispatchq recorded either is traced back
 // through run history: its run's task gives the group, and the origin its run
 // recorded, else the first run of its workflow, else the publishing job itself.
 // A guessed origin (the last two) only stands when it is a job still in the

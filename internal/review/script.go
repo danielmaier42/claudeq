@@ -11,14 +11,14 @@ import (
 // daemon a minimal PATH that reads no shell profile. A tool the operator calls
 // by name every day in Terminal is then simply not there at 3 a.m. — the most
 // common way a script that "works" fails unattended. So for a shell script
-// claudeq looks up each command it runs on that very PATH, and, when one is
+// dispatchq looks up each command it runs on that very PATH, and, when one is
 // missing, in the places tools usually live, so the reviewer can offer the
 // absolute path instead of guessing one.
 
 // maxCommands caps how many distinct commands are looked up.
 const maxCommands = 60
 
-// Command is a program a shell script runs by name, and where claudeq finds it.
+// Command is a program a shell script runs by name, and where dispatchq finds it.
 type Command struct {
 	// Name is the command as written.
 	Name string
@@ -30,12 +30,12 @@ type Command struct {
 	Elsewhere string
 }
 
-// shellInterpreters are the interpreters whose scripts claudeq reads commands
+// shellInterpreters are the interpreters whose scripts dispatchq reads commands
 // from. Anything else (python, node, …) has no commands to look up this way.
 var shellInterpreters = map[string]bool{"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true}
 
 // isShellScript reports whether the script runs in a POSIX-style shell: no
-// shebang (claudeq falls back to /bin/sh) or one naming a shell, directly or
+// shebang (dispatchq falls back to /bin/sh) or one naming a shell, directly or
 // through env.
 func isShellScript(src string) bool {
 	if !strings.HasPrefix(src, "#!") {

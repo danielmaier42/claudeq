@@ -2,6 +2,8 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
+	"os"
 	"time"
 )
 
@@ -43,6 +45,9 @@ type State struct {
 	// update prompt. While the latest release equals it, no "update available"
 	// prompt is shown; a newer release supersedes it and prompts again.
 	DismissedUpdateVersion string `json:"dismissed_update_version"`
+	// WhatsNewSeen is the edition of the "What's new" dialog the user has
+	// closed. The dialog shows while it differs from the running edition.
+	WhatsNewSeen string `json:"whats_new_seen,omitempty"`
 	// CollapsedGroups maps a queue group name to true while its section is
 	// folded shut in the dashboard. It lives in the state, not the config: it is
 	// a view preference the app writes, not something to hand-edit — and it has
@@ -138,7 +143,7 @@ type PendingResume struct {
 	// SessionID is the harness's own id for the conversation.
 	SessionID string `json:"session_id"`
 	// ProviderID is the instance that issued it. A task moved to another
-	// provider cannot continue a session the old one owns, and claudeq does not
+	// provider cannot continue a session the old one owns, and dispatchq does not
 	// try — it starts fresh and says so.
 	ProviderID string `json:"provider_id,omitempty"`
 }
@@ -283,3 +288,18 @@ func (s *State) DismissUpdate(version string) { s.DismissedUpdateVersion = versi
 
 // DismissedUpdate returns the last dismissed update version, or "" if none.
 func (s *State) DismissedUpdate() string { return s.DismissedUpdateVersion }
+
+// PrimeWhatsNew marks the "What's new" edition as seen on a fresh installation,
+// one with neither a config nor a state yet: the dialog introduces changes to
+// people who used the app before, not to someone opening it for the first time.
+func (s *Store) PrimeWhatsNew(edition string) error {
+	for _, name := range []string{configFile, stateFile} {
+		if _, err := os.Stat(s.path(name)); err == nil || !errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+	}
+	return s.UpdateState(func(st *State) error {
+		st.WhatsNewSeen = edition
+		return nil
+	})
+}

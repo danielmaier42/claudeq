@@ -1,4 +1,4 @@
-// Package aside runs the questions claudeq asks a harness on its own behalf:
+// Package aside runs the questions dispatchq asks a harness on its own behalf:
 // the prompt review that checks a task before it is queued, and the feedback
 // assistant that drafts a GitHub issue.
 //
@@ -41,10 +41,10 @@ type Runner struct {
 	dirErr error
 }
 
-// ErrUnavailable means the chosen instance cannot answer claudeq's questions —
+// ErrUnavailable means the chosen instance cannot answer dispatchq's questions —
 // it is not configured, its adapter does not support asides, or its CLI could
 // not be found. Callers report it as "unavailable", never as an answer.
-var ErrUnavailable = errors.New("this provider cannot answer claudeq's own questions")
+var ErrUnavailable = errors.New("this provider cannot answer dispatchq's own questions")
 
 // Ask runs one turn against inst and returns what the harness said.
 func (r *Runner) Ask(ctx context.Context, inst provider.Instance, req provider.AsideRequest) (provider.Aside, error) {
@@ -82,7 +82,7 @@ func (r *Runner) Ask(ctx context.Context, inst provider.Instance, req provider.A
 		return provider.Aside{}, err
 	}
 	// Harnesses that name their own sessions report the id back; the ones that
-	// take claudeq's report nothing, and the caller must still get one back to
+	// take dispatchq's report nothing, and the caller must still get one back to
 	// continue with.
 	if res.SessionID == "" {
 		res.SessionID = req.SessionID
@@ -121,7 +121,7 @@ func execCommand(ctx context.Context, dir string, cmd provider.Command) ([]byte,
 
 // dirName is the throwaway directory asides run in, inside the user's own
 // temporary directory (per-user on macOS, so the fixed name is not shared).
-const dirName = "claudeq-aside"
+const dirName = "dispatchq-aside"
 
 // sessionDir is a stable empty directory to run in.
 //

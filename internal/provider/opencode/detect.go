@@ -12,7 +12,7 @@ import (
 // DetectBinary finds the opencode CLI. It returns an absolute path, or "" if
 // it cannot be located.
 //
-// It exists for the same reason the Claude Code and Codex ones do: claudeq's
+// It exists for the same reason the Claude Code and Codex ones do: dispatchq's
 // daemon and app run under launchd with a minimal PATH that excludes the usual
 // CLI install locations, so a plain `opencode` lookup fails even when the CLI
 // works fine in the operator's terminal. The common locations are checked
@@ -21,7 +21,7 @@ import (
 func DetectBinary() string {
 	// An explicit override wins — used by CI/tests and by an installation in
 	// an unusual place.
-	if p := os.Getenv("CLAUDEQ_OPENCODE_BIN"); p != "" {
+	if p := os.Getenv("DISPATCHQ_OPENCODE_BIN"); p != "" {
 		return p
 	}
 	home, _ := os.UserHomeDir()

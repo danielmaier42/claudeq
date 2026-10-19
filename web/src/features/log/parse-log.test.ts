@@ -60,10 +60,10 @@ describe('parseLog', () => {
     ])
   })
 
-  it('reads claudeq notes, opencode and codex events', () => {
+  it('reads dispatchq (and older claudeq) notes, opencode and codex events', () => {
     const entries = parseLog(
       lines(
-        {type: 'claudeq_status', status: 'note', message: 'Pool chose A'},
+        {type: 'dispatchq_status', status: 'note', message: 'Pool chose A'},
         {type: 'claudeq_status', status: 'failed', message: 'exit 1'},
         {type: 'text', part: {text: 'hi from opencode'}},
         {type: 'item.completed', item: {type: 'agent_message', text: 'hi from codex'}},

@@ -43,9 +43,9 @@ func webHandler(fsys fs.FS) http.Handler {
 	})
 }
 
-const notBuiltPage = `<!doctype html><html lang="en"><meta charset="utf-8"><title>ClaudeQ</title>
+const notBuiltPage = `<!doctype html><html lang="en"><meta charset="utf-8"><title>DispatchQ</title>
 <body style="font:14px -apple-system,sans-serif;padding:48px;color:#444">
-<h1 style="font-size:18px">ClaudeQ: the UI is not built</h1>
+<h1 style="font-size:18px">DispatchQ: the UI is not built</h1>
 <p>This daemon was compiled without its web UI. Run <code>make web</code> (or
 <code>cd web &amp;&amp; npm ci &amp;&amp; npm run build</code>) and build the daemon again.</p>
 </body></html>`

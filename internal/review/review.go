@@ -2,7 +2,7 @@
 // task is queued: the paths it names, the folders they would be written into,
 // and the instruction files it tells the run to read. The findings and the
 // rewrite are produced by a harness, asked as an aside — tool-free,
-// short-lived, in a directory of its own — while claudeq supplies the
+// short-lived, in a directory of its own — while dispatchq supplies the
 // filesystem facts. Which harness answers is the operator's choice; this
 // package does not know one from another.
 package review
@@ -19,7 +19,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/provider"
 )
 
-// Kind is which of claudeq's two prompt fields is being reviewed. They differ
+// Kind is which of dispatchq's two prompt fields is being reviewed. They differ
 // in what a finding means: a task prompt runs in one working directory, while
 // the global system prompt is prepended to every task in every directory.
 type Kind string
@@ -33,6 +33,10 @@ const (
 	// KindScript reviews a script job's program, which runs in its working
 	// directory under the daemon's environment rather than going to a model.
 	KindScript Kind = "script"
+	// KindRename is a task (prompt or script) checked for what still names
+	// ClaudeQ, the app's name before 2.0, when the operator asks for it after
+	// the update.
+	KindRename Kind = "rename"
 )
 
 // DefaultTimeout bounds a single review. The reviewer runs tool-free on one
@@ -78,7 +82,7 @@ type Asker interface {
 }
 
 // ErrUnavailable means no review can run right now: no provider is chosen for
-// it, or the chosen one cannot answer claudeq's questions. The caller reports
+// it, or the chosen one cannot answer dispatchq's questions. The caller reports
 // it as "review unavailable", never as a finding about the prompt.
 var ErrUnavailable = aside.ErrUnavailable
 

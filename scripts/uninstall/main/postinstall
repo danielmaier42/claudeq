@@ -1,31 +1,35 @@
 #!/bin/sh
-# postinstall of "Uninstall ClaudeQ", the always-selected part: remove ClaudeQ
+# postinstall of "Uninstall DispatchQ", the always-selected part: remove DispatchQ
 # from this Mac. The window and the background service are stopped (a run in
 # progress is cancelled), then the LaunchAgent, the pmset sudoers entry, the
-# installer receipt and the app go. Tasks, history and settings stay; the
+# installer receipt and the app go, and with them whatever ClaudeQ (the name
+# before 2.0) left behind. Tasks, history and settings stay; the
 # optional "data" part of the package removes those, after this one.
 #
 # Every step tolerates something that is already gone, so the uninstaller also
 # cleans up after an app that was dragged to the Bin.
 #
-# CLAUDEQ_APP and CLAUDEQ_SUDOERS stand in for the real paths in
+# DISPATCHQ_APP and DISPATCHQ_SUDOERS stand in for the real paths in
 # scripts/acceptance.sh (see common.sh).
 set -u
 
 . "$(dirname "$0")/common.sh"
 
-APP="${CLAUDEQ_APP:-/Applications/ClaudeQ.app}"
-SUDOERS="${CLAUDEQ_SUDOERS:-/etc/sudoers.d/claudeq}"
+APP="${DISPATCHQ_APP:-/Applications/DispatchQ.app}"
+SUDOERS="${DISPATCHQ_SUDOERS:-/etc/sudoers.d/dispatchq}"
+LEGACY_APP="$(dirname "$APP")/ClaudeQ.app"
+LEGACY_SUDOERS="$(dirname "$SUDOERS")/claudeq"
 
-# is_claudeq_app succeeds only for an app bundle that says it is ClaudeQ, so a
-# path read from a plist can never delete anything else.
-is_claudeq_app() {
+# is_dispatchq_app succeeds only for an app bundle that says it is DispatchQ
+# (or ClaudeQ), so a path read from a plist can never delete anything else.
+is_dispatchq_app() {
 	case "$1" in
 	/*.app) ;;
 	*) return 1 ;;
 	esac
-	[ -d "$1" ] &&
-		[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$1/Contents/Info.plist" 2>/dev/null)" = "$LABEL" ]
+	[ -d "$1" ] || return 1
+	id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$1/Contents/Info.plist" 2>/dev/null)"
+	[ "$id" = "$LABEL" ] || [ "$id" = "$LEGACY_LABEL" ]
 }
 
 # stop ends the user's processes named exactly $1: TERM, up to $2 tenths of a
@@ -34,7 +38,7 @@ is_claudeq_app() {
 stop() {
 	[ -n "$uid" ] || return 0
 	pgrep -x -u "$uid" "$1" >/dev/null 2>&1 || return 0
-	echo "claudeq: stopping $1"
+	echo "dispatchq: stopping $1"
 	pkill -x -u "$uid" "$1" 2>/dev/null || true
 	i=0
 	while pgrep -x -u "$uid" "$1" >/dev/null 2>&1 && [ "$i" -lt "$2" ]; do
@@ -47,43 +51,57 @@ stop() {
 	fi
 }
 
-plist=""
-[ -n "$homeDir" ] && plist="$homeDir/Library/LaunchAgents/$LABEL.plist"
-
 # The agent may run a copy of the app other than $APP. Read which before the
 # plist goes, so that copy is removed as well.
-agentApp=""
-if [ -n "$plist" ] && [ -f "$plist" ]; then
+agentApps=""
+for label in "$LABEL" "$LEGACY_LABEL"; do
+	[ -n "$homeDir" ] || break
+	plist="$homeDir/Library/LaunchAgents/$label.plist"
+	[ -f "$plist" ] || continue
 	bin=$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$plist" 2>/dev/null || echo "")
 	case "$bin" in
-	*.app/Contents/MacOS/*) agentApp="${bin%/Contents/MacOS/*}" ;;
+	*.app/Contents/MacOS/*) agentApps="$agentApps
+${bin%/Contents/MacOS/*}" ;;
 	esac
-fi
+done
 
 # The window first: it would only show a daemon that is gone.
+stop dispatchqapp 50
 stop claudeqapp 50
 
-# From inside the user's session, as the installer's postinstall does.
-if [ -n "$uid" ]; then
-	as_user launchctl bootout "gui/$uid/$LABEL" 2>/dev/null || true
-fi
-if [ -n "$plist" ] && [ -f "$plist" ]; then
-	rm -f "$plist"
-	echo "claudeq: removed LaunchAgent $plist"
-fi
+for label in "$LABEL" "$LEGACY_LABEL"; do
+	# From inside the user's session, as the installer's postinstall does.
+	if [ -n "$uid" ]; then
+		as_user launchctl bootout "gui/$uid/$label" 2>/dev/null || true
+	fi
+	plist=""
+	[ -n "$homeDir" ] && plist="$homeDir/Library/LaunchAgents/$label.plist"
+	if [ -n "$plist" ] && [ -f "$plist" ]; then
+		rm -f "$plist"
+		echo "dispatchq: removed LaunchAgent $plist"
+	fi
+done
 # A daemon launchd does not manage (started by the window) keeps running too.
+stop dispatchqd 150
 stop claudeqd 150
 
-if [ -f "$SUDOERS" ]; then
-	rm -f "$SUDOERS"
-	echo "claudeq: removed pmset wake permission $SUDOERS"
-fi
-pkgutil --forget "$LABEL" >/dev/null 2>&1 && echo "claudeq: forgot installer receipt $LABEL"
+for file in "$SUDOERS" "$LEGACY_SUDOERS"; do
+	if [ -f "$file" ]; then
+		rm -f "$file"
+		echo "dispatchq: removed pmset wake permission $file"
+	fi
+done
+for label in "$LABEL" "$LEGACY_LABEL"; do
+	pkgutil --forget "$label" >/dev/null 2>&1 && echo "dispatchq: forgot installer receipt $label"
+done
 
-for app in "$APP" "$agentApp"; do
-	if [ -n "$app" ] && is_claudeq_app "$app"; then
+# Word splitting on newlines only: an app path may contain spaces.
+IFS='
+'
+for app in "$APP" "$LEGACY_APP" $agentApps; do
+	if [ -n "$app" ] && is_dispatchq_app "$app"; then
 		rm -rf "$app"
-		echo "claudeq: removed $app"
+		echo "dispatchq: removed $app"
 	fi
 done
 

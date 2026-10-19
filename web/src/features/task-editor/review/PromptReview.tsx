@@ -6,7 +6,7 @@ import {Tooltip} from '@/components/ui/tooltip'
 import {cn} from '@/lib/utils'
 import {ReviewController} from './controller'
 
-// PromptReview is the purple "ClaudeQ suggests:" banner under a prompt box. It
+// PromptReview is the purple "DispatchQ suggests:" banner under a prompt box. It
 // renders nothing until there is something to say. Mounting it shows only what
 // is already known about the text (no Claude usage); every later change of the
 // prompt, kind or folder is reviewed after a pause in typing. `fresh` asks for
@@ -40,7 +40,7 @@ export function PromptReview({
   if (view.state === 'busy')
     return (
       <Banner className={cn('text-muted-foreground', className)} busy>
-        <span className="font-semibold text-ai">ClaudeQ is checking this {view.noun}…</span>
+        <span className="font-semibold text-ai">DispatchQ is checking this {view.noun}…</span>
       </Banner>
     )
 
@@ -53,7 +53,7 @@ export function PromptReview({
   return (
     <Banner className={className}>
       <div className="font-semibold text-ai">
-        {remembered ? 'ClaudeQ suggested earlier:' : 'ClaudeQ suggests:'}
+        {remembered ? 'DispatchQ suggested earlier:' : 'DispatchQ suggests:'}
       </div>
       <div className="mt-0.5 break-words whitespace-pre-wrap text-foreground/90">{res.message}</div>
       <div className="mt-2.5 flex flex-wrap gap-2">

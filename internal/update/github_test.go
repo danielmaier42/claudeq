@@ -15,7 +15,7 @@ const sampleReleasesJSON = `[
     "published_at": "2026-07-20T09:31:27Z",
     "assets": [
       {"name": "checksums.txt", "browser_download_url": "https://example.test/checksums.txt"},
-      {"name": "claudeq-0.1.4.pkg", "browser_download_url": "https://example.test/claudeq-0.1.4.pkg"}
+      {"name": "dispatchq-0.1.4.pkg", "browser_download_url": "https://example.test/dispatchq-0.1.4.pkg"}
     ]
   },
   {
@@ -33,7 +33,7 @@ const sampleReleasesJSON = `[
   {
     "tag_name": "v0.1.2",
     "body": "Earlier release.",
-    "assets": [{"name": "claudeq-0.1.2.pkg", "browser_download_url": "https://example.test/claudeq-0.1.2.pkg"}]
+    "assets": [{"name": "dispatchq-0.1.2.pkg", "browser_download_url": "https://example.test/dispatchq-0.1.2.pkg"}]
   }
 ]`
 
@@ -64,7 +64,7 @@ func TestGitHubFetcherReleases(t *testing.T) {
 	if rels[0].Version != "0.1.4" || rels[1].Version != "0.1.2" {
 		t.Errorf("versions = %q, %q", rels[0].Version, rels[1].Version)
 	}
-	if rels[0].PkgURL != "https://example.test/claudeq-0.1.4.pkg" || rels[0].PkgName != "claudeq-0.1.4.pkg" {
+	if rels[0].PkgURL != "https://example.test/dispatchq-0.1.4.pkg" || rels[0].PkgName != "dispatchq-0.1.4.pkg" {
 		t.Errorf("pkg selection wrong: %q / %q", rels[0].PkgURL, rels[0].PkgName)
 	}
 	if rels[0].Notes == "" || rels[0].HTMLURL == "" || rels[0].PublishedAt.IsZero() {

@@ -6,7 +6,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/provider"
 )
 
-// AsideCommand implements provider.Adapter. Codex does not answer claudeq's own
+// AsideCommand implements provider.Adapter. Codex does not answer dispatchq's own
 // questions yet, so the capability is not claimed and this reports it.
 //
 // The mechanics look close enough — `codex exec --json` with a read-only
@@ -19,11 +19,11 @@ import (
 // have been shown to deliver them, and say so rather than failing at the point
 // of use.
 func (a *Adapter) AsideCommand(provider.Instance, provider.AsideRequest) (provider.Command, error) {
-	return provider.Command{}, fmt.Errorf("%w: Codex cannot answer claudeq's own questions yet", provider.ErrUnsupported)
+	return provider.Command{}, fmt.Errorf("%w: Codex cannot answer dispatchq's own questions yet", provider.ErrUnsupported)
 }
 
 // ParseAside implements provider.Adapter. Nothing produces output to parse
 // while AsideCommand refuses.
 func (a *Adapter) ParseAside([]byte) (provider.Aside, error) {
-	return provider.Aside{}, fmt.Errorf("%w: Codex cannot answer claudeq's own questions yet", provider.ErrUnsupported)
+	return provider.Aside{}, fmt.Errorf("%w: Codex cannot answer dispatchq's own questions yet", provider.ErrUnsupported)
 }

@@ -854,7 +854,7 @@ func TestContinueRunGuards(t *testing.T) {
 		{"no task snapshot", func(r *store.Run) { r.Task = nil }, http.StatusConflict},
 		{"working dir gone", func(r *store.Run) {
 			tk := *r.Task
-			tk.WorkingDir = "/nonexistent/claudeq-test"
+			tk.WorkingDir = "/nonexistent/dispatchq-test"
 			r.Task = &tk
 		}, http.StatusConflict},
 		{"failed run is continuable", func(r *store.Run) { r.Status = store.StatusFailed }, http.StatusNoContent},
@@ -1065,8 +1065,8 @@ func TestListModels(t *testing.T) {
 
 // uiFS stands in for a built UI: the page, and one hashed bundle it loads.
 var uiFS = fstest.MapFS{
-	"index.html":             {Data: []byte(`<!doctype html><title>ClaudeQ</title><script type="module" src="/assets/index-abc123.js"></script>`)},
-	"assets/index-abc123.js": {Data: []byte("console.log('claudeq')")},
+	"index.html":             {Data: []byte(`<!doctype html><title>DispatchQ</title><script type="module" src="/assets/index-abc123.js"></script>`)},
+	"assets/index-abc123.js": {Data: []byte("console.log('dispatchq')")},
 	"logo.svg":               {Data: []byte("<svg/>")},
 }
 
@@ -1423,7 +1423,7 @@ func TestContinueRunUsesTheOwningProvider(t *testing.T) {
 	}
 }
 
-// TestContinueRunRefusesAHarnessThatCannot: claudeq never guesses at another
+// TestContinueRunRefusesAHarnessThatCannot: dispatchq never guesses at another
 // binary when the one that owns the session cannot be reopened.
 func TestContinueRunRefusesAHarnessThatCannot(t *testing.T) {
 	st, err := store.Open(t.TempDir())

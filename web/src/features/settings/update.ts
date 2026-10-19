@@ -13,8 +13,8 @@ export const versionLabel = (u: UpdateStatus) => (u.supported ? 'v' + u.current 
 export const httpsOnly = (url: string | undefined) => (url && /^https:\/\//i.test(url) ? url : '')
 
 export function updateSummary(u: UpdateStatus): string {
-  if (u.restart_required) return `ClaudeQ ${u.installed} is installed but not running yet`
-  if (u.available) return `ClaudeQ ${u.latest} is available`
+  if (u.restart_required) return `DispatchQ ${u.installed} is installed but not running yet`
+  if (u.available) return `DispatchQ ${u.latest} is available`
   if (!u.supported) return 'Development build: updates are checked in released versions'
   return 'You’re on the latest version' + (u.current ? ` (${u.current})` : '')
 }
@@ -29,8 +29,8 @@ export async function checkForUpdates() {
   }
   store(u)
   if (u.restart_required)
-    toast(`ClaudeQ ${u.installed} is installed but not running`, {description: 'Finish the update below.'})
-  else if (u.available) toast.success(`Update available: ClaudeQ ${u.latest}`)
+    toast(`DispatchQ ${u.installed} is installed but not running`, {description: 'Finish the update below.'})
+  else if (u.available) toast.success(`Update available: DispatchQ ${u.latest}`)
   else if (!u.supported) toast('Running a development build')
   else if (u.error) toast.error('Check failed', {description: u.error})
   else toast.success('You’re up to date')
@@ -78,6 +78,6 @@ export async function finishUpdate(): Promise<boolean> {
       /* still restarting */
     }
   }
-  toast.error('The background service did not come back', {description: 'Reopen ClaudeQ.'})
+  toast.error('The background service did not come back', {description: 'Reopen DispatchQ.'})
   return false
 }

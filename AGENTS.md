@@ -1,4 +1,4 @@
-# AGENTS.md — Working agreement & quality bar for claudeq
+# AGENTS.md — Working agreement & quality bar for dispatchq
 
 This file binds any AI agent working in this repository. The maintainer does **not** review
 code and is not interested in reading it. Full responsibility for code and software quality
@@ -84,7 +84,7 @@ If any gate fails, it is fixed before the work is reported — never reported wi
   build can't be produced (e.g. missing macOS tooling), state that explicitly rather than
   omitting it.
 - **Update and reinstall after a merge.** Once the maintainer merges a PR, pull `origin/main`
-  into the local `/Users/dm/Documents/Private/claudeq` checkout (fast-forward only), rebuild
+  into the local `/Users/dm/Documents/Private/dispatchq` checkout (fast-forward only), rebuild
   the installer package, and install it so the locally running app matches what is now on
   `main`. Installing needs the maintainer's password (`sudo installer -pkg … -target /`
   cannot run unattended) — open the built `.pkg` with `open` and hand the install dialog to

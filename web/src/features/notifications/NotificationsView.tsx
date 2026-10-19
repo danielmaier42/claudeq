@@ -19,7 +19,7 @@ import {clearNotificationFilters, setNotificationFilters, useNotificationFilters
 
 // The Notifications view: every notification the daemon sent — a run's
 // outcome, a new artifact, a provider in trouble, what a task said with
-// `claudeq notify` — as it was shown, newest first, with the ones not looked
+// `dispatchq notify` — as it was shown, newest first, with the ones not looked
 // at yet counted in the sidebar.
 
 const BATCH = 50
@@ -50,7 +50,7 @@ export function NotificationsView() {
   return (
     <ViewLayout
       title="Notifications"
-      subtitle={unread ? `${unread} unread` : 'Everything ClaudeQ announced'}
+      subtitle={unread ? `${unread} unread` : 'Everything DispatchQ announced'}
       actions={
         <Button onClick={markAll} loading={marking} disabled={!unread}>
           {!marking && <Eye />}
@@ -113,7 +113,7 @@ export function NotificationsView() {
         <EmptyState
           icon={<BellOff />}
           title="No notifications yet"
-          description="Everything ClaudeQ announces — a run that failed, a new artifact, a message from a task — is listed here, even after the macOS banner is gone."
+          description="Everything DispatchQ announces — a run that failed, a new artifact, a message from a task — is listed here, even after the macOS banner is gone."
         />
       ) : !filtered.length ? (
         <EmptyState

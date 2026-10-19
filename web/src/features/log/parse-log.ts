@@ -1,6 +1,6 @@
 // parseLog turns a run's log into what the chat view shows. The log is JSONL:
 // Claude Code's stream-json, or the verbatim event streams of opencode and
-// Codex (their adapters write them unchanged), plus claudeq's own status lines.
+// Codex (their adapters write them unchanged), plus dispatchq's own status lines.
 // A line that is not JSON is kept as it is.
 //
 // Tool activity between two messages folds into one "steps" entry, so a run
@@ -177,9 +177,10 @@ function addEvent(b: Builder, ev: Json) {
     })
     return
   }
-  // A claudeq remark about the run itself (a dropped session, a pool choice)
-  // is not a failure, so it does not borrow the failure colour.
-  if (type === 'claudeq_status') {
+  // A dispatchq remark about the run itself (a dropped session, a pool choice)
+  // is not a failure, so it does not borrow the failure colour. Logs written
+  // before the rename say claudeq_status.
+  if (type === 'dispatchq_status' || type === 'claudeq_status') {
     const status = str(ev.status) || 'error'
     b.push({
       kind: 'status',

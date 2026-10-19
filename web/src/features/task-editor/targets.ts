@@ -72,7 +72,7 @@ export function takesEffort(target: string, providers: Provider[], pools: Pool[]
 }
 
 // REASONING_LEVELS are what a harness that takes a reasoning effort accepts.
-// The list is claudeq's, not a provider's: it is a suggestion in a picker, and a
+// The list is dispatchq's, not a provider's: it is a suggestion in a picker, and a
 // value a provider does not know is refused by the provider, not here.
 export const REASONING_LEVELS = ['low', 'medium', 'high', 'xhigh']
 

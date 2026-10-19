@@ -37,7 +37,7 @@ export function AboutSection() {
             <img src="/logo.svg" alt="" className="size-11 shrink-0 rounded-[10px] shadow-sm" />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 text-[15px] font-semibold">
-                ClaudeQ
+                DispatchQ
                 {update?.current ? (
                   <Badge tone="outline" className="font-mono">
                     {versionLabel(update)}
@@ -61,14 +61,14 @@ export function AboutSection() {
       <Section title="Software updates">
         <RowGroup>
           <Row
-            label={update ? updateSummary(update) : 'Check GitHub for a newer release of ClaudeQ'}
+            label={update ? updateSummary(update) : 'Check GitHub for a newer release of DispatchQ'}
             description={
               update?.last_checked ? (
                 <Tooltip content={fullTime(update.last_checked)}>
                   <span className="cursor-default">Last checked {relTime(update.last_checked)}</span>
                 </Tooltip>
               ) : (
-                'ClaudeQ checks GitHub every hour'
+                'DispatchQ checks GitHub every hour'
               )
             }
             control={

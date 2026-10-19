@@ -45,7 +45,7 @@ func (h *holds) update(reasons map[string]string, now time.Time, log io.Writer) 
 			logged[id] = last
 		}
 		if waited := now.Sub(since); waited >= HoldLogAfter && logged[id] != reason {
-			fmt.Fprintf(log, "claudeqd: task %q has been due for %s and does not start: %s\n",
+			fmt.Fprintf(log, "dispatchqd: task %q has been due for %s and does not start: %s\n",
 				id, waited.Round(time.Minute), reason)
 			logged[id] = reason
 		}

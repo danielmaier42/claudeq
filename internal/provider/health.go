@@ -28,7 +28,7 @@ const (
 	// HealthDisabled means the operator switched the instance off.
 	HealthDisabled HealthState = "disabled"
 	// HealthCheckFailed means the check itself could not reach a verdict, so
-	// claudeq does not know either way — and therefore does not start a job.
+	// dispatchq does not know either way — and therefore does not start a job.
 	HealthCheckFailed HealthState = "check_failed"
 )
 
@@ -49,7 +49,7 @@ type Health struct {
 }
 
 // Ready reports whether a job may start on the checked instance. Anything but
-// a clean verdict says no: claudeq does not launch a job on a harness it could
+// a clean verdict says no: dispatchq does not launch a job on a harness it could
 // not confirm.
 func (h Health) Ready() bool { return h.State == HealthReady }
 

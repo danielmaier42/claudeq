@@ -1,4 +1,4 @@
-// Package launchd installs claudeqd as a user LaunchAgent so it starts at login
+// Package launchd installs dispatchqd as a user LaunchAgent so it starts at login
 // and is restarted if it exits (PLAN.md §5.1, NFA-03).
 package launchd
 
@@ -14,17 +14,20 @@ import (
 )
 
 // DefaultLabel is the LaunchAgent label / reverse-DNS identifier.
-const DefaultLabel = "de.maierdaniel.claudeq"
+const DefaultLabel = "de.maierdaniel.dispatchq"
+
+// LegacyLabel is the label the agent had while the app was called ClaudeQ.
+const LegacyLabel = "de.maierdaniel.claudeq"
 
 // Config parameterizes the generated plist.
 type Config struct {
 	Label      string
-	BinPath    string   // absolute path to claudeqd
+	BinPath    string   // absolute path to dispatchqd
 	Args       []string // arguments (e.g. ["run"])
 	StdoutPath string
 	StderrPath string
 	// AssociatedBundleID ties the agent to an app bundle so System Settings →
-	// Login Items shows the app's name and icon instead of a bare "claudeqd
+	// Login Items shows the app's name and icon instead of a bare "dispatchqd
 	// (unknown developer)". Empty omits the key (e.g. dev runs outside a bundle).
 	AssociatedBundleID string
 }

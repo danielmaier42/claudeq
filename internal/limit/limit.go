@@ -65,7 +65,7 @@ func (g *Gate) now() time.Time { return g.clock.Now() }
 
 // Gates are the rate-limit gates of several provider instances, one each.
 //
-// An allowance belongs to an account, not to claudeq: a Codex limit says
+// An allowance belongs to an account, not to dispatchq: a Codex limit says
 // nothing about a Claude subscription, and two Claude subscriptions do not
 // share one either. So a blocked provider holds up only its own tasks, and the
 // rest of the queue keeps going.

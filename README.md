@@ -1,12 +1,12 @@
 <div align="center">
-  <img src="internal/api/web/logo.svg" width="96" height="96" alt="ClaudeQ">
-  <h1>ClaudeQ</h1>
+  <img src="internal/api/web/logo.svg" width="96" height="96" alt="DispatchQ">
+  <h1>DispatchQ</h1>
   <p>A queue for unattended coding-agent runs on your Mac.</p>
 </div>
 
 <!-- TODO: screenshot of the Queue view goes here (docs/queue.png, light and dark). -->
 
-ClaudeQ takes the work you would otherwise babysit in a terminal and runs it
+DispatchQ takes the work you would otherwise babysit in a terminal and runs it
 while you are away, most usefully overnight, once your usage allowance has
 reset. A task is a prompt plus the folder it runs in, with a time it may start.
 A background daemon runs it headless through
@@ -26,15 +26,15 @@ workflow engine:
   its own allowance. A task names the one it runs on, or is asked of several at
   once, with a further task that joins the answers.
 - **Tasks that make tasks.** A run can queue follow-up work, publish a report
-  or an export, and send you a message, all through the bundled `claudeq` CLI.
+  or an export, and send you a message, all through the bundled `dispatchq` CLI.
   A prompt can say *"if you find something worth fixing, queue it instead of
   doing it now."*
 - **Built for 3 a.m.** Every run is told it is unattended. Prompts are checked
   against this Mac before they are queued. Hung runs are killed, orphaned runs
   recovered, and the Mac is woken for timed work and held awake while it runs.
 - **Nothing leaves the machine.** Tasks, settings and history are plain files
-  under `~/Library/Application Support/claudeq`, and the daemon listens on
-  loopback only. The agent CLIs talk to their own services; ClaudeQ itself
+  under `~/Library/Application Support/dispatchq`, and the daemon listens on
+  loopback only. The agent CLIs talk to their own services; DispatchQ itself
   contacts nothing but GitHub's release API for update checks, and
   [feedback](#sending-feedback) is filed by you, in your browser.
 
@@ -56,7 +56,7 @@ workflow engine:
 - **Keep a list of nice-to-have work** for allowance that would otherwise
   expire: a *backfill* task runs only while a provider is so far behind on its
   week that part of it would go unused, and waits otherwise.
-- **Hand a task to a colleague** as a `.claudeq` file. They import it, adjust
+- **Hand a task to a colleague** as a `.dispatchq` file. They import it, adjust
   the folder, and get the same job on their Mac.
 
 ## Contents
@@ -65,6 +65,7 @@ workflow engine:
 
 - [How it works](#how-it-works)
 - [Install](#install)
+- [Coming from ClaudeQ](#coming-from-claudeq)
 - [Using it](#using-it)
 - [The app](#the-app)
 - [Settings](#settings)
@@ -100,16 +101,16 @@ workflow engine:
 
 ## How it works
 
-ClaudeQ is two pieces that share a file-based store:
+DispatchQ is two pieces that share a file-based store:
 
-- **A background daemon (`claudeqd`)** installed as a per-user launchd
+- **A background daemon (`dispatchqd`)** installed as a per-user launchd
   LaunchAgent. It starts at login, restarts if it exits, and does all the work:
   scheduling, running tasks through the provider's CLI, tracking the rate
   limit, planning wake-ups, pruning history, sending notifications, and serving
   the dashboard on `127.0.0.1`. Exactly one daemon owns a data directory: a
   second one started against the same store says so and exits, so a queue is
   never scheduled twice.
-- **A native app window (`claudeqapp`)** that wraps that dashboard in a macOS
+- **A native app window (`dispatchqapp`)** that wraps that dashboard in a macOS
   WKWebView window. The app is just the UI — closing it never stops scheduling,
   and the daemon keeps running with the window shut.
 
@@ -123,7 +124,7 @@ The nightly cycle looks like this:
    of the provider each task names (Claude Code by default), one at a time
    unless a task is marked parallel. A script job is started the same way, but
    as a program: no provider, no model, no allowance spent.
-3. If a run hits the **rate limit**, ClaudeQ pauses the whole queue and, once the
+3. If a run hits the **rate limit**, DispatchQ pauses the whole queue and, once the
    limit clears, resumes the *same* Claude session — no work is lost. The pause is
    visible while it lasts: a banner names the time the queue continues, the run is
    marked **rescheduled** in the Log with its resume time, and you can drop that
@@ -136,14 +137,14 @@ The nightly cycle looks like this:
 
 ## Install
 
-1. Download the latest `claudeq-<version>.pkg` from the
+1. Download the latest `dispatchq-<version>.pkg` from the
    [Releases](https://github.com/danielmaier42/claudeq/releases) page.
 2. Open it and follow the installer.
 
-The package installs **ClaudeQ** to `/Applications`, sets up a per-user
-LaunchAgent so the daemon starts at login, and opens **ClaudeQ** when it is
+The package installs **DispatchQ** to `/Applications`, sets up a per-user
+LaunchAgent so the daemon starts at login, and opens **DispatchQ** when it is
 done, so you can start adding tasks right away. Installing over an existing
-version works the same way: the installer closes the open ClaudeQ window first
+version works the same way: the installer closes the open DispatchQ window first
 (the daemon and any running task are not interrupted) and reopens the new
 version at the end, so an update takes effect without a manual restart.
 
@@ -152,11 +153,11 @@ daemon that answers on `127.0.0.1:10765` reports the version it just installed,
 retries once (dropping a stale LaunchAgent that still points at an old copy of
 the app), and reports the install as *failed* if the new daemon never takes
 over — rather than finishing green while the machine keeps running the old
-version. It also lists any other `ClaudeQ.app` copies it finds, since a second
+version. It also lists any other `DispatchQ.app` copies it finds, since a second
 copy is the usual reason an update looks like it did nothing.
 
 > The package is not notarized, so on first launch macOS may warn that it is from
-> an unidentified developer. Right-click **ClaudeQ → Open**, then confirm — or
+> an unidentified developer. Right-click **DispatchQ → Open**, then confirm — or
 > allow it under **System Settings → Privacy & Security**.
 
 You'll also see two normal macOS prompts by design: **Allow notifications?** on
@@ -164,18 +165,57 @@ first launch, and **allow access to your Documents?** the first time a task's
 folder is in a protected location (Documents, Desktop, Downloads). Allow both so
 unattended runs aren't blocked.
 
-macOS, not ClaudeQ, decides how long a notification stays on screen. ClaudeQ asks
+macOS, not DispatchQ, decides how long a notification stays on screen. DispatchQ asks
 for the **Alerts** style, which waits until you click it — but if macOS already
 knows the app (or overrides it), set it under **System Settings → Notifications →
-ClaudeQ → Alerts**. Settings has a button that opens that pane directly.
+DispatchQ → Alerts**. Settings has a button that opens that pane directly.
 
-To run tasks past a scheduled sleep, ClaudeQ schedules wakes with `pmset`, which
+To run tasks past a scheduled sleep, DispatchQ schedules wakes with `pmset`, which
 needs one sudoers entry (the daemon prints the exact line on install, and the
 dashboard shows it if a wake ever fails):
 
 ```sh
-echo "$USER ALL=(root) NOPASSWD: /usr/bin/pmset" | sudo tee /etc/sudoers.d/claudeq
+echo "$USER ALL=(root) NOPASSWD: /usr/bin/pmset" | sudo tee /etc/sudoers.d/dispatchq
 ```
+
+## Coming from ClaudeQ
+
+DispatchQ was called **ClaudeQ** up to version 1.x. Version 2.0 renames the
+app, the binaries and everything they write, and moves an existing
+installation over on its own. Update as usual, from the update banner or by
+opening the new `dispatchq-<version>.pkg`; the GitHub repository keeps its old
+name for now, so updates keep arriving from the same place.
+
+What the update does:
+
+| ClaudeQ | DispatchQ | How it moves |
+|---------|-----------|--------------|
+| `/Applications/ClaudeQ.app` | `/Applications/DispatchQ.app` | The installer puts the new app in place and moves the old one to your Bin once DispatchQ runs (only a bundle whose id says it is ClaudeQ). |
+| `claudeq`, `claudeqd`, `claudeqapp` | `dispatchq`, `dispatchqd`, `dispatchqapp` | Inside the new app. |
+| LaunchAgent `de.maierdaniel.claudeq` | `de.maierdaniel.dispatchq` | The old agent is booted out and its plist removed before the new one starts, so the queue never runs twice. |
+| `~/Library/Application Support/claudeq` | `~/Library/Application Support/dispatchq` | Moved on the first start, tasks, history, logs and artifacts included. The old path stays as a link to the new folder, so log paths in the history and scripts that read the old folder keep working. |
+| `/etc/sudoers.d/claudeq` | `/etc/sudoers.d/dispatchq` | Replaced. |
+| `CLAUDEQ_HOME`, `CLAUDEQ_BIN`, `CLAUDEQ_RUN_ID`, … | `DISPATCHQ_HOME`, `DISPATCHQ_BIN`, `DISPATCHQ_RUN_ID`, … | Every run gets both names for now. `CLAUDEQ_HOME` set in your shell is still honoured when `DISPATCHQ_HOME` is not set. |
+| `.claudeq` task files | `.dispatchq` | Both import. |
+
+Your tasks themselves are not rewritten behind your back. The first time
+DispatchQ 2.0 opens, a **What's new** dialog introduces the new name, the
+redesigned app and the beta features that are now available to everyone. It
+has a **Check tasks** button: the [prompt review](#the-prompt-review) looks at
+every task that mentions ClaudeQ (a task that never does is skipped and costs
+nothing) and lists the ones that still call `ClaudeQ.app`, read a `CLAUDEQ_`
+variable or name the old data folder, each with what it would change. Every
+fix with a rewrite is selected; untick the ones you want to keep as they are
+and click **Migrate**. A task you edited after the check is left alone. A task
+that calls the old CLI by its full path fails once `ClaudeQ.app` is gone, so
+run the check before the next night.
+
+The dialog shows once; a fresh installation that never had ClaudeQ skips it.
+
+Two things do not carry over, because macOS keys them to the app's bundle id:
+the notification permission (macOS asks again) and the window's view
+preferences such as the artifact grid or list layout. Appearance and accent
+colour are stored by the daemon and do carry over.
 
 ## Using it
 
@@ -196,7 +236,7 @@ echo "$USER ALL=(root) NOPASSWD: /usr/bin/pmset" | sudo tee /etc/sudoers.d/claud
    it. A finished one-shot task leaves the queue but stays in history; recurring
    tasks remain queued for their next occurrence.
 4. The **Dashboard** shows how much of each provider's allowance is left;
-   **Usage** shows what ClaudeQ consumed over the last 14 days.
+   **Usage** shows what DispatchQ consumed over the last 14 days.
 
 ## Features
 
@@ -210,7 +250,7 @@ explains it.
   type, with a preview of its next three runs. See
   [How scheduling and the limit gate behave](#how-scheduling-and-the-limit-gate-behave).
 - **Priority is list order**, top first. Reorder in the app or with
-  `claudeq move`.
+  `dispatchq move`.
 - **One at a time by default.** A task marked *parallel* runs alongside other
   parallel tasks.
 - **Pause everything** with one switch in Settings: a run in flight finishes,
@@ -254,15 +294,15 @@ explains it.
 - **Prompt review.** Before a task is queued, Claude reads the prompt against
   this Mac and names what would go wrong at 3 a.m.; one click applies the
   rewrite. See [The prompt review](#the-prompt-review).
-- **Self-queueing.** A run schedules follow-up tasks with `claudeq queue`. See
+- **Self-queueing.** A run schedules follow-up tasks with `dispatchq queue`. See
   [Letting a task queue follow-up work](#letting-a-task-queue-follow-up-work).
 - **Fan-out and join.** One job per provider, and a job that waits for all of
   them and combines the results. See
   [Asking several providers at once](#asking-several-providers-at-once).
-- **Artifacts.** A run publishes a file with `claudeq publish`; it lands in the
+- **Artifacts.** A run publishes a file with `dispatchq publish`; it lands in the
   Artifacts view with an in-app viewer for HTML, PDF, images and text. See
   [Letting a task publish artifacts](#letting-a-task-publish-artifacts).
-- **Own notifications.** A run sends a message with `claudeq notify`,
+- **Own notifications.** A run sends a message with `dispatchq notify`,
   optionally with a link that opens on click. See
   [Letting a task send a notification](#letting-a-task-send-a-notification).
 - **Quiet history** for frequent watchers: successful runs leave no record,
@@ -270,7 +310,7 @@ explains it.
 - **Backfill tasks** soak up allowance that would otherwise expire: they run
   only while a provider's urgency is above a threshold you set on the
   Dashboard. See [Backfill tasks](#backfill-tasks).
-- **Share a task** as a `.claudeq` file; the importer adjusts folder and prompt
+- **Share a task** as a `.dispatchq` file; the importer adjusts folder and prompt
   before it is queued. See [Sharing tasks as files](#sharing-tasks-as-files).
 
 **Unattended by design**
@@ -306,7 +346,7 @@ explains it.
 
 **Platform**
 
-- **Scriptable.** The bundled `claudeq` CLI does everything the window does,
+- **Scriptable.** The bundled `dispatchq` CLI does everything the window does,
   with `--json` output for tools and agents. See
   [Command-line interface](#command-line-interface).
 - **Native macOS**: its own window, Dock icon and menu bar. Light or dark and
@@ -395,8 +435,8 @@ first. The window opens on the Dashboard:
   from the daemon's start if it restarted meanwhile); its
   tooltip gives the scheduler's reason, such as the pause, a task that runs
   alone, or an account out of allowance until a given time. A wait of five
-  minutes or more is also written to `claudeqd.out.log` with its reason, once,
-  so it can still be explained after the badge is gone. **Export** in a row's **…** menu saves the task as a `.claudeq`
+  minutes or more is also written to `dispatchqd.out.log` with its reason, once,
+  so it can still be explained after the badge is gone. **Export** in a row's **…** menu saves the task as a `.dispatchq`
   file via the native save panel, and **Import…** in the toolbar opens such a
   file in the task sheet for review. Whenever a prompt is written or changed,
   Claude checks it against this Mac and shows what it found in a purple banner
@@ -478,10 +518,10 @@ first. The window opens on the Dashboard:
   watcher filed.
   Clicking the notification of a newly published artifact opens it in the
   viewer over whatever view is showing.
-- **Notifications** — every notification ClaudeQ sent, newest first, with an
+- **Notifications** — every notification DispatchQ sent, newest first, with an
   unread badge. It is the one view with a read state; the Log and Artifacts
   carry no badges, since what matters in them arrives here as well: a run's outcome, a new artifact, a provider that stopped or
-  resumed running tasks, and whatever a task said with `claudeq notify`. Each
+  resumed running tasks, and whatever a task said with `dispatchq notify`. Each
   row shows the notification as it was shown on screen — a glyph for its kind,
   the title, the message — and when it was sent; the list is grouped by day
   and grows with **Show more** like Artifacts; **↑** and **↓** move between rows. A row does what clicking the macOS notification
@@ -541,19 +581,19 @@ in the list, and leaving Settings keeps the draft for the session.
 | | Runs | Stop a run with no output for | Idle-timeout watchdog: kills a hung run (default 30 min; a working run keeps streaming and is unaffected; Off disables it). |
 | | | Keep run history | How many runs (and their logs) to retain before pruning (default 500; Unlimited keeps everything). |
 | | Scheduler | Check for due tasks every | How often the daemon wakes to look for work (15 min – 6 h; also the wake safety-net interval). |
-| **Notifications** | On this Mac | Keep alerts on screen | Opens System Settings → Notifications, where ClaudeQ's alert style lives: *Banners* disappear on their own, *Alerts* stay until you click them. A warning sits on top while macOS hides ClaudeQ's notifications. |
+| **Notifications** | On this Mac | Keep alerts on screen | Opens System Settings → Notifications, where DispatchQ's alert style lives: *Banners* disappear on their own, *Alerts* stay until you click them. A warning sits on top while macOS hides DispatchQ's notifications. |
 | | | Notify about new artifacts | On by default; the same switch sits as **Notify me** in the Artifacts toolbar. Off: a published artifact still lands in Artifacts, but raises no notification on any channel and no entry in Notifications. Switching it back on does not announce what was published in the meantime. |
 | | Pushover | Send to Pushover | Toggle plus API token and user key for phone push. A stored secret shows as *set*, with **Replace** and **Remove**; it is never shown again. |
 | | ntfy | Send to ntfy | Toggle, server (empty = ntfy.sh), topic, and an optional access token for a protected topic. |
-| | Webhook | Post to a webhook | Toggle, endpoint URL, and a JSON body template using `{{title}}`, `{{message}}`, `{{url}}` (empty = ClaudeQ's own body). |
+| | Webhook | Post to a webhook | Toggle, endpoint URL, and a JSON body template using `{{title}}`, `{{message}}`, `{{url}}` (empty = DispatchQ's own body). |
 | **Providers** | Backfill threshold | Slider | Below the providers: the urgency above which [backfill tasks](#backfill-tasks) run, with each provider's urgency next to it. Applies on release. |
 | | One card per provider | Its settings | Name and type, a health dot with **Check**, its current limits (the same bars as the Dashboard, when the harness reports any), the binary and configuration directory in use, the default model, and the provider that takes over when the limit is reached (and the model it uses). The switch turns it on or off at once; **Edit** opens a dialog that saves that provider alone; **Make default** and **Remove** sit in its **…** menu. See [Providers](#providers). |
 | | | **Add provider** | Asks for an id, a type, a name and optionally a configuration directory. |
 | **Pools** | One card per pool | Its settings | Name, members and their weights, which member the next run goes to and why. **Edit** opens a dialog with, per provider of the pool's type, a switch for membership and a weight (empty = the plan size the provider reports, e.g. *auto · 20×*). **Remove** is refused while a task uses the pool. **Add pool** asks for an id, a name and the members. See [Provider pools](#provider-pools). |
 | **Assistant** | Prompt review | Check prompts with Claude | Whether Claude reviews a prompt against this Mac before the task is queued (on by default). |
 | | | Review provider / Review model | Which provider answers the review, and with which model. Only providers that can hold an *aside* are offered; *Default* follows the global default provider, and the model falls back to the reviewing provider's own default. |
-| | Feedback assistant | Feedback provider / Feedback model | Which provider drafts the GitHub issue on the [Feedback](#sending-feedback) page, and with which model; left at *ClaudeQ's choice* it uses a small, fast model rather than whatever you picked for real tasks. |
-| **System** | Danger zone | Remove ClaudeQ from this Mac | **Uninstall…** asks you to type *uninstall*, then opens the uninstaller in the macOS Installer. Your tasks, history and settings are kept unless you select them under **Customize**. See [Uninstall](#uninstall). |
+| | Feedback assistant | Feedback provider / Feedback model | Which provider drafts the GitHub issue on the [Feedback](#sending-feedback) page, and with which model; left at *DispatchQ's choice* it uses a small, fast model rather than whatever you picked for real tasks. |
+| **System** | Danger zone | Remove DispatchQ from this Mac | **Uninstall…** asks you to type *uninstall*, then opens the uninstaller in the macOS Installer. Your tasks, history and settings are kept unless you select them under **Customize**. See [Uninstall](#uninstall). |
 | **About** | Software updates | Version / Check for updates | Current version, when the last check ran, and a manual **Check for updates**; an available update shows its notes with **Download & install**, **Dismiss** and **All releases**. |
 
 ## Providers
@@ -569,8 +609,8 @@ Three harnesses are supported:
 | Type | CLI | Notes |
 |------|-----|-------|
 | Claude (`claude-code`) | [Claude Code](https://claude.com/claude-code) | Passes a task's reasoning effort through Claude Code's `--effort` flag. Reports token counts and cost. Its only authority settings are "ask" and "skip every prompt". |
-| Codex (`codex`) | [Codex](https://learn.chatgpt.com/docs/developer-commands?surface=cli) | Takes a reasoning effort and a real sandbox mode, so read-only and workspace-write actually mean something. Tasks may use a working folder that is not itself a Git repository. Reports tokens but no cost — ClaudeQ never invents one. |
-| opencode (`opencode`) | [opencode](https://opencode.ai) | Runs whatever model opencode is configured for, including local ones (it was brought up against LM Studio). Takes a reasoning effort as opencode's *variant*. Permission handling is all or nothing: the CLI's own prompts, or none. Reports tokens and cost as opencode states them. It cannot answer ClaudeQ's own questions yet, so the prompt review and the feedback assistant are not offered on it, and its errors do not tell a rate limit from any other failure, so a limited run fails instead of pausing. |
+| Codex (`codex`) | [Codex](https://learn.chatgpt.com/docs/developer-commands?surface=cli) | Takes a reasoning effort and a real sandbox mode, so read-only and workspace-write actually mean something. Tasks may use a working folder that is not itself a Git repository. Reports tokens but no cost — DispatchQ never invents one. |
+| opencode (`opencode`) | [opencode](https://opencode.ai) | Runs whatever model opencode is configured for, including local ones (it was brought up against LM Studio). Takes a reasoning effort as opencode's *variant*. Permission handling is all or nothing: the CLI's own prompts, or none. Reports tokens and cost as opencode states them. It cannot answer DispatchQ's own questions yet, so the prompt review and the feedback assistant are not offered on it, and its errors do not tell a rate limit from any other failure, so a limited run fails instead of pausing. |
 
 You can configure as many instances as you like, including two of the same kind:
 give each its own configuration directory and they are two accounts, with their
@@ -590,8 +630,8 @@ A provider has:
 Both paths must be absolute; a leading `~` is expanded and stored resolved, so
 the file says what is actually used.
 | Default model | Used for tasks on this provider that name no model of their own. |
-| When the limit is reached | Another provider that takes this one's tasks while its allowance is used up. Empty means they wait for the window to reopen, which is what ClaudeQ did before. |
-| Model there | The model those substituted runs are given. Empty (*Decided by ClaudeQ*) keeps the task's own model between two accounts of the same CLI and takes the substitute's default model otherwise. Only shown once a fallback is chosen, and cleared with it. |
+| When the limit is reached | Another provider that takes this one's tasks while its allowance is used up. Empty means they wait for the window to reopen, which is what DispatchQ did before. |
+| Model there | The model those substituted runs are given. Empty (*Decided by DispatchQ*) keeps the task's own model between two accounts of the same CLI and takes the substitute's default model otherwise. Only shown once a fallback is chosen, and cleared with it. |
 | Enabled | Off keeps the provider and its tasks, but runs nothing on it. |
 
 One provider is the **default**: tasks that name none run on it. It cannot be
@@ -608,11 +648,11 @@ default* and *Remove* are actions and take effect at once. Below them sits **Add
 that cannot be changed afterwards — the id and the type — plus an optional
 configuration directory, which is what makes the new one a second account.
 
-`claudeq provider …` does exactly the same things, and both refuse the same
+`dispatchq provider …` does exactly the same things, and both refuse the same
 changes for the same reasons — removing an instance a task still names, for
 instance, which names the tasks that have to change first.
 
-### What Codex and opencode cannot tell ClaudeQ yet
+### What Codex and opencode cannot tell DispatchQ yet
 
 Both harnesses run tasks like Claude Code does, with two limits worth knowing.
 
@@ -622,7 +662,7 @@ delay rather than at the time the provider names, because in the controlled
 test it named none.
 
 opencode: its error reporting is the weakest of the three. Running it locally,
-every failure came back in the same generic shape, so ClaudeQ cannot tell an
+every failure came back in the same generic shape, so DispatchQ cannot tell an
 exhausted allowance or a logged-out account from any other error. A failed
 opencode run is therefore recorded as failed, not paused and resumed, and the
 readiness check can only confirm that the binary runs.
@@ -633,7 +673,7 @@ provider is in, since that edit may well be how you are fixing it.
 
 ### Is it ready?
 
-Before a task starts, ClaudeQ checks that its provider can actually run it. The
+Before a task starts, DispatchQ checks that its provider can actually run it. The
 check costs no model usage — it looks at the binary, asks for its version, and
 asks the CLI whether anyone is logged in — and it reports one of:
 
@@ -644,7 +684,7 @@ asks the CLI whether anyone is logged in — and it reports one of:
 | Not logged in | The CLI is there, but no account is signed in (`claude auth login`). |
 | Invalid configuration | The provider's own settings cannot be used — an unreachable configuration directory, say. |
 | Switched off | You disabled the provider. |
-| Could not be checked | The check itself did not reach a verdict, so ClaudeQ does not assume either way. |
+| Could not be checked | The check itself did not reach a verdict, so DispatchQ does not assume either way. |
 
 A fresh installation therefore shows the real state of Claude Code rather than
 assuming it is there because it is the default provider.
@@ -703,7 +743,7 @@ before.
 
 Set it on the provider's block in **Settings → Providers** ("When the limit is
 reached", plus "Model there"), or with
-`claudeq provider edit ID --fallback OTHER --fallback-model MODEL`; `none`
+`dispatchq provider edit ID --fallback OTHER --fallback-model MODEL`; `none`
 clears either flag.
 
 ### How much is left
@@ -725,7 +765,7 @@ so switching views does not hammer the provider. The window's regular polling
 only shows what was last read; it never asks the provider itself.
 
 When a reading fails, the last good figures stay up with their age and the
-reason underneath, for example an expired Claude login: ClaudeQ never renews a
+reason underneath, for example an expired Claude login: DispatchQ never renews a
 login itself (that would rotate the CLI's token and log it out), so the figures
 come back with the next run on that account or after `claude auth login`. The
 Claude endpoint is not a documented API; if Anthropic changes it, the Dashboard
@@ -735,8 +775,8 @@ The same figures are on the command line, read right then rather than from
 the daemon's memory, so the command works with the daemon stopped too:
 
 ```sh
-claudeq provider limits                 # every provider, one line per window
-claudeq provider limits claude --json   # one provider, in the shape the API serves
+dispatchq provider limits                 # every provider, one line per window
+dispatchq provider limits claude --json   # one provider, in the shape the API serves
 ```
 
 ```
@@ -756,7 +796,7 @@ another account: `used_percent` per window, `state` (`ok`, `unavailable`,
 
 ### Credentials
 
-ClaudeQ stores no passwords, tokens or API keys. It stores the *path* of a
+DispatchQ stores no passwords, tokens or API keys. It stores the *path* of a
 CLI's configuration directory; the CLI owns what is inside it. Readiness checks
 read only whether a login exists, never whose it is, and neither the daemon log
 nor the API ever carries account details. The one exception to "never reads
@@ -769,7 +809,7 @@ never written, logged or served over the API.
 ## Provider pools
 
 A **pool** is a set of providers of one type, two Claude subscriptions for
-example, that a task can be given instead of a single provider. ClaudeQ
+example, that a task can be given instead of a single provider. DispatchQ
 decides at every start which member runs it, so the allowances are used up
 before they reset instead of one account running dry while the other's
 expires unused.
@@ -789,7 +829,7 @@ expires unused.
    would take twice that pace, so half of what is left is at risk of expiring
    unused. 10% left that resets in 4 hours (urgency 4.2) beats 60% left for
    another five days (0.84). The **weight** is
-   the plan's size: ClaudeQ reads it from the Claude login (Max 20x = 20, a
+   the plan's size: DispatchQ reads it from the Claude login (Max 20x = 20, a
    Team seat on Max 5x = 5, Pro = 1), so 10% of a large plan counts for more
    than 10% of a small one. Codex does not say how its plans compare, so a
    Codex member counts as 1 unless you set its weight.
@@ -806,9 +846,9 @@ log says so.
 **Seeing the choice.** Every run of a pool task opens its log with the choice
 and the reasons, for example *Pool Claude chose Claude Max: Claude Max (14% of
 week left, resets in 2 d); Claude Team (100% of 5 hours used)*. The Log names
-the pool next to the provider. The Dashboard and `claudeq pool show` list the
+the pool next to the provider. The Dashboard and `dispatchq pool show` list the
 members in the order the next run would take them, with each one's weight
-and the reason for its place (the commands add the urgency); `claudeq pool next` names the member the
+and the reason for its place (the commands add the urgency); `dispatchq pool next` names the member the
 next run goes to. Both commands ask the running daemon, so they show exactly
 what the Dashboard shows, rate-limit pauses included. With no daemon running
 they read the members' limits themselves and say so; a member waiting out a
@@ -828,14 +868,14 @@ rate limit is then not recognised as such.
 - A provider cannot be removed while it is a member, and a pool cannot be
   removed while a task uses it.
 - Jobs a pool task queues inherit the pool, not the member the parent landed
-  on. A task exported as a `.claudeq` file leaves its pool behind, like its
+  on. A task exported as a `.dispatchq` file leaves its pool behind, like its
   provider.
 
 ```sh
-claudeq pool add claude-pool --name Claude --member claude --member claude-team
-claudeq add --id nightly --prompt "…" --dir ~/code/app --pool claude-pool
-claudeq pool next claude-pool
-claudeq pool show claude-pool
+dispatchq pool add claude-pool --name Claude --member claude --member claude-team
+dispatchq add --id nightly --prompt "…" --dir ~/code/app --pool claude-pool
+dispatchq pool next claude-pool
+dispatchq pool show claude-pool
 ```
 
 ## Command-line interface
@@ -843,7 +883,7 @@ claudeq pool show claude-pool
 Everything the app does is also available on the command line. You can list the
 queue, read and change a task's prompt and settings, edit the global settings,
 trigger a test run, and read run history. This section is written to stand on its
-own, so another tool or agent needs nothing else to drive ClaudeQ. See
+own, so another tool or agent needs nothing else to drive DispatchQ. See
 [From another tool or agent](#from-another-tool-or-agent).
 
 ### Where the binaries are
@@ -851,52 +891,52 @@ own, so another tool or agent needs nothing else to drive ClaudeQ. See
 Both binaries ship **inside the app bundle**, and neither is on your `PATH`:
 
 ```
-/Applications/ClaudeQ.app/Contents/MacOS/claudeq     # the control CLI
-/Applications/ClaudeQ.app/Contents/MacOS/claudeqd    # the daemon
+/Applications/DispatchQ.app/Contents/MacOS/dispatchq     # the control CLI
+/Applications/DispatchQ.app/Contents/MacOS/dispatchqd    # the daemon
 ```
 
 Call them by full path:
 
 ```sh
-/Applications/ClaudeQ.app/Contents/MacOS/claudeq list
+/Applications/DispatchQ.app/Contents/MacOS/dispatchq list
 ```
 
 …or put the directory on your `PATH` once:
 
 ```sh
-export PATH="/Applications/ClaudeQ.app/Contents/MacOS:$PATH"
+export PATH="/Applications/DispatchQ.app/Contents/MacOS:$PATH"
 ```
 
-The rest of this section writes them as plain `claudeq` and `claudeqd`. Both work
-on the store under `~/Library/Application Support/claudeq` directly (override it
-with `CLAUDEQ_HOME`), so they work whether or not the app window is open. The
+The rest of this section writes them as plain `dispatchq` and `dispatchqd`. Both work
+on the store under `~/Library/Application Support/dispatchq` directly (override it
+with `DISPATCHQ_HOME`), so they work whether or not the app window is open. The
 running daemon re-reads the store on its next tick, so a change never needs a
 restart.
 
-### `claudeqd` — the daemon
+### `dispatchqd` — the daemon
 
 ```
-claudeqd run [--interval 5s] [--no-wake] [--addr 127.0.0.1:10765]
-claudeqd install      # install & start the LaunchAgent (autostart at login)
-claudeqd uninstall    # stop & remove the LaunchAgent
-claudeqd --version
+dispatchqd run [--interval 5s] [--no-wake] [--addr 127.0.0.1:10765]
+dispatchqd install      # install & start the LaunchAgent (autostart at login)
+dispatchqd uninstall    # stop & remove the LaunchAgent
+dispatchqd --version
 ```
 
 The installer runs `install` for you; you rarely need these directly.
 
-### `claudeq` — the control CLI
+### `dispatchq` — the control CLI
 
 ```
-claudeq list [--json]                          # show the queue
-claudeq show   ID [--json]                     # one task in full, prompt included
-claudeq add    --id ID --prompt P --dir DIR [--name N] [--group G]
+dispatchq list [--json]                          # show the queue
+dispatchq show   ID [--json]                     # one task in full, prompt included
+dispatchq add    --id ID --prompt P --dir DIR [--name N] [--group G]
                [--kind agent|script]           # script = a program, no model
                [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR]
                [--provider ID] [--model M] [--reasoning-effort E] [--parallel]
                [--skip-permissions] [--notify] [--quiet-history]
                [--backfill]                    # run only on allowance that would go unused
-claudeq edit   ID                              # open the whole task in $EDITOR
-claudeq edit   ID [--name N] [--prompt P | --prompt-file PATH] [--dir DIR]
+dispatchq edit   ID                              # open the whole task in $EDITOR
+dispatchq edit   ID [--name N] [--prompt P | --prompt-file PATH] [--dir DIR]
                [--group G]                     # "" takes it out of its group
                [--kind agent|script]           # switching to script drops the model settings
                [--trigger asap|fixed|cron] [--at RFC3339] [--cron EXPR]
@@ -904,7 +944,7 @@ claudeq edit   ID [--name N] [--prompt P | --prompt-file PATH] [--dir DIR]
                [--parallel=BOOL] [--enabled=BOOL]
                [--skip-permissions=BOOL] [--notify=BOOL] [--quiet-history=BOOL]
                [--backfill=BOOL]
-claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [--name N]
+dispatchq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [--name N]
                [--group G] [--kind agent|script]   # a queued job is an agent job unless told
                [--provider ID] [--model M] [--reasoning-effort E]
                [--parallel=BOOL] [--skip-permissions=BOOL]
@@ -913,39 +953,39 @@ claudeq queue  --prompt P [--at RFC3339 | --in DUR | --cron EXPR] [--dir DIR] [-
                [--include-results]                # and put their answers in the prompt
                                                   # (a script reads them on stdin)
                [--json]                           # print the new job, id included
-claudeq publish --file PATH [--title T] [--description D]   # publish a file as an artifact
-claudeq artifacts list [--json] [--origin ID] [--since TS]   # published artifacts, oldest first; TS is RFC3339 or a duration like 24h
-claudeq notify --title T --message M [--url U]  # send a notification, no artifact
-claudeq export ID [--out PATH] [--force]       # write the task to a .claudeq file
-claudeq import PATH [--id ID] [--provider ID] [--model NAME]   # add the task from a .claudeq file
-claudeq rm ID
-claudeq enable ID | claudeq disable ID
-claudeq move   ID INDEX                        # 0 = highest priority
-claudeq run-now ID                             # run once, now, for testing
-claudeq status [--all]                         # recent runs; unread marked *
-claudeq status [--all] --json                  # the same runs as JSON: origin job, error, log path
-claudeq read RUNID | claudeq read-all
-claudeq provider list [--json]                 # the harnesses tasks run on
-claudeq provider show ID [--json]
-claudeq provider check ID [--json]             # probe it now
-claudeq provider limits [ID] [--json]          # 5-hour/weekly windows, used and reset, and the urgency
-claudeq pool list [--json]                     # provider pools
-claudeq pool next ID [--json]                  # the member the next run goes to, with its urgency and the ranking
-claudeq pool show ID [--json]                  # members ranked as a run started now would take them
-claudeq pool add  ID --member PROVIDER[=WEIGHT]... [--name N]
-claudeq pool edit ID [--name N] [--member PROVIDER[=WEIGHT]]...   # --member replaces the list
-claudeq pool rm ID
-claudeq provider add  ID --kind claude-code|codex [--name N] [--path PATH]
+dispatchq publish --file PATH [--title T] [--description D]   # publish a file as an artifact
+dispatchq artifacts list [--json] [--origin ID] [--since TS]   # published artifacts, oldest first; TS is RFC3339 or a duration like 24h
+dispatchq notify --title T --message M [--url U]  # send a notification, no artifact
+dispatchq export ID [--out PATH] [--force]       # write the task to a .dispatchq file
+dispatchq import PATH [--id ID] [--provider ID] [--model NAME]   # add the task from a .dispatchq file
+dispatchq rm ID
+dispatchq enable ID | dispatchq disable ID
+dispatchq move   ID INDEX                        # 0 = highest priority
+dispatchq run-now ID                             # run once, now, for testing
+dispatchq status [--all]                         # recent runs; unread marked *
+dispatchq status [--all] --json                  # the same runs as JSON: origin job, error, log path
+dispatchq read RUNID | dispatchq read-all
+dispatchq provider list [--json]                 # the harnesses tasks run on
+dispatchq provider show ID [--json]
+dispatchq provider check ID [--json]             # probe it now
+dispatchq provider limits [ID] [--json]          # 5-hour/weekly windows, used and reset, and the urgency
+dispatchq pool list [--json]                     # provider pools
+dispatchq pool next ID [--json]                  # the member the next run goes to, with its urgency and the ranking
+dispatchq pool show ID [--json]                  # members ranked as a run started now would take them
+dispatchq pool add  ID --member PROVIDER[=WEIGHT]... [--name N]
+dispatchq pool edit ID [--name N] [--member PROVIDER[=WEIGHT]]...   # --member replaces the list
+dispatchq pool rm ID
+dispatchq provider add  ID --kind claude-code|codex [--name N] [--path PATH]
                       [--config-dir PATH] [--default-model MODEL]
                       [--fallback ID] [--fallback-model MODEL]
-claudeq provider edit ID [--name N] [--path PATH]
+dispatchq provider edit ID [--name N] [--path PATH]
                       [--config-dir PATH] [--default-model MODEL]
                       [--fallback ID|none]      # who takes over at the limit
                       [--fallback-model M|none] # what they run it with
-claudeq provider enable ID | claudeq provider disable ID
-claudeq provider default ID                    # run tasks that name none on it
-claudeq provider rm ID
-claudeq settings [--json] [--default-provider ID]
+dispatchq provider enable ID | dispatchq provider disable ID
+dispatchq provider default ID                    # run tasks that name none on it
+dispatchq provider rm ID
+dispatchq settings [--json] [--default-provider ID]
                  [--heartbeat-minutes N]
                  [--idle-timeout-minutes N] [--max-run-history N]
                  [--system-prompt S | --system-prompt-file PATH]
@@ -955,13 +995,13 @@ claudeq settings [--json] [--default-provider ID]
                  [--pushover=BOOL] [--pushover-token T] [--pushover-user U]
                  [--ntfy=BOOL] [--ntfy-server S] [--ntfy-topic T] [--ntfy-token T]
                  [--webhook=BOOL] [--webhook-url U] [--webhook-template J]
-claudeq uninstall [--purge] [--yes]            # run the uninstaller in the terminal (see Uninstall)
-claudeq --version
+dispatchq uninstall [--purge] [--yes]            # run the uninstaller in the terminal (see Uninstall)
+dispatchq --version
 ```
 
 ### Looking at the queue
 
-`claudeq list` prints one line per task in priority order, index 0 first:
+`dispatchq list` prints one line per task in priority order, index 0 first:
 
 ```
 #  ID              NAME            KIND    TRIGGER  WHEN         PARALLEL  ENABLED
@@ -971,30 +1011,30 @@ claudeq --version
 
 Prompts are often pages long, so that table leaves them out, and a name longer
 than 40 characters is cut with an ellipsis so the columns stay readable.
-`claudeq show ID` prints every setting of one task, its full name and then its
+`dispatchq show ID` prints every setting of one task, its full name and then its
 complete prompt — or, for a script job, its script; the settings only an agent
 job has are left out. Add `--json` to either command for the same data as JSON,
 prompts and full names included.
 
 ### Editing a task
 
-`claudeq edit` changes a task that already exists. The id is fixed and cannot be
+`dispatchq edit` changes a task that already exists. The id is fixed and cannot be
 changed. There are two ways to use it.
 
 **With flags.** Only the settings you pass are touched, everything else keeps its
 value. This is the form to use from a script or an agent.
 
 ```sh
-claudeq edit nightly-sweep --prompt-file ./new-brief.md   # replace just the prompt
-claudeq edit nightly-sweep --cron "30 2 * * 1-5"          # reschedule
-claudeq edit nightly-sweep --model opus --notify=true     # per-task overrides
-claudeq edit nightly-sweep --provider claude             # run it on another provider
-claudeq edit review-branch --provider codex --reasoning-effort xhigh
-claudeq edit prod-watch --quiet-history=true              # drop its successful runs
-claudeq edit nightly-sweep --group "Nightly"              # file it under a queue group
-claudeq edit nightly-sweep --group ""                     # and take it back out
-claudeq edit nightly-sweep --enabled=false                # pause it
-claudeq edit prod-watch --kind script --prompt-file ./watch.sh   # make it a script job
+dispatchq edit nightly-sweep --prompt-file ./new-brief.md   # replace just the prompt
+dispatchq edit nightly-sweep --cron "30 2 * * 1-5"          # reschedule
+dispatchq edit nightly-sweep --model opus --notify=true     # per-task overrides
+dispatchq edit nightly-sweep --provider claude             # run it on another provider
+dispatchq edit review-branch --provider codex --reasoning-effort xhigh
+dispatchq edit prod-watch --quiet-history=true              # drop its successful runs
+dispatchq edit nightly-sweep --group "Nightly"              # file it under a queue group
+dispatchq edit nightly-sweep --group ""                     # and take it back out
+dispatchq edit nightly-sweep --enabled=false                # pause it
+dispatchq edit prod-watch --kind script --prompt-file ./watch.sh   # make it a script job
 ```
 
 - `--prompt-file` reads the prompt from a file, or from stdin when you pass `-`.
@@ -1022,7 +1062,7 @@ claudeq edit prod-watch --kind script --prompt-file ./watch.sh   # make it a scr
 - Every edit is validated before it is written. An invalid cron, an unparseable
   time, or an empty prompt fails with a message and leaves the task as it was.
 
-**Interactively.** `claudeq edit ID` with no flags opens the whole task as a
+**Interactively.** `dispatchq edit ID` with no flags opens the whole task as a
 commented TOML document in `$VISUAL` or `$EDITOR`, falling back to `vi`. Every
 setting is in there, and the prompt is an editable multi-line block. Save and
 close to apply; leave the file unchanged to cancel. If what you wrote does not
@@ -1032,28 +1072,28 @@ at the flags.
 
 ### Global settings
 
-`claudeq settings` with no flags prints every global setting. With flags it
+`dispatchq settings` with no flags prints every global setting. With flags it
 changes the ones you name and prints the result. They are the same values as the
 app's [Settings](#settings) view.
 
 ```sh
-claudeq settings                                        # show everything
-claudeq settings --default-provider claude              # provider for tasks that name none
-claudeq settings --system-prompt-file ./house-style.md   # custom system prompt
-claudeq settings --default-working-dir ~/Code            # a new task's folder starts here
-claudeq settings --idle-timeout-minutes 45 --max-run-history 1000
-claudeq settings --paused=true                          # stop every run
-claudeq settings --paused=false                         # let the queue run again
-claudeq settings --backfill-urgency 2                   # backfill only when half of what is left would expire
-claudeq settings --prompt-review=false                  # turn the prompt review off
-claudeq settings --prompt-review-provider claude-cheap   # who answers the review ("" = default provider)
-claudeq settings --prompt-review-model haiku            # ("" = the provider's default model)
-claudeq settings --feedback-provider claude-cheap       # who drafts the GitHub issue
-claudeq settings --feedback-model haiku                 # ("" = claudeq's own small, fast choice)
-claudeq settings --artifact-notify=false               # publish artifacts without a notification
-claudeq settings --pushover=true --pushover-token T --pushover-user U
-claudeq settings --ntfy=true --ntfy-topic claudeq-daniel   # server defaults to ntfy.sh
-claudeq settings --webhook=true --webhook-url https://hooks.slack.com/services/... \
+dispatchq settings                                        # show everything
+dispatchq settings --default-provider claude              # provider for tasks that name none
+dispatchq settings --system-prompt-file ./house-style.md   # custom system prompt
+dispatchq settings --default-working-dir ~/Code            # a new task's folder starts here
+dispatchq settings --idle-timeout-minutes 45 --max-run-history 1000
+dispatchq settings --paused=true                          # stop every run
+dispatchq settings --paused=false                         # let the queue run again
+dispatchq settings --backfill-urgency 2                   # backfill only when half of what is left would expire
+dispatchq settings --prompt-review=false                  # turn the prompt review off
+dispatchq settings --prompt-review-provider claude-cheap   # who answers the review ("" = default provider)
+dispatchq settings --prompt-review-model haiku            # ("" = the provider's default model)
+dispatchq settings --feedback-provider claude-cheap       # who drafts the GitHub issue
+dispatchq settings --feedback-model haiku                 # ("" = dispatchq's own small, fast choice)
+dispatchq settings --artifact-notify=false               # publish artifacts without a notification
+dispatchq settings --pushover=true --pushover-token T --pushover-user U
+dispatchq settings --ntfy=true --ntfy-topic dispatchq-daniel   # server defaults to ntfy.sh
+dispatchq settings --webhook=true --webhook-url https://hooks.slack.com/services/... \
                   --webhook-template '{"text":"{{title}}: {{message}}"}'
 ```
 
@@ -1063,24 +1103,24 @@ also takes a negative value for "never kill a run", and `--max-run-history` for
 prints them back; the output only says whether they are configured. A channel
 that is switched on but cannot deliver (no topic, no URL, an unknown
 `{{placeholder}}`) is refused at save time, from the CLI same as from the app.
-Use `claudeq notify --title X --message Y` to check a channel actually
+Use `dispatchq notify --title X --message Y` to check a channel actually
 delivers — there is no separate Test button in the app.
 
 The binary path and the default model belong to a provider now, not to the
 global settings:
 
 ```sh
-claudeq provider list                                   # ids, kinds, default models, status
-claudeq provider check claude                           # probe it and print why it is not ready
-claudeq provider limits                                 # how much of each allowance is used
-claudeq provider edit claude --path /Users/me/.local/bin/claude
-claudeq provider edit claude --default-model opus
-claudeq provider disable claude                         # keep it, run nothing on it
+dispatchq provider list                                   # ids, kinds, default models, status
+dispatchq provider check claude                           # probe it and print why it is not ready
+dispatchq provider limits                                 # how much of each allowance is used
+dispatchq provider edit claude --path /Users/me/.local/bin/claude
+dispatchq provider edit claude --default-model opus
+dispatchq provider disable claude                         # keep it, run nothing on it
 
 # a second Claude account, a Codex provider, and opencode with a local model
-claudeq provider add claude-work --kind claude-code --config-dir ~/.claude-work
-claudeq provider add codex --kind codex --default-model gpt-5.6-sol
-claudeq provider add local --kind opencode
+dispatchq provider add claude-work --kind claude-code --config-dir ~/.claude-work
+dispatchq provider add codex --kind codex --default-model gpt-5.6-sol
+dispatchq provider add local --kind opencode
 ```
 
 `provider list --json` gives each instance's enabled state, readiness, the
@@ -1092,31 +1132,31 @@ first.
 ## From another tool or agent
 
 This README is the whole interface. An external app or agent needs nothing but
-this document to work with ClaudeQ.
+this document to work with DispatchQ.
 
-- **Invoke it by full path.** `/Applications/ClaudeQ.app/Contents/MacOS/claudeq`
+- **Invoke it by full path.** `/Applications/DispatchQ.app/Contents/MacOS/dispatchq`
   is not on `PATH`.
-- **Read with `--json`.** `claudeq list --json`, `claudeq show ID --json`,
-  `claudeq settings --json`, `claudeq provider list --json` and
-  `claudeq artifacts list --json` emit structured output. The other commands
+- **Read with `--json`.** `dispatchq list --json`, `dispatchq show ID --json`,
+  `dispatchq settings --json`, `dispatchq provider list --json` and
+  `dispatchq artifacts list --json` emit structured output. The other commands
   print for humans.
 - **A task is refused when its provider cannot run it.** `--provider ID` selects
   one; leaving it out uses the default. An unknown or unready provider exits
-  non-zero with the reason, so ask `claudeq provider list --json` first rather
+  non-zero with the reason, so ask `dispatchq provider list --json` first rather
   than assuming one is there. See [Providers](#providers).
 - **Write with `edit`, `add`, `import`, `rm`, `enable`, `disable` and `move`**
   instead of editing `config.toml` by hand. Those commands validate the change
   and write it atomically alongside the app's own writes.
-- **Move a task between machines with `export` and `import`.** The `.claudeq`
+- **Move a task between machines with `export` and `import`.** The `.dispatchq`
   file carries the whole task; see [Sharing tasks as files](#sharing-tasks-as-files).
 - **Exit code 0 means success.** Any failure exits non-zero and writes the reason
-  to stderr, prefixed `claudeq:`.
-- **Test a change with `claudeq run-now ID`** rather than waiting for the
+  to stderr, prefixed `dispatchq:`.
+- **Test a change with `dispatchq run-now ID`** rather than waiting for the
   schedule. It exits non-zero while the global pause switch is on
-  (`claudeq settings --paused=false` lifts it).
+  (`dispatchq settings --paused=false` lifts it).
 - Every run is framed as a [headless, unattended run](#what-every-run-is-told)
   with no next turn — it finishes or hands work on, it does not wait.
-- A task that is itself a ClaudeQ run has three extra abilities, described below:
+- A task that is itself a DispatchQ run has three extra abilities, described below:
   [queueing follow-up work](#letting-a-task-queue-follow-up-work),
   [publishing artifacts](#letting-a-task-publish-artifacts) and
   [sending a notification](#letting-a-task-send-a-notification).
@@ -1124,7 +1164,7 @@ this document to work with ClaudeQ.
 
 ## What every run is told
 
-Every run starts with a built-in system prompt from ClaudeQ, ahead of your own
+Every run starts with a built-in system prompt from DispatchQ, ahead of your own
 [custom system prompt](#settings). Most of it documents the three abilities
 below — queueing, publishing, notifying — but it opens with the one thing a run
 cannot work out for itself: **it is headless**. Nobody is at the keyboard, there
@@ -1146,13 +1186,13 @@ a [script job](#script-jobs): there is no model to tell anything to.
 
 ## Letting a task queue follow-up work
 
-A running task can enqueue *new* ClaudeQ tasks instead of doing everything inline.
+A running task can enqueue *new* DispatchQ tasks instead of doing everything inline.
 Every run is told, via its system prompt, that the capability exists and how to
 use it — so a prompt like *"scan for TODOs and, for anything non-trivial, queue a
 separate task to fix it"* just works. From inside a run, Claude calls:
 
 ```sh
-claudeq queue --prompt "…"
+dispatchq queue --prompt "…"
 ```
 
 with an optional time (`--at <RFC3339>`, `--in <duration>` like `90m`, or
@@ -1163,10 +1203,10 @@ because the daemon injects the CLI's path and the parent task into each run's
 environment.
 
 When the follow-up needs different settings from the task that queues it, pass
-the same flags `claudeq add` takes; anything you leave out keeps inheriting:
+the same flags `dispatchq add` takes; anything you leave out keeps inheriting:
 
 ```sh
-claudeq queue --prompt "Review the change thoroughly …" --model claude-opus-5 --notify
+dispatchq queue --prompt "Review the change thoroughly …" --model claude-opus-5 --notify
 ```
 
 - `--model M` runs the new task on another model (an empty value means the
@@ -1177,7 +1217,7 @@ claudeq queue --prompt "Review the change thoroughly …" --model claude-opus-5 
   `--model` alongside it, that provider's own default model applies — a model
   from the calling task is never carried across.
 - `--reasoning-effort E` sets how hard the new task's model should think, where
-  the harness takes it. `claudeq provider list --json`
+  the harness takes it. `dispatchq provider list --json`
   says which providers exist and which of them can run right now; queueing for
   one that cannot fails with the reason instead of filing work that would not
   start (see [Providers](#providers)).
@@ -1191,8 +1231,8 @@ claudeq queue --prompt "Review the change thoroughly …" --model claude-opus-5 
   history. Without it a queued task is never quiet, even when the caller is
   (see [below](#quiet-history-for-frequent-jobs)).
 
-A long `--name` is accepted as given; `claudeq list` and the Queue view cut it
-to fit their column (hover the app's row for the whole name), `claudeq show` and
+A long `--name` is accepted as given; `dispatchq list` and the Queue view cut it
+to fit their column (hover the app's row for the whole name), `dispatchq show` and
 `--json` print it in full.
 
 ## Asking several providers at once
@@ -1203,11 +1243,11 @@ summary"*, *"get every provider's take on the release notes"*. That is a
 
 ```sh
 # one job per provider; --json so the ids can be read back out
-claudeq queue --json --provider claude --prompt "Summarise what changed on main today"
-claudeq queue --json --provider codex  --prompt "Summarise what changed on main today"
+dispatchq queue --json --provider claude --prompt "Summarise what changed on main today"
+dispatchq queue --json --provider codex  --prompt "Summarise what changed on main today"
 
 # one job that waits for both and combines them
-claudeq queue --provider claude \
+dispatchq queue --provider claude \
   --depends-on q-20260914T050000-a1b2c3 \
   --depends-on q-20260914T050000-d4e5f6 \
   --include-results \
@@ -1215,7 +1255,7 @@ claudeq queue --provider claude \
 ```
 
 Every run is told how to do this in its system prompt, so a task that says "ask
-all providers and consolidate" arranges it itself. ClaudeQ does not read the
+all providers and consolidate" arranges it itself. DispatchQ does not read the
 prompt and guess: the harness understands the request, and this just gives it
 the vocabulary.
 
@@ -1269,15 +1309,15 @@ summary to report.html and publish it"* just works. From inside a run, Claude
 calls:
 
 ```sh
-claudeq publish --file report.html --title "Nightly summary" --description "…"
+dispatchq publish --file report.html --title "Nightly summary" --description "…"
 ```
 
-The file is **copied into ClaudeQ** (a permanent snapshot — later changes to the
+The file is **copied into DispatchQ** (a permanent snapshot — later changes to the
 original don't affect it) and appears in the **Artifacts** view, attributed to
 the task and run that produced it, with an unread flag that clears as soon as you
 open it. Each publish also raises a notification (macOS, plus every remote channel that
 is configured; **Settings → Notifications → Notify about new artifacts** or
-`claudeq settings --artifact-notify=false` turns it off); clicking the macOS one brings up ClaudeQ with that artifact open — in
+`dispatchq settings --artifact-notify=false` turns it off); clicking the macOS one brings up DispatchQ with that artifact open — in
 the in-app viewer for HTML, PDF, images and text, in your browser for anything
 else. Artifacts that were already there when this version first ran are not
 announced retroactively. HTML and PDF open in an in-app viewer; any type can be opened in your
@@ -1291,8 +1331,8 @@ A common pattern is a cheap watcher (often a script job) that notices something
 and files an agent job to deal with it, and that agent job publishes the
 result. The artifact then names the agent job, but what you look for is the
 watcher. So every artifact also records its **parent**: the job at the root of
-the chain that created the publisher. A job added with `claudeq add` or
-`claudeq queue` from inside a run remembers the job that ran it, or that job's
+the chain that created the publisher. A job added with `dispatchq add` or
+`dispatchq queue` from inside a run remembers the job that ran it, or that job's
 own parent if it has one, so a chain of any length leads back to the watcher. A
 job nothing created is its own parent while it is in the queue; once a job like
 that is deleted, its artifacts have no parent any more, so finished one-off jobs
@@ -1309,7 +1349,7 @@ show up under **All parents** only.
 
 ### Listing artifacts from a script
 
-`claudeq artifacts list` prints the artifacts oldest first, with an unread
+`dispatchq artifacts list` prints the artifacts oldest first, with an unread
 mark, the parent and the publish time. With `--json` each entry carries the
 title, description, file name, the absolute **path of the stored copy**, size,
 content type, publishing task and run, group, parent and the unread flag. The
@@ -1319,8 +1359,8 @@ parent and group are resolved exactly as the Artifacts view shows them, so
 such as `24h`:
 
 ```sh
-claudeq artifacts list --json --origin pr-watcher --since 24h
-claudeq artifacts list --json --since 2026-10-07T09:00:00.123456Z   # the last published_at seen
+dispatchq artifacts list --json --origin pr-watcher --since 24h
+dispatchq artifacts list --json --since 2026-10-07T09:00:00.123456Z   # the last published_at seen
 ```
 
 Listing does not mark anything read.
@@ -1335,12 +1375,12 @@ capability exists, so a prompt like *"compare with the last snapshot and notify
 me only if it differs"* just works. From inside a run, Claude calls:
 
 ```sh
-claudeq notify --title "Prod drifted" --message "3 commits behind main" --url "https://…"
+dispatchq notify --title "Prod drifted" --message "3 commits behind main" --url "https://…"
 ```
 
 The notification goes out over the **channels you already configured** — macOS
 Notification Center, Pushover, ntfy and the webhook, each independently — with
-the same look as ClaudeQ's own alerts, and attributed to the task that sent it
+the same look as DispatchQ's own alerts, and attributed to the task that sent it
 (its name is appended to the message). Like every notification it is listed
 in the app's **Notifications** view; nothing else is stored — no artifact, no
 history entry. The run's own outcome is still announced according to the
@@ -1354,7 +1394,7 @@ silent.
   link, and the webhook fills it into `{{url}}` if the template uses it.
 - The CLI hands the notification to the daemon, which sends it on its next tick
   (a few seconds). Exit code 0 means it was queued, not that a channel accepted
-  it — a channel that fails is logged by the daemon (`claudeqd.err.log`).
+  it — a channel that fails is logged by the daemon (`dispatchqd.err.log`).
 - A notification that waited more than 24 hours — the daemon was not running —
   is dropped with a log line rather than delivered as if it were current.
 - It also works outside a run, from a shell: then it is sent without attribution.
@@ -1362,7 +1402,7 @@ silent.
 ## Script jobs
 
 A job is one of two kinds, and the task form's **Job type** switch (or `--kind`
-on `claudeq add` / `edit` / `queue`) decides which:
+on `dispatchq add` / `edit` / `queue`) decides which:
 
 - an **agent job** — the default — sends its prompt to a model through a
   provider's CLI, and
@@ -1377,9 +1417,9 @@ quiet history, the same dependencies.
 it with a shebang to choose the interpreter — `#!/bin/zsh`,
 `#!/usr/bin/env python3`, `#!/usr/bin/env node` — or leave it out and it runs
 under `/bin/sh`. It starts in the task's **working directory**, and it inherits
-the daemon's environment plus the variables every run gets: `CLAUDEQ_BIN`,
-`CLAUDEQ_HOME`, `CLAUDEQ_RUN_ID`, `CLAUDEQ_TASK_ID`, `CLAUDEQ_WORKFLOW_ID` and
-`CLAUDEQ_PARENT_TASK`.
+the daemon's environment plus the variables every run gets: `DISPATCHQ_BIN`,
+`DISPATCHQ_HOME`, `DISPATCHQ_RUN_ID`, `DISPATCHQ_TASK_ID`, `DISPATCHQ_WORKFLOW_ID` and
+`DISPATCHQ_PARENT_TASK`.
 
 **What counts as the outcome.** Exit code `0` is a success, anything else a
 failure — that is the whole classification; nothing reads the output looking for
@@ -1413,11 +1453,11 @@ new=$(./bin/poll-needs-review --since-file .agents/seen.json)
 [[ -z "$new" ]] && exit 0            # nothing changed: say nothing, spend nothing
 
 while IFS= read -r id; do
-  "${CLAUDEQ_BIN:-claudeq}" queue --model opus \
+  "${DISPATCHQ_BIN:-dispatchq}" queue --model opus \
     --name "Review $id" --prompt "Run the review for work item $id."
 done <<< "$new"
 
-"${CLAUDEQ_BIN:-claudeq}" notify --title "Needs review" --message "$(wc -l <<< "$new") new item(s)"
+"${DISPATCHQ_BIN:-dispatchq}" notify --title "Needs review" --message "$(wc -l <<< "$new") new item(s)"
 ```
 
 A job queued from a script is an **agent job** — that is the point of the split,
@@ -1436,7 +1476,7 @@ A task that runs every few minutes would, by default, produce hundreds of
 successful runs a day: each one unread in the Log, each one counting against
 the `Max run history` limit until it pushes a run you actually care about out of
 the record. Mark such a task **Quiet history** (the switch in the task form, or
-`--quiet-history` on `claudeq add` / `claudeq edit` / `claudeq queue`) and:
+`--quiet-history` on `dispatchq add` / `dispatchq edit` / `dispatchq queue`) and:
 
 - A run that **succeeds leaves no trace**: it is never written to history, and
   its log is deleted when it finishes.
@@ -1460,8 +1500,8 @@ absent from the Usage statistics.
 
 Some work is worth doing only when it costs nothing: a dependency audit, a
 documentation pass, the refactor that is nice to have. Mark such a task
-**Backfill** (the switch in the task form, or `--backfill` on `claudeq add` /
-`claudeq edit` / `claudeq queue`) and it runs only on allowance that would
+**Backfill** (the switch in the task form, or `--backfill` on `dispatchq add` /
+`dispatchq edit` / `dispatchq queue`) and it runs only on allowance that would
 otherwise expire unused.
 
 **Urgency** says how far behind a provider is on spending its week:
@@ -1473,7 +1513,7 @@ starts there. At 2 it would take twice that pace, so half of what is left is
 at risk. The Dashboard's allowance strip marks the providers above the **backfill
 threshold**, which is the slider at the bottom of **Settings → Providers** (0.5
 to 5, default 1.5); while it moves, each provider's urgency gauge shows whether
-it would qualify, and it applies on release. `claudeq settings --backfill-urgency X` sets the same
+it would qualify, and it applies on release. `dispatchq settings --backfill-urgency X` sets the same
 value.
 
 A backfill task is due by its trigger as usual (once, at a time, or on a cron
@@ -1503,21 +1543,21 @@ marked. A job queued from a backfill task inherits the flag, like its other
 settings; pass `--backfill=false` to queue real work.
 
 ```sh
-claudeq add --id audit --prompt "Audit the dependencies and file issues" \
+dispatchq add --id audit --prompt "Audit the dependencies and file issues" \
             --dir ~/code/app --pool claude-pool --backfill
-claudeq add --id docs --prompt "Tidy the docs" --dir ~/code/app \
+dispatchq add --id docs --prompt "Tidy the docs" --dir ~/code/app \
             --provider codex --cron "0 * * * *" --backfill
-claudeq provider limits        # the urgency of each provider
+dispatchq provider limits        # the urgency of each provider
 ```
 
 ## Sharing tasks as files
 
-A task can be handed to a colleague as a single `.claudeq` file. It is a plain
+A task can be handed to a colleague as a single `.dispatchq` file. It is a plain
 zip archive with two entries:
 
 | Entry | Contents |
 |-------|----------|
-| `task.json` | Every setting of the task (id, name, working directory, trigger and schedule, parallel, enabled, model, permissions, notify) inside a small envelope: `format` (`claudeq-task`), `format_version` (`1`), `exported_at`, and `task`. |
+| `task.json` | Every setting of the task (id, name, working directory, trigger and schedule, parallel, enabled, model, permissions, notify) inside a small envelope: `format` (`dispatchq-task`), `format_version` (`1`), `exported_at`, and `task`. |
 | `prompt.md` | The prompt, byte for byte, as Markdown. |
 
 Unzip it to read or edit either part by hand; zip the two files back up and the
@@ -1525,13 +1565,13 @@ result imports again (a folder around them, as Finder's *Compress* adds, is
 fine).
 
 **Export.** In the app, the export button on a task row opens the native save
-panel, pre-filled with `<id>.claudeq`. From the CLI:
+panel, pre-filled with `<id>.dispatchq`. From the CLI:
 
 ```
-claudeq export nightly-sweep                       # ./nightly-sweep.claudeq
-claudeq export nightly-sweep --out ~/Desktop       # a directory: default name inside it
-claudeq export nightly-sweep --out share/brief     # a file: .claudeq is appended
-claudeq export nightly-sweep --out x.claudeq --force   # overwrite an existing file
+dispatchq export nightly-sweep                       # ./nightly-sweep.dispatchq
+dispatchq export nightly-sweep --out ~/Desktop       # a directory: default name inside it
+dispatchq export nightly-sweep --out share/brief     # a file: .dispatchq is appended
+dispatchq export nightly-sweep --out x.dispatchq --force   # overwrite an existing file
 ```
 
 Without `--force` the CLI refuses to overwrite; the app's save panel asks
@@ -1546,28 +1586,28 @@ Cancel and nothing happened.
 The working directory is the one place where a shared file cannot be trusted, so
 it is checked against this machine: if that folder does not exist here, the field
 is left empty and the sheet says which path was dropped — you pick a real one
-before the task can be added. A folder that exists but that ClaudeQ may not read
+before the task can be added. A folder that exists but that DispatchQ may not read
 yet counts as existing and is kept.
 
 **The provider travels as a hint, never as an account.** A file records which
 *kind* of harness the task was written for (`claude-code`, `codex`), the model,
 and what the exporter called their provider — never a provider id, a
-configuration directory or anything to do with a login. On import ClaudeQ looks
+configuration directory or anything to do with a login. On import DispatchQ looks
 for your own provider of that kind: exactly one match is taken, with the model.
 Anything else — no match, or several accounts of that kind — leaves the choice
 to you, and the sheet says which harness the file wants. Two accounts are not
 interchangeable (separate allowances, separate logins, often separate
-employers), so ClaudeQ does not pick one for you. Importing never creates a
+employers), so DispatchQ does not pick one for you. Importing never creates a
 provider, copies a path, or touches credentials.
 
-**Import from the CLI.** `claudeq import PATH` (optionally `--id ID` to choose
+**Import from the CLI.** `dispatchq import PATH` (optionally `--id ID` to choose
 the id) adds the task straight to the end of the queue with its settings
 **exactly as exported** — working directory, schedule, model, permissions and
 enabled state included. When the file's provider hint matches no single provider
 here, the import is refused and names what it wants; `--provider ID` places it
 (and `--model NAME` picks the model, since the exporter's belongs to their
 harness). A working directory that does not exist on this machine
-is kept, with a warning naming it; fix it with `claudeq edit ID --dir PATH`.
+is kept, with a warning naming it; fix it with `dispatchq edit ID --dir PATH`.
 Because settings arrive as-is, a task exported as *enabled* with an *as soon as
 possible* trigger is eligible to run right after a CLI import; pause or edit it
 first if that is not what you want.
@@ -1592,11 +1632,11 @@ in both paths and nothing is added.
 
 A prompt written for one Mac rarely fits the next one unchanged, and a task
 queued for 3 a.m. has nobody around to notice. So whenever a draft prompt is
-written or changed — in a new task, an edit, a replay or an import — ClaudeQ has
+written or changed — in a new task, an edit, a replay or an import — DispatchQ has
 Claude read it against *this* machine and, if something is off, shows it in a
 purple banner under the prompt box:
 
-> ✦ **ClaudeQ suggests:** docs/spec.md does not exist here, so the run has
+> ✦ **DispatchQ suggests:** docs/spec.md does not exist here, so the run has
 > nothing to read. Also out/weekly.md would be written into an out/ directory
 > that does not exist yet, so the rewrite creates it first.
 >
@@ -1610,7 +1650,7 @@ gate.
 
 What it looks for:
 
-- **A path that isn't there.** ClaudeQ resolves every path the prompt mentions
+- **A path that isn't there.** DispatchQ resolves every path the prompt mentions
   (absolute, `~/…`, or relative to the task's working directory) and checks it.
   An input file or folder that does not exist is reported; the right path is
   yours to supply, so no rewrite is offered.
@@ -1631,7 +1671,7 @@ interpreter that isn't there; a file it writes into a folder that doesn't exist
 or another prompt nobody will answer; and, for a shell script, **a command that
 isn't on the PATH it runs with**. The daemon's PATH is launchd's minimal one and
 reads no shell profile, so a Homebrew tool you use every day in Terminal is
-often simply not there at 3 a.m. ClaudeQ looks each command up on that very
+often simply not there at 3 a.m. DispatchQ looks each command up on that very
 PATH and, when one is missing but installed elsewhere (`/opt/homebrew/bin`,
 `/usr/local/bin`, `~/.local/bin`, …), the rewrite calls it by its full path.
 Paths written as `$HOME/…` are checked like `~/…`.
@@ -1647,12 +1687,12 @@ Practicalities:
   reviewing is frequent, cheap work with no claim on the allowance you reserved
   for real tasks, so a second account or a fast model earns its keep. Or switch
   the whole thing off with the toggle above. Only providers that can answer a
-  question of ClaudeQ's own are offered (see below); if none can, the banner
+  question of DispatchQ's own are offered (see below); if none can, the banner
   simply stays away.
-- The review itself is the narrowest invocation ClaudeQ makes: no tools at all
-  (ClaudeQ hands it the path checks and the small files it read), no CLAUDE.md,
+- The review itself is the narrowest invocation DispatchQ makes: no tools at all
+  (DispatchQ hands it the path checks and the small files it read), no CLAUDE.md,
   skills, plugins, hooks or MCP servers, no saved session, and a working
-  directory outside any repository. It reads; it never writes. ClaudeQ calls
+  directory outside any repository. It reads; it never writes. DispatchQ calls
   this an *aside* — a question it asks a harness on its own behalf rather than
   to do your work — and a provider has to be able to hold one to be offered for
   it. Claude Code can; Codex cannot yet.
@@ -1661,7 +1701,7 @@ Practicalities:
   still in flight — including its Claude process — so only the newest answer is
   ever shown. Opening a sheet changes nothing, so it asks nothing: an answer is
   remembered for a day, and reopening the same task, or the app, shows that
-  finding again for free, headed *ClaudeQ suggested earlier* and with a **Check
+  finding again for free, headed *DispatchQ suggested earlier* and with a **Check
   again** button for when the machine has moved on — the missing file exists by
   now — but the prompt has not. Undoing an edit is free too: the finding for the
   text you are back at is still remembered. **Dismiss** forgets a finding rather
@@ -1683,7 +1723,7 @@ Practicalities:
 **Feedback** at the bottom of the sidebar is a page of its own, and turns a bug
 report or a wish into a GitHub issue without you having to write one.
 
-1. Say what is wrong, or what ClaudeQ should be able to do — in whatever
+1. Say what is wrong, or what DispatchQ should be able to do — in whatever
    language you think in. The page offers a few examples to start from; picking
    one only fills the message box.
 2. Claude reads it and either asks one short clarifying question (at most twice,
@@ -1694,13 +1734,13 @@ report or a wish into a GitHub issue without you having to write one.
    running.
 3. You get the finished issue — an English title and body, labelled either
    `bug` or `enhancement` — in editable fields.
-   Your ClaudeQ version and macOS version are named there and ride along as a
+   Your DispatchQ version and macOS version are named there and ride along as a
    last line of the issue.
 4. **Open on GitHub** opens GitHub's prefilled *new issue* page in your browser.
    The issue exists only once you press **Create** there — and everything,
    including that version line, can still be changed or deleted on that page.
 
-ClaudeQ never talks to GitHub for this and stores no token: your browser is
+DispatchQ never talks to GitHub for this and stores no token: your browser is
 already signed in, and the whole issue travels in the page's URL. If the
 assistant cannot be reached — no provider set up to draft one, or your usage
 limit is exhausted — the page keeps what you typed and lets you write the issue
@@ -1720,7 +1760,7 @@ that.
 - **Eligibility.** On each tick the daemon starts every task that is due and
   permitted by priority, concurrency, and the limit gate.
 - **The pause switch wins over everything.** While *Pause all runs* is on, a tick
-  starts nothing and records nothing, `claudeq run-now` and the app's **Run now**
+  starts nothing and records nothing, `dispatchq run-now` and the app's **Run now**
   are refused, and no task wake is registered (only the heartbeat stays, so the
   daemon notices when you switch it off). Nothing is lost: a task that came due
   while paused is still due afterwards.
@@ -1729,7 +1769,7 @@ that.
   on. The wait comes from the reset time the CLI reports, then from its
   `retry_delay_ms` signal, and falls back to 15 minutes when neither is exposed.
   A terminal rate-limit result is recorded even if the CLI stays alive after
-  emitting it. ClaudeQ stops that CLI and its remaining tool processes, preserving
+  emitting it. DispatchQ stops that CLI and its remaining tool processes, preserving
   the session and reset time. A warning or subagent rejection alone does not stop
   a working run.
   At reset the gate reopens and the blocked task **resumes its session** rather
@@ -1766,30 +1806,31 @@ that.
 
 ## Data on disk
 
-Everything lives under `~/Library/Application Support/claudeq` (override with the
-`CLAUDEQ_HOME` environment variable):
+Everything lives under `~/Library/Application Support/dispatchq` (override with the
+`DISPATCHQ_HOME` environment variable):
 
 | Path | Contents |
 |------|----------|
 | `config.toml` | Global settings, the configured [providers](#providers) and [pools](#provider-pools), and the ordered task list — the order is the priority, and tasks of one group sit together in it (human-readable, versionable). No credentials: a provider entry holds its CLI's path and configuration directory, never what is inside them. |
-| `history.jsonl` | Append-only index of every run (except a quiet-history task's successful ones, which are never written). Scripts read it through `claudeq status --all --json`. |
+| `history.jsonl` | Append-only index of every run (except a quiet-history task's successful ones, which are never written). Scripts read it through `dispatchq status --all --json`. |
 | `runs/<run-id>.log` | Full log for each run. |
 | `artifacts.json` | Index of published artifacts (title, source task/run, its group and parent job, file name, size, type). |
 | `artifacts/<id>/<file>` | The published files themselves (snapshots copied at publish time). |
-| `notifications.json` | Outbox of notifications sent with `claudeq notify`, waiting for the daemon to deliver them (normally empty). |
+| `notifications.json` | Outbox of notifications sent with `dispatchq notify`, waiting for the daemon to deliver them (normally empty). |
 | `inbox.json` | The last 200 notifications the daemon sent (title, message, kind, what each points at, read flag), as listed in the Notifications view. |
-| `state.json` | Machine bookkeeping: read/unread flags (runs and artifacts), which artifacts have been notified about, cron anchors, pending-resume sessions, the provider health you were last told about, which queue groups are folded shut, dismissed update version. |
-| `claudeqd.out.log` / `claudeqd.err.log` | Daemon stdout/stderr. |
-| `.lock` / `.daemon.lock` | Lock files, both empty of interest. `.lock` serializes config/state writes between the daemon and a `claudeq` command; `.daemon.lock` holds the running daemon's pid and is what makes a second daemon on the same store refuse to start. Both are released when the holding process exits, so neither needs clearing by hand. |
+| `state.json` | Machine bookkeeping: read/unread flags (runs and artifacts), which artifacts have been notified about, cron anchors, pending-resume sessions, the provider health you were last told about, which queue groups are folded shut, dismissed update version, the What's new edition you closed. |
+| `dispatchqd.out.log` / `dispatchqd.err.log` | Daemon stdout/stderr. |
+| `../claudeq` | After an update from ClaudeQ: a link from the old data folder to this one (see [Coming from ClaudeQ](#coming-from-claudeq)). |
+| `.lock` / `.daemon.lock` | Lock files, both empty of interest. `.lock` serializes config/state writes between the daemon and a `dispatchq` command; `.daemon.lock` holds the running daemon's pid and is what makes a second daemon on the same store refuse to start. Both are released when the holding process exits, so neither needs clearing by hand. |
 
 The LaunchAgent itself is at
-`~/Library/LaunchAgents/de.maierdaniel.claudeq.plist`.
+`~/Library/LaunchAgents/de.maierdaniel.dispatchq.plist`.
 
 ## Uninstall
 
-Dragging ClaudeQ.app to the Bin is not enough: the background agent stays
-registered and macOS keeps trying to start it. ClaudeQ ships its own
-uninstaller, `Uninstall ClaudeQ.pkg`, inside the app
+Dragging DispatchQ.app to the Bin is not enough: the background agent stays
+registered and macOS keeps trying to start it. DispatchQ ships its own
+uninstaller, `Uninstall DispatchQ.pkg`, inside the app
 (`Contents/Resources`). **Settings → System → Uninstall…** opens it in the
 macOS Installer: read the welcome page, optionally click **Customize**, then
 **Install** (the Installer's button for running a package) and enter your
@@ -1799,27 +1840,28 @@ It removes:
 
 | What | Where |
 |------|-------|
-| The app | `/Applications/ClaudeQ.app`, and the copy the background agent ran if that is another one |
-| The background agent | `~/Library/LaunchAgents/de.maierdaniel.claudeq.plist`; every running ClaudeQ daemon and window is stopped, and a run in progress is cancelled |
-| The wake permission | `/etc/sudoers.d/claudeq` |
-| The installer receipt | `pkgutil --forget de.maierdaniel.claudeq` |
-| **Customize → Tasks, history and settings** (off by default) | `~/Library/Application Support/claudeq`, and the app's own folders under `~/Library` (`WebKit`, `Caches`, `HTTPStorages`, `Saved Application State`, `Preferences`) |
+| The app | `/Applications/DispatchQ.app`, and the copy the background agent ran if that is another one |
+| The background agent | `~/Library/LaunchAgents/de.maierdaniel.dispatchq.plist`; every running DispatchQ daemon and window is stopped, and a run in progress is cancelled |
+| The wake permission | `/etc/sudoers.d/dispatchq` |
+| The installer receipt | `pkgutil --forget de.maierdaniel.dispatchq` |
+| What ClaudeQ left | `ClaudeQ.app`, its LaunchAgent `de.maierdaniel.claudeq`, its daemon and window, `/etc/sudoers.d/claudeq` and its receipt, if any of them are still there |
+| **Customize → Tasks, history and settings** (off by default) | `~/Library/Application Support/dispatchq` and the `claudeq` link next to it, and the app's own folders (also those of ClaudeQ) under `~/Library` (`WebKit`, `Caches`, `HTTPStorages`, `Saved Application State`, `Preferences`) |
 
 The uninstaller leaves no receipt of its own. It also cleans up after an app
 that was already dragged to the Bin: open the `.pkg` from the Bin's copy of
-ClaudeQ.app (right-click → Show Package Contents → `Contents/Resources`).
+DispatchQ.app (right-click → Show Package Contents → `Contents/Resources`).
 
 From the terminal, the same package runs through `installer`; run it as the
 user logged in at the screen (not with sudo, it asks sudo for the password
 itself):
 
 ```sh
-/Applications/ClaudeQ.app/Contents/MacOS/claudeq uninstall          # keep tasks and history
-/Applications/ClaudeQ.app/Contents/MacOS/claudeq uninstall --purge  # delete them too
+/Applications/DispatchQ.app/Contents/MacOS/dispatchq uninstall          # keep tasks and history
+/Applications/DispatchQ.app/Contents/MacOS/dispatchq uninstall --purge  # delete them too
 ```
 
 The data choice deletes the default data directory only; the Installer cannot
-see a `CLAUDEQ_HOME` set in your shell, so delete such a folder yourself
+see a `DISPATCHQ_HOME` set in your shell, so delete such a folder yourself
 (`--purge` reminds you).
 
 ## Build from source
@@ -1828,8 +1870,8 @@ Requires Go 1.26+, Node.js 22+ with npm (for the web UI) and `librsvg`
 (`brew install librsvg`) for icon rendering.
 
 ```sh
-scripts/build-app.sh    # build/ClaudeQ.app          (double-click or `open` it)
-scripts/build-pkg.sh    # dist/claudeq-<version>.pkg  (installer)
+scripts/build-app.sh    # build/DispatchQ.app          (double-click or `open` it)
+scripts/build-pkg.sh    # dist/dispatchq-<version>.pkg  (installer)
 make web                # only the web UI, into internal/api/web
 ```
 
@@ -1837,7 +1879,7 @@ The daemon embeds the web UI when it is compiled, so build the UI first
 (`make web`; `build-app.sh` does it for you). A daemon compiled without it serves
 a page that says so. To work on the UI with hot reload against a running daemon,
 run `npm run dev` in `web/` (it proxies `/api` to `127.0.0.1:10765`, or to
-`CLAUDEQ_URL`).
+`DISPATCHQ_URL`).
 
 Run the same quality gates CI enforces with `make check` (format, vet, lint,
 race tests, and the web UI's typecheck, lint and tests). Releases are built automatically: pushing a `v*` tag runs
@@ -1854,7 +1896,7 @@ adapter spawns the `claude` CLI once per task in the task's directory using
 `--output-format stream-json`, which lets it watch for rate-limit and auth events
 as they happen and capture the session id, token usage, and cost from the final
 result. The daemon also spawns a second, far smaller kind of `claude` call for
-the [prompt review](#the-prompt-review): one turn, no tools, no session. ClaudeQ
+the [prompt review](#the-prompt-review): one turn, no tools, no session. DispatchQ
 performs **no Git operations** — any branch/commit behavior is driven entirely by
 your prompts and the repo's own configuration. The window's UI is a React and
 TypeScript app in `web/` (Vite, Tailwind CSS, Radix UI primitives, TanStack

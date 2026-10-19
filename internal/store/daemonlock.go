@@ -14,7 +14,7 @@ import (
 // daemonLockFile is held for as long as a daemon owns the data directory. It is
 // deliberately not the same file as lockFile: that one is taken and released
 // around every read-modify-write, and a daemon holding it forever would block
-// every claudeq CLI process.
+// every dispatchq CLI process.
 const daemonLockFile = ".daemon.lock"
 
 // ErrDaemonRunning means another process already owns the data directory. It
@@ -27,9 +27,9 @@ type ErrDaemonRunning struct {
 }
 
 func (e *ErrDaemonRunning) Error() string {
-	who := "another claudeqd"
+	who := "another dispatchqd"
 	if e.PID > 0 {
-		who = fmt.Sprintf("claudeqd (pid %d)", e.PID)
+		who = fmt.Sprintf("dispatchqd (pid %d)", e.PID)
 	}
 	return fmt.Sprintf("%s is already running for %s", who, e.Home)
 }
@@ -71,7 +71,7 @@ func (l *DaemonLock) Close() error {
 // during an update (the new daemon is bootstrapped while the old one is still
 // shutting down) without waiting on a daemon that is simply there to stay.
 //
-// The lock is per data directory, so a second daemon with its own CLAUDEQ_HOME
+// The lock is per data directory, so a second daemon with its own DISPATCHQ_HOME
 // is unaffected.
 func (s *Store) LockDaemon(wait time.Duration) (*DaemonLock, error) {
 	path := s.path(daemonLockFile)

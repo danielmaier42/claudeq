@@ -13,7 +13,7 @@ export function SystemSection() {
       <Section title="Danger zone">
         <RowGroup className="border-danger/30">
           <Row
-            label="Remove ClaudeQ from this Mac"
+            label="Remove DispatchQ from this Mac"
             description="Opens the uninstaller in the macOS Installer. It deletes the app, stops its background service and removes the wake permission. Your tasks and history stay unless you select them under Customize."
             control={
               <Button

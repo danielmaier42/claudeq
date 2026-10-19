@@ -136,7 +136,7 @@ func TestFeedbackURLAppendsTheEnvironment(t *testing.T) {
 	if !strings.HasPrefix(body, "The report.") {
 		t.Fatalf("body = %q", body)
 	}
-	if !strings.Contains(body, "ClaudeQ "+version.String()) || !strings.Contains(body, "macOS 15.6") {
+	if !strings.Contains(body, "DispatchQ "+version.String()) || !strings.Contains(body, "macOS 15.6") {
 		t.Fatalf("body does not carry the environment line: %q", body)
 	}
 }
@@ -157,7 +157,7 @@ func TestFeedbackURLLeavesOutAnUnknownOSVersion(t *testing.T) {
 	if strings.Contains(body, "macOS") {
 		t.Fatalf("body = %q, want no macOS line", body)
 	}
-	if !strings.Contains(body, "ClaudeQ "+version.String()) {
+	if !strings.Contains(body, "DispatchQ "+version.String()) {
 		t.Fatalf("body = %q, want the app version", body)
 	}
 }

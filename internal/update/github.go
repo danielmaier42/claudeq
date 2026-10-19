@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// DefaultRepo is the GitHub repository claudeq releases are published to.
+// DefaultRepo is the GitHub repository dispatchq releases are published to.
 const DefaultRepo = "danielmaier42/claudeq"
 
 // GitHubFetcher retrieves the latest release from GitHub's public REST API.

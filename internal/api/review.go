@@ -62,7 +62,7 @@ func (s *server) reviewPrompt(w http.ResponseWriter, r *http.Request) {
 		kind = review.KindScript
 	}
 
-	// The review runs on the provider chosen for it, with the account claudeq is
+	// The review runs on the provider chosen for it, with the account dispatchq is
 	// actually configured for. Its own model setting wins; empty means that
 	// provider's default model.
 	inst, model, ok := s.reviewTarget(cfg)
@@ -134,7 +134,7 @@ func (s *server) reviewContext(w http.ResponseWriter, _ *http.Request) {
 // reviewTarget resolves the provider instance and model the prompt review runs
 // with: the one Settings names for it, otherwise the default provider.
 //
-// Not every harness can answer claudeq's own questions (see internal/aside), so
+// Not every harness can answer dispatchq's own questions (see internal/aside), so
 // a provider that cannot is reported as no target at all rather than as a
 // review that fails on every keystroke. The same goes for one that is switched
 // off or whose CLI is missing: the reason is already on its card in Settings.

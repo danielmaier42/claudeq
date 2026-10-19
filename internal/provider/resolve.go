@@ -9,7 +9,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/store"
 )
 
-// DefaultInstanceID is the ID of the Claude Code instance every claudeq
+// DefaultInstanceID is the ID of the Claude Code instance every dispatchq
 // configuration has. It is the migration target for the pre-provider settings
 // and the default provider for a task that names none.
 const DefaultInstanceID = store.DefaultProviderID
@@ -251,7 +251,7 @@ type Availability struct {
 // the provider the selection named. The caller still sees the account whose
 // allowance ran out rather than an error about a fallback nobody asked about.
 //
-// This is the one substitution claudeq makes, and only this one: a rate limit
+// This is the one substitution dispatchq makes, and only this one: a rate limit
 // is a pause, not a verdict on the work. A provider that is missing, logged
 // out or switched off is still never answered by running somewhere else.
 func (s Set) ResolveAvailable(sel Selection, av Availability) (Resolved, error) {

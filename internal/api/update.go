@@ -51,7 +51,7 @@ type updateStatus struct {
 	PublishedAt *time.Time `json:"published_at,omitempty"`
 	// Dismissed is the version the user dismissed, "" if none.
 	Dismissed string `json:"dismissed,omitempty"`
-	// Installed is the version of the newest ClaudeQ.app on disk. It differs
+	// Installed is the version of the newest DispatchQ.app on disk. It differs
 	// from Current only when an installed update never took over from the
 	// running daemon.
 	Installed string `json:"installed,omitempty"`
@@ -126,7 +126,7 @@ func buildUpdateStatus(current, installed, dismissed string, snap update.Snapsho
 }
 
 // aggregateNotes joins the notes of the skipped releases (newest first), each
-// under a "ClaudeQ <version>" heading. With none skipped (e.g. a dev build) it
+// under a "DispatchQ <version>" heading. With none skipped (e.g. a dev build) it
 // falls back to the latest release's plain notes.
 func aggregateNotes(skipped []update.Release, latest *update.Release) string {
 	if len(skipped) == 0 {
@@ -137,7 +137,7 @@ func aggregateNotes(skipped []update.Release, latest *update.Release) string {
 		if i > 0 {
 			b.WriteString("\n\n")
 		}
-		b.WriteString("ClaudeQ ")
+		b.WriteString("DispatchQ ")
 		b.WriteString(r.Version)
 		b.WriteString("\n")
 		b.WriteString(strings.TrimSpace(r.Notes))
@@ -145,7 +145,7 @@ func aggregateNotes(skipped []update.Release, latest *update.Release) string {
 	return b.String()
 }
 
-// installedApp is the newest ClaudeQ.app on disk, nil when none is found. Its
+// installedApp is the newest DispatchQ.app on disk, nil when none is found. Its
 // version is what the running daemon's version is compared against to notice
 // an update that was installed but never took over (see updateStatus.
 // RestartRequired), and what the relaunch endpoint hands the LaunchAgent to.
@@ -252,16 +252,16 @@ func (s *server) downloadUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"path": path})
 }
 
-// relaunchInstalled hands the LaunchAgent over to the ClaudeQ.app at path by
-// running that bundle's own `claudeqd install`. Injectable for tests.
+// relaunchInstalled hands the LaunchAgent over to the DispatchQ.app at path by
+// running that bundle's own `dispatchqd install`. Injectable for tests.
 var relaunchInstalled = spawnInstalledDaemon
 
-// spawnInstalledDaemon starts `<app>/Contents/MacOS/claudeqd install` detached.
+// spawnInstalledDaemon starts `<app>/Contents/MacOS/dispatchqd install` detached.
 // That command stops the running daemon (this process) and re-bootstraps the
 // LaunchAgent at the installed binary — the same hand-over the installer's
 // postinstall performs, minus the parts that need root.
 func spawnInstalledDaemon(app string) error {
-	bin := filepath.Join(app, "Contents", "MacOS", "claudeqd")
+	bin := filepath.Join(app, "Contents", "MacOS", "dispatchqd")
 	if _, err := os.Stat(bin); err != nil {
 		return fmt.Errorf("installed daemon not found at %s: %w", bin, err)
 	}
@@ -275,13 +275,13 @@ func spawnInstalledDaemon(app string) error {
 	return nil
 }
 
-// relaunchUpdate switches the background service over to the newest ClaudeQ.app
+// relaunchUpdate switches the background service over to the newest DispatchQ.app
 // on disk. It answers the case where an installer ran fine but the old daemon
 // kept running: the update is already installed, it just never took effect.
 func (s *server) relaunchUpdate(w http.ResponseWriter, _ *http.Request) {
 	inst := installedApp()
 	if inst == nil {
-		writeErr(w, http.StatusServiceUnavailable, errors.New("no installed ClaudeQ.app was found"))
+		writeErr(w, http.StatusServiceUnavailable, errors.New("no installed DispatchQ.app was found"))
 		return
 	}
 	if err := relaunchInstalled(inst.Path); err != nil {

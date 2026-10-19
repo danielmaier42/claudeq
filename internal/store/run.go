@@ -99,7 +99,7 @@ type Run struct {
 	// events, diagnostics and the raw stream stay in the log and are never
 	// treated as the answer.
 	FinalOutput string `json:"final_output,omitempty"`
-	// FinalOutputTruncated records that the answer was longer than claudeq
+	// FinalOutputTruncated records that the answer was longer than dispatchq
 	// keeps. History is read into memory on every load, so one run cannot be
 	// allowed to grow it without bound — and a reader has to be told that what
 	// they see is not all of it.

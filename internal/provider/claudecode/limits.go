@@ -32,7 +32,7 @@ const usageBeta = "oauth-2025-04-20"
 // keychainService is the macOS keychain item Claude Code keeps its login in.
 // An instance with its own configuration directory gets an item of its own,
 // suffixed with the start of the directory's SHA-256 — the same name the CLI
-// derives, so claudeq reads exactly the account the instance's runs use.
+// derives, so dispatchq reads exactly the account the instance's runs use.
 func keychainService(configDir string) string {
 	const base = "Claude Code-credentials"
 	if configDir == "" {
@@ -42,8 +42,8 @@ func keychainService(configDir string) string {
 	return base + "-" + hex.EncodeToString(sum[:])[:8]
 }
 
-// credentials is the part of Claude Code's stored login claudeq reads. The
-// refresh token is deliberately not parsed: claudeq never renews a login
+// credentials is the part of Claude Code's stored login dispatchq reads. The
+// refresh token is deliberately not parsed: dispatchq never renews a login
 // itself, because a renewal rotates the token and would log the CLI out.
 type credentials struct {
 	OAuth *struct {
@@ -62,7 +62,7 @@ type usageWindow struct {
 	ResetsAt    string   `json:"resets_at"`
 }
 
-// usageReport is the part of the usage endpoint's answer claudeq shows: the
+// usageReport is the part of the usage endpoint's answer dispatchq shows: the
 // five-hour session window and the weekly window across all models.
 type usageReport struct {
 	FiveHour *usageWindow `json:"five_hour"`
@@ -127,7 +127,7 @@ func (a *Adapter) readUsage(ctx context.Context, token string) ([]provider.Limit
 	case resp.StatusCode == http.StatusUnauthorized:
 		return nil, errors.New("the stored Claude login was refused; it is renewed on the next run on this account")
 	case resp.StatusCode == http.StatusTooManyRequests:
-		return nil, errors.New("the Claude usage endpoint asked claudeq to slow down; the next reading tries again")
+		return nil, errors.New("the Claude usage endpoint asked dispatchq to slow down; the next reading tries again")
 	case resp.StatusCode != http.StatusOK:
 		return nil, fmt.Errorf("the Claude usage endpoint answered %s", resp.Status)
 	}
@@ -140,7 +140,7 @@ func (a *Adapter) readUsage(ctx context.Context, token string) ([]provider.Limit
 func parseUsage(body []byte) ([]provider.LimitWindow, error) {
 	var rep usageReport
 	if err := json.Unmarshal(body, &rep); err != nil {
-		return nil, fmt.Errorf("the Claude usage answer is not in a format claudeq understands: %w", err)
+		return nil, fmt.Errorf("the Claude usage answer is not in a format dispatchq understands: %w", err)
 	}
 	var out []provider.LimitWindow
 	for _, w := range []struct {
@@ -193,7 +193,7 @@ func (a *Adapter) login(ctx context.Context, inst provider.Instance) (oauthLogin
 	}
 	var c credentials
 	if err := json.Unmarshal(raw, &c); err != nil {
-		return oauthLogin{}, errors.New("the stored Claude login is not in a format claudeq understands")
+		return oauthLogin{}, errors.New("the stored Claude login is not in a format dispatchq understands")
 	}
 	if c.OAuth == nil || c.OAuth.AccessToken == "" {
 		return oauthLogin{}, provider.ErrNoPlanLimits

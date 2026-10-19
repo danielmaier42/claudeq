@@ -114,7 +114,7 @@ func (s *server) displayInputs(health func(provider.Instance) provider.Health) p
 }
 
 // getPool is one pool with its ranking, as listPools shows it. It is what
-// `claudeq pool next` and `claudeq pool show` ask a running daemon for.
+// `dispatchq pool next` and `dispatchq pool show` ask a running daemon for.
 func (s *server) getPool(w http.ResponseWriter, r *http.Request) {
 	s.writePool(w, r, r.PathValue("id"), http.StatusOK)
 }

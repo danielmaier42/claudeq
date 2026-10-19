@@ -12,7 +12,7 @@ func (a *Adapter) NewParser() provider.Parser { return &parser{} }
 
 // streamEvent is one line of `opencode run --format json`. The stream is a
 // sequence of step/text/tool-use records for one turn, repeated for however
-// many turns the run took; claudeq reads the few fields that decide the
+// many turns the run took; dispatchq reads the few fields that decide the
 // outcome and ignores the rest, so a new record type the CLI adds later is
 // harmless.
 type streamEvent struct {
@@ -24,7 +24,7 @@ type streamEvent struct {
 
 // eventPart covers `text` (the model's own words) and `step_finish` (which
 // ends a turn: "stop" is the run's actual answer, "tool-calls" means another
-// step follows). Nothing about tool_use is read — claudeq does not need the
+// step follows). Nothing about tool_use is read — dispatchq does not need the
 // per-call detail, only the run's final outcome.
 type eventPart struct {
 	Type   string      `json:"type"`
@@ -110,7 +110,7 @@ func (p *parser) Parse(line []byte) []provider.Event {
 
 // noteUsage keeps the latest usage figures a step_finish reported. A run that
 // takes several turns updates this on each one; the last update before the
-// terminal step_finish is what claudeq reports for the whole run, because
+// terminal step_finish is what dispatchq reports for the whole run, because
 // opencode does not sum turns itself.
 func (p *parser) noteUsage(part *eventPart) {
 	if part.Tokens == nil && part.Cost == nil {

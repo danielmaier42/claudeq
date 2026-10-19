@@ -1,4 +1,4 @@
-# golangci-lint v2 configuration for claudeq.
+# golangci-lint v2 configuration for dispatchq.
 # See AGENTS.md §1 for the quality bar this enforces.
 version: "2"
 

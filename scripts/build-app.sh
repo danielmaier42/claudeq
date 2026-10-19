@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build ClaudeQ.app — a native macOS application bundle wrapping the daemon and
-# the WKWebView window. The bundle is what makes macOS treat claudeq as its own
+# Build DispatchQ.app — a native macOS application bundle wrapping the daemon and
+# the WKWebView window. The bundle is what makes macOS treat dispatchq as its own
 # foreground app (its name in the menu bar, its own Dock icon, no terminal
 # parent) instead of a bare executable owned by Terminal.
 #
@@ -14,18 +14,18 @@ export GOMAXPROCS="${GOMAXPROCS:-8}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${1:-$ROOT/build}"
-APP="$OUT/ClaudeQ.app"
+APP="$OUT/DispatchQ.app"
 CONTENTS="$APP/Contents"
 MACOS="$CONTENTS/MacOS"
 RES="$CONTENTS/Resources"
 LOGO="$ROOT/web/public/logo.svg"
 
-# An explicit CLAUDEQ_VERSION wins — the release workflow sets it from the
+# An explicit DISPATCHQ_VERSION wins — the release workflow sets it from the
 # pushed tag, so only that CI build carries a real version number. Every other
 # build (local, or CI on a branch) is a dev build, versioned "dev-<branch>" so
 # it's never mistaken for a release (e.g. "dev-main").
-if [ -n "${CLAUDEQ_VERSION:-}" ]; then
-  VERSION="${CLAUDEQ_VERSION#v}"
+if [ -n "${DISPATCHQ_VERSION:-}" ]; then
+  VERSION="${DISPATCHQ_VERSION#v}"
 else
   BRANCH="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
   VERSION="dev-${BRANCH//\//-}"
@@ -41,19 +41,19 @@ mkdir -p "$MACOS" "$RES"
 # can compare against the latest GitHub release. Without this the binaries
 # report "dev" and never see themselves as updatable.
 LDFLAGS="-X github.com/danielmaier42/claudeq/internal/version.Version=v${VERSION}"
-go build -ldflags "$LDFLAGS" -o "$MACOS/claudeqapp" "$ROOT/cmd/claudeqapp"
-go build -ldflags "$LDFLAGS" -o "$MACOS/claudeqd" "$ROOT/cmd/claudeqd"
-# The claudeq CLI ships alongside the daemon so a running task can queue
-# follow-up work via it (claudeqd passes its absolute path as CLAUDEQ_BIN).
-go build -ldflags "$LDFLAGS" -o "$MACOS/claudeq" "$ROOT/cmd/claudeq"
+go build -ldflags "$LDFLAGS" -o "$MACOS/dispatchqapp" "$ROOT/cmd/dispatchqapp"
+go build -ldflags "$LDFLAGS" -o "$MACOS/dispatchqd" "$ROOT/cmd/dispatchqd"
+# The dispatchq CLI ships alongside the daemon so a running task can queue
+# follow-up work via it (dispatchqd passes its absolute path as DISPATCHQ_BIN).
+go build -ldflags "$LDFLAGS" -o "$MACOS/dispatchq" "$ROOT/cmd/dispatchq"
 
 echo "==> Building the uninstaller"
-# Settings > System > Uninstall and `claudeq uninstall` run this package.
-"$ROOT/scripts/build-uninstall-pkg.sh" "$RES/Uninstall ClaudeQ.pkg"
+# Settings > System > Uninstall and `dispatchq uninstall` run this package.
+"$ROOT/scripts/build-uninstall-pkg.sh" "$RES/Uninstall DispatchQ.pkg"
 
 echo "==> Rendering icon from $LOGO"
 if command -v rsvg-convert >/dev/null 2>&1; then
-  ICONSET="$(mktemp -d)/claudeq.iconset"
+  ICONSET="$(mktemp -d)/dispatchq.iconset"
   mkdir -p "$ICONSET"
   # macOS iconset: base size + @2x for 16/32/128/256/512.
   for spec in "16:16" "16:32@2x" "32:32" "32:64@2x" \
@@ -63,7 +63,7 @@ if command -v rsvg-convert >/dev/null 2>&1; then
     suffix="${rest#*@}"; [ "$suffix" = "$rest" ] && suffix="" || suffix="@2x"
     rsvg-convert -w "$px" -h "$px" "$LOGO" -o "$ICONSET/icon_${base}x${base}${suffix}.png"
   done
-  iconutil -c icns "$ICONSET" -o "$RES/claudeq.icns"
+  iconutil -c icns "$ICONSET" -o "$RES/dispatchq.icns"
   rm -rf "$(dirname "$ICONSET")"
 else
   echo "   rsvg-convert not found — bundling without an icon"
@@ -75,20 +75,20 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleName</key><string>ClaudeQ</string>
-	<key>CFBundleDisplayName</key><string>ClaudeQ</string>
-	<key>CFBundleIdentifier</key><string>de.maierdaniel.claudeq</string>
-	<key>CFBundleExecutable</key><string>claudeqapp</string>
+	<key>CFBundleName</key><string>DispatchQ</string>
+	<key>CFBundleDisplayName</key><string>DispatchQ</string>
+	<key>CFBundleIdentifier</key><string>de.maierdaniel.dispatchq</string>
+	<key>CFBundleExecutable</key><string>dispatchqapp</string>
 	<key>CFBundlePackageType</key><string>APPL</string>
 	<key>CFBundleShortVersionString</key><string>${VERSION}</string>
 	<key>CFBundleVersion</key><string>${VERSION}</string>
 	<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-	<key>CFBundleIconFile</key><string>claudeq</string>
+	<key>CFBundleIconFile</key><string>dispatchq</string>
 	<key>LSMinimumSystemVersion</key><string>12.0</string>
 	<key>NSHighResolutionCapable</key><true/>
 	<key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
 	<key>LSUIElement</key><false/>
-	<!-- Ask macOS to default ClaudeQ's notifications to the alert style, which
+	<!-- Ask macOS to default DispatchQ's notifications to the alert style, which
 	     stays on screen until it is clicked (banners vanish on their own). It is
 	     only the default for a fresh install: once macOS has an entry for the app,
 	     System Settings > Notifications is what decides. -->
@@ -103,7 +103,7 @@ PLIST
 # app and deliver notifications with its icon. A real Developer ID signature, if
 # configured, is applied later by build-pkg.sh and overrides this.
 echo "==> Ad-hoc signing bundle"
-codesign --force --deep --sign - --identifier de.maierdaniel.claudeq "$APP" || \
+codesign --force --deep --sign - --identifier de.maierdaniel.dispatchq "$APP" || \
   echo "   codesign failed; notifications may fall back to a generic icon"
 
 # Refresh Launch Services / Finder so the new icon and metadata show immediately.

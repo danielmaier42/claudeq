@@ -12,7 +12,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/store"
 )
 
-// publish appends an artifact to the store's list, the way `claudeq publish`
+// publish appends an artifact to the store's list, the way `dispatchq publish`
 // does from inside a run.
 func publish(t *testing.T, st *store.Store, a store.Artifact) {
 	t.Helper()

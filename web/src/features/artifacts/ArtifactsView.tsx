@@ -79,7 +79,7 @@ export function ArtifactsView() {
         <EmptyState
           icon={<FolderOpen />}
           title="No artifacts yet"
-          description="Files your tasks publish with “claudeq publish” appear here — reports, exports, HTML pages, PDFs."
+          description="Files your tasks publish with “dispatchq publish” appear here — reports, exports, HTML pages, PDFs."
         />
       ) : !filtered.length ? (
         <EmptyState

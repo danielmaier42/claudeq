@@ -13,7 +13,7 @@ import (
 func (a *Adapter) NewParser() provider.Parser { return &parser{} }
 
 // streamEvent is one line of `codex exec --json`. The stream is a sequence of
-// thread/turn/item records; claudeq reads the few that decide the outcome and
+// thread/turn/item records; dispatchq reads the few that decide the outcome and
 // ignores the rest, so a new record type the CLI adds later is harmless.
 type streamEvent struct {
 	Type     string      `json:"type"`
@@ -27,7 +27,7 @@ type streamEvent struct {
 // streamItem is the payload of item.started / item.completed. `agent_message`
 // carries what the run has to say; `error` carries a problem, which is not
 // always terminal (a model-metadata warning arrives this way); `collab_tool_call`
-// is Codex coordinating its own subagents, which claudeq deliberately ignores.
+// is Codex coordinating its own subagents, which dispatchq deliberately ignores.
 type streamItem struct {
 	Type    string `json:"type"`
 	Text    string `json:"text"`
@@ -39,7 +39,7 @@ type streamErr struct {
 }
 
 // usage is what Codex reports for a completed turn. It has no monetary cost, and
-// claudeq does not invent one.
+// dispatchq does not invent one.
 type usage struct {
 	InputTokens       int `json:"input_tokens"`
 	CachedInputTokens int `json:"cached_input_tokens"`
@@ -97,7 +97,7 @@ func (p *parser) Parse(line []byte) []provider.Event {
 
 // noteItem records what an item contributes: the agent's own words, or a problem
 // it reported. A collaboration record means Codex is talking to its own
-// subagents — that is the harness's business, not claudeq's.
+// subagents — that is the harness's business, not dispatchq's.
 func (p *parser) noteItem(item *streamItem) {
 	if item == nil {
 		return
@@ -202,7 +202,7 @@ func summarize(msg string) string {
 	return msg
 }
 
-// metricsOf maps Codex's token counts onto claudeq's. Cached and reasoning
+// metricsOf maps Codex's token counts onto dispatchq's. Cached and reasoning
 // tokens have no field of their own; cached input is part of the input total
 // Codex reports, and reasoning output is counted with the output, so neither is
 // added twice.

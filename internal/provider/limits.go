@@ -68,7 +68,7 @@ const (
 	LimitsDisabled LimitsState = "disabled"
 )
 
-// Limits is what claudeq knows about one instance's allowance.
+// Limits is what dispatchq knows about one instance's allowance.
 type Limits struct {
 	State LimitsState `json:"state"`
 	// Windows are the allowance windows from the last successful read. A failed
@@ -88,7 +88,7 @@ type Limits struct {
 }
 
 // DefaultLimitsInterval is how often the daemon reads every instance's limits
-// on its own. The windows move with use, and claudeq's own runs trigger a read
+// on its own. The windows move with use, and dispatchq's own runs trigger a read
 // when they end, so a quarter of an hour is enough for the rest: what other
 // clients on the same account consumed.
 const DefaultLimitsInterval = 15 * time.Minute

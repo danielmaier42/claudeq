@@ -10,17 +10,17 @@ import (
 // running from anywhere else (a second copy the user kept in ~/Applications, a
 // stale LaunchAgent still pointing at an old bundle) is exactly the situation
 // [InstalledApp] exists to detect.
-const DefaultAppPath = "/Applications/ClaudeQ.app"
+const DefaultAppPath = "/Applications/DispatchQ.app"
 
-// Installed describes an installed ClaudeQ app bundle on disk.
+// Installed describes an installed DispatchQ app bundle on disk.
 type Installed struct {
 	// Version is the bundle's CFBundleShortVersionString, normalized ("0.8.1").
 	Version string
-	// Path is the bundle itself, e.g. "/Applications/ClaudeQ.app".
+	// Path is the bundle itself, e.g. "/Applications/DispatchQ.app".
 	Path string
 }
 
-// InstalledApp reports the newest ClaudeQ app bundle on disk, comparing the
+// InstalledApp reports the newest DispatchQ app bundle on disk, comparing the
 // bundle the running executable lives in with the canonical install location.
 // It returns nil when neither carries a real release version.
 //
@@ -49,7 +49,7 @@ func installedApp(exePath, defaultApp string) *Installed {
 }
 
 // candidateApps lists the app bundles worth inspecting: the one containing
-// exePath (…/ClaudeQ.app/Contents/MacOS/claudeqd) and the canonical location.
+// exePath (…/DispatchQ.app/Contents/MacOS/dispatchqd) and the canonical location.
 func candidateApps(exePath, defaultApp string) []string {
 	apps := []string{}
 	if app := EnclosingBundle(exePath); app != "" {

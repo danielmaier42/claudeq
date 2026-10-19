@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Acceptance test for claudeq (Phases 2-3).
+# Acceptance test for dispatchq (Phases 2-3).
 #
-# Drives the real claudeq / claudeqd binaries against a fake `claude` (no tokens,
+# Drives the real dispatchq / dispatchqd binaries against a fake `claude` (no tokens,
 # deterministic) and checks each Phase-2 requirement, printing PASS/FAIL with the
 # requirement id. Exits non-zero if any check fails.
 #
@@ -12,7 +12,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-export CLAUDEQ_HOME="$WORK/home"
+export DISPATCHQ_HOME="$WORK/home"
 export CQ_FAKE_ARGS="$WORK/args.log"
 export CQ_FAKE_STATE="$WORK/calls"
 REPO_A="$WORK/repoA"; REPO_B="$WORK/repoB"
@@ -42,14 +42,16 @@ precedes() {
 }
 
 echo "== building binaries =="
-go build -o "$WORK/claudeq"  "$ROOT/cmd/claudeq"  || exit 2
-go build -o "$WORK/claudeqd" "$ROOT/cmd/claudeqd" || exit 2
-CQ="$WORK/claudeq"; CQD="$WORK/claudeqd"
+go build -o "$WORK/dispatchq"  "$ROOT/cmd/dispatchq"  || exit 2
+go build -o "$WORK/dispatchqd" "$ROOT/cmd/dispatchqd" || exit 2
+CQ="$WORK/dispatchq"; CQD="$WORK/dispatchqd"
 
 # Fake claude: logs its args, then behaves per $CQ_FAKE_MODE.
 FAKE="$WORK/fakebin"; mkdir -p "$FAKE"
 cat > "$FAKE/claude" <<'EOF'
 #!/bin/sh
+# The provider health check asks whether Claude Code is logged in; it always is.
+if [ "$1" = auth ]; then echo '{"loggedIn":true,"authMethod":"claude.ai"}'; exit 0; fi
 echo "ARGS: $*" >> "$CQ_FAKE_ARGS"
 case "${CQ_FAKE_MODE:-ok}" in
   ok) echo '{"type":"result","is_error":false,"result":"ok","session_id":"s-ok"}' ;;
@@ -78,15 +80,15 @@ EOF
   chmod +x "$FAKE/$tool"
 done
 export PATH="$FAKE:$PATH"
-# Force claudeq to use the fake claude (the daemon otherwise auto-detects the
+# Force dispatchq to use the fake claude (the daemon otherwise auto-detects the
 # real one at a common install path, bypassing PATH).
-export CLAUDEQ_CLAUDE_BIN="$FAKE/claude"
+export DISPATCHQ_CLAUDE_BIN="$FAKE/claude"
 
 echo
 echo "== Task definition & management =="
 "$CQ" add --id a --name "Build A" --prompt "pa" --dir "$REPO_A" --trigger asap >/dev/null
 "$CQ" add --id b --name "Build B" --prompt "pb" --dir "$REPO_B" --trigger asap --parallel >/dev/null
-check "FA-01 stores prompt/dir/trigger/parallel"     contains "$CLAUDEQ_HOME/config.toml" "$REPO_A"
+check "FA-01 stores prompt/dir/trigger/parallel"     contains "$DISPATCHQ_HOME/config.toml" "$REPO_A"
 check "FA-03 multiple tasks, different contexts"     bash -c '[ "$('"$CQ"' list | grep -c Build)" -eq 2 ]'
 "$CQ" add --id bad --prompt "x" --dir "$REPO_A" --trigger cron --cron "not-a-cron" >/dev/null 2>&1
 check "FA-04/18 invalid cron rejected"               bash -c '! '"$CQ"' list | grep -q "^.*bad"'
@@ -102,7 +104,7 @@ echo "== Execution (run-now) & result visibility =="
 check "FA-16 run-now executes"                        contains "$CQ_FAKE_ARGS" "ARGS:"
 "$CQ" status | grep -q success
 num_check "FA-15 status shows success"                "$?" -eq 0
-check "FA-15 per-run log file written"                bash -c 'ls "$CLAUDEQ_HOME"/runs/*.log >/dev/null 2>&1'
+check "FA-15 per-run log file written"                bash -c 'ls "$DISPATCHQ_HOME"/runs/*.log >/dev/null 2>&1'
 
 echo
 echo "== Model & permission flags (per-task / global) =="
@@ -115,7 +117,7 @@ check "FA-27 headless stream-json invocation"         contains "$CQ_FAKE_ARGS" "
 
 echo
 echo "== Scheduler loop: asap / fixed earliest-start =="
-export CLAUDEQ_HOME="$WORK/home2"; mkdir -p "$CLAUDEQ_HOME"
+export DISPATCHQ_HOME="$WORK/home2"; mkdir -p "$DISPATCHQ_HOME"
 FUTURE=$(date -u -v+1H +%Y-%m-%dT%H:%M:%SZ)
 PAST=$(date -u -v-1H +%Y-%m-%dT%H:%M:%SZ)
 "$CQ" add --id now  --prompt "p" --dir "$REPO_A" --trigger asap >/dev/null
@@ -123,7 +125,7 @@ PAST=$(date -u -v-1H +%Y-%m-%dT%H:%M:%SZ)
 "$CQ" add --id soon --prompt "p" --dir "$REPO_A" --trigger fixed --at "$FUTURE" >/dev/null
 CQ_FAKE_MODE=ok "$CQD" run --interval 300ms >/dev/null 2>&1 &
 DPID=$!; sleep 2; kill -INT $DPID 2>/dev/null; wait $DPID 2>/dev/null
-H="$CLAUDEQ_HOME/history.jsonl"
+H="$DISPATCHQ_HOME/history.jsonl"
 now_n=$(lines "$H" '"task_id":"now"');  past_n=$(lines "$H" '"task_id":"past"'); soon_n=$(lines "$H" '"task_id":"soon"')
 num_check "FA-07 asap task ran"                       "${now_n:-0}"  -ge 1
 num_check "FA-08 fixed(past) ran"                     "${past_n:-0}" -ge 1
@@ -132,17 +134,17 @@ num_check "FA-08 fixed(future) did NOT run"           "${soon_n:-0}" -eq 0
 echo
 echo "== Reactive limit gate: no spin, then resume =="
 # Rate-limit: exactly one attempt while the gate is blocked.
-export CLAUDEQ_HOME="$WORK/home3"; mkdir -p "$CLAUDEQ_HOME"
+export DISPATCHQ_HOME="$WORK/home3"; mkdir -p "$DISPATCHQ_HOME"
 "$CQ" add --id blk --prompt "p" --dir "$REPO_A" --trigger asap >/dev/null
 CQ_FAKE_MODE=rl "$CQD" run --interval 200ms >/dev/null 2>&1 &
 DPID=$!; sleep 2; kill -INT $DPID 2>/dev/null; wait $DPID 2>/dev/null
-H3="$CLAUDEQ_HOME/history.jsonl"
+H3="$DISPATCHQ_HOME/history.jsonl"
 starts=$(grep '"task_id":"blk"' "$H3" 2>/dev/null | grep -c '"status":"running"')
 num_check "FA-05/06/37 rate-limit → exactly one attempt (no spin)" "${starts:-0}" -eq 1
 check "FA-35 failure/limit visible in status"         bash -c ''"$CQ"' status | grep -q rate_limited_waiting'
 
 # Resume after reset: 1st call 429 (retry 2s), later call succeeds via --resume.
-export CLAUDEQ_HOME="$WORK/home4"; mkdir -p "$CLAUDEQ_HOME"; : > "$CQ_FAKE_ARGS"; : > "$CQ_FAKE_STATE"
+export DISPATCHQ_HOME="$WORK/home4"; mkdir -p "$DISPATCHQ_HOME"; : > "$CQ_FAKE_ARGS"; : > "$CQ_FAKE_STATE"
 "$CQ" add --id res --prompt "p" --dir "$REPO_A" --trigger asap >/dev/null
 CQ_FAKE_MODE=resume-once "$CQD" run --interval 400ms >/dev/null 2>&1 &
 DPID=$!; sleep 5; kill -INT $DPID 2>/dev/null; wait $DPID 2>/dev/null
@@ -151,7 +153,7 @@ check "D4 task succeeded after resume"                bash -c ''"$CQ"' status | 
 
 # A limit pause must read as a plan, not a hang: the run says when it resumes,
 # and cancelling that resume keeps the task from starting again at the reset.
-export CLAUDEQ_HOME="$WORK/home4b"; mkdir -p "$CLAUDEQ_HOME"; : > "$CQ_FAKE_ARGS"
+export DISPATCHQ_HOME="$WORK/home4b"; mkdir -p "$DISPATCHQ_HOME"; : > "$CQ_FAKE_ARGS"
 API="http://127.0.0.1:8792"
 "$CQ" add --id rlc --prompt "p" --dir "$REPO_A" --trigger asap >/dev/null
 CQ_FAKE_MODE=rl CQ_FAKE_RETRY_MS=4000 "$CQD" run --interval 300ms --no-wake --addr 127.0.0.1:8792 >/dev/null 2>&1 &
@@ -185,7 +187,7 @@ num_check "the task did not start again after the reset" "${starts:-0}" -eq 1
 
 echo
 echo "== News/unread persistence =="
-export CLAUDEQ_HOME="$WORK/home5"; mkdir -p "$CLAUDEQ_HOME"
+export DISPATCHQ_HOME="$WORK/home5"; mkdir -p "$DISPATCHQ_HOME"
 "$CQ" add --id n --prompt "p" --dir "$REPO_A" --trigger asap >/dev/null
 "$CQ" run-now n >/dev/null
 check "FA-22 new run is unread"                       bash -c ''"$CQ"' status | grep -q "1 unread"'
@@ -195,9 +197,9 @@ check "FA-24/26 read status persists (new process)"   bash -c ''"$CQ"' status | 
 echo
 echo "== Resilience & wake (Phase 3; fake launchctl/sudo/pmset) =="
 FAKEHOME="$WORK/fakehome"; mkdir -p "$FAKEHOME"
-export CLAUDEQ_HOME="$WORK/home6"; mkdir -p "$CLAUDEQ_HOME"
+export DISPATCHQ_HOME="$WORK/home6"; mkdir -p "$DISPATCHQ_HOME"
 HOME="$FAKEHOME" "$CQD" install >/dev/null 2>&1
-PLIST="$FAKEHOME/Library/LaunchAgents/de.maierdaniel.claudeq.plist"
+PLIST="$FAKEHOME/Library/LaunchAgents/de.maierdaniel.dispatchq.plist"
 check "NFA-03 install writes LaunchAgent plist"       test -f "$PLIST"
 check "NFA-03 plist has RunAtLoad (autostart)"        contains "$PLIST" "<key>RunAtLoad</key>"
 check "NFA-03 install bootstraps via launchctl"       contains "$WORK/launchctl.log" "bootstrap"
@@ -214,7 +216,7 @@ check "NFA-03 uninstall boots out via launchctl"      contains "$WORK/launchctl.
 
 echo
 echo "== Notifications (Phase 4; fake osascript) =="
-export CLAUDEQ_HOME="$WORK/home7"; mkdir -p "$CLAUDEQ_HOME"
+export DISPATCHQ_HOME="$WORK/home7"; mkdir -p "$DISPATCHQ_HOME"
 "$CQ" add --id failer --prompt "p" --dir "$REPO_A" --trigger asap >/dev/null
 : > "$WORK/osascript.log"
 CQ_FAKE_MODE=fail "$CQD" run --interval 300ms --no-wake >/dev/null 2>&1 &
@@ -223,7 +225,7 @@ check "FA-35/39 failure triggers a macOS notification" contains "$WORK/osascript
 
 echo
 echo "== Dashboard API (Phase 5) =="
-export CLAUDEQ_HOME="$WORK/home8"; mkdir -p "$CLAUDEQ_HOME"
+export DISPATCHQ_HOME="$WORK/home8"; mkdir -p "$DISPATCHQ_HOME"
 FUT=$(date -u -v+1H +%Y-%m-%dT%H:%M:%SZ)
 "$CQ" add --id web --prompt "p" --dir "$REPO_A" --trigger fixed --at "$FUT" >/dev/null  # stays listed (not due)
 "$CQ" add --id ran --prompt "p" --dir "$REPO_A" --trigger asap >/dev/null               # runs then leaves the queue
@@ -237,7 +239,7 @@ case "$tasks_json" in *'"id":"web"'*) t1=0;; *) t1=1;; esac
 num_check "FA-02 API lists tasks (lowercase JSON keys)"  "$t1" -eq 0
 case "$tasks_json" in *'"id":"ran"'*) t1b=1;; *) t1b=0;; esac
 num_check "finished one-shot task leaves the queue"      "$t1b" -eq 0
-case "$dash_html" in *"<title>ClaudeQ</title>"*) t2=0;; *) t2=1;; esac
+case "$dash_html" in *"<title>DispatchQ</title>"*) t2=0;; *) t2=1;; esac
 num_check "FA-25 dashboard HTML served"                  "$t2" -eq 0
 case "$runs_json" in *'"status":"success"'*) t3=0;; *) t3=1;; esac
 num_check "FA-15/22 API exposes run history/status"      "$t3" -eq 0
@@ -254,9 +256,9 @@ fi
 
 echo
 echo "== Packaging & release (phase 6) =="
-check "NFA-05 installer places the app in /Applications"   contains "$ROOT/scripts/build-pkg.sh" "Applications/ClaudeQ.app"
+check "NFA-05 installer places the app in /Applications"   contains "$ROOT/scripts/build-pkg.sh" "Applications/DispatchQ.app"
 check "NFA-05 installer disables bundle relocation"        contains "$ROOT/scripts/build-pkg.sh" "BundleIsRelocatable false"
-check "app bundle is code-signed under its bundle id"      contains "$ROOT/scripts/build-app.sh" "identifier de.maierdaniel.claudeq"
+check "app bundle is code-signed under its bundle id"      contains "$ROOT/scripts/build-app.sh" "identifier de.maierdaniel.dispatchq"
 check "NFA-05 installer runs the postinstall scripts dir"  contains "$ROOT/scripts/build-pkg.sh" "scripts/pkg"
 check "NFA-05 postinstall is valid shell"                  sh -n "$ROOT/scripts/pkg/postinstall"
 check "NFA-05 postinstall sets up the LaunchAgent"         contains "$ROOT/scripts/pkg/postinstall" '"\$DAEMON" install'
@@ -264,6 +266,10 @@ check "NFA-05 postinstall sets up the LaunchAgent"         contains "$ROOT/scrip
 # /Applications — a case-insensitive-FS bug once made it rm the app it just
 # installed. It may reference the path (to locate the daemon), just never rm it.
 check "postinstall never removes anything under /Applications" bash -c '! grep -Eq "(rm|unlink|ditto .*--nocache)[^\\n]*/Applications" "'"$ROOT"'/scripts/pkg/postinstall"'
+# ClaudeQ.app is retired by moving it to the Bin, never by deleting it, and only
+# once its bundle id says it is ClaudeQ.
+check "postinstall never deletes ClaudeQ.app"                 bash -c '! grep -Eq "rm -[a-z]*r[a-z]* .*LEGACY_APP" "'"$ROOT"'/scripts/pkg/postinstall"'
+check "postinstall moves ClaudeQ.app to the Bin only by id"   precedes "$ROOT/scripts/pkg/postinstall" 'CFBundleIdentifier.*LEGACY_LABEL' 'mv "\$LEGACY_APP"'
 # The install is only done once the *new* daemon answers on its own loopback
 # port; only then may the app be reopened. Both halves are matched by intent,
 # not by literals: the port lives in a PORT= variable, and `open` has to run
@@ -275,7 +281,7 @@ check "NFA-05 preinstall is valid shell"                   sh -n "$ROOT/scripts/
 check "preinstall never removes anything under /Applications" bash -c '! grep -Eq "(rm|unlink|ditto .*--nocache)[^\\n]*/Applications" "'"$ROOT"'/scripts/pkg/preinstall"'
 # The preinstall closes only the dashboard window (by exact process name, so a
 # `go build` of the app is never hit); the daemon is postinstall's business.
-check "preinstall never touches the daemon"                bash -c '! grep -Eq "(pkill|kill|killall)[^\\n]*claudeqd" "'"$ROOT"'/scripts/pkg/preinstall"'
+check "preinstall never touches the daemon"                bash -c '! grep -Eq "(pkill|kill|killall)[^\\n]*dispatchqd" "'"$ROOT"'/scripts/pkg/preinstall"'
 # Run the real preinstall against fake pgrep/pkill: the window "runs" until the
 # fake pkill has been called once, so a TERM that works must never escalate.
 rm -f "$WORK/pkill.log"
@@ -285,29 +291,34 @@ cat > "$FAKE/pgrep" <<EOF
 EOF
 chmod +x "$FAKE/pgrep"
 sh "$ROOT/scripts/pkg/preinstall" >/dev/null 2>&1
-check "preinstall TERMs the window by exact process name"  contains "$WORK/pkill.log" "^-x claudeqapp$"
+check "preinstall TERMs the window by exact process name"  contains "$WORK/pkill.log" "^-x dispatchqapp$"
 check "preinstall does not force-quit a window that exits" bash -c '! grep -q -- "-9" "'"$WORK"'/pkill.log"'
 
 # NFA-06: the uninstaller package. Build it, expand it, and run the scripts it
 # really carries against the fakes, with a scratch home, app and sudoers file
-# standing in for the real ones (CLAUDEQ_CONSOLE_*/CLAUDEQ_APP/CLAUDEQ_SUDOERS).
+# standing in for the real ones (DISPATCHQ_CONSOLE_*/DISPATCHQ_APP/DISPATCHQ_SUDOERS).
 U="$WORK/uninst"; UHOME="$U/home"; ULIB="$UHOME/Library"
-"$ROOT/scripts/build-uninstall-pkg.sh" "$U/Uninstall ClaudeQ.pkg" >/dev/null 2>&1
-/usr/sbin/pkgutil --expand "$U/Uninstall ClaudeQ.pkg" "$U/x" >/dev/null 2>&1
+"$ROOT/scripts/build-uninstall-pkg.sh" "$U/Uninstall DispatchQ.pkg" >/dev/null 2>&1
+/usr/sbin/pkgutil --expand "$U/Uninstall DispatchQ.pkg" "$U/x" >/dev/null 2>&1
 check "NFA-06 uninstaller package builds and expands"  test -x "$U/x/uninstall.pkg/Scripts/postinstall"
-installer -showChoiceChangesXML -pkg "$U/Uninstall ClaudeQ.pkg" -target / >"$U/choices.xml" 2>/dev/null
+installer -showChoiceChangesXML -pkg "$U/Uninstall DispatchQ.pkg" -target / >"$U/choices.xml" 2>/dev/null
 check "NFA-06 data deletion is an opt-in choice"        bash -c 'tr -d "\n\t " < "'"$U"'/choices.xml" | grep -q "<integer>0</integer><key>choiceAttribute</key><string>selected</string><key>choiceIdentifier</key><string>data</string>"'
 mk_app() { # mk_app <bundle> <bundle id>
   mkdir -p "$1/Contents/MacOS"
   printf '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>%s</string></dict></plist>\n' "$2" > "$1/Contents/Info.plist"
 }
-mk_app "$U/Applications/ClaudeQ.app" de.maierdaniel.claudeq
-mk_app "$U/Elsewhere/ClaudeQ.app" de.maierdaniel.claudeq
+mk_app "$U/Applications/DispatchQ.app" de.maierdaniel.dispatchq
+mk_app "$U/Elsewhere/DispatchQ.app" de.maierdaniel.dispatchq
 mk_app "$U/Foreign.app" com.example.foreign
-mkdir -p "$ULIB/LaunchAgents" "$ULIB/Application Support/claudeq" "$ULIB/WebKit/de.maierdaniel.claudeq" "$ULIB/Preferences"
+# What ClaudeQ, the name before 2.0, left behind: its app, agent, wake
+# permission and the link from its data directory to DispatchQ's.
+mk_app "$U/Applications/ClaudeQ.app" de.maierdaniel.claudeq
+mkdir -p "$ULIB/LaunchAgents" "$ULIB/Application Support/dispatchq" "$ULIB/WebKit/de.maierdaniel.dispatchq" "$ULIB/Preferences"
 printf '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>ProgramArguments</key><array><string>%s</string><string>run</string></array></dict></plist>\n' \
-  "$U/Elsewhere/ClaudeQ.app/Contents/MacOS/claudeqd" > "$ULIB/LaunchAgents/de.maierdaniel.claudeq.plist"
-touch "$ULIB/Application Support/claudeq/config.toml" "$ULIB/Preferences/de.maierdaniel.claudeq.plist" "$U/sudoers"
+  "$U/Elsewhere/DispatchQ.app/Contents/MacOS/dispatchqd" > "$ULIB/LaunchAgents/de.maierdaniel.dispatchq.plist"
+touch "$ULIB/Application Support/dispatchq/config.toml" "$ULIB/Preferences/de.maierdaniel.dispatchq.plist" "$U/sudoers" "$U/claudeq" \
+  "$ULIB/LaunchAgents/de.maierdaniel.claudeq.plist"
+ln -s dispatchq "$ULIB/Application Support/claudeq"
 : > "$WORK/launchctl.log"; : > "$WORK/pkgutil.log"; rm -f "$WORK/pkill.log"
 # Both the window and the daemon "run" until a TERM for them has been sent.
 cat > "$FAKE/pgrep" <<EOF
@@ -316,30 +327,36 @@ for last; do :; done
 grep -q " \$last\$" "$WORK/pkill.log" 2>/dev/null && exit 1 || exit 0
 EOF
 chmod +x "$FAKE/pgrep"
-uenv() { env CLAUDEQ_CONSOLE_USER="$(id -un)" CLAUDEQ_CONSOLE_HOME="$UHOME" CLAUDEQ_APP="$1" CLAUDEQ_SUDOERS="$U/sudoers" sh "$2"; }
-uenv "$U/Applications/ClaudeQ.app" "$U/x/uninstall.pkg/Scripts/postinstall" >"$U/main.out" 2>&1
+uenv() { env DISPATCHQ_CONSOLE_USER="$(id -un)" DISPATCHQ_CONSOLE_HOME="$UHOME" DISPATCHQ_APP="$1" DISPATCHQ_SUDOERS="$U/sudoers" sh "$2"; }
+uenv "$U/Applications/DispatchQ.app" "$U/x/uninstall.pkg/Scripts/postinstall" >"$U/main.out" 2>&1
 num_check "NFA-06 uninstaller exits cleanly"               "$?" -eq 0
-check "NFA-06 uninstaller closes the user's window"         contains "$WORK/pkill.log" "^-x -u $(id -u) claudeqapp$"
-check "NFA-06 uninstaller stops the user's daemon"          contains "$WORK/pkill.log" "^-x -u $(id -u) claudeqd$"
+check "NFA-06 uninstaller closes the user's window"         contains "$WORK/pkill.log" "^-x -u $(id -u) dispatchqapp$"
+check "NFA-06 uninstaller stops the user's daemon"          contains "$WORK/pkill.log" "^-x -u $(id -u) dispatchqd$"
 check "NFA-06 a daemon that exits on TERM is not killed"    bash -c '! grep -q -- "-9" "'"$WORK"'/pkill.log"'
-check "NFA-06 the agent goes before the daemon is stopped"  precedes "$U/main.out" "removed LaunchAgent" "stopping claudeqd"
-check "NFA-06 uninstaller boots out the LaunchAgent"        contains "$WORK/launchctl.log" "^asuser $(id -u) sudo -u $(id -un) launchctl bootout gui/$(id -u)/de.maierdaniel.claudeq$"
-check "NFA-06 uninstaller removes the LaunchAgent plist"    bash -c '[ ! -e "'"$ULIB"'/LaunchAgents/de.maierdaniel.claudeq.plist" ]'
+check "NFA-06 the agent goes before the daemon is stopped"  precedes "$U/main.out" "removed LaunchAgent" "stopping dispatchqd"
+check "NFA-06 uninstaller boots out the LaunchAgent"        contains "$WORK/launchctl.log" "^asuser $(id -u) sudo -u $(id -un) launchctl bootout gui/$(id -u)/de.maierdaniel.dispatchq$"
+check "NFA-06 uninstaller removes the LaunchAgent plist"    bash -c '[ ! -e "'"$ULIB"'/LaunchAgents/de.maierdaniel.dispatchq.plist" ]'
 check "NFA-06 uninstaller removes the wake permission"      bash -c '[ ! -e "'"$U"'/sudoers" ]'
-check "NFA-06 uninstaller forgets the installer receipt"    contains "$WORK/pkgutil.log" "^--forget de.maierdaniel.claudeq$"
-check "NFA-06 uninstaller removes the app"                  bash -c '[ ! -e "'"$U"'/Applications/ClaudeQ.app" ]'
-check "NFA-06 uninstaller removes the copy the agent ran"   bash -c '[ ! -e "'"$U"'/Elsewhere/ClaudeQ.app" ]'
-check "NFA-06 uninstaller keeps the data by default"        test -f "$ULIB/Application Support/claudeq/config.toml"
+check "NFA-06 uninstaller forgets the installer receipt"    contains "$WORK/pkgutil.log" "^--forget de.maierdaniel.dispatchq$"
+check "NFA-06 uninstaller removes the app"                  bash -c '[ ! -e "'"$U"'/Applications/DispatchQ.app" ]'
+check "NFA-06 uninstaller removes the copy the agent ran"   bash -c '[ ! -e "'"$U"'/Elsewhere/DispatchQ.app" ]'
+check "NFA-06 uninstaller removes ClaudeQ's app"            bash -c '[ ! -e "'"$U"'/Applications/ClaudeQ.app" ]'
+check "NFA-06 uninstaller boots out ClaudeQ's agent"        contains "$WORK/launchctl.log" "launchctl bootout gui/$(id -u)/de.maierdaniel.claudeq$"
+check "NFA-06 uninstaller removes ClaudeQ's agent plist"    bash -c '[ ! -e "'"$ULIB"'/LaunchAgents/de.maierdaniel.claudeq.plist" ]'
+check "NFA-06 uninstaller removes ClaudeQ's wake permission" bash -c '[ ! -e "'"$U"'/claudeq" ]'
+check "NFA-06 uninstaller stops ClaudeQ's daemon"           contains "$WORK/pkill.log" "^-x -u $(id -u) claudeqd$"
+check "NFA-06 uninstaller keeps the data by default"        test -f "$ULIB/Application Support/dispatchq/config.toml"
 uenv "$U/Foreign.app" "$U/x/uninstall.pkg/Scripts/postinstall" >/dev/null 2>&1
 check "NFA-06 uninstaller never removes another app"        test -d "$U/Foreign.app"
 uenv "" "$U/x/uninstall-data.pkg/Scripts/postinstall" >"$U/data.out" 2>&1
-check "NFA-06 data choice deletes the data directory"       bash -c '[ ! -e "'"$ULIB"'/Application Support/claudeq" ]'
-check "NFA-06 data choice deletes the app's Library folders" bash -c '[ ! -e "'"$ULIB"'/WebKit/de.maierdaniel.claudeq" ] && [ ! -e "'"$ULIB"'/Preferences/de.maierdaniel.claudeq.plist" ]'
-check "NFA-06 data choice clears preferences via cfprefsd"  contains "$WORK/launchctl.log" "asuser $(id -u) sudo -u $(id -un) defaults delete de.maierdaniel.claudeq"
-CLAUDEQ_CONSOLE_USER=root sh "$U/x/uninstall-data.pkg/Scripts/postinstall" >/dev/null 2>&1
+check "NFA-06 data choice deletes the data directory"       bash -c '[ ! -e "'"$ULIB"'/Application Support/dispatchq" ]'
+check "NFA-06 data choice deletes ClaudeQ's data link"      bash -c '[ ! -e "'"$ULIB"'/Application Support/claudeq" ] && [ ! -L "'"$ULIB"'/Application Support/claudeq" ]'
+check "NFA-06 data choice deletes the app's Library folders" bash -c '[ ! -e "'"$ULIB"'/WebKit/de.maierdaniel.dispatchq" ] && [ ! -e "'"$ULIB"'/Preferences/de.maierdaniel.dispatchq.plist" ]'
+check "NFA-06 data choice clears preferences via cfprefsd"  contains "$WORK/launchctl.log" "asuser $(id -u) sudo -u $(id -un) defaults delete de.maierdaniel.dispatchq"
+DISPATCHQ_CONSOLE_USER=root sh "$U/x/uninstall-data.pkg/Scripts/postinstall" >/dev/null 2>&1
 num_check "NFA-06 data choice without a console user is a no-op" "$?" -eq 0
 check "release pipeline triggers on version tags"          contains "$ROOT/.github/workflows/release.yml" 'tags:'
-check "release pipeline attaches the installer pkg"        contains "$ROOT/.github/workflows/release.yml" "claudeq-.*.pkg"
+check "release pipeline attaches the installer pkg"        contains "$ROOT/.github/workflows/release.yml" "dispatchq-.*.pkg"
 
 echo
 echo "=========================================="

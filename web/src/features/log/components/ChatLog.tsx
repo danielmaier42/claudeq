@@ -9,7 +9,7 @@ import {RichText} from './RichText'
 import {ToolSteps} from './ToolSteps'
 
 // ChatLog shows a run as the conversation it was: the prompt, the agent's
-// messages, folded tool activity, claudeq's own remarks and the final result.
+// messages, folded tool activity, dispatchq's own remarks and the final result.
 export function ChatLog({
   prompt,
   entries,
@@ -141,7 +141,7 @@ function ResultCard({entry}: {entry: Extract<LogEntry, {kind: 'result'}>}) {
   )
 }
 
-// A claudeq remark about the run itself (a dropped session, a pool choice) is
+// A dispatchq remark about the run itself (a dropped session, a pool choice) is
 // not a failure, so it does not borrow the failure colour.
 function StatusNote({label, text, tone}: {label: string; text: string; tone: 'note' | 'error'}) {
   const error = tone === 'error'

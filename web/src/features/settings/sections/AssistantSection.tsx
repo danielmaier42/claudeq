@@ -8,7 +8,7 @@ import type {Settings} from '@/lib/types'
 import {commitSettings} from '../actions'
 import {SaveMode} from '../components/parts'
 
-// asideProviderOptions lists the providers that can do a job ClaudeQ runs on
+// asideProviderOptions lists the providers that can do a job DispatchQ runs on
 // its own behalf (prompt review, the feedback assistant). Only a harness that
 // can answer such a question is offered: one that cannot would leave the
 // feature silently unavailable. A stored provider that is gone keeps its place,
@@ -110,7 +110,7 @@ export function AssistantSection({value}: {value: Settings}) {
                 className="w-56"
                 provider={value.feedback_provider}
                 value={value.feedback_model}
-                emptyLabel="ClaudeQ's choice (a small, fast model)"
+                emptyLabel="DispatchQ's choice (a small, fast model)"
                 onValueChange={(v) => void commitSettings({feedback_model: v})}
               />
             }

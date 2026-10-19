@@ -47,7 +47,7 @@ func MarkAllNotificationsRead(s *store.Store) error {
 // a second file could not be written.
 func carryRead(err error) {
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "claudeq: notifications not marked read:", err)
+		fmt.Fprintln(os.Stderr, "dispatchq: notifications not marked read:", err)
 	}
 }
 
