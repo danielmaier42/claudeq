@@ -12,9 +12,10 @@ import {
   SunMoon,
   type LucideIcon,
 } from 'lucide-react'
-import {useEffect, type ReactNode} from 'react'
+import {useEffect, useState, type ReactNode} from 'react'
 import {DialogOverlay} from '@/components/ui/dialog'
 import {Kbd} from '@/components/ui/kbd'
+import {ask, openAssistant} from '@/features/assistant/store'
 import {runNow} from '@/features/queue/actions'
 import {setPaused} from '@/features/settings/actions'
 import {openRunLog} from '@/features/log/store'
@@ -35,6 +36,14 @@ export function CommandPalette() {
   const runs = useRuns().data ?? []
   const settings = useSettings().data
   const saveAppearance = useSaveAppearance()
+  // What is typed, so it can go to the assistant as a question.
+  const [query, setQuery] = useState('')
+  // A closed palette forgets it, so the next one starts empty.
+  const [wasOpen, setWasOpen] = useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (!open) setQuery('')
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -64,15 +73,23 @@ export function CommandPalette() {
           <Command loop className="flex flex-col">
             <Command.Input
               autoFocus
-              placeholder="Type a command or search tasks…"
+              value={query}
+              onValueChange={setQuery}
+              placeholder="Type a command, search tasks, or ask DispatchQ…"
               className="h-12 border-b border-border bg-transparent px-4 text-[14px] outline-none placeholder:text-subtle-foreground"
             />
             <Command.List className="max-h-[min(420px,60vh)] overflow-y-auto p-1.5">
-              <Command.Empty className="py-10 text-center text-[13px] text-muted-foreground">
-                Nothing found.
-              </Command.Empty>
+              {/* A longer text is a question for the assistant, offered at the end. */}
+              {query.trim().length <= 2 && (
+                <Command.Empty className="py-10 text-center text-[13px] text-muted-foreground">
+                  Nothing found.
+                </Command.Empty>
+              )}
 
               <Group heading="Actions">
+                <Item icon={Sparkles} onSelect={run(openAssistant)} hint="⌘J">
+                  Ask DispatchQ
+                </Item>
                 <Item icon={Plus} onSelect={run(() => openAddTask())} hint="⌘N">
                   New task
                 </Item>
@@ -168,6 +185,21 @@ export function CommandPalette() {
                   ))}
                 </Group>
               )}
+              {/* Last, so a typed command still wins the Enter key. */}
+              {query.trim().length > 2 && (
+                <Group heading="Assistant" forceMount>
+                  <Command.Item
+                    forceMount
+                    // A fixed value, so the typed text cannot rank it above a real match.
+                    value="ask-dispatchq"
+                    onSelect={run(() => ask(query))}
+                    className={itemClass}
+                  >
+                    <Sparkles />
+                    <span className="flex-1 truncate">Ask DispatchQ “{query.trim()}”</span>
+                  </Command.Item>
+                </Group>
+              )}
             </Command.List>
             <div className="flex items-center gap-3 border-t border-border bg-surface-2/60 px-3 py-2 text-[11.5px] text-subtle-foreground">
               <span className="flex items-center gap-1">
@@ -191,10 +223,19 @@ export function CommandPalette() {
 const itemClass =
   'flex h-9 cursor-default items-center gap-2.5 rounded-md px-2.5 text-[13px] outline-none select-none data-[selected=true]:bg-surface-3 [&_svg]:size-4 [&_svg]:text-muted-foreground'
 
-function Group({heading, children}: {heading: string; children: ReactNode}) {
+function Group({
+  heading,
+  forceMount,
+  children,
+}: {
+  heading: string
+  forceMount?: boolean
+  children: ReactNode
+}) {
   return (
     <Command.Group
       heading={heading}
+      forceMount={forceMount}
       className="mb-1 [&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:tracking-wide [&_[cmdk-group-heading]]:text-subtle-foreground [&_[cmdk-group-heading]]:uppercase"
     >
       {children}

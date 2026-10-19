@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/danielmaier42/claudeq/internal/app"
+	"github.com/danielmaier42/claudeq/internal/assistant"
 	"github.com/danielmaier42/claudeq/internal/feedback"
 	"github.com/danielmaier42/claudeq/internal/provider"
 	"github.com/danielmaier42/claudeq/internal/schedule"
@@ -96,6 +97,9 @@ type Deps struct {
 	// Feedback drafts a GitHub issue from a short chat with the user. Optional;
 	// when nil the dashboard offers the plain feedback form instead.
 	Feedback *feedback.Service
+	// Assistant is the chat that operates dispatchq. Optional; when nil the
+	// dashboard says the chat is not available.
+	Assistant *assistant.Service
 	// OSVersion reports the macOS product version (e.g. "15.6") for the
 	// environment line of a feedback issue. Optional; empty leaves it out.
 	OSVersion func() string
@@ -195,6 +199,8 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/update/download", s.downloadUpdate)
 	mux.HandleFunc("POST /api/update/relaunch", s.relaunchUpdate)
 	mux.HandleFunc("POST /api/uninstall", s.uninstall)
+	mux.HandleFunc("GET /api/assistant", s.getAssistant)
+	mux.HandleFunc("POST /api/assistant/turn", s.assistantTurn)
 	mux.HandleFunc("GET /api/feedback", s.getFeedback)
 	mux.HandleFunc("POST /api/feedback/turn", s.feedbackTurn)
 	mux.HandleFunc("POST /api/feedback/url", s.feedbackURL)

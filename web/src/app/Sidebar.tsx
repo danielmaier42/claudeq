@@ -1,9 +1,10 @@
 import {useIsFetching} from '@tanstack/react-query'
-import {ExternalLink, Plus, Search} from 'lucide-react'
+import {ExternalLink, Plus, Search, Sparkles} from 'lucide-react'
 import {Button} from '@/components/ui/button'
 import {CountBadge} from '@/components/ui/badge'
 import {Kbd} from '@/components/ui/kbd'
 import {Tooltip} from '@/components/ui/tooltip'
+import {toggleAssistant, useAssistant} from '@/features/assistant/store'
 import {openAddTask} from '@/features/task-editor/store'
 import {useHealth, useSettings, useUpdate} from '@/lib/queries'
 import {openExternal} from '@/lib/native'
@@ -18,6 +19,7 @@ const REPO = 'https://github.com/danielmaier42/claudeq'
 export function Sidebar() {
   const view = useNav((s) => s.view)
   const badges = useBadges()
+  const assistantOpen = useAssistant((s) => s.open)
   const main = VIEWS.filter((v) => !v.foot)
   const foot = VIEWS.filter((v) => v.foot)
 
@@ -32,9 +34,22 @@ export function Sidebar() {
       </div>
 
       <div className="flex flex-col gap-1.5 px-3 pb-3">
-        <Button variant="primary" className="w-full justify-start" onClick={() => openAddTask()}>
-          <Plus /> New task
-        </Button>
+        <div className="flex gap-1.5">
+          <Button
+            variant="primary"
+            className="min-w-0 flex-1 justify-start"
+            onClick={toggleAssistant}
+            aria-pressed={assistantOpen}
+          >
+            <Sparkles /> Ask DispatchQ
+            <span className="ml-auto text-[11px] font-normal opacity-75">⌘J</span>
+          </Button>
+          <Tooltip content="New task form (⌘N)">
+            <Button variant="secondary" size="icon" onClick={() => openAddTask()} aria-label="New task form">
+              <Plus />
+            </Button>
+          </Tooltip>
+        </div>
         <button
           onClick={openPalette}
           className="flex h-8 items-center gap-2 rounded-md border border-border bg-surface px-2.5 text-[12.5px] text-subtle-foreground shadow-xs transition-colors hover:text-foreground"

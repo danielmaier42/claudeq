@@ -146,37 +146,7 @@ func (s *server) osVersion() string {
 }
 
 // feedbackTarget resolves the provider instance and model a feedback turn runs
-// on: the one Settings names for it, otherwise the default provider.
-//
-// Drafting an issue is a conversation with a schema, which not every harness
-// can hold (see internal/aside). One that cannot is reported as no target,
-// which is what makes the dashboard offer its manual path instead of a chat
-// that would fail on the first message. The reason names the provider, since
-// "Default" in Settings may well be one that cannot draft.
+// on: the assistant's (see assistantTarget).
 func (s *server) feedbackTarget() (provider.Instance, string, string) {
-	const noProvider = "no provider is set up to draft an issue; choose one in Settings"
-	cfg, err := s.d.Store.LoadConfig()
-	if err != nil {
-		return provider.Instance{}, "", noProvider
-	}
-	set, err := provider.FromConfig(cfg)
-	if err != nil {
-		return provider.Instance{}, "", noProvider
-	}
-	res, err := set.Resolve(provider.Selection{ProviderID: cfg.Settings.FeedbackProvider})
-	if err != nil {
-		return provider.Instance{}, "", noProvider
-	}
-	name := res.Instance.Label()
-	if cfg.Settings.FeedbackProvider == "" {
-		name += ", the default provider,"
-	}
-	ad, err := s.d.Registry.Lookup(res.Instance.Kind)
-	if err != nil || !ad.Capabilities().Asides {
-		return provider.Instance{}, "", name + " cannot draft an issue; choose another feedback provider in Settings"
-	}
-	if ad.ResolveBinary(res.Instance) == "" {
-		return provider.Instance{}, "", name + " has no CLI installed; install it or choose another feedback provider in Settings"
-	}
-	return res.Instance, cfg.Settings.FeedbackModel, ""
+	return s.assistantTarget("draft an issue")
 }

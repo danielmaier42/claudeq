@@ -3,6 +3,7 @@ import {get} from './api'
 import type {
   AppNotification,
   Artifact,
+  AssistantInfo,
   FeedbackInfo,
   Group,
   Health,
@@ -56,6 +57,7 @@ export const keys = {
   health: ['health'] as const,
   update: ['update'] as const,
   feedback: ['feedback'] as const,
+  assistant: ['assistant'] as const,
 }
 
 function poll<T>(key: QueryKey, path: string, interval: number | false = LIST_POLL) {
@@ -107,6 +109,9 @@ export const useStats = (range: StatsRange = DEFAULT_STATS_RANGE) =>
   })
 export const useHealth = () => useQuery(poll<Health>(keys.health, '/api/health', 30_000))
 export const useUpdate = () => useQuery(poll<UpdateStatus>(keys.update, '/api/update', 60_000))
+export const useAssistantInfo = () =>
+  useQuery({...poll<AssistantInfo>(keys.assistant, '/api/assistant', false), staleTime: 60_000})
+
 export const useFeedbackInfo = () =>
   useQuery({...poll<FeedbackInfo>(keys.feedback, '/api/feedback', false), staleTime: 60_000})
 

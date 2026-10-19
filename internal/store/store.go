@@ -170,6 +170,19 @@ func (c *Config) migrate() bool {
 		c.Settings.LegacyClaudePath, c.Settings.LegacyDefaultModel = "", ""
 		changed = true
 	}
+	// The feedback assistant became the assistant, and its provider moved with
+	// it; a value set under the new name wins, since it can only have been
+	// chosen later. The model does not move: one picked for drafting an issue
+	// (the old Settings advised a small one) would quietly take the chat off
+	// its own, larger default, and the feedback page's default is that small
+	// model anyway.
+	if c.Settings.LegacyFeedbackProvider != "" || c.Settings.LegacyFeedbackModel != "" {
+		if c.Settings.AssistantProvider == "" {
+			c.Settings.AssistantProvider = c.Settings.LegacyFeedbackProvider
+		}
+		c.Settings.LegacyFeedbackProvider, c.Settings.LegacyFeedbackModel = "", ""
+		changed = true
+	}
 	return changed
 }
 
@@ -750,13 +763,19 @@ type Settings struct {
 	// PromptReviewModel is the model used for that review. Empty means "the same
 	// model as everything else", i.e. the reviewing provider's default model.
 	PromptReviewModel string `toml:"prompt_review_model,omitempty" json:"prompt_review_model"`
-	// FeedbackProvider is the provider instance the feedback assistant drafts
-	// its GitHub issue on. Empty means the default provider.
-	FeedbackProvider string `toml:"feedback_provider,omitempty" json:"feedback_provider"`
-	// FeedbackModel is the model it drafts with. Empty means dispatchq's own
-	// choice: drafting an issue out of two short messages is cheap work, and it
-	// must not silently land on an expensive model picked for real tasks.
-	FeedbackModel string `toml:"feedback_model,omitempty" json:"feedback_model"`
+	// AssistantProvider is the provider instance the assistant answers on: the
+	// chat that operates dispatchq, and the feedback page that drafts a GitHub
+	// issue. Empty means the default provider.
+	AssistantProvider string `toml:"assistant_provider,omitempty" json:"assistant_provider"`
+	// AssistantModel is the model it answers with. Empty means dispatchq's own
+	// choice per job (see assistant.DefaultModel and feedback.DefaultModel), so
+	// neither silently lands on an expensive model picked for real tasks.
+	AssistantModel string `toml:"assistant_model,omitempty" json:"assistant_model"`
+	// LegacyFeedbackProvider and LegacyFeedbackModel are what the two settings
+	// above were called while only the feedback page used them. Read only to
+	// migrate old configs (see migrate); never written back or exposed.
+	LegacyFeedbackProvider string `toml:"feedback_provider,omitempty" json:"-"`
+	LegacyFeedbackModel    string `toml:"feedback_model,omitempty" json:"-"`
 	// LegacyBetaFeatures is the retired switch that revealed the features
 	// dispatchq did not consider finished; they are all public now. A pointer, so
 	// the key is noticed whatever it says, and dropped from old configs (see

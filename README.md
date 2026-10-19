@@ -58,6 +58,10 @@ workflow engine:
   week that part of it would go unused, and waits otherwise.
 - **Hand a task to a colleague** as a `.dispatchq` file. They import it, adjust
   the folder, and get the same job on their Mac.
+- **Just ask.** "Why did last night's run fail?", "show me the newest report",
+  "every weekday at 7, summarise the open TODOs in this repo": the
+  [assistant](#asking-dispatchq) answers in a sentence, opens what you asked for,
+  and drafts the job for you to confirm.
 
 ## Contents
 
@@ -86,6 +90,7 @@ workflow engine:
 - [Backfill tasks](#backfill-tasks)
 - [Sharing tasks as files](#sharing-tasks-as-files)
 - [The prompt review](#the-prompt-review)
+- [Asking DispatchQ](#asking-dispatchq)
 - [Sending feedback](#sending-feedback)
 
 **Reference**
@@ -227,7 +232,9 @@ colour are stored by the daemon and do carry over.
 
 ## Using it
 
-1. **New task** — give it a prompt, choose the **job type** (*Agent*, the
+1. **Ask DispatchQ** (**⌘J**) and describe the job in plain words; the assistant
+   drafts it and you confirm it on its card (see [Asking DispatchQ](#asking-dispatchq)).
+   Or open the task form with the **+** next to it (**⌘N**) — give it a prompt, choose the **job type** (*Agent*, the
    default, or *Script* — see [Script jobs](#script-jobs)), pick the working folder (prefilled from
    **Settings → General → Default working directory**, if you set one), and choose a trigger
    (as-soon-as-possible, earliest start, or cron; a cron schedule is validated as
@@ -364,6 +371,9 @@ explains it.
   and recent run, **⌘1**–**⌘8** for the views, **⌘F** to search a list.
 - **Automatic updates** from GitHub releases, one click to install. A version
   whose daemon never took over is flagged with a **Finish update** button.
+- **An assistant that operates DispatchQ.** Ask about runs and artifacts, have
+  it open them, or describe a job and confirm the draft. See
+  [Asking DispatchQ](#asking-dispatchq).
 - **Feedback that writes itself.** Describe a bug or a wish, Claude drafts the
   GitHub issue, and you file it yourself. See [Sending feedback](#sending-feedback).
 - **Local and private.** Human-readable TOML/JSON under your Library folder;
@@ -373,8 +383,9 @@ explains it.
 
 The dashboard (and the native window that wraps it) has eight views. Six sit at
 the top of the sidebar; **Settings** and **Feedback** ([below](#sending-feedback))
-sit at the bottom, out of the way of the work. Above them are **New task** and
-the **command palette** (**⌘K**): type to jump to a view, add or import a task,
+sit at the bottom, out of the way of the work. Above them are **Ask DispatchQ**
+(**⌘J**, the [assistant](#asking-dispatchq)), a **+** that opens the task form
+directly (**⌘N**), and the **command palette** (**⌘K**): type to jump to a view, add or import a task,
 pause or resume all runs, switch the appearance, open a task (or run it now)
 or a recent run's log. **⌘1** to **⌘8** switch views in sidebar order. Tasks
 are added and edited in a panel that slides in from the right, so the list stays
@@ -600,7 +611,7 @@ in the list, and leaving Settings keeps the draft for the session.
 | **Pools** | One card per pool | Its settings | Name, members and their weights, which member the next run goes to and why. **Edit** opens a dialog with, per provider of the pool's type, a switch for membership and a weight (empty = the plan size the provider reports, e.g. *auto · 20×*). **Remove** is refused while a task uses the pool. **Add pool** asks for an id, a name and the members. See [Provider pools](#provider-pools). |
 | **Assistant** | Prompt review | Check prompts with Claude | Whether Claude reviews a prompt against this Mac before the task is queued (on by default). |
 | | | Review provider / Review model | Which provider answers the review, and with which model. Only providers that can hold an *aside* are offered; *Default* follows the global default provider, and the model falls back to the reviewing provider's own default. |
-| | Feedback assistant | Feedback provider / Feedback model | Which provider drafts the GitHub issue on the [Feedback](#sending-feedback) page, and with which model; left at *DispatchQ's choice* it uses a small, fast model rather than whatever you picked for real tasks. |
+| | Assistant | Assistant provider / Assistant model | Which provider answers in [Ask DispatchQ](#asking-dispatchq) and drafts the GitHub issue on the [Feedback](#sending-feedback) page, and with which model. Left at *DispatchQ's choice*, on Claude Code the chat uses a mid-size model (Sonnet) and feedback a small one (Haiku), rather than whatever you picked for real tasks; other harnesses use their own default. Only providers that can hold an *aside* are offered. |
 | **System** | Danger zone | Remove DispatchQ from this Mac | **Uninstall…** asks you to type *uninstall*, then opens the uninstaller in the macOS Installer. Your tasks, history and settings are kept unless you select them under **Customize**. See [Uninstall](#uninstall). |
 | **About** | Software updates | Version / Check for updates | Current version, when the last check ran, and a manual **Check for updates**; an available update shows its notes with **Download & install**, **Dismiss** and **All releases**. |
 
@@ -1096,8 +1107,8 @@ dispatchq settings --backfill-urgency 2                   # backfill only when h
 dispatchq settings --prompt-review=false                  # turn the prompt review off
 dispatchq settings --prompt-review-provider claude-cheap   # who answers the review ("" = default provider)
 dispatchq settings --prompt-review-model haiku            # ("" = the provider's default model)
-dispatchq settings --feedback-provider claude-cheap       # who drafts the GitHub issue
-dispatchq settings --feedback-model haiku                 # ("" = dispatchq's own small, fast choice)
+dispatchq settings --assistant-provider claude-cheap      # who answers the assistant chat and drafts feedback
+dispatchq settings --assistant-model haiku                # ("" = dispatchq's own choice per job)
 dispatchq settings --artifact-notify=false               # publish artifacts without a notification
 dispatchq settings --pushover=true --pushover-token T --pushover-user U
 dispatchq settings --ntfy=true --ntfy-topic dispatchq-daniel   # server defaults to ntfy.sh
@@ -1728,6 +1739,51 @@ Practicalities:
   file cannot steer the review, and any rewrite is shown to you in the prompt
   box before it can run.
 
+## Asking DispatchQ
+
+**Ask DispatchQ** at the top of the sidebar (**⌘J**, or type a question into
+the command palette and pick *Ask DispatchQ*) opens a chat docked to the right
+of the window. It stays open while you switch views, and it does only DispatchQ
+things: answer about the queue, runs and artifacts, take you to them, and plan
+or change jobs. It answers in your language, in a sentence or two; anything else
+it declines in one line.
+
+- **Ask about runs.** "What ran last night?", "why did the dependency check
+  fail?" It reads the run's outcome, final output and the end of its log before
+  answering, and lists what it looked at above the answer.
+- **Open things.** "Show me the newest report" opens the artifact in the
+  viewer; a run opens in its log, a task in the task form, a view on its own.
+  This happens straight away: it only shows what is already there.
+- **Plan and change jobs.** "Every weekday at 7, summarise the TODOs in the
+  same project as the dependency check" comes back as a card with the name,
+  schedule, folder and the prompt it wrote. **Add to queue** files it,
+  **Edit** opens it in the task form first (where the prompt review sees it),
+  **Dismiss** drops it. Changing a task, running it now, pausing, enabling or
+  deleting it, cancelling a run and pausing or resuming all runs arrive the
+  same way. **Nothing in the queue changes until you confirm the card**, and a
+  newer proposal for the same thing ("make it 8 instead") replaces the older
+  card. Before a card is shown, DispatchQ checks it: an invented task or run is
+  dropped, and a draft whose folder does not exist on this Mac, whose cron does
+  not parse or whose provider is unknown is marked and can only be edited.
+
+Every message carries a compact picture of DispatchQ: the time, the pause
+switch, the providers, every queued task (without its prompt), the last runs
+and artifacts. For details the assistant asks DispatchQ, read-only: one task
+with its prompt, one run's output and log tail, a list of runs or artifacts, a
+text artifact's beginning, usage per provider. That takes one to three model
+calls per message, a few seconds each. Like the prompt review, the chat runs as
+an *aside*: no tools, no MCP servers, no project files, in an empty throwaway
+directory, so it cannot touch your machine; it knows only what DispatchQ tells
+it, and it acts only through the cards you confirm.
+
+It runs on the provider and model under **Settings → Assistant** (the same
+setting the Feedback page uses; *DispatchQ's choice* is Sonnet for the chat on
+Claude Code, and the harness's own default on Codex). A provider that cannot
+hold an aside (opencode) is not offered; the panel says so and points to
+Settings and the task form instead. The
+conversation lives in the window: **Clear** starts a new one, and if the daemon
+restarted meanwhile, the next message carries the conversation along.
+
 ## Sending feedback
 
 **Feedback** at the bottom of the sidebar is a page of its own, and turns a bug
@@ -1739,7 +1795,7 @@ report or a wish into a GitHub issue without you having to write one.
 2. Claude reads it and either asks one short clarifying question (at most twice,
    and only when the report cannot be acted on as it stands) or goes straight to
    a draft. This runs on the provider you chose under Settings → Assistant →
-   Feedback assistant, on a small model by default, and costs a fraction of a cent per
+   Assistant provider, on a small model by default, and costs a fraction of a cent per
    message; it does not go through the queue, so it works while tasks are
    running.
 3. You get the finished issue — an English title and body, labelled either

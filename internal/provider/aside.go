@@ -4,7 +4,8 @@ import "encoding/json"
 
 // An aside is a question dispatchq asks a harness on its own behalf rather than
 // to carry out the operator's work: the prompt review that checks a task before
-// it is queued, and the feedback assistant that drafts a GitHub issue.
+// it is queued, the assistant chat, and the feedback assistant that drafts a
+// GitHub issue.
 //
 // It is not a small run. A run does the user's work in the user's directory
 // with the user's tools; an aside is dispatchq talking to a model about dispatchq,
