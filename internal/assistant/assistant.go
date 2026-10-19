@@ -26,7 +26,8 @@ import (
 	"github.com/danielmaier42/claudeq/internal/provider"
 )
 
-// DefaultModel is what the chat runs on when Settings names no model. Planning
+// DefaultModel is what the chat runs on Claude Code when Settings names no
+// model; other harnesses do not know the name and use their own default. Planning
 // a job means writing a prompt and a schedule someone relies on overnight,
 // which is worth more than the smallest model, and still far from the
 // expensive one picked for real tasks.
@@ -135,7 +136,8 @@ func New(a Asker, src Source) *Service {
 }
 
 // Turn answers one message. inst is the provider that answers, and model the
-// model it answers with ("" uses DefaultModel).
+// model it answers with ("" uses DefaultModel on Claude Code and the harness's
+// own default elsewhere).
 func (s *Service) Turn(ctx context.Context, inst provider.Instance, model string, req Request) (Reply, error) {
 	text := clip(strings.TrimSpace(req.Text), maxInputChars)
 	if text == "" {
@@ -144,7 +146,7 @@ func (s *Service) Turn(ctx context.Context, inst provider.Instance, model string
 	if s.ask == nil || s.src == nil {
 		return Reply{}, errors.New("the assistant is not available")
 	}
-	if model == "" {
+	if model == "" && inst.Kind == provider.KindClaudeCode {
 		model = DefaultModel
 	}
 	ctx, cancel := context.WithTimeout(ctx, turnTimeout)

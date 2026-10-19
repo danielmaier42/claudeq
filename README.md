@@ -611,7 +611,7 @@ in the list, and leaving Settings keeps the draft for the session.
 | **Pools** | One card per pool | Its settings | Name, members and their weights, which member the next run goes to and why. **Edit** opens a dialog with, per provider of the pool's type, a switch for membership and a weight (empty = the plan size the provider reports, e.g. *auto · 20×*). **Remove** is refused while a task uses the pool. **Add pool** asks for an id, a name and the members. See [Provider pools](#provider-pools). |
 | **Assistant** | Prompt review | Check prompts with Claude | Whether Claude reviews a prompt against this Mac before the task is queued (on by default). |
 | | | Review provider / Review model | Which provider answers the review, and with which model. Only providers that can hold an *aside* are offered; *Default* follows the global default provider, and the model falls back to the reviewing provider's own default. |
-| | Assistant | Assistant provider / Assistant model | Which provider answers in [Ask DispatchQ](#asking-dispatchq) and drafts the GitHub issue on the [Feedback](#sending-feedback) page, and with which model. Left at *DispatchQ's choice*, the chat uses a mid-size model (Sonnet) and feedback a small one (Haiku), rather than whatever you picked for real tasks. Only providers that can hold an *aside* are offered. |
+| | Assistant | Assistant provider / Assistant model | Which provider answers in [Ask DispatchQ](#asking-dispatchq) and drafts the GitHub issue on the [Feedback](#sending-feedback) page, and with which model. Left at *DispatchQ's choice*, on Claude Code the chat uses a mid-size model (Sonnet) and feedback a small one (Haiku), rather than whatever you picked for real tasks; other harnesses use their own default. Only providers that can hold an *aside* are offered. |
 | **System** | Danger zone | Remove DispatchQ from this Mac | **Uninstall…** asks you to type *uninstall*, then opens the uninstaller in the macOS Installer. Your tasks, history and settings are kept unless you select them under **Customize**. See [Uninstall](#uninstall). |
 | **About** | Software updates | Version / Check for updates | Current version, when the last check ran, and a manual **Check for updates**; an available update shows its notes with **Download & install**, **Dismiss** and **All releases**. |
 
@@ -1777,9 +1777,10 @@ directory, so it cannot touch your machine; it knows only what DispatchQ tells
 it, and it acts only through the cards you confirm.
 
 It runs on the provider and model under **Settings → Assistant** (the same
-setting the Feedback page uses; *DispatchQ's choice* is Sonnet for the chat).
-A provider that cannot hold an aside (Codex, opencode) is not offered; the
-panel says so and points to Settings and the task form instead. The
+setting the Feedback page uses; *DispatchQ's choice* is Sonnet for the chat on
+Claude Code, and the harness's own default on Codex). A provider that cannot
+hold an aside (opencode) is not offered; the panel says so and points to
+Settings and the task form instead. The
 conversation lives in the window: **Clear** starts a new one, and if the daemon
 restarted meanwhile, the next message carries the conversation along.
 

@@ -79,6 +79,19 @@ func TestTurnAnswersAndCarriesTheState(t *testing.T) {
 	}
 }
 
+// "sonnet" is a Claude name; a Codex turn with no model named runs on Codex's
+// own default instead of a model it would reject.
+func TestTurnLeavesOtherHarnessesOnTheirOwnDefault(t *testing.T) {
+	ask := &stubAsker{answers: []provider.Aside{validated(`{"reply":"ok"}`)}}
+	codex := provider.Instance{ID: "codex", Kind: provider.KindCodex}
+	if _, err := New(ask, &stubSource{}).Turn(context.Background(), codex, "", Request{Text: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	if ask.reqs[0].Model != "" {
+		t.Errorf("model = %q, want the harness default", ask.reqs[0].Model)
+	}
+}
+
 func TestTurnResumesAndSkipsAnUnchangedState(t *testing.T) {
 	ask := &stubAsker{answers: []provider.Aside{
 		validated(`{"reply":"a"}`),
