@@ -12,13 +12,19 @@ import {SaveMode} from '../components/parts'
 // its own behalf (prompt review, the feedback assistant). Only a harness that
 // can answer such a question is offered: one that cannot would leave the
 // feature silently unavailable. A stored provider that is gone keeps its place,
-// marked, so nothing quietly moves the job somewhere else.
+// marked, so nothing quietly moves the job somewhere else. "Default" is marked
+// the same way when the default provider is one that cannot do the job.
 function useAsideProviderOptions(current: string): SelectOption[] {
   const providers = useProviderList()
   const offered = providers.filter((p) => p.enabled && p.asides)
   const dflt = defaultProvider(providers)
+  const dfltLabel = !dflt
+    ? 'Default provider'
+    : offered.includes(dflt)
+      ? `Default (${providerName(dflt)})`
+      : `Default (${providerName(dflt)}, unavailable)`
   const opts: SelectOption[] = [
-    {value: '', label: dflt ? `Default (${providerName(dflt)})` : 'Default provider'},
+    {value: '', label: dfltLabel},
     ...offered.map((p) => ({value: p.id, label: providerName(p)})),
   ]
   if (current && !offered.some((p) => p.id === current))

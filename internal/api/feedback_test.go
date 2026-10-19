@@ -89,6 +89,26 @@ func TestFeedbackStatusExplainsAnUnavailableAssistant(t *testing.T) {
 	}
 }
 
+// A "Default" in Settings that points at a harness without asides used to read
+// as if no provider were set up at all; the reason names the provider instead.
+func TestFeedbackStatusNamesADefaultThatCannotDraft(t *testing.T) {
+	_, st := newFeedbackServer(t, fakeAsker{})
+	reg := provider.NewRegistry(stubAdapter{
+		health: provider.Health{State: provider.HealthReady},
+		caps:   provider.Capabilities{InteractiveResume: true},
+	})
+	srv := httptest.NewServer(handler(Deps{
+		Store: st, Feedback: feedback.New(fakeAsker{}), Registry: reg, Providers: provider.NewChecker(reg),
+	}))
+	t.Cleanup(srv.Close)
+
+	var got feedbackStatus
+	do(t, srv, http.MethodGet, "/api/feedback", nil).into(t, &got)
+	if got.Available || !strings.Contains(got.Reason, "the default provider") || !strings.Contains(got.Reason, "cannot draft") {
+		t.Fatalf("status = %+v, want the default provider named as unable to draft", got)
+	}
+}
+
 func TestFeedbackTurnReturnsTheDraft(t *testing.T) {
 	out := validated(`{"status":"ready","title":"T","body":"B","labels":["bug"]}`)
 	srv, _ := newFeedbackServer(t, fakeAsker{answer: out})
