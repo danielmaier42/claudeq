@@ -13,7 +13,7 @@ export class ErrorBoundary extends Component<{children: ReactNode}, {error: Erro
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error('ClaudeQ UI crashed:', error, info.componentStack)
+    console.error('DispatchQ UI crashed:', error, info.componentStack)
   }
 
   render() {

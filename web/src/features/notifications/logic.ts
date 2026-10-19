@@ -10,12 +10,12 @@ const KIND_LABELS: Record<string, string> = {
 }
 export const kindLabel = (k: string) => KIND_LABELS[k] ?? 'Other'
 
-// Inside the ClaudeQ window the sender's name is noise, and the glyph the
-// daemon puts in a title is already in the row's icon: "ClaudeQ ✗ nightly
+// Inside the DispatchQ window the sender's name is noise, and the glyph the
+// daemon puts in a title is already in the row's icon: "DispatchQ ✗ nightly
 // failed" reads as "nightly failed".
 export const shortTitle = (t: string) =>
   String(t || '')
-    .replace(/^ClaudeQ\s*:?\s*/, '')
+    .replace(/^DispatchQ\s*:?\s*/, '')
     .replace(/^(?:✓|✗|📄)\s*/u, '')
 
 // The daemon attributes a message to its task for the channels outside the

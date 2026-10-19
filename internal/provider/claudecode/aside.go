@@ -10,7 +10,7 @@ import (
 )
 
 // AsideCommand implements provider.Adapter. It is the narrowest invocation
-// claudeq makes of Claude Code: --tools "" removes every tool, --safe-mode
+// dispatchq makes of Claude Code: --tools "" removes every tool, --safe-mode
 // drops CLAUDE.md, skills, plugins, hooks and MCP servers so the answer costs
 // the same everywhere and cannot be steered by a project's own configuration,
 // --strict-mcp-config and --disable-slash-commands close the remaining two

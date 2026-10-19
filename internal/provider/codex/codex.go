@@ -1,6 +1,6 @@
 // Package codex is the provider adapter for the Codex CLI. It owns everything
-// claudeq knows about that harness: how `codex exec` is invoked, how its JSONL
-// stream maps onto claudeq's normalized events, how a thread is resumed, and how
+// dispatchq knows about that harness: how `codex exec` is invoked, how its JSONL
+// stream maps onto dispatchq's normalized events, how a thread is resumed, and how
 // its account directory is selected. Nothing outside this package needs to know
 // any of it.
 //
@@ -26,7 +26,7 @@ const BinaryName = "codex"
 // how a second Codex account stays separate.
 const ConfigDirEnv = "CODEX_HOME"
 
-// developerInstructionsKey is the config override claudeq delivers its run
+// developerInstructionsKey is the config override dispatchq delivers its run
 // contract through. Codex *replaces* this value rather than appending to it, so
 // the adapter must not use it blindly — see Command.
 const developerInstructionsKey = "developer_instructions"
@@ -104,7 +104,7 @@ func (a *Adapter) binaryOr(inst provider.Instance) string {
 // where the flag itself is not accepted (see Command).
 const sandboxModeKey = "sandbox_mode"
 
-// sandboxFor maps claudeq's access intent onto Codex's --sandbox values. The
+// sandboxFor maps dispatchq's access intent onto Codex's --sandbox values. The
 // provider default is expressed by passing no flag at all, so the instance's own
 // configuration decides — which is exactly what "provider-default" promises.
 func sandboxFor(mode provider.AccessMode) (string, bool) {
@@ -138,7 +138,7 @@ func (a *Adapter) Command(inst provider.Instance, req provider.Request) (provide
 		// `codex exec resume <thread>` continues the thread the run started.
 		args = append(args, "resume")
 	}
-	// A ClaudeQ task may intentionally run from a project collection or another
+	// A DispatchQ task may intentionally run from a project collection or another
 	// directory that is not itself a Git checkout. Codex rejects those folders
 	// by default, even though --cd accepts them. This only disables that preflight
 	// check; it does not alter the task's access mode or sandbox arguments.

@@ -2,12 +2,12 @@ package provider
 
 import "encoding/json"
 
-// An aside is a question claudeq asks a harness on its own behalf rather than
+// An aside is a question dispatchq asks a harness on its own behalf rather than
 // to carry out the operator's work: the prompt review that checks a task before
 // it is queued, and the feedback assistant that drafts a GitHub issue.
 //
 // It is not a small run. A run does the user's work in the user's directory
-// with the user's tools; an aside is claudeq talking to a model about claudeq,
+// with the user's tools; an aside is dispatchq talking to a model about dispatchq,
 // so it gets no tools, no project configuration, and a directory of its own.
 // Keeping the two apart is what stops a review of a prompt from being steered
 // by the repository the prompt talks about.
@@ -25,7 +25,7 @@ type AsideRequest struct {
 	// Schema is a JSON schema the answer must satisfy. Adapters that cannot
 	// enforce one state the shape in System instead and parse what comes back.
 	Schema string
-	// SessionID identifies the conversation. Claudeq issues it when the harness
+	// SessionID identifies the conversation. DispatchQ issues it when the harness
 	// accepts one; otherwise the adapter reports the harness's own id in the
 	// answer and the caller sends that back.
 	SessionID string

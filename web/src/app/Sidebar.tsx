@@ -26,7 +26,7 @@ export function Sidebar() {
       <div className="flex items-center gap-2.5 px-4 pt-4 pb-3">
         <img src="/logo.svg" alt="" className="size-7 rounded-lg shadow-sm" />
         <div className="min-w-0 flex-1">
-          <div className="text-[14px] leading-4 font-semibold tracking-[-0.01em]">ClaudeQ</div>
+          <div className="text-[14px] leading-4 font-semibold tracking-[-0.01em]">DispatchQ</div>
           <Version />
         </div>
       </div>
@@ -136,11 +136,11 @@ function Footer() {
     <div className="flex items-center gap-2 border-t border-border px-4 py-2.5 text-[12px] text-muted-foreground">
       <span className={cn('size-2 rounded-full', state.dot, fetching && !down && 'animate-pulse-dot')} />
       <span className="flex-1 truncate">{state.text}</span>
-      <Tooltip content="ClaudeQ on GitHub">
+      <Tooltip content="DispatchQ on GitHub">
         <button
           onClick={() => openExternal(REPO)}
           className="rounded p-1 hover:bg-surface-3 hover:text-foreground"
-          aria-label="ClaudeQ on GitHub"
+          aria-label="DispatchQ on GitHub"
         >
           <ExternalLink className="size-3.5" />
         </button>

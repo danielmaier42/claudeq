@@ -70,7 +70,7 @@ func newUpdateServer(t *testing.T, current string, rels ...update.Release) (*htt
 func TestUpdateStatusAvailable(t *testing.T) {
 	srv, _, _ := newUpdateServer(t, "v0.1.0", update.Release{
 		Version: "0.2.0", Tag: "v0.2.0", PkgURL: "https://example.test/x.pkg",
-		PkgName: "claudeq-0.2.0.pkg", Notes: "new stuff", HTMLURL: "https://example.test",
+		PkgName: "dispatchq-0.2.0.pkg", Notes: "new stuff", HTMLURL: "https://example.test",
 	})
 	var s updateStatus
 	do(t, srv, "GET", "/api/update", nil).into(t, &s)
@@ -179,7 +179,7 @@ func TestUpdateDismissRequiresVersion(t *testing.T) {
 
 func TestUpdateDownloadOpensInstaller(t *testing.T) {
 	srv, _, opened := newUpdateServer(t, "v0.1.0", update.Release{
-		Version: "0.2.0", Tag: "v0.2.0", PkgURL: "usePkgSrv", PkgName: "claudeq-0.2.0.pkg",
+		Version: "0.2.0", Tag: "v0.2.0", PkgURL: "usePkgSrv", PkgName: "dispatchq-0.2.0.pkg",
 	})
 	var out struct {
 		Path string `json:"path"`
@@ -224,12 +224,12 @@ func TestUpdateEndpointsUnavailableWithoutService(t *testing.T) {
 	}
 }
 
-// stubInstalled pins the "newest ClaudeQ.app on disk" lookup for one test, so
+// stubInstalled pins the "newest DispatchQ.app on disk" lookup for one test, so
 // the host's /Applications never decides the outcome. An empty version means
 // nothing is installed.
 func stubInstalled(t *testing.T, version string) string {
 	t.Helper()
-	app := "/Applications/ClaudeQ.app"
+	app := "/Applications/DispatchQ.app"
 	var inst *update.Installed
 	if version != "" {
 		inst = &update.Installed{Version: version, Path: app}
@@ -298,7 +298,7 @@ func TestRelaunchUpdate(t *testing.T) {
 	}
 }
 
-// With no ClaudeQ.app on disk there is nothing to hand over to.
+// With no DispatchQ.app on disk there is nothing to hand over to.
 func TestRelaunchUpdateWithoutInstalledApp(t *testing.T) {
 	srv, _, _ := newUpdateServer(t, "v0.7.0")
 	stubInstalled(t, "")

@@ -20,7 +20,7 @@ type Artifact struct {
 	// FileName is the original base name of the published file.
 	FileName string `json:"file_name"`
 	// RelPath is the stored file's path relative to the artifacts directory
-	// ("<id>/<file_name>"), so the store stays relocatable (CLAUDEQ_HOME can move).
+	// ("<id>/<file_name>"), so the store stays relocatable (DISPATCHQ_HOME can move).
 	RelPath string `json:"rel_path"`
 	// Size is the stored file size in bytes.
 	Size int64 `json:"size"`

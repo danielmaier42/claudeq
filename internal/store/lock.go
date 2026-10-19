@@ -12,7 +12,7 @@ const lockFile = ".lock"
 
 // withWriteLock runs fn while holding an exclusive, cross-process advisory lock
 // on the data directory. The in-process writeMu serializes updates within one
-// process; this flock closes the cross-process gap so the daemon and a claudeq
+// process; this flock closes the cross-process gap so the daemon and a dispatchq
 // CLI process (for example a running task queueing follow-up work) never
 // interleave load → modify → save and silently lose each other's changes.
 func (s *Store) withWriteLock(fn func() error) error {

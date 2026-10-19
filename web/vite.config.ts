@@ -15,6 +15,6 @@ export default defineConfig({
     chunkSizeWarningLimit: 1200,
   },
   server: {
-    proxy: {'/api': process.env.CLAUDEQ_URL ?? 'http://127.0.0.1:10765'},
+    proxy: {'/api': process.env.DISPATCHQ_URL ?? 'http://127.0.0.1:10765'},
   },
 })

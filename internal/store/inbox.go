@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// InboxEntry is one notification ClaudeQ sent, kept so the operator can find
+// InboxEntry is one notification DispatchQ sent, kept so the operator can find
 // it again in the app's Notifications view once the macOS banner is gone: what
 // it said, what it points at, and whether it has been looked at. The daemon
 // writes an entry for every notification before handing it to the channels, so
@@ -48,7 +48,7 @@ const (
 	InboxKindArtifact = "artifact"
 	// InboxKindProvider is a provider that stopped or resumed running tasks.
 	InboxKindProvider = "provider"
-	// InboxKindTask is a message a task sent itself with `claudeq notify`.
+	// InboxKindTask is a message a task sent itself with `dispatchq notify`.
 	InboxKindTask = "task"
 )
 

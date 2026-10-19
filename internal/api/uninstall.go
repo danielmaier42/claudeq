@@ -7,7 +7,7 @@ import (
 	"net/http"
 )
 
-// uninstall opens ClaudeQ's uninstaller in the macOS Installer; the Installer
+// uninstall opens DispatchQ's uninstaller in the macOS Installer; the Installer
 // asks for confirmation and the password. Two checks keep a web page in the
 // user's browser from popping it up. A page on another origin cannot POST a
 // JSON body without a CORS preflight, which this server never answers. A page

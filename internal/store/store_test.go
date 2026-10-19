@@ -51,7 +51,7 @@ func TestSaveLoadConfigRoundTripPreservesOrder(t *testing.T) {
 			DefaultProvider: DefaultProviderID,
 			Paused:          true,
 			Pushover:        Pushover{Token: "tok", UserKey: "usr"},
-			Ntfy:            Ntfy{Enabled: true, Server: "https://ntfy.example.com", Topic: "claudeq", Token: "ntk"},
+			Ntfy:            Ntfy{Enabled: true, Server: "https://ntfy.example.com", Topic: "dispatchq", Token: "ntk"},
 			Webhook:         Webhook{Enabled: true, URL: "https://hooks.example.com/x", Template: `{"text":"{{title}}: {{message}}"}`},
 		},
 		Providers: seedProviders(Settings{}),
@@ -184,7 +184,7 @@ func TestUpdateConfigConcurrentAddsNoLoss(t *testing.T) {
 
 func TestUpdateConfigCrossProcessNoLoss(t *testing.T) {
 	// Two separate Store instances on the same home stand in for the daemon and a
-	// `claudeq queue` child updating config.toml at the same time. Each opens its
+	// `dispatchq queue` child updating config.toml at the same time. Each opens its
 	// own lock fd, so only the cross-process flock (not the in-process writeMu)
 	// keeps their read-modify-write updates from clobbering each other.
 	home := t.TempDir()
@@ -242,12 +242,12 @@ func TestUpdateStatePreservesOtherKeys(t *testing.T) {
 }
 
 func TestDefaultHomeHonoursEnv(t *testing.T) {
-	t.Setenv(EnvHome, "/tmp/claudeq-test-home")
+	t.Setenv(EnvHome, "/tmp/dispatchq-test-home")
 	home, err := DefaultHome()
 	if err != nil {
 		t.Fatalf("DefaultHome: %v", err)
 	}
-	if home != "/tmp/claudeq-test-home" {
+	if home != "/tmp/dispatchq-test-home" {
 		t.Fatalf("DefaultHome = %q, want override", home)
 	}
 }

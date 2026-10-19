@@ -42,13 +42,13 @@ func configHome(configDir string) string {
 // this Codex instance.
 //
 // It exists because of how the override works: `-c developer_instructions=…`
-// *replaces* the configured value instead of adding to it. claudeq delivers its
+// *replaces* the configured value instead of adding to it. dispatchq delivers its
 // run contract through that key, so using it blindly would silently throw the
 // operator's own instructions away — which is exactly the failure the provider
 // spike called out. They are read here and carried along instead.
 //
 // Anything that goes wrong — no file, no permission, unparseable TOML — yields
-// no instructions rather than an error: a Codex configuration claudeq cannot
+// no instructions rather than an error: a Codex configuration dispatchq cannot
 // read is not a reason to refuse to run, and a misread would be reported by
 // Codex itself. The value is never logged.
 func ownInstructions(configDir string) string {
@@ -69,8 +69,8 @@ func ownInstructions(configDir string) string {
 	return strings.TrimSpace(cfg.DeveloperInstructions)
 }
 
-// developerInstructions combines claudeq's run contract with whatever the
-// provider's own configuration sets, claudeq's first: its subject is how a
+// developerInstructions combines dispatchq's run contract with whatever the
+// provider's own configuration sets, dispatchq's first: its subject is how a
 // headless run has to behave, which the operator's standing guidance then adds
 // to rather than replaces. The layering is the same one a Claude Code run gets
 // from the custom system prompt.

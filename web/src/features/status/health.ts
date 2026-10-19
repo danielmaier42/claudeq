@@ -1,7 +1,7 @@
 import type {LimitedProvider, NotifyStatus} from '@/lib/types'
 
 export const SUDOERS_COMMAND =
-  'echo "$(whoami) ALL=(root) NOPASSWD: /usr/bin/pmset" | sudo tee /etc/sudoers.d/claudeq'
+  'echo "$(whoami) ALL=(root) NOPASSWD: /usr/bin/pmset" | sudo tee /etc/sudoers.d/dispatchq'
 
 export const NOTIFICATION_SETTINGS_URL =
   'x-apple.systempreferences:com.apple.Notifications-Settings.extension'
@@ -12,7 +12,7 @@ export function wakeNeedsSudoers(err: string): boolean {
   return /password|sudo|not permitted|permission/i.test(err)
 }
 
-// macOS can accept every notification ClaudeQ posts and still show none of
+// macOS can accept every notification DispatchQ posts and still show none of
 // them: an app whose authorization is denied (or never granted) posts into the
 // void. That is invisible from the app's side, so the banner says it out loud.
 export function notificationsBlocked(

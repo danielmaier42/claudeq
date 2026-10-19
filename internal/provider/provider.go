@@ -1,4 +1,4 @@
-// Package provider is claudeq's harness abstraction: the scheduler and the
+// Package provider is dispatchq's harness abstraction: the scheduler and the
 // store talk about *provider instances* and *capabilities*, never about a
 // particular CLI. Everything a single harness does differently — how its
 // process is invoked, how its output is read, how its configuration directory
@@ -115,7 +115,7 @@ func (i Instance) Label() string {
 	return i.ID
 }
 
-// AccessMode is claudeq's provider-neutral expression of how much authority a
+// AccessMode is dispatchq's provider-neutral expression of how much authority a
 // run gets. Each adapter validates and maps only the modes it can actually
 // enforce, so the application never promises a restriction a harness cannot
 // deliver.
@@ -163,8 +163,8 @@ type Capabilities struct {
 	RateLimitResume bool
 	// Subagents: the harness runs its own subagents inside one job.
 	Subagents bool
-	// Asides: the harness can answer claudeq's own questions — tool-free, in a
-	// session of its own, returning the structure claudeq asked for. Prompt
+	// Asides: the harness can answer dispatchq's own questions — tool-free, in a
+	// session of its own, returning the structure dispatchq asked for. Prompt
 	// review needs one turn of this; the feedback assistant needs several.
 	Asides bool
 	// AccessModes lists the access modes this adapter can actually enforce.
@@ -198,7 +198,7 @@ type Request struct {
 	// AccessMode is the requested authority for this run. The zero value means
 	// AccessProviderDefault (see AccessMode.OrDefault).
 	AccessMode AccessMode
-	// SystemPrompt is claudeq's own run guidance, to be delivered alongside the
+	// SystemPrompt is dispatchq's own run guidance, to be delivered alongside the
 	// harness's built-in instructions rather than replacing them.
 	SystemPrompt string
 	// ReasoningEffort is how hard the model should think, for the harnesses that
@@ -287,7 +287,7 @@ type Event struct {
 }
 
 // Metrics are the usage figures a harness reports for a run. Values it does not
-// report stay zero — claudeq never infers a missing cost from a price table.
+// report stay zero — dispatchq never infers a missing cost from a price table.
 type Metrics struct {
 	CostUSD      float64
 	InputTokens  int

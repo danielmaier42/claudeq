@@ -78,7 +78,7 @@ func killTree(root int) {
 	}
 }
 
-// procEntry is one row of the process table claudeq cares about.
+// procEntry is one row of the process table dispatchq cares about.
 type procEntry struct {
 	pid, ppid, pgid int
 }
@@ -87,7 +87,7 @@ type procEntry struct {
 // is no portable syscall for "list every process", and the alternative — walking
 // /proc — does not exist on macOS. A snapshot that cannot be taken yields
 // nothing, and the caller falls back to killing the harness's own group, which
-// is what claudeq did before.
+// is what dispatchq did before.
 func processSnapshot(ctx context.Context) []procEntry {
 	out, err := exec.CommandContext(ctx, "ps", "-axo", "pid=,ppid=,pgid=").Output()
 	if err != nil {

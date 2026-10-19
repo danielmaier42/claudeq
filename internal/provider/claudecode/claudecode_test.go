@@ -20,7 +20,7 @@ func instance() provider.Instance {
 	}
 }
 
-// TestCommandGoldenArgs pins the exact invocation claudeq has always produced.
+// TestCommandGoldenArgs pins the exact invocation dispatchq has always produced.
 // Moving Claude execution behind an adapter must not change a single argument,
 // so these are compared whole rather than by substring.
 func TestCommandGoldenArgs(t *testing.T) {
@@ -250,7 +250,7 @@ func TestCapabilitiesDoNotClaimSandboxesClaudeCodeCannotEnforce(t *testing.T) {
 	}
 }
 
-// TestParseTranslatesStreamJSON covers every line shape claudeq classifies,
+// TestParseTranslatesStreamJSON covers every line shape dispatchq classifies,
 // including the ones that must *not* change the outcome.
 func TestParseTranslatesStreamJSON(t *testing.T) {
 	tests := []struct {
@@ -424,7 +424,7 @@ func TestParserRepeatedTimingDoesNotRestateTheLimit(t *testing.T) {
 }
 
 func TestParserKeepsAReportedWindowOverTheOrgBlockFallback(t *testing.T) {
-	// An organisation block names no window, so claudeq waits a fixed hour. A
+	// An organisation block names no window, so dispatchq waits a fixed hour. A
 	// real rate limit that arrived first does name one, and that is the better
 	// answer: the fallback must not overwrite it.
 	p := New().NewParser()

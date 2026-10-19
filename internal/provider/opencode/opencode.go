@@ -1,6 +1,6 @@
 // Package opencode is the provider adapter for the opencode CLI. It owns
-// everything claudeq knows about that harness: how `opencode run` is invoked,
-// how its JSONL event stream maps onto claudeq's normalized events, how a
+// everything dispatchq knows about that harness: how `opencode run` is invoked,
+// how its JSONL event stream maps onto dispatchq's normalized events, how a
 // session is resumed, and how an instance's own account/config directory is
 // selected. Nothing outside this package needs to know any of it.
 //
@@ -64,7 +64,7 @@ func (a *Adapter) Capabilities() provider.Capabilities {
 		RateLimitResume: false,
 		// Not claimed: opencode coordinates subagents through its own `agent`
 		// command, but a single run's event stream was never observed
-		// spawning one, so claudeq does not promise it counts correctly.
+		// spawning one, so dispatchq does not promise it counts correctly.
 		Subagents: false,
 		// Not claimed: opencode has no tool-free, schema-constrained turn like
 		// Claude Code's --safe-mode aside; see AsideCommand.
@@ -106,7 +106,7 @@ func (a *Adapter) binaryOr(inst provider.Instance) string {
 // `opencode run [message..]` — never stdin, the same shape Claude Code takes.
 //
 // opencode has no flag that delivers a system prompt alongside a model's own
-// instructions, so claudeq's run contract is prefixed onto the message itself,
+// instructions, so dispatchq's run contract is prefixed onto the message itself,
 // clearly delimited from the task's own prompt. It is sent on every turn,
 // including a resume, because unlike Claude Code and Codex nothing here
 // persists it across turns — there is no session-level place to put it.
@@ -176,8 +176,8 @@ func (a *Adapter) env(inst provider.Instance) []string {
 	}
 }
 
-// withSystemPrompt prefixes claudeq's run contract onto the task's prompt,
-// clearly delimited so the model can tell claudeq's standing guidance from the
+// withSystemPrompt prefixes dispatchq's run contract onto the task's prompt,
+// clearly delimited so the model can tell dispatchq's standing guidance from the
 // task at hand.
 func withSystemPrompt(system, prompt string) string {
 	system = strings.TrimSpace(system)

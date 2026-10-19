@@ -275,7 +275,7 @@ func TestImportResolvesTheHintToTheOneLocalInstance(t *testing.T) {
 
 // TestImportLeavesAnAmbiguousProviderToTheOperator: two accounts of the same
 // kind are not interchangeable — separate allowances, separate logins, often
-// separate employers — so claudeq does not choose one on their behalf.
+// separate employers — so dispatchq does not choose one on their behalf.
 func TestImportLeavesAnAmbiguousProviderToTheOperator(t *testing.T) {
 	st := openStore(t)
 	if err := st.UpdateConfig(func(cfg *store.Config) error {

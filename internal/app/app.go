@@ -1,4 +1,4 @@
-// Package app implements the store-level operations behind the claudeq CLI and
+// Package app implements the store-level operations behind the dispatchq CLI and
 // HTTP API: task CRUD, reordering (priority), and run read-status. Mutations go
 // through the store's atomic update helpers so concurrent callers (CLI + API)
 // never lose each other's changes.
@@ -39,7 +39,7 @@ var ErrUnknownDependency = errors.New("unknown job")
 // ErrInvalidDependency reports a job that exists but cannot be waited for.
 var ErrInvalidDependency = errors.New("cannot be waited for")
 
-// checkDependencies refuses a task that waits for a job claudeq has never heard
+// checkDependencies refuses a task that waits for a job dispatchq has never heard
 // of: it would wait for good, which in an unattended queue means a deliverable
 // that silently never appears.
 //

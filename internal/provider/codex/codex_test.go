@@ -22,7 +22,7 @@ func instance(binary string) provider.Instance {
 }
 
 // isolated is an instance pointed at an empty configuration directory, so a
-// test that compares arguments sees only what claudeq builds — never a
+// test that compares arguments sees only what dispatchq builds — never a
 // developer_instructions value the machine running the test happens to have in
 // its own ~/.codex/config.toml.
 func isolated(t *testing.T, binary string) provider.Instance {
@@ -118,7 +118,7 @@ func TestCommandGoldenArguments(t *testing.T) {
 }
 
 // TestCommandAllowsNonRepositoryWorkingDirectories protects project collection
-// folders: ClaudeQ accepts them, so the Codex adapter must not reject them
+// folders: DispatchQ accepts them, so the Codex adapter must not reject them
 // before the task starts.
 func TestCommandAllowsNonRepositoryWorkingDirectories(t *testing.T) {
 	got, err := newAdapter("").Command(isolated(t, "/opt/codex"), provider.Request{
@@ -197,7 +197,7 @@ func TestInteractiveResumeCommand(t *testing.T) {
 
 // TestDeveloperInstructionsKeepTheInstancesOwn is the conflict the spike
 // flagged: the `-c developer_instructions=` override *replaces* the configured
-// value. claudeq puts its run contract there, so the operator's own instructions
+// value. dispatchq puts its run contract there, so the operator's own instructions
 // have to be carried along rather than silently dropped.
 func TestDeveloperInstructionsKeepTheInstancesOwn(t *testing.T) {
 	dir := t.TempDir()
@@ -217,18 +217,18 @@ func TestDeveloperInstructionsKeepTheInstancesOwn(t *testing.T) {
 	}
 	value := overrideValue(t, got.Args, "developer_instructions")
 	if !strings.Contains(value, "You are running headless.") {
-		t.Fatalf("override = %q, want claudeq's run contract in it", value)
+		t.Fatalf("override = %q, want dispatchq's run contract in it", value)
 	}
 	if !strings.Contains(value, own) {
 		t.Fatalf("override = %q, want the instance's own instructions kept", value)
 	}
 	if strings.Index(value, "headless") > strings.Index(value, own) {
-		t.Fatal("claudeq's contract must come first; the operator's guidance adds to it")
+		t.Fatal("dispatchq's contract must come first; the operator's guidance adds to it")
 	}
 }
 
 // TestDeveloperInstructionsWithoutAConfiguredValue: nothing to preserve, so the
-// override is exactly claudeq's contract.
+// override is exactly dispatchq's contract.
 func TestDeveloperInstructionsWithoutAConfiguredValue(t *testing.T) {
 	inst := instance("/opt/codex")
 	inst.ConfigDir = t.TempDir()
@@ -324,7 +324,7 @@ func TestCapabilities(t *testing.T) {
 		t.Error("Codex takes a reasoning effort")
 	}
 	if caps.CostMetrics {
-		t.Error("Codex reports no monetary cost, so claudeq must not claim it does")
+		t.Error("Codex reports no monetary cost, so dispatchq must not claim it does")
 	}
 }
 
@@ -531,7 +531,7 @@ func TestLoginStatusThatCouldNotBeAskedIsNotALogout(t *testing.T) {
 }
 
 // TestCodexDoesNotClaimAsides: the capability and the method have to agree.
-// Codex has not been shown to answer claudeq's own questions tool-free, in a
+// Codex has not been shown to answer dispatchq's own questions tool-free, in a
 // neutral directory, to a schema — so it says so here rather than at the point
 // of use.
 func TestCodexDoesNotClaimAsides(t *testing.T) {

@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// Notification is a message a task asked ClaudeQ to send on its behalf
-// (`claudeq notify`). The CLI drops it into the outbox file; the daemon, which
+// Notification is a message a task asked DispatchQ to send on its behalf
+// (`dispatchq notify`). The CLI drops it into the outbox file; the daemon, which
 // owns the notification channels, delivers it on its next tick and removes it.
 type Notification struct {
 	// ID is unique per queued notification.

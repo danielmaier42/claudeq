@@ -7,11 +7,11 @@ export const EXAMPLES = [
   'The Log shows a wrong duration for a resumed run',
 ]
 
-// envLine is what the daemon appends to the issue body ("ClaudeQ 1.2 · macOS
+// envLine is what the daemon appends to the issue body ("DispatchQ 1.2 · macOS
 // 15.1"), stated in the review step so the user knows what travels along.
 export function envLine(info: Pick<FeedbackInfo, 'app_version' | 'os_version'> | undefined): string {
   if (!info) return ''
-  return [info.app_version && 'ClaudeQ ' + info.app_version, info.os_version && 'macOS ' + info.os_version]
+  return [info.app_version && 'DispatchQ ' + info.app_version, info.os_version && 'macOS ' + info.os_version]
     .filter(Boolean)
     .join(' · ')
 }

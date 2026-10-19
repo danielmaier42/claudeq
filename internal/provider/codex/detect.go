@@ -12,7 +12,7 @@ import (
 // DetectBinary finds the Codex CLI. It returns an absolute path, or "" if it
 // cannot be located.
 //
-// It exists for the same reason the Claude Code one does: claudeq's daemon and
+// It exists for the same reason the Claude Code one does: dispatchq's daemon and
 // app run under launchd with a minimal PATH that excludes the usual CLI install
 // locations, so a plain `codex` lookup fails even when the CLI works fine in the
 // operator's terminal. The common locations are checked directly, then the
@@ -21,7 +21,7 @@ import (
 func DetectBinary() string {
 	// An explicit override wins — used by CI/tests and by an installation in an
 	// unusual place.
-	if p := os.Getenv("CLAUDEQ_CODEX_BIN"); p != "" {
+	if p := os.Getenv("DISPATCHQ_CODEX_BIN"); p != "" {
 		return p
 	}
 	home, _ := os.UserHomeDir()

@@ -16,7 +16,7 @@ import {SaveMode} from '../components/parts'
 // the app window can open a System Settings URL; a browser tab says where to look.
 function openNotificationSettings() {
   if (isAppWindow()) openExternal('x-apple.systempreferences:com.apple.Notifications-Settings.extension')
-  else toast('Open System Settings → Notifications → ClaudeQ')
+  else toast('Open System Settings → Notifications → DispatchQ')
 }
 
 export function NotificationsSection({value, stored}: {value: Settings; stored: Settings}) {
@@ -29,12 +29,12 @@ export function NotificationsSection({value, stored}: {value: Settings; stored: 
         <Alert
           tone="warning"
           className="mb-6"
-          title="macOS is not showing ClaudeQ's notifications"
+          title="macOS is not showing DispatchQ's notifications"
           actions={<Button onClick={openNotificationSettings}>Open System Settings</Button>}
         >
           {notify === 'denied'
-            ? 'Run outcomes and new artifacts are announced, but macOS hides them. Turn Allow notifications back on for ClaudeQ.'
-            : "ClaudeQ hasn't been allowed to notify you yet, so run outcomes and new artifacts stay silent."}{' '}
+            ? 'Run outcomes and new artifacts are announced, but macOS hides them. Turn Allow notifications back on for DispatchQ.'
+            : "DispatchQ hasn't been allowed to notify you yet, so run outcomes and new artifacts stay silent."}{' '}
           Pick Alerts while you are there and an alert stays on screen until you click it.
         </Alert>
       )}

@@ -1,4 +1,4 @@
-// Package bundle reads and writes the portable ".claudeq" task file: a zip
+// Package bundle reads and writes the portable ".dispatchq" task file: a zip
 // archive holding the task's settings as JSON (task.json) and its prompt as
 // Markdown (prompt.md). It is the exchange format for sharing a task with a
 // colleague — the whole task goes in, and the importer gets it back as-is,
@@ -23,10 +23,13 @@ import (
 
 const (
 	// Ext is the file extension of a task bundle.
-	Ext = ".claudeq"
+	Ext = ".dispatchq"
 	// Format identifies a bundle's task.json; a future incompatible layout
 	// bumps Version.
-	Format = "claudeq-task"
+	Format = "dispatchq-task"
+	// LegacyFormat is what ClaudeQ, the app's name before 2.0, wrote into its
+	// .claudeq files. Such a file is read like any other.
+	LegacyFormat = "claudeq-task"
 	// Version is the task.json layout version this package writes and reads.
 	Version = 1
 
@@ -40,7 +43,7 @@ const (
 )
 
 // ErrInvalid is the base error for a file that is not a usable task bundle.
-var ErrInvalid = errors.New("invalid .claudeq file")
+var ErrInvalid = errors.New("invalid .dispatchq file")
 
 // envelope is the task.json layout. Task carries every task field except the
 // prompt, which lives in prompt.md so it stays readable and editable as text.
@@ -143,11 +146,11 @@ func Read(data []byte) (task.Task, ProviderHint, error) {
 	if err := json.Unmarshal(meta, &env); err != nil {
 		return task.Task{}, ProviderHint{}, fmt.Errorf("%w: %s: %w", ErrInvalid, settingsName, err)
 	}
-	if env.Format != Format {
+	if env.Format != Format && env.Format != LegacyFormat {
 		return task.Task{}, ProviderHint{}, fmt.Errorf("%w: %s has format %q, want %q", ErrInvalid, settingsName, env.Format, Format)
 	}
 	if env.Version != Version {
-		return task.Task{}, ProviderHint{}, fmt.Errorf("%w: %s has format_version %d, this claudeq reads version %d",
+		return task.Task{}, ProviderHint{}, fmt.Errorf("%w: %s has format_version %d, this dispatchq reads version %d",
 			ErrInvalid, settingsName, env.Version, Version)
 	}
 	if len(prompt) == 0 {

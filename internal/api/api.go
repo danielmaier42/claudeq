@@ -1,4 +1,4 @@
-// Package api serves claudeq's local control surface: a JSON REST API plus an
+// Package api serves dispatchq's local control surface: a JSON REST API plus an
 // embedded web dashboard, bound to loopback only (PLAN.md D11, NFA-04). It is
 // the frontend/backend core a native window app would wrap.
 package api
@@ -116,7 +116,7 @@ type Deps struct {
 	// Limits remembers and reads each provider's allowance (5-hour and weekly
 	// windows). Optional; when nil the dashboard has no limits to show.
 	Limits *provider.LimitMonitor
-	// Uninstall opens ClaudeQ's uninstaller in the macOS Installer (Settings >
+	// Uninstall opens DispatchQ's uninstaller in the macOS Installer (Settings >
 	// System). Optional; when nil the endpoint reports "not implemented".
 	Uninstall func(ctx context.Context) error
 }
@@ -186,6 +186,11 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/update", s.getUpdate)
 	mux.HandleFunc("POST /api/update/check", s.checkUpdate)
 	mux.HandleFunc("POST /api/update/dismiss", s.dismissUpdate)
+	mux.HandleFunc("GET /api/whats-new", s.getWhatsNew)
+	mux.HandleFunc("POST /api/whats-new/dismiss", s.dismissWhatsNew)
+	mux.HandleFunc("GET /api/rename-check", s.getRenameCheck)
+	mux.HandleFunc("POST /api/rename-check", s.startRenameCheck)
+	mux.HandleFunc("POST /api/rename-check/apply", s.applyRename)
 	mux.HandleFunc("POST /api/update/download", s.downloadUpdate)
 	mux.HandleFunc("POST /api/update/relaunch", s.relaunchUpdate)
 	mux.HandleFunc("POST /api/uninstall", s.uninstall)
@@ -220,6 +225,8 @@ type server struct {
 	reviewMu     sync.Mutex
 	reviewGen    uint64
 	reviewCancel context.CancelFunc
+	// rename is the check of the queue for what still names ClaudeQ.
+	rename renameJob
 }
 
 // activeTasks is the set of task ids running right now (empty when the daemon
@@ -840,7 +847,7 @@ func (s *server) continueRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The interactive resume goes to the provider instance that owns the
-	// session, and the adapter says how that harness reopens one. claudeq never
+	// session, and the adapter says how that harness reopens one. dispatchq never
 	// offers to continue a session on another account, let alone another harness.
 	// Asked before a take-over too, so a run that could not be reopened by hand
 	// is never stopped for nothing.
@@ -969,7 +976,7 @@ func resumeAccess(run store.Run, t task.Task) provider.AccessMode {
 	return accessMode(t.Permissions)
 }
 
-// accessMode maps a task's permission setting onto claudeq's provider-neutral
+// accessMode maps a task's permission setting onto dispatchq's provider-neutral
 // access intent, the same way the engine does for a run — so a continued session
 // gets exactly the authority the run it continues had.
 func accessMode(p task.Permissions) provider.AccessMode {
@@ -1399,7 +1406,7 @@ type limitedProvider struct {
 }
 
 // getHealth reports daemon health the UI can warn about: whether scheduled-wake
-// setup is working, and whether macOS is set to show ClaudeQ's notifications at
+// setup is working, and whether macOS is set to show DispatchQ's notifications at
 // all (a denied app posts into the void).
 func (s *server) getHealth(w http.ResponseWriter, r *http.Request) {
 	wakeErr := ""

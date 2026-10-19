@@ -117,7 +117,7 @@ export async function resolveSession(req: TaskEditorRequest): Promise<EditorSess
           ? `The file's working directory (${missingDir}) does not exist on this Mac. Choose a folder.`
           : undefined,
         // When no single provider here matches the harness the file was written
-        // for, the choice is the importer's: ClaudeQ will not put someone else's
+        // for, the choice is the importer's: DispatchQ will not put someone else's
         // task on an account they did not pick.
         providerHint: provider
           ? `Written for ${provider}, which does not match exactly one provider here. Choose where it should run.`

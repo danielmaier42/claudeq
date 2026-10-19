@@ -42,7 +42,7 @@ export const SECTIONS: SectionDef[] = [
     id: 'appearance',
     label: 'Appearance',
     icon: Palette,
-    description: 'How ClaudeQ looks on this Mac and in a browser tab',
+    description: 'How DispatchQ looks on this Mac and in a browser tab',
   },
   {
     id: 'execution',
@@ -62,9 +62,9 @@ export const SECTIONS: SectionDef[] = [
     id: 'assistant',
     label: 'Assistant',
     icon: Sparkles,
-    description: 'The jobs Claude does for ClaudeQ itself',
+    description: 'The jobs Claude does for DispatchQ itself',
   },
-  {id: 'system', label: 'System', icon: Wrench, description: 'Removing ClaudeQ from this Mac'},
+  {id: 'system', label: 'System', icon: Wrench, description: 'Removing DispatchQ from this Mac'},
   {id: 'about', label: 'About', icon: Info, description: 'Version and software updates'},
 ]
 

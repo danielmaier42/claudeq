@@ -1,4 +1,4 @@
-# claudeq developer tasks. These mirror the CI quality gates (see AGENTS.md §1).
+# dispatchq developer tasks. These mirror the CI quality gates (see AGENTS.md §1).
 
 GO      ?= go
 GOBIN   := $(shell $(GO) env GOPATH)/bin

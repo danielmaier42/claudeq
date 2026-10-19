@@ -138,7 +138,7 @@ export function FeedbackView() {
                 placeholder={
                   s.messages.some((m) => m.role === 'assistant')
                     ? 'Answer Claude’s question…'
-                    : 'Something that does not work, or something ClaudeQ should be able to do…'
+                    : 'Something that does not work, or something DispatchQ should be able to do…'
                 }
               />
             ))}

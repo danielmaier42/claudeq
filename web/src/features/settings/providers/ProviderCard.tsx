@@ -26,7 +26,7 @@ import {hasLimitsRow, healthInfo} from './provider-logic'
 
 // ProviderCard is the only place a provider's binary, configuration directory
 // and default model live, so there is exactly one answer to "which CLI does
-// ClaudeQ run?". The card shows them; the Edit dialog changes them.
+// DispatchQ run?". The card shows them; the Edit dialog changes them.
 export function ProviderCard({
   provider: p,
   providers,
@@ -53,7 +53,7 @@ export function ProviderCard({
   const remove = async () => {
     const ok = await confirm({
       title: `Remove the provider “${label}”?`,
-      description: 'ClaudeQ forgets its settings. The CLI, its account and its sessions stay untouched.',
+      description: 'DispatchQ forgets its settings. The CLI, its account and its sessions stay untouched.',
       confirmLabel: 'Remove',
       cancelLabel: 'Keep it',
       destructive: true,
@@ -188,7 +188,7 @@ export function ProviderCard({
               {!fallback.enabled && <span className="text-muted-foreground"> (switched off)</span>}
               <span className="text-muted-foreground">
                 {' · '}
-                {p.fallback_model ? modelLabel(fbModels, p.fallback_model) : 'model decided by ClaudeQ'}
+                {p.fallback_model ? modelLabel(fbModels, p.fallback_model) : 'model decided by DispatchQ'}
               </span>
             </>
           ) : (

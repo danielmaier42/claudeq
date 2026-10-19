@@ -179,7 +179,7 @@ func TestArtifactIDStaysOutOfTheMessageText(t *testing.T) {
 	r := &recordRunner{}
 	m := Mac{Runner: r}
 	if err := m.Notify(context.Background(), Notification{
-		Title: "ClaudeQ", Message: "New artifact", ArtifactID: "a-20260901T030000-abc",
+		Title: "DispatchQ", Message: "New artifact", ArtifactID: "a-20260901T030000-abc",
 	}); err != nil {
 		t.Fatalf("Notify: %v", err)
 	}

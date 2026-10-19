@@ -28,14 +28,14 @@ const defaultShell = "/bin/sh"
 
 // runScript executes a script task and classifies the outcome by its exit
 // status: zero is a success, anything else a failure. There is nothing to parse
-// — a script reports through its exit code, so claudeq does not guess at its
+// — a script reports through its exit code, so dispatchq does not guess at its
 // output the way it has to with a harness's event stream.
 //
 // The script is written to a temporary file rather than passed on a command
 // line, so a shebang decides the interpreter (`#!/usr/bin/env python3` works as
 // it would anywhere else) and nothing in the text is ever re-parsed by a shell.
 func (e *Executor) runScript(ctx context.Context, req Request) (provider.Result, error) {
-	dir, err := os.MkdirTemp("", "claudeq-script")
+	dir, err := os.MkdirTemp("", "dispatchq-script")
 	if err != nil {
 		return provider.Result{}, fmt.Errorf("prepare script: %w", err)
 	}
@@ -105,7 +105,7 @@ func (e *Executor) runScript(ctx context.Context, req Request) (provider.Result,
 }
 
 // waitCode waits for the process and reports its exit status. A failure that is
-// not the process exiting non-zero is a claudeq-side error, except when the
+// not the process exiting non-zero is a dispatchq-side error, except when the
 // watchdog killed the run — that kill is the answer, not a broken run.
 func waitCode(cmd *exec.Cmd, idleKilled *atomic.Bool) (int, error) {
 	err := cmd.Wait()

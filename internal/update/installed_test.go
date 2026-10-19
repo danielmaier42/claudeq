@@ -9,14 +9,14 @@ import (
 // writeBundle creates a minimal .app bundle with the given short version.
 func writeBundle(t *testing.T, dir, version string) string {
 	t.Helper()
-	app := filepath.Join(dir, "ClaudeQ.app")
+	app := filepath.Join(dir, "DispatchQ.app")
 	if err := os.MkdirAll(filepath.Join(app, "Contents", "MacOS"), 0o755); err != nil {
 		t.Fatalf("mkdir bundle: %v", err)
 	}
 	plist := `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0">
 <dict>
-	<key>CFBundleName</key><string>ClaudeQ</string>
+	<key>CFBundleName</key><string>DispatchQ</string>
 	<key>CFBundleShortVersionString</key><string>` + version + `</string>
 	<key>LSUIElement</key><false/>
 </dict>
@@ -66,10 +66,10 @@ func TestPlistString(t *testing.T) {
 
 func TestEnclosingBundle(t *testing.T) {
 	tests := []struct{ in, want string }{
-		{"/Applications/ClaudeQ.app/Contents/MacOS/claudeqd", "/Applications/ClaudeQ.app"},
-		{"/usr/local/bin/claudeqd", ""},
-		{"/x/Contents/MacOS/claudeqd", ""},
-		{"/x/ClaudeQ.app/MacOS/claudeqd", ""},
+		{"/Applications/DispatchQ.app/Contents/MacOS/dispatchqd", "/Applications/DispatchQ.app"},
+		{"/usr/local/bin/dispatchqd", ""},
+		{"/x/Contents/MacOS/dispatchqd", ""},
+		{"/x/DispatchQ.app/MacOS/dispatchqd", ""},
 		{"", ""},
 	}
 	for _, tc := range tests {
@@ -87,13 +87,13 @@ func TestInstalledAppPrefersNewestBundle(t *testing.T) {
 	newDir := t.TempDir()
 	newApp := writeBundle(t, newDir, "0.8.1")
 
-	got := installedApp(filepath.Join(oldApp, "Contents", "MacOS", "claudeqd"), newApp)
+	got := installedApp(filepath.Join(oldApp, "Contents", "MacOS", "dispatchqd"), newApp)
 	if got == nil || got.Version != "0.8.1" || got.Path != newApp {
 		t.Fatalf("installedApp = %+v, want 0.8.1 at %s", got, newApp)
 	}
 
 	// The daemon's own bundle wins when it is the newer one.
-	got = installedApp(filepath.Join(newApp, "Contents", "MacOS", "claudeqd"), oldApp)
+	got = installedApp(filepath.Join(newApp, "Contents", "MacOS", "dispatchqd"), oldApp)
 	if got == nil || got.Version != "0.8.1" || got.Path != newApp {
 		t.Fatalf("installedApp = %+v, want 0.8.1 at %s", got, newApp)
 	}
@@ -101,12 +101,12 @@ func TestInstalledAppPrefersNewestBundle(t *testing.T) {
 
 func TestInstalledAppNoRealVersion(t *testing.T) {
 	dir := t.TempDir()
-	if got := installedApp(filepath.Join(dir, "claudeqd"), filepath.Join(dir, "Missing.app")); got != nil {
+	if got := installedApp(filepath.Join(dir, "dispatchqd"), filepath.Join(dir, "Missing.app")); got != nil {
 		t.Fatalf("installedApp = %+v, want nil", got)
 	}
 	// A dev build's bundle carries no comparable version either.
 	app := writeBundle(t, t.TempDir(), "dev")
-	if got := installedApp(filepath.Join(app, "Contents", "MacOS", "claudeqd"), app); got != nil {
+	if got := installedApp(filepath.Join(app, "Contents", "MacOS", "dispatchqd"), app); got != nil {
 		t.Fatalf("installedApp = %+v, want nil for a dev bundle", got)
 	}
 }

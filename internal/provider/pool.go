@@ -15,7 +15,7 @@ import (
 // ErrUnknownPool means a selection names a pool nothing is configured under.
 var ErrUnknownPool = errors.New("unknown pool")
 
-// ErrInvalidPool is the base error for a pool configuration claudeq refuses to
+// ErrInvalidPool is the base error for a pool configuration dispatchq refuses to
 // store.
 var ErrInvalidPool = errors.New("invalid pool")
 
@@ -140,7 +140,7 @@ type RankInputs struct {
 	Usable func(inst Instance) (bool, string)
 }
 
-// DisplayInputs is how the Dashboard and `claudeq pool show` rank a pool:
+// DisplayInputs is how the Dashboard and `dispatchq pool show` rank a pool:
 // from the readings and readiness verdicts they have, and the rate-limit gates
 // where the caller knows them (limited may be nil). It is one definition, so
 // both show the same order the scheduler would take.

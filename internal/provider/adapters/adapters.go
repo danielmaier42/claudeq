@@ -1,4 +1,4 @@
-// Package adapters wires the provider adapters claudeq ships with into one
+// Package adapters wires the provider adapters dispatchq ships with into one
 // registry. Every entry point that runs jobs — the daemon and the CLI's
 // `run-now` — builds its executor from this, so a new harness is registered in
 // exactly one place and no entry point can be left behind.

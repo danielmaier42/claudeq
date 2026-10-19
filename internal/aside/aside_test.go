@@ -73,7 +73,7 @@ func newRunner(t *testing.T, a *stubAdapter, out string, execErr error) (*Runner
 }
 
 // TestAskIssuesASessionID: a caller that has no conversation yet gets one, so
-// the harness is never asked to invent a name claudeq then cannot match.
+// the harness is never asked to invent a name dispatchq then cannot match.
 func TestAskIssuesASessionID(t *testing.T) {
 	a := &stubAdapter{caps: provider.Capabilities{Asides: true}, binary: "/bin/stub"}
 	r, inst := newRunner(t, a, "answer", nil)
@@ -198,7 +198,7 @@ func TestAskRunsOutsideAnyProject(t *testing.T) {
 	if dirs[0] == "" || dirs[0] != dirs[1] {
 		t.Fatalf("dirs = %q, want one stable directory", dirs)
 	}
-	// It is claudeq's own directory, under the user's temporary one — not the
+	// It is dispatchq's own directory, under the user's temporary one — not the
 	// process's cwd, and not anything an operator keeps a project in.
 	if !strings.HasPrefix(dirs[0], os.TempDir()) {
 		t.Fatalf("asides run in %q, want a throwaway directory under %q", dirs[0], os.TempDir())

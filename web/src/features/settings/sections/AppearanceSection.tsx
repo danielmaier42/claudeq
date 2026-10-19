@@ -21,7 +21,7 @@ export function AppearanceSection() {
     <>
       <Section
         title="Appearance"
-        description="Follow macOS, or keep ClaudeQ light or dark whatever the Mac is doing"
+        description="Follow macOS, or keep DispatchQ light or dark whatever the Mac is doing"
         actions={<SaveMode mode="instant" />}
       >
         <RowGroup className="p-4">

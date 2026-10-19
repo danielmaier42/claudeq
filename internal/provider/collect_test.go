@@ -146,7 +146,7 @@ func TestCollectorClassifiesEveryOutcome(t *testing.T) {
 func TestCollectorKeepsTheAssignedSessionUntilTheHarnessReportsOne(t *testing.T) {
 	c := NewCollector("assigned-sid", "Fake Provider")
 	if got := c.SessionID(); got != "assigned-sid" {
-		t.Fatalf("session = %q, want the id claudeq assigned", got)
+		t.Fatalf("session = %q, want the id dispatchq assigned", got)
 	}
 	c.Add(Event{Type: EventSessionStarted, SessionID: "real-sid"})
 	if got := c.SessionID(); got != "real-sid" {

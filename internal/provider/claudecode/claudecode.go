@@ -1,7 +1,7 @@
 // Package claudecode is the provider adapter for the Claude Code CLI. It owns
-// everything claudeq knows about that particular harness: its command-line
+// everything dispatchq knows about that particular harness: its command-line
 // flags, how a session is started and resumed, how its configuration directory
-// is selected, and how its stream-json output maps onto claudeq's normalized
+// is selected, and how its stream-json output maps onto dispatchq's normalized
 // run events. Nothing outside this package needs to know any of it.
 package claudecode
 
@@ -60,7 +60,7 @@ func (a *Adapter) Describe() provider.Description {
 
 // Capabilities implements provider.Adapter. Claude Code has no flag that
 // enforces a read-only or workspace-only sandbox, so those modes are not
-// claimed: claudeq must not promise a restriction the harness cannot deliver.
+// claimed: dispatchq must not promise a restriction the harness cannot deliver.
 func (a *Adapter) Capabilities() provider.Capabilities {
 	return provider.Capabilities{
 		SessionResume:     true,
@@ -84,7 +84,7 @@ func (a *Adapter) Capabilities() provider.Capabilities {
 // launchd PATH forces a login-shell probe (see detect.go) that sources the
 // user's profile, which is far too expensive — and too unpredictable — to run
 // before a job, so the answer is kept even when it found nothing. That is how
-// claudeq has always resolved the binary: once, at daemon startup. An operator
+// dispatchq has always resolved the binary: once, at daemon startup. An operator
 // who installs the CLI afterwards points Settings at it, which skips detection
 // altogether.
 func (a *Adapter) DetectBinary() string {
@@ -123,7 +123,7 @@ func (a *Adapter) Command(inst provider.Instance, req provider.Request) (provide
 	} else {
 		args = append(args, "--session-id", req.SessionID)
 	}
-	// Claude Code accepts --append-system-prompt once, so claudeq's guidance
+	// Claude Code accepts --append-system-prompt once, so dispatchq's guidance
 	// arrives as a single value that adds to — never replaces — the CLI's own
 	// system prompt.
 	args = append(args, "--append-system-prompt", req.SystemPrompt)
@@ -183,7 +183,7 @@ const OrgBlockedRetryAfter = time.Hour
 const orgBlockedDetail = "this organisation has disabled Claude subscription access for Claude Code; " +
 	"the provider is paused like a rate limit until an admin enables it"
 
-// streamEvent covers the fields claudeq reads from the CLI's stream-json lines:
+// streamEvent covers the fields dispatchq reads from the CLI's stream-json lines:
 // the final `result` envelope, intermediate `api_retry` system events, and
 // `rate_limit_event`. Unknown fields are ignored.
 type streamEvent struct {

@@ -20,7 +20,7 @@ export function FeedbackIntro({
       </div>
       <h2 className="text-[15px] font-semibold">What would you like to report?</h2>
       <p className="mt-1 max-w-md text-[13px] text-muted-foreground">
-        Something that does not work, or something ClaudeQ should be able to do. Claude turns it into a GitHub
+        Something that does not work, or something DispatchQ should be able to do. Claude turns it into a GitHub
         issue for <span className="font-mono text-[12px]">{repo || 'GitHub'}</span>
         {questions > 0 && (
           <>

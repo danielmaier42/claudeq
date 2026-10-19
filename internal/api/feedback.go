@@ -115,7 +115,7 @@ func (s *server) feedbackURL(w http.ResponseWriter, r *http.Request) {
 func envFooter(app, osv string) string {
 	var parts []string
 	if app = oneLine(app, 60); app != "" {
-		parts = append(parts, "ClaudeQ "+app)
+		parts = append(parts, "DispatchQ "+app)
 	}
 	if osv = oneLine(osv, 60); osv != "" {
 		parts = append(parts, "macOS "+osv)

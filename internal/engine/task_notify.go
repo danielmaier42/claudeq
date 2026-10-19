@@ -23,7 +23,7 @@ const (
 const taskNotifyMaxAge = 24 * time.Hour
 
 // deliverTaskNotifications sends every notification a task queued with
-// `claudeq notify` since the last pass. The CLI cannot deliver itself: the
+// `dispatchq notify` since the last pass. The CLI cannot deliver itself: the
 // daemon owns the channels (and the Pushover credentials), and a macOS
 // notification must come from the process the operator authorized.
 //
@@ -45,7 +45,7 @@ func (e *Engine) deliverTaskNotifications() {
 		defer e.wg.Done()
 		for _, n := range pending {
 			if age := now.Sub(n.QueuedAt); age > taskNotifyMaxAge {
-				fmt.Fprintf(os.Stderr, "claudeqd: dropped stale notification %q (queued %s ago)\n",
+				fmt.Fprintf(os.Stderr, "dispatchqd: dropped stale notification %q (queued %s ago)\n",
 					n.Title, age.Round(time.Minute))
 				continue
 			}
@@ -68,7 +68,7 @@ func taskNotification(n store.Notification) notify.Notification {
 	}
 	link := n.URL
 	if link != "" && !notify.IsWebURL(link) {
-		fmt.Fprintf(os.Stderr, "claudeqd: notification %q: ignoring link %q (not an http(s) URL)\n", n.Title, link)
+		fmt.Fprintf(os.Stderr, "dispatchqd: notification %q: ignoring link %q (not an http(s) URL)\n", n.Title, link)
 		link = ""
 	}
 	return notify.Notification{

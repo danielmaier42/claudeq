@@ -66,7 +66,7 @@ func TestLockDaemonAfterReleaseAndWait(t *testing.T) {
 }
 
 // The daemon holds its claim for its whole life, so it must not be the lock the
-// CLI takes for a config or state update — that would wedge every claudeq
+// CLI takes for a config or state update — that would wedge every dispatchq
 // command while the daemon runs.
 func TestLockDaemonLeavesWritesAlone(t *testing.T) {
 	st := openTempStore(t)

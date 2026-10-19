@@ -33,7 +33,7 @@ type DayBucket struct {
 // nobody has: it is the split that tells you which account the month went on.
 type ProviderBucket struct {
 	// ID is the provider instance as the runs recorded it. Empty groups the runs
-	// from before claudeq wrote one down.
+	// from before dispatchq wrote one down.
 	ID string `json:"id"`
 	// Name is what that provider was called when the runs happened. A provider
 	// renamed since keeps the name its history was written under, because that

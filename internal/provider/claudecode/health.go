@@ -23,7 +23,7 @@ func (a *Adapter) ResolveBinary(inst provider.Instance) string {
 	return a.DetectBinary()
 }
 
-// authStatus is the part of `claude auth status --json` claudeq reads. The
+// authStatus is the part of `claude auth status --json` dispatchq reads. The
 // command also reports the account's email and organisation; those are
 // deliberately not parsed, so they cannot end up in a log or an API response.
 type authStatus struct {
@@ -59,7 +59,7 @@ func (a *Adapter) CheckHealth(ctx context.Context, inst provider.Instance, p pro
 	// a failed check, not a missing install: CLI start-up misses the deadline on
 	// a busy machine. Reporting that as "not installed" would be a verdict —
 	// KnownUnready, so follow-up tasks are not even filed for the provider —
-	// where claudeq in fact knows nothing yet.
+	// where dispatchq in fact knows nothing yet.
 	version, err := p.Probe(ctx, a.probeCommand(inst, bin, "--version"))
 	if err != nil {
 		return provider.Health{
@@ -77,7 +77,7 @@ func (a *Adapter) CheckHealth(ctx context.Context, inst provider.Instance, p pro
 	out, probeErr := p.Probe(ctx, a.probeCommand(inst, bin, "auth", "status", "--json"))
 	var st authStatus
 	if err := decodeStatus(out, &st); err != nil {
-		reason := "Claude Code reported its login status in a format claudeq does not understand."
+		reason := "Claude Code reported its login status in a format dispatchq does not understand."
 		if probeErr != nil {
 			reason = fmt.Sprintf("Claude Code at %s could not report its login status (%s).", bin, redact(probeErr.Error()))
 		}
@@ -187,7 +187,7 @@ func redact(s string) string {
 	return line
 }
 
-// aliasPref are the model tiers claudeq knows Claude Code accepts, in the order
+// aliasPref are the model tiers dispatchq knows Claude Code accepts, in the order
 // it offers them. Every one is always selectable: the CLI's `--model` help text
 // names only a couple as examples, so it cannot be read as the full set.
 var aliasPref = []string{"opus", "sonnet", "haiku", "fable"}

@@ -1,37 +1,47 @@
 #!/bin/sh
-# postinstall of "Uninstall ClaudeQ", the optional "Tasks, history and settings"
-# part (Customize in the installer): delete everything ClaudeQ stored for the
+# postinstall of "Uninstall DispatchQ", the optional "Tasks, history and settings"
+# part (Customize in the installer): delete everything DispatchQ stored for the
 # logged-in user. It runs after the main part, so no daemon is left to write
 # the data back.
 #
 # Only the default data directory is deleted: the installer cannot see a
-# CLAUDEQ_HOME set in the user's shell.
+# DISPATCHQ_HOME set in the user's shell.
 set -u
 
 . "$(dirname "$0")/common.sh"
 
 if [ -z "$homeDir" ]; then
-	echo "claudeq: no console user; nothing to delete"
+	echo "dispatchq: no console user; nothing to delete"
 	exit 0
 fi
 
-for item in \
-	"Application Support/claudeq" \
-	"Caches/$LABEL" \
-	"HTTPStorages/$LABEL" \
-	"HTTPStorages/$LABEL.binarycookies" \
-	"WebKit/$LABEL" \
-	"Saved Application State/$LABEL.savedState"; do
+# "Application Support/claudeq" is the link the move to DispatchQ left behind,
+# or the data of a ClaudeQ that never ran as DispatchQ.
+for label in "$LABEL" "$LEGACY_LABEL"; do
+	for item in \
+		"Caches/$label" \
+		"HTTPStorages/$label" \
+		"HTTPStorages/$label.binarycookies" \
+		"WebKit/$label" \
+		"Saved Application State/$label.savedState"; do
+		path="$homeDir/Library/$item"
+		if [ -e "$path" ]; then
+			rm -rf "$path"
+			echo "dispatchq: removed $path"
+		fi
+	done
+
+	# Through cfprefsd, which would otherwise keep serving the deleted preferences
+	# from its cache; then the file, in case cfprefsd did not know the domain.
+	as_user defaults delete "$label" >/dev/null 2>&1 || true
+	rm -f "$homeDir/Library/Preferences/$label.plist"
+done
+for item in "Application Support/dispatchq" "Application Support/claudeq"; do
 	path="$homeDir/Library/$item"
-	if [ -e "$path" ]; then
+	if [ -e "$path" ] || [ -L "$path" ]; then
 		rm -rf "$path"
-		echo "claudeq: removed $path"
+		echo "dispatchq: removed $path"
 	fi
 done
-
-# Through cfprefsd, which would otherwise keep serving the deleted preferences
-# from its cache; then the file, in case cfprefsd did not know the domain.
-as_user defaults delete "$LABEL" >/dev/null 2>&1 || true
-rm -f "$homeDir/Library/Preferences/$LABEL.plist"
 
 exit 0

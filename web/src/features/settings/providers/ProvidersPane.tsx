@@ -36,7 +36,7 @@ export function ProvidersPane() {
 
   return (
     <Section
-      description="The CLIs ClaudeQ runs tasks with. Each one is checked by the daemon itself, without spending usage."
+      description="The CLIs DispatchQ runs tasks with. Each one is checked by the daemon itself, without spending usage."
       actions={add}
     >
       {providers.isPending ? (
@@ -61,7 +61,7 @@ export function ProvidersPane() {
         <EmptyState
           icon={<Server />}
           title="No providers"
-          description="Add the CLI ClaudeQ should run tasks with."
+          description="Add the CLI DispatchQ should run tasks with."
           action={add}
         />
       ) : (

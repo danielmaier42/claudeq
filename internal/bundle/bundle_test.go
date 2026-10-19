@@ -104,7 +104,7 @@ func TestWriteLayout(t *testing.T) {
 	if err := json.Unmarshal(meta, &raw); err != nil {
 		t.Fatalf("task.json is not JSON: %v", err)
 	}
-	if string(raw["format"]) != `"claudeq-task"` || string(raw["format_version"]) != "1" {
+	if string(raw["format"]) != `"dispatchq-task"` || string(raw["format_version"]) != "1" {
 		t.Errorf("envelope = %s", meta)
 	}
 	if string(raw["exported_at"]) != `"2026-09-07T10:30:00Z"` {
@@ -252,10 +252,10 @@ func TestEnsureExt(t *testing.T) {
 		in, want string
 		appended bool
 	}{
-		{"x.claudeq", "x.claudeq", false},
-		{"X.CLAUDEQ", "X.CLAUDEQ", false},
-		{"x", "x.claudeq", true},
-		{"x.zip", "x.zip.claudeq", true},
+		{"x.dispatchq", "x.dispatchq", false},
+		{"X.DISPATCHQ", "X.DISPATCHQ", false},
+		{"x", "x.dispatchq", true},
+		{"x.zip", "x.zip.dispatchq", true},
 	}
 	for _, c := range cases {
 		if got, appended := EnsureExt(c.in); got != c.want || appended != c.appended {
@@ -266,7 +266,7 @@ func TestEnsureExt(t *testing.T) {
 
 func TestSaveAndLoad(t *testing.T) {
 	dir := t.TempDir()
-	p := filepath.Join(dir, "t.claudeq")
+	p := filepath.Join(dir, "t.dispatchq")
 	var buf bytes.Buffer
 	if err := Write(&buf, fullTask(), ProviderHint{}, time.Now()); err != nil {
 		t.Fatal(err)
@@ -288,10 +288,10 @@ func TestSaveAndLoad(t *testing.T) {
 		t.Errorf("Save with overwrite: %v", err)
 	}
 
-	if _, _, err := Load(filepath.Join(dir, "missing.claudeq")); err == nil {
+	if _, _, err := Load(filepath.Join(dir, "missing.dispatchq")); err == nil {
 		t.Error("Load of a missing file succeeded")
 	}
-	huge := filepath.Join(dir, "huge.claudeq")
+	huge := filepath.Join(dir, "huge.dispatchq")
 	if err := os.WriteFile(huge, make([]byte, MaxSize+1), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +301,7 @@ func TestSaveAndLoad(t *testing.T) {
 }
 
 func TestFileName(t *testing.T) {
-	cases := map[string]string{"nightly": "nightly.claudeq", "": "task.claudeq", "a/b:c": "a-b-c.claudeq", "  ": "task.claudeq"}
+	cases := map[string]string{"nightly": "nightly.dispatchq", "": "task.dispatchq", "a/b:c": "a-b-c.dispatchq", "  ": "task.dispatchq"}
 	for id, want := range cases {
 		if got := FileName(task.Task{ID: id}); got != want {
 			t.Errorf("FileName(%q) = %q, want %q", id, got, want)
@@ -327,5 +327,19 @@ func TestBundleDoesNotCarryAMachineLocalProvider(t *testing.T) {
 	}
 	if got.Provider != "" {
 		t.Fatalf("provider = %q, want the importer's default", got.Provider)
+	}
+}
+
+func TestReadAcceptsAClaudeQFile(t *testing.T) {
+	data := build(t, map[string]string{
+		settingsName: settingsJSON(t, func(m map[string]any) { m["format"] = LegacyFormat }),
+		promptName:   "from ClaudeQ",
+	})
+	got, _, err := Read(data)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got.Prompt != "from ClaudeQ" {
+		t.Errorf("got %+v", got)
 	}
 }

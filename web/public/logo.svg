@@ -1,7 +1,7 @@
-<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="claudeq">
-  <title>claudeq</title>
-  <rect x="0" y="0" width="512" height="512" rx="114" fill="#d97757"/>
-  <rect x="96" y="123" width="320" height="75" rx="37.5" fill="#ffffff"/>
-  <rect x="149" y="219" width="299" height="75" rx="37.5" fill="#ffffff" fill-opacity="0.6"/>
-  <rect x="85" y="315" width="245" height="75" rx="37.5" fill="#ffffff" fill-opacity="0.32"/>
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="DispatchQ">
+  <title>DispatchQ</title>
+  <rect x="0" y="0" width="512" height="512" rx="114" fill="#ffffff"/>
+  <rect x="96" y="123" width="320" height="75" rx="37.5" fill="#7C3AED"/>
+  <rect x="149" y="219" width="299" height="75" rx="37.5" fill="#7C3AED" fill-opacity="0.6"/>
+  <rect x="85" y="315" width="245" height="75" rx="37.5" fill="#7C3AED" fill-opacity="0.32"/>
 </svg>

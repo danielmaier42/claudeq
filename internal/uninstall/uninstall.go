@@ -1,5 +1,5 @@
-// Package uninstall finds and starts ClaudeQ's uninstaller, "Uninstall
-// ClaudeQ.pkg", which ships inside the app bundle (scripts/build-uninstall-pkg.sh).
+// Package uninstall finds and starts DispatchQ's uninstaller, "Uninstall
+// DispatchQ.pkg", which ships inside the app bundle (scripts/build-uninstall-pkg.sh).
 // The package does the removal itself, as root, behind the macOS Installer's
 // own password prompt (NFA-06).
 package uninstall
@@ -16,14 +16,14 @@ import (
 )
 
 // PkgName is the uninstaller's file name in the bundle's Contents/Resources.
-const PkgName = "Uninstall ClaudeQ.pkg"
+const PkgName = "Uninstall DispatchQ.pkg"
 
 // DataChoice is the package's optional choice that deletes tasks, history and
 // settings too ("Customize" in the Installer).
 const DataChoice = "data"
 
 // Locate returns the uninstaller of the app bundle exe belongs to, or else of
-// /Applications/ClaudeQ.app.
+// /Applications/DispatchQ.app.
 func Locate(exe string) (string, error) {
 	return locate(exe, update.DefaultAppPath)
 }
@@ -49,7 +49,7 @@ func locate(exe, defaultApp string) (string, error) {
 // folder, so asking twice opens the one Installer window again instead of a
 // second one, and leaves no pile of copies behind.
 func Stage(pkg string) (string, error) {
-	dir := filepath.Join(os.TempDir(), "claudeq-uninstall")
+	dir := filepath.Join(os.TempDir(), "dispatchq-uninstall")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("create staging folder: %w", err)
 	}

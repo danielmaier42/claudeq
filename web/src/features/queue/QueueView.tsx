@@ -46,7 +46,7 @@ export function QueueView() {
       subtitle={tasks && subtitle(tasks)}
       actions={
         <>
-          <Tooltip content="Add a task from a .claudeq file">
+          <Tooltip content="Add a task from a .dispatchq file">
             <Button variant="secondary" onClick={pickAndImportTask}>
               <FileUp /> Import…
             </Button>

@@ -134,7 +134,7 @@ func TestServiceDownloadWritesFileAndOpens(t *testing.T) {
 
 	dir := t.TempDir()
 	var opened string
-	f := &fakeFetcher{rels: []Release{{Version: "0.3.0", PkgURL: srv.URL + "/claudeq-0.3.0.pkg", PkgName: "claudeq-0.3.0.pkg"}}}
+	f := &fakeFetcher{rels: []Release{{Version: "0.3.0", PkgURL: srv.URL + "/dispatchq-0.3.0.pkg", PkgName: "dispatchq-0.3.0.pkg"}}}
 	s := NewService(f, time.Hour,
 		WithDownloadDir(dir),
 		WithHTTPClient(srv.Client()),
@@ -148,7 +148,7 @@ func TestServiceDownloadWritesFileAndOpens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Download: %v", err)
 	}
-	want := filepath.Join(dir, "claudeq-0.3.0.pkg")
+	want := filepath.Join(dir, "dispatchq-0.3.0.pkg")
 	if path != want {
 		t.Errorf("path = %q, want %q", path, want)
 	}

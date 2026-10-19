@@ -11,22 +11,22 @@ import (
 	"github.com/danielmaier42/claudeq/internal/provider"
 )
 
-// providerView is one configured instance plus what claudeq currently knows
+// providerView is one configured instance plus what dispatchq currently knows
 // about it: whether it can run a job, and whether it is the default. It carries
 // no credentials — the provider CLIs own those, and a readiness check never
-// reads them into claudeq.
+// reads them into dispatchq.
 type providerView struct {
 	provider.Instance
 	Health  provider.Health `json:"health"`
 	Default bool            `json:"default"`
-	// Detected is the binary claudeq would use when no path is configured, so
+	// Detected is the binary dispatchq would use when no path is configured, so
 	// the Settings card can offer it instead of asking the operator to find it.
 	Detected string `json:"detected,omitempty"`
 	// ReasoningEffort reports whether this harness takes a reasoning-effort
 	// setting, so the task form can offer the field where it means something
 	// instead of the app having to know which kinds those are.
 	ReasoningEffort bool `json:"reasoning_effort"`
-	// Asides reports whether this harness can answer claudeq's own questions —
+	// Asides reports whether this harness can answer dispatchq's own questions —
 	// prompt review, the feedback assistant — so Settings offers it for those
 	// jobs only where it would work.
 	Asides bool `json:"asides"`
@@ -145,7 +145,7 @@ type providerInput struct {
 	// allowance is used up. An empty string clears it.
 	FallbackProvider string `json:"fallback_provider"`
 	// FallbackModel is the model those substituted runs use. Empty leaves the
-	// choice to claudeq.
+	// choice to dispatchq.
 	FallbackModel string `json:"fallback_model"`
 	Enabled       *bool  `json:"enabled"`
 }

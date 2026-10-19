@@ -1,5 +1,5 @@
 // Package engine ties the store, scheduler, limit gate, and executor into the
-// claudeq run loop: on each tick it starts every task that is due and permitted
+// dispatchq run loop: on each tick it starts every task that is due and permitted
 // by priority/concurrency/limit rules, and records outcomes (PLAN.md §5.2/§7).
 package engine
 
@@ -344,7 +344,7 @@ func (e *Engine) Tick(ctx context.Context) error {
 func (e *Engine) holdAll(cfg store.Config, reason string) {
 	due, err := e.allDue(cfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "claudeqd: work out which tasks wait: %v\n", err)
+		fmt.Fprintf(os.Stderr, "dispatchqd: work out which tasks wait: %v\n", err)
 		return
 	}
 	held := make(map[string]string, len(due))
@@ -422,7 +422,7 @@ func (e *Engine) assign(ctx context.Context, set provider.Set, due []task.Task, 
 	// pass. Without it a pool would pick by rank and drop the session.
 	st, stErr := e.store.LoadState()
 	if stErr != nil {
-		fmt.Fprintf(os.Stderr, "claudeqd: load state for pool assignment: %v; pool tasks wait for the next tick\n", stErr)
+		fmt.Fprintf(os.Stderr, "dispatchqd: load state for pool assignment: %v; pool tasks wait for the next tick\n", stErr)
 	}
 	// Runs planned onto a provider in this pass count as running on it, so two
 	// pool tasks due in the same tick do not both pick the same account, and a
@@ -545,7 +545,7 @@ func inheritedProvider(res provider.Resolved) string {
 	return res.Instance.ID
 }
 
-// runNotes are the remarks claudeq writes into a run's own log before the
+// runNotes are the remarks dispatchq writes into a run's own log before the
 // harness says anything: that the run went to a fallback provider, and that a
 // waiting session had to be abandoned. They go where whoever reads the run will
 // look for them.
@@ -636,7 +636,7 @@ type providerHealth map[string]provider.Health
 // it waits for the next tick, which will know.
 //
 // A provider that cannot run is never answered by moving its tasks elsewhere —
-// the one substitution claudeq makes is the rate-limit fallback, which happened
+// the one substitution dispatchq makes is the rate-limit fallback, which happened
 // before the probe. The scheduler leaves the rest queued; a manual run reports
 // the reason to whoever asked for it.
 func (h providerHealth) ready(res provider.Resolved) bool {
@@ -754,7 +754,7 @@ func (e *Engine) noteProviderHealth(st *store.State, inst provider.Instance, h p
 		s.SetNotifiedProviderState(inst.ID, current)
 		return nil
 	}); err != nil {
-		fmt.Fprintf(os.Stderr, "claudeqd: record provider health for %q: %v\n", inst.ID, err)
+		fmt.Fprintf(os.Stderr, "dispatchqd: record provider health for %q: %v\n", inst.ID, err)
 	}
 	if e.notifier == nil {
 		return
@@ -765,10 +765,10 @@ func (e *Engine) noteProviderHealth(st *store.State, inst provider.Instance, h p
 		// First look at a working provider: nothing happened worth announcing.
 		return
 	case h.Ready():
-		n.Title = "ClaudeQ: " + inst.Label() + " is ready again"
+		n.Title = "DispatchQ: " + inst.Label() + " is ready again"
 		n.Message = "Tasks waiting for this provider will start on the next check."
 	default:
-		n.Title = "ClaudeQ: " + inst.Label() + " cannot run tasks"
+		n.Title = "DispatchQ: " + inst.Label() + " cannot run tasks"
 		n.Message = h.ReasonOr("The provider is not ready.") + "\nTasks for it stay queued until it works again."
 	}
 	// Off the scheduler goroutine: a channel that takes its time must not delay
@@ -846,7 +846,7 @@ func (e *Engine) launchTask(t task.Task, settings store.Settings, resolved provi
 		}
 	}
 
-	// What claudeq itself has to say about this run — a fallback provider, a
+	// What dispatchq itself has to say about this run — a fallback provider, a
 	// session that could not be continued — goes into the run's own log, through
 	// the same handle the executor writes to, so it cannot collide with the
 	// harness's first line.
@@ -1112,7 +1112,7 @@ func (e *Engine) logStatus(rec store.Run) {
 		reason = string(rec.Status)
 	}
 	line, err := json.Marshal(map[string]string{
-		"type": "claudeq_status", "status": string(rec.Status), "message": reason,
+		"type": "dispatchq_status", "status": string(rec.Status), "message": reason,
 	})
 	if err != nil {
 		return
@@ -1120,10 +1120,10 @@ func (e *Engine) logStatus(rec store.Run) {
 	_ = e.store.AppendRunLog(rec.RunID, append(line, '\n'))
 }
 
-// writeNote records a claudeq remark in a run's log, so something the operator
+// writeNote records a dispatchq remark in a run's log, so something the operator
 // needs to know about the run is where they read the run.
 func writeNote(log io.Writer, message string) {
-	line, err := json.Marshal(map[string]string{"type": "claudeq_status", "status": "note", "message": message})
+	line, err := json.Marshal(map[string]string{"type": "dispatchq_status", "status": "note", "message": message})
 	if err != nil {
 		return
 	}
@@ -1267,7 +1267,7 @@ func (e *Engine) finish(t task.Task, providerID string, rec store.Run, res provi
 		// A quiet task's routine tick leaves no trace: the run was never
 		// recorded (see launchTask), and its log goes too.
 		if err := os.Remove(rec.LogPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			fmt.Fprintf(os.Stderr, "claudeqd: remove log of quiet run %s: %v\n", rec.RunID, err)
+			fmt.Fprintf(os.Stderr, "dispatchqd: remove log of quiet run %s: %v\n", rec.RunID, err)
 		}
 	} else {
 		_ = e.store.AppendRun(rec)
@@ -1345,14 +1345,14 @@ func (e *Engine) notifyOutcome(t task.Task, rec store.Run, resultText string) {
 			return
 		}
 		n.Kind = store.InboxKindSuccess
-		n.Title = "ClaudeQ ✓ " + rec.TaskName
+		n.Title = "DispatchQ ✓ " + rec.TaskName
 		n.Message = msg
 		if n.Message == "" {
 			n.Message = "Completed successfully."
 		}
 	case store.StatusFailed:
 		n.Kind = store.InboxKindFailure
-		n.Title = "ClaudeQ ✗ " + rec.TaskName + " failed"
+		n.Title = "DispatchQ ✗ " + rec.TaskName + " failed"
 		if t.NotifyOnResult && msg != "" {
 			n.Message = msg
 		} else if rec.Error != "" {
@@ -1362,7 +1362,7 @@ func (e *Engine) notifyOutcome(t task.Task, rec store.Run, resultText string) {
 		}
 	case store.StatusAuthError:
 		n.Kind = store.InboxKindFailure
-		n.Title = "ClaudeQ: login problem"
+		n.Title = "DispatchQ: login problem"
 		n.Message = rec.TaskName + ": Claude Code authentication problem — please re-login."
 	default:
 		return
@@ -1384,13 +1384,13 @@ func (e *Engine) send(n notify.Notification) {
 	now := e.clock.Now()
 	n.ID = "i-" + now.UTC().Format("20060102T150405") + "-" + shortHex(3)
 	if err := e.store.AddInboxEntry(inboxEntry(n, now)); err != nil {
-		fmt.Fprintf(os.Stderr, "claudeqd: notification %q not recorded: %v\n", n.Title, err)
+		fmt.Fprintf(os.Stderr, "dispatchqd: notification %q not recorded: %v\n", n.Title, err)
 		n.ID = "" // nothing to mark read; a click falls back to the target alone
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := e.notifier.Notify(ctx, n); err != nil {
-		fmt.Fprintf(os.Stderr, "claudeqd: notification %q not delivered: %v\n", n.Title, err)
+		fmt.Fprintf(os.Stderr, "dispatchqd: notification %q not delivered: %v\n", n.Title, err)
 	}
 }
 
@@ -1419,7 +1419,7 @@ func noteErr(last *string, what string, err error) {
 		return
 	}
 	if msg := err.Error(); msg != *last {
-		fmt.Fprintln(os.Stderr, "claudeqd: "+what+":", err)
+		fmt.Fprintln(os.Stderr, "dispatchqd: "+what+":", err)
 		*last = msg
 	}
 }
@@ -1457,10 +1457,10 @@ func (e *Engine) Loop(ctx context.Context, interval time.Duration) error {
 			e.WaitIdle()
 			return err
 		}
-		// Artifacts are published by the task's own claudeq CLI call, so the
+		// Artifacts are published by the task's own dispatchq CLI call, so the
 		// daemon learns about them by re-reading the list each tick.
 		e.notifyNewArtifacts()
-		// Same for notifications a task queued with `claudeq notify`.
+		// Same for notifications a task queued with `dispatchq notify`.
 		e.deliverTaskNotifications()
 		if e.waker != nil {
 			// Wake scheduling is best-effort (needs root); never fatal. Log a
@@ -1472,7 +1472,7 @@ func (e *Engine) Loop(ctx context.Context, interval time.Duration) error {
 			case err != nil:
 				msg := err.Error()
 				if msg != e.lastWakeErr {
-					fmt.Fprintln(os.Stderr, "claudeqd: wake scheduling failed:", err)
+					fmt.Fprintln(os.Stderr, "dispatchqd: wake scheduling failed:", err)
 					e.lastWakeErr = msg
 				}
 				e.wakeErr.Store(&msg)
@@ -1633,7 +1633,7 @@ func (e *Engine) RunTaskNow(ctx context.Context, taskID string) error {
 	return startErr
 }
 
-// accessMode maps a task's permission setting onto claudeq's provider-neutral
+// accessMode maps a task's permission setting onto dispatchq's provider-neutral
 // access intent. The two stored values carry the same authority as before:
 // leave the harness's own prompts in place, or bypass them entirely.
 func accessMode(p task.Permissions) provider.AccessMode {

@@ -27,7 +27,7 @@ func sampleTask() task.Task {
 	}
 }
 
-// claudeInstance is the provider instance every migrated claudeq configuration
+// claudeInstance is the provider instance every migrated dispatchq configuration
 // has, pointed at a binary of the test's choosing.
 func claudeInstance(bin string) provider.Instance {
 	return provider.Instance{
@@ -98,7 +98,7 @@ func TestBuiltinSystemPromptFramesTheHeadlessRun(t *testing.T) {
 	}
 	// It points at the self-queue block for the "stop and continue later" route,
 	// which therefore has to follow it rather than precede it.
-	if strings.Index(builtinSystemPrompt, "queue --prompt") < strings.Index(builtinSystemPrompt, "queue a follow-up claudeq task") {
+	if strings.Index(builtinSystemPrompt, "queue --prompt") < strings.Index(builtinSystemPrompt, "queue a follow-up dispatchq task") {
 		t.Fatal("the self-queue instructions must follow the headless framing that refers to them")
 	}
 }
@@ -144,7 +144,7 @@ func TestSystemPromptBlankCustomIsUnchanged(t *testing.T) {
 }
 
 func TestRunEnvCarriesSelfQueueContext(t *testing.T) {
-	e := &Executor{Home: "/data/home", QueueBin: "/opt/claudeq"}
+	e := &Executor{Home: "/data/home", QueueBin: "/opt/dispatchq"}
 	tk := sampleTask()
 	tk.Model = "claude-opus-4-8"
 	tk.Permissions = task.PermissionsSkip
@@ -154,8 +154,8 @@ func TestRunEnvCarriesSelfQueueContext(t *testing.T) {
 	if got[store.EnvHome] != "/data/home" {
 		t.Fatalf("%s = %q, want /data/home", store.EnvHome, got[store.EnvHome])
 	}
-	if got[EnvQueueBin] != "/opt/claudeq" {
-		t.Fatalf("%s = %q, want /opt/claudeq", EnvQueueBin, got[EnvQueueBin])
+	if got[EnvQueueBin] != "/opt/dispatchq" {
+		t.Fatalf("%s = %q, want /opt/dispatchq", EnvQueueBin, got[EnvQueueBin])
 	}
 	var parent task.Task
 	if err := json.Unmarshal([]byte(got[EnvParentTask]), &parent); err != nil {
@@ -226,10 +226,10 @@ func TestRunEnvOmitsUnsetPaths(t *testing.T) {
 	env := e.runEnv(Request{Task: sampleTask()}, nil)
 	joined := strings.Join(env, "\n")
 	if strings.Contains(joined, store.EnvHome+"=") {
-		t.Fatal("CLAUDEQ_HOME must be omitted when Home is unset")
+		t.Fatal("DISPATCHQ_HOME must be omitted when Home is unset")
 	}
 	if strings.Contains(joined, EnvQueueBin+"=") {
-		t.Fatal("CLAUDEQ_BIN must be omitted when QueueBin is unset")
+		t.Fatal("DISPATCHQ_BIN must be omitted when QueueBin is unset")
 	}
 	if !strings.Contains(joined, EnvParentTask+"=") {
 		t.Fatal("the parent task should always be exported")
@@ -355,7 +355,7 @@ func TestRunRejectsAnUnregisteredProviderKind(t *testing.T) {
 }
 
 func TestRunRejectsAnAccessModeTheProviderCannotEnforce(t *testing.T) {
-	// Claude Code has no read-only sandbox flag, so claudeq must refuse the run
+	// Claude Code has no read-only sandbox flag, so dispatchq must refuse the run
 	// rather than start one that silently has more authority than asked for.
 	bin := fakeClaude(t, `{"type":"result","is_error":false,"result":"ok","session_id":"s"}`, 0)
 	e := claudeExecutor()
@@ -600,5 +600,19 @@ func TestRunSubagentLimitDoesNotStopSuccessfulParent(t *testing.T) {
 				t.Fatalf("subagent failure stopped parent: %+v", res)
 			}
 		})
+	}
+}
+
+func TestRunEnvKeepsClaudeQsVariableNames(t *testing.T) {
+	e := &Executor{Home: "/data/home", QueueBin: "/bin/dispatchq"}
+	got := envMap(e.runEnv(Request{Task: sampleTask(), RunID: "r1"}, nil))
+	for _, pair := range [][2]string{
+		{"CLAUDEQ_HOME", "/data/home"},
+		{"CLAUDEQ_BIN", "/bin/dispatchq"},
+		{"CLAUDEQ_RUN_ID", "r1"},
+	} {
+		if got[pair[0]] != pair[1] {
+			t.Errorf("%s = %q, want %q", pair[0], got[pair[0]], pair[1])
+		}
 	}
 }

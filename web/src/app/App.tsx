@@ -6,6 +6,7 @@ import {ArtifactViewer} from '@/features/artifacts/ArtifactViewer'
 import {LogSheet} from '@/features/log/LogSheet'
 import {StatusBanners} from '@/features/status/StatusBanners'
 import {TaskEditor} from '@/features/task-editor/TaskEditor'
+import {WhatsNewDialog} from '@/features/whats-new/WhatsNewDialog'
 import {useSettings} from '@/lib/queries'
 import {pinnedAppearance, useTheme, useThemeEffects, validAccent} from '@/lib/theme'
 import {CommandPalette} from './CommandPalette'
@@ -35,6 +36,7 @@ export function App() {
       <LogSheet />
       <ArtifactViewer />
       <CommandPalette />
+      <WhatsNewDialog />
       <ConfirmHost />
       <Toaster />
     </TooltipProvider>

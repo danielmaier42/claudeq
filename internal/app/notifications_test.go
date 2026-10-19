@@ -44,7 +44,7 @@ func TestValidateNotificationsRejectsIncompleteEnabledChannel(t *testing.T) {
 func TestValidateNotificationsAcceptsCompleteEnabledChannels(t *testing.T) {
 	s := store.Settings{
 		Pushover: store.Pushover{Enabled: true, Token: "tok", UserKey: "usr"},
-		Ntfy:     store.Ntfy{Enabled: true, Topic: "claudeq"},
+		Ntfy:     store.Ntfy{Enabled: true, Topic: "dispatchq"},
 		Webhook:  store.Webhook{Enabled: true, URL: "https://hooks.example.com/x"},
 	}
 	if err := ValidateNotifications(s); err != nil {

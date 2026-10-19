@@ -23,7 +23,7 @@ func TestNtfyPublishesJSONToTheServerRoot(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n := Ntfy{Server: srv.URL, Topic: "claudeq-nightly", Client: srv.Client()}
+	n := Ntfy{Server: srv.URL, Topic: "dispatchq-nightly", Client: srv.Client()}
 	err := n.Notify(context.Background(), Notification{
 		Title: "Task failed", Message: "nightly-sweep: exit 1", URL: "https://example.com/run/7",
 	})
@@ -33,7 +33,7 @@ func TestNtfyPublishesJSONToTheServerRoot(t *testing.T) {
 	if path != "/" {
 		t.Fatalf("published to %q, want the server root", path)
 	}
-	if got.Topic != "claudeq-nightly" || got.Title != "Task failed" || got.Message != "nightly-sweep: exit 1" {
+	if got.Topic != "dispatchq-nightly" || got.Title != "Task failed" || got.Message != "nightly-sweep: exit 1" {
 		t.Fatalf("payload = %+v", got)
 	}
 	if got.Click != "https://example.com/run/7" {
@@ -128,7 +128,7 @@ func TestNtfyEndpoint(t *testing.T) {
 }
 
 func TestValidateNtfy(t *testing.T) {
-	if err := ValidateNtfy("", "claudeq_nightly-1"); err != nil {
+	if err := ValidateNtfy("", "dispatchq_nightly-1"); err != nil {
 		t.Fatalf("a plain topic on the default server is valid: %v", err)
 	}
 	cases := map[string][2]string{

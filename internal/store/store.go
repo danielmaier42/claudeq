@@ -1,4 +1,4 @@
-// Package store persists claudeq configuration, run history, and read-state
+// Package store persists dispatchq configuration, run history, and read-state
 // on disk in human-readable formats (PLAN.md D5/D10):
 //
 //   - config.toml    global settings + the ordered task list (TOML)
@@ -6,8 +6,9 @@
 //   - state.json     read-status and scheduling bookkeeping (JSON)
 //   - runs/<id>.log  per-run output log
 //
-// The data directory is ~/Library/Application Support/claudeq by default and
-// can be overridden with the CLAUDEQ_HOME environment variable.
+// The data directory is ~/Library/Application Support/dispatchq by default and
+// can be overridden with the DISPATCHQ_HOME environment variable. Data written
+// while the app was called ClaudeQ is moved there on first use (see rename.go).
 package store
 
 import (
@@ -28,7 +29,7 @@ import (
 )
 
 // EnvHome is the environment variable that overrides the data directory.
-const EnvHome = "CLAUDEQ_HOME"
+const EnvHome = "DISPATCHQ_HOME"
 
 const (
 	configFile  = "config.toml"
@@ -44,17 +45,32 @@ type Store struct {
 	writeMu sync.Mutex // serializes read-modify-write updates
 }
 
-// DefaultHome resolves the data directory: $CLAUDEQ_HOME if set, otherwise
-// ~/Library/Application Support/claudeq.
+// DefaultHome resolves the data directory: the [HomeOverride] if set, otherwise
+// ~/Library/Application Support/dispatchq. A data directory left behind by
+// ClaudeQ is moved there first, so the first DispatchQ start finds every task.
 func DefaultHome() (string, error) {
-	if h := os.Getenv(EnvHome); h != "" {
+	if h := HomeOverride(); h != "" {
 		return h, nil
 	}
 	base, err := os.UserConfigDir() // ~/Library/Application Support on macOS
 	if err != nil {
 		return "", fmt.Errorf("resolve config dir: %w", err)
 	}
-	return filepath.Join(base, "claudeq"), nil
+	home := filepath.Join(base, homeDirName)
+	if err := migrateLegacyHome(filepath.Join(base, legacyHomeDirName), home); err != nil {
+		return "", err
+	}
+	return home, nil
+}
+
+// HomeOverride is the data directory the environment asks for: $DISPATCHQ_HOME,
+// or $CLAUDEQ_HOME from a shell profile written before the rename. Empty means
+// the default location.
+func HomeOverride() string {
+	if h := os.Getenv(EnvHome); h != "" {
+		return h
+	}
+	return os.Getenv(LegacyEnvHome)
 }
 
 // Open opens (creating if necessary) the data directory at home.
@@ -547,7 +563,7 @@ type PoolMember struct {
 	Weight float64 `toml:"weight,omitempty" json:"weight,omitempty"`
 }
 
-// Identity of the provider instance every claudeq configuration has: the Claude
+// Identity of the provider instance every dispatchq configuration has: the Claude
 // Code CLI, seeded on migration and on a fresh installation (see seedProviders).
 const (
 	// DefaultProviderID is the stable id of that instance — what a task names.
@@ -584,7 +600,7 @@ type Provider struct {
 	// FallbackProvider is the id of the instance that takes over this one's
 	// tasks while its allowance is used up. Empty means the tasks wait instead.
 	FallbackProvider string `toml:"fallback_provider,omitempty" json:"fallback_provider"`
-	// FallbackModel is the model those substituted runs use. Empty lets claudeq
+	// FallbackModel is the model those substituted runs use. Empty lets dispatchq
 	// decide (see provider.ResolveAvailable) and is meaningless without a
 	// FallbackProvider.
 	FallbackModel string `toml:"fallback_model,omitempty" json:"fallback_model"`
@@ -693,7 +709,7 @@ type Settings struct {
 	// instance.
 	Ntfy Ntfy `toml:"ntfy" json:"ntfy"`
 	// Webhook holds the generic JSON webhook channel — the one that covers a
-	// service claudeq does not know about (Slack, Discord, Home Assistant, n8n).
+	// service dispatchq does not know about (Slack, Discord, Home Assistant, n8n).
 	Webhook Webhook `toml:"webhook" json:"webhook"`
 	// LegacyClaudePath is the retired global path to the Claude Code binary. The
 	// `claude` provider instance carries it now; this is only read to migrate
@@ -706,7 +722,7 @@ type Settings struct {
 	// MaxRunHistory caps how many runs are kept; older runs (and their log files)
 	// are pruned. 0 = use the default; negative = keep everything.
 	MaxRunHistory int `toml:"max_run_history" json:"max_run_history"`
-	// SystemPrompt is the operator's custom system prompt, appended to claudeq's
+	// SystemPrompt is the operator's custom system prompt, appended to dispatchq's
 	// built-in one on every run (built-in first, this last). Empty means none.
 	SystemPrompt string `toml:"system_prompt" json:"system_prompt"`
 	// BackfillUrgency is the provider urgency above which backfill tasks run
@@ -737,12 +753,12 @@ type Settings struct {
 	// FeedbackProvider is the provider instance the feedback assistant drafts
 	// its GitHub issue on. Empty means the default provider.
 	FeedbackProvider string `toml:"feedback_provider,omitempty" json:"feedback_provider"`
-	// FeedbackModel is the model it drafts with. Empty means claudeq's own
+	// FeedbackModel is the model it drafts with. Empty means dispatchq's own
 	// choice: drafting an issue out of two short messages is cheap work, and it
 	// must not silently land on an expensive model picked for real tasks.
 	FeedbackModel string `toml:"feedback_model,omitempty" json:"feedback_model"`
 	// LegacyBetaFeatures is the retired switch that revealed the features
-	// claudeq did not consider finished; they are all public now. A pointer, so
+	// dispatchq did not consider finished; they are all public now. A pointer, so
 	// the key is noticed whatever it says, and dropped from old configs (see
 	// migrate); never written back or exposed.
 	LegacyBetaFeatures *bool `toml:"beta_features,omitempty" json:"-"`
@@ -888,7 +904,7 @@ type Ntfy struct {
 }
 
 // Webhook holds the generic webhook channel's configuration and whether it is
-// enabled. Template empty means claudeq's own JSON body (see
+// enabled. Template empty means dispatchq's own JSON body (see
 // notify.DefaultWebhookTemplate).
 type Webhook struct {
 	Enabled  bool   `toml:"enabled" json:"enabled"`

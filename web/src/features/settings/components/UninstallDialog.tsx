@@ -14,7 +14,7 @@ const WORD = 'uninstall'
 // The uninstaller is a package the macOS Installer runs: it asks once more,
 // offers the data under Customize, and closes this window when it removes the
 // app. Removing the app is still the one thing here that cannot be undone from
-// ClaudeQ, so the word has to be typed before it is opened.
+// DispatchQ, so the word has to be typed before it is opened.
 export function UninstallDialog({open, onOpenChange}: {open: boolean; onOpenChange: (o: boolean) => void}) {
   const [typed, setTyped] = useState('')
   const [busy, setBusy] = useState(false)
@@ -50,7 +50,7 @@ export function UninstallDialog({open, onOpenChange}: {open: boolean; onOpenChan
       <DialogContent size="sm">
         <DialogHeader
           icon={<Trash2 className="text-danger" />}
-          title="Uninstall ClaudeQ?"
+          title="Uninstall DispatchQ?"
           description="Opens the uninstaller in the macOS Installer."
           className="[&>div:first-child]:bg-danger-soft"
         />

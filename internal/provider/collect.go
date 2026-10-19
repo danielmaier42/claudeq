@@ -30,7 +30,7 @@ type Collector struct {
 	resetAt      time.Time
 }
 
-// NewCollector starts collecting for one run. sessionID is the session claudeq
+// NewCollector starts collecting for one run. sessionID is the session dispatchq
 // assigned up front, used until the harness reports one of its own; name is the
 // provider instance's display name, which appears in the result message.
 func NewCollector(sessionID, name string) *Collector {
@@ -90,7 +90,7 @@ func (c *Collector) noteDetail(detail string) {
 }
 
 // SessionID returns the session the run is using — the harness's own once it
-// reported one, otherwise the one claudeq assigned.
+// reported one, otherwise the one dispatchq assigned.
 func (c *Collector) SessionID() string { return c.sessionID }
 
 // CompletedRateLimit reports a terminal, resumable limit result. A rejection

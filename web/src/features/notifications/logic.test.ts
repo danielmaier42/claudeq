@@ -5,7 +5,7 @@ import {kindOptions, NO_FILTERS, shortMessage, shortTitle, shown, targetLabel} f
 const note = (p: Partial<AppNotification>): AppNotification => ({
   id: 'n',
   kind: 'failure',
-  title: 'ClaudeQ ✗ nightly failed',
+  title: 'DispatchQ ✗ nightly failed',
   message: 'exit 1',
   sent_at: '2026-10-19T08:00:00Z',
   unread: false,
@@ -14,8 +14,8 @@ const note = (p: Partial<AppNotification>): AppNotification => ({
 
 describe('shortTitle', () => {
   it('drops the sender and the glyph', () => {
-    expect(shortTitle('ClaudeQ ✗ nightly failed')).toBe('nightly failed')
-    expect(shortTitle('ClaudeQ: 📄 Report')).toBe('Report')
+    expect(shortTitle('DispatchQ ✗ nightly failed')).toBe('nightly failed')
+    expect(shortTitle('DispatchQ: 📄 Report')).toBe('Report')
     expect(shortTitle('Provider down')).toBe('Provider down')
   })
 })

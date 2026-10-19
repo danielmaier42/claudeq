@@ -13,7 +13,7 @@ import (
 // small, self-describing JSON object. Services that expect a particular shape
 // (Slack's "text", Discord's "content", a Home Assistant automation) get it by
 // setting a template instead.
-const DefaultWebhookTemplate = `{"title":"{{title}}","message":"{{message}}","url":"{{url}}","source":"claudeq"}`
+const DefaultWebhookTemplate = `{"title":"{{title}}","message":"{{message}}","url":"{{url}}","source":"dispatchq"}`
 
 // webhookFields are the placeholders a template may use. Anything else is
 // refused when the template is saved: a mistyped {{titel}} would otherwise be
@@ -29,7 +29,7 @@ var webhookFields = []string{"title", "message", "url"}
 var webhookPlaceholder = regexp.MustCompile(`{{\s*([A-Za-z0-9_.-]*)\s*}}`)
 
 // Webhook posts notifications as JSON to any URL. It is the one channel that
-// covers services claudeq does not know about: Slack, Discord and Teams
+// covers services dispatchq does not know about: Slack, Discord and Teams
 // incoming webhooks, Home Assistant, n8n, or a script behind a reverse proxy.
 type Webhook struct {
 	// URL is the endpoint to post to.
@@ -93,7 +93,7 @@ func ValidateWebhook(rawURL, template string) error {
 			strings.Join(unknown, ", "), strings.Join(webhookFields, "}}, {{"))
 	}
 	sample := Notification{
-		Title:   `ClaudeQ "test"\1`,
+		Title:   `DispatchQ "test"\1`,
 		Message: "line one\nline two — ümlaut",
 		URL:     "https://example.com/a?b=1&c=2",
 	}
@@ -103,7 +103,7 @@ func ValidateWebhook(rawURL, template string) error {
 	return nil
 }
 
-// unknownWebhookFields lists the placeholders in a template that claudeq cannot
+// unknownWebhookFields lists the placeholders in a template that dispatchq cannot
 // fill, quoted as they were written.
 func unknownWebhookFields(template string) []string {
 	var unknown []string

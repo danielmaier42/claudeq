@@ -8,7 +8,7 @@ import (
 // artifactNotifyTitle is the title of the "a task published something for you"
 // notification. The artifact's own title goes into the body, so the operator can
 // tell at a glance what kind of notification arrived.
-const artifactNotifyTitle = "ClaudeQ 📄 New artifact"
+const artifactNotifyTitle = "DispatchQ 📄 New artifact"
 
 // artifactNotifyBodyLimit caps the notification body; a long description is cut
 // rather than pushed at the operator in full.
@@ -16,7 +16,7 @@ const artifactNotifyBodyLimit = 300
 
 // notifyNewArtifacts sends one notification per artifact published since the
 // last pass (FA-A4). The macOS notification carries the artifact id, so clicking
-// it opens that artifact in the ClaudeQ window (cmd/claudeqapp).
+// it opens that artifact in the DispatchQ window (cmd/dispatchqapp).
 //
 // Artifacts are recorded as notified *before* the notification is sent, and in a
 // single state write: a broken notification channel then costs one message

@@ -18,7 +18,7 @@ export function GeneralSection({value, stored}: {value: Settings; stored: Settin
     <>
       <Section
         title="Custom system prompt"
-        description="Appended to every run after ClaudeQ's built-in instructions (built-in first, yours last)"
+        description="Appended to every run after DispatchQ's built-in instructions (built-in first, yours last)"
         actions={<SaveMode mode="draft" dirty={value.system_prompt !== stored.system_prompt} />}
       >
         <RowGroup>

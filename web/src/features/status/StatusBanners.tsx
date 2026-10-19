@@ -60,7 +60,7 @@ function DisconnectedBar({
     <StatusBar
       tone="danger"
       icon={<Unplug />}
-      title="ClaudeQ daemon not reachable"
+      title="DispatchQ daemon not reachable"
       actions={
         <Button size="sm" variant="ghost" loading={retrying} onClick={onRetry}>
           {!retrying && <RefreshCw />}
@@ -91,7 +91,7 @@ function WakeBar({error}: {error: string}) {
       title="Scheduled wake isn't set up"
       extra={<CommandToCopy command={SUDOERS_COMMAND} />}
     >
-      Timed tasks may not run while your Mac is asleep. Allow ClaudeQ to schedule wake-ups by running this
+      Timed tasks may not run while your Mac is asleep. Allow DispatchQ to schedule wake-ups by running this
       once in Terminal; it takes effect immediately.
     </StatusBar>
   )
@@ -130,7 +130,7 @@ function CommandToCopy({command}: {command: string}) {
 // say where to look.
 function openNotificationSettings() {
   if (isAppWindow()) openExternal(NOTIFICATION_SETTINGS_URL)
-  else toast('Open System Settings → Notifications → ClaudeQ')
+  else toast('Open System Settings → Notifications → DispatchQ')
 }
 
 function NotifyBar({status}: {status: NotifyStatus}) {
@@ -138,7 +138,7 @@ function NotifyBar({status}: {status: NotifyStatus}) {
     <StatusBar
       tone="warning"
       icon={<BellOff />}
-      title="macOS is not showing ClaudeQ's notifications"
+      title="macOS is not showing DispatchQ's notifications"
       actions={
         <Button size="sm" variant="secondary" onClick={openNotificationSettings}>
           Open System Settings
@@ -148,10 +148,10 @@ function NotifyBar({status}: {status: NotifyStatus}) {
       {status === 'denied' ? (
         <>
           Run outcomes and new artifacts are being announced, but macOS is set to hide them. Turn{' '}
-          <strong>Allow notifications</strong> back on for ClaudeQ.
+          <strong>Allow notifications</strong> back on for DispatchQ.
         </>
       ) : (
-        <>ClaudeQ hasn't been allowed to notify you yet, so run outcomes and new artifacts stay silent.</>
+        <>DispatchQ hasn't been allowed to notify you yet, so run outcomes and new artifacts stay silent.</>
       )}{' '}
       Pick <strong>Alerts</strong> while you're there and an alert stays on screen until you click it.
     </StatusBar>

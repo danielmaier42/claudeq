@@ -139,7 +139,7 @@ func TestExportTaskEndpoint(t *testing.T) {
 	var gotPrompt, gotDefault string
 	dialog := func(_ context.Context, prompt, defaultName string) (string, bool, error) {
 		gotPrompt, gotDefault = prompt, defaultName
-		return filepath.Join(dir, "chosen.claudeq"), true, nil
+		return filepath.Join(dir, "chosen.dispatchq"), true, nil
 	}
 	srv := newServerDeps(t, Deps{Store: st, SaveFile: dialog})
 
@@ -149,10 +149,10 @@ func TestExportTaskEndpoint(t *testing.T) {
 	}
 	var out map[string]string
 	r.into(t, &out)
-	if out["path"] != filepath.Join(dir, "chosen.claudeq") {
+	if out["path"] != filepath.Join(dir, "chosen.dispatchq") {
 		t.Errorf("path = %q", out["path"])
 	}
-	if gotDefault != "nightly.claudeq" || !strings.Contains(gotPrompt, orig.Name) {
+	if gotDefault != "nightly.dispatchq" || !strings.Contains(gotPrompt, orig.Name) {
 		t.Errorf("dialog got prompt %q default %q", gotPrompt, gotDefault)
 	}
 	data, err := os.ReadFile(out["path"])
@@ -182,7 +182,7 @@ func TestExportTaskEndpointDialogOutcomes(t *testing.T) {
 		{"cancelled", func(context.Context, string, string) (string, bool, error) { return "", false, nil }, http.StatusNoContent},
 		{"dialog error", func(context.Context, string, string) (string, bool, error) { return "", false, errors.New("boom") }, http.StatusBadGateway},
 		{"unwritable path", func(context.Context, string, string) (string, bool, error) {
-			return filepath.Join(t.TempDir(), "gone", "x.claudeq"), true, nil
+			return filepath.Join(t.TempDir(), "gone", "x.dispatchq"), true, nil
 		}, http.StatusInternalServerError},
 	}
 	for _, c := range cases {
@@ -211,10 +211,10 @@ func TestExportTaskEndpointDoesNotClobberUnseenName(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "plain.claudeq"), []byte("keep"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "plain.dispatchq"), []byte("keep"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// The panel returned "plain" (no extension): "plain.claudeq" exists but
+	// The panel returned "plain" (no extension): "plain.dispatchq" exists but
 	// was never shown, so it must survive and the user gets told.
 	srv := newServerDeps(t, Deps{Store: st, SaveFile: func(context.Context, string, string) (string, bool, error) {
 		return filepath.Join(dir, "plain"), true, nil
@@ -223,17 +223,17 @@ func TestExportTaskEndpointDoesNotClobberUnseenName(t *testing.T) {
 	if r.Status != http.StatusInternalServerError || !strings.Contains(string(r.Body), "already exists") {
 		t.Errorf("status %d body %s", r.Status, r.Body)
 	}
-	if data, _ := os.ReadFile(filepath.Join(dir, "plain.claudeq")); string(data) != "keep" {
+	if data, _ := os.ReadFile(filepath.Join(dir, "plain.dispatchq")); string(data) != "keep" {
 		t.Errorf("unseen file was overwritten: %q", data)
 	}
 	// The panel returned the full name: it confirmed replacing, so overwrite.
 	srv = newServerDeps(t, Deps{Store: st, SaveFile: func(context.Context, string, string) (string, bool, error) {
-		return filepath.Join(dir, "plain.claudeq"), true, nil
+		return filepath.Join(dir, "plain.dispatchq"), true, nil
 	}})
 	if r := do(t, srv, http.MethodPost, "/api/tasks/a/export", nil); r.Status != http.StatusOK {
 		t.Fatalf("status %d body %s", r.Status, r.Body)
 	}
-	data, _ := os.ReadFile(filepath.Join(dir, "plain.claudeq"))
+	data, _ := os.ReadFile(filepath.Join(dir, "plain.dispatchq"))
 	if _, _, err := bundle.Read(data); err != nil {
 		t.Errorf("file was not replaced with a bundle: %v", err)
 	}
@@ -248,7 +248,7 @@ func TestOSAScriptSaveFileDialog(t *testing.T) {
 		chosen  bool
 		wantErr bool
 	}{
-		{"chosen", "/Users/me/Desktop/nightly.claudeq\n", nil, "/Users/me/Desktop/nightly.claudeq", true, false},
+		{"chosen", "/Users/me/Desktop/nightly.dispatchq\n", nil, "/Users/me/Desktop/nightly.dispatchq", true, false},
 		{"cancelled", "execution error: User canceled. (-128)", errors.New("exit 1"), "", false, false},
 		{"failure", "execution error: something else (-1700)", errors.New("exit 1"), "", false, true},
 		{"empty", "", nil, "", false, false},
@@ -256,7 +256,7 @@ func TestOSAScriptSaveFileDialog(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			fr := &fakeRunner{out: []byte(c.out), err: c.err}
-			path, chosen, err := OSAScriptSaveFileDialog(fr)(context.Background(), `Export "quoted" task`, "nightly.claudeq")
+			path, chosen, err := OSAScriptSaveFileDialog(fr)(context.Background(), `Export "quoted" task`, "nightly.dispatchq")
 			if (err != nil) != c.wantErr || chosen != c.chosen || path != c.path {
 				t.Errorf("got (%q, %v, %v)", path, chosen, err)
 			}
@@ -266,7 +266,7 @@ func TestOSAScriptSaveFileDialog(t *testing.T) {
 			// The user strings travel as run arguments, verbatim, never
 			// interpolated into the script text.
 			n := len(fr.args)
-			if n < 2 || fr.args[n-2] != `Export "quoted" task` || fr.args[n-1] != "nightly.claudeq" {
+			if n < 2 || fr.args[n-2] != `Export "quoted" task` || fr.args[n-1] != "nightly.dispatchq" {
 				t.Errorf("args = %q", fr.args)
 			}
 			script := strings.Join(fr.args[:n-2], "\n")

@@ -19,7 +19,7 @@ import (
 // what Codex's own editor integrations talk to; asking it for the account's
 // rate limits costs no model usage.
 var rateLimitsRequest = []string{
-	`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"claudeq","version":"1"}}}`,
+	`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"dispatchq","version":"1"}}}`,
 	`{"jsonrpc":"2.0","method":"initialized"}`,
 	`{"jsonrpc":"2.0","id":2,"method":"account/rateLimits/read"}`,
 }
@@ -44,7 +44,7 @@ type rateLimitWindow struct {
 	ResetsAt           int64    `json:"resetsAt"` // seconds since the epoch
 }
 
-// rateLimitsResult is the part of `account/rateLimits/read` claudeq shows: the
+// rateLimitsResult is the part of `account/rateLimits/read` dispatchq shows: the
 // account's main limit, which has up to two windows, and its plan.
 type rateLimitsResult struct {
 	RateLimits *struct {
@@ -132,7 +132,7 @@ func askAppServer(ctx context.Context, c provider.Command) (json.RawMessage, err
 func parseRateLimits(raw json.RawMessage) ([]provider.LimitWindow, string, error) {
 	var res rateLimitsResult
 	if err := json.Unmarshal(raw, &res); err != nil {
-		return nil, "", fmt.Errorf("the Codex limits are not in a format claudeq understands: %w", err)
+		return nil, "", fmt.Errorf("the Codex limits are not in a format dispatchq understands: %w", err)
 	}
 	if res.RateLimits == nil {
 		return nil, "", errors.New("the Codex CLI reported no limits for this account")

@@ -162,7 +162,7 @@ func TestNewSetRejectsAnUnusableInstanceList(t *testing.T) {
 }
 
 // TestFromConfigReadsTheStoredInstances is the compatibility case: the store
-// migrates an existing claudeq configuration into the `claude` instance, and a
+// migrates an existing dispatchq configuration into the `claude` instance, and a
 // task that names no provider keeps running exactly as before.
 func TestFromConfigReadsTheStoredInstances(t *testing.T) {
 	cfg := store.Config{
@@ -276,7 +276,7 @@ func limitedIDs(blocked map[string]bool) Availability {
 var everythingLimited = Availability{OutOfAllowance: func(string) bool { return true }}
 
 // TestResolveAvailableFollowsTheFallbackChain is the rate-limit substitution:
-// the only one claudeq makes, and only as far as the chain actually reaches.
+// the only one dispatchq makes, and only as far as the chain actually reaches.
 func TestResolveAvailableFollowsTheFallbackChain(t *testing.T) {
 	tests := []struct {
 		name         string

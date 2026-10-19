@@ -1,4 +1,4 @@
-// Package notify delivers claudeq notifications to native macOS Notification
+// Package notify delivers dispatchq notifications to native macOS Notification
 // Center (via osascript) and to Pushover (FA-39/40/41). Delivery is best-effort:
 // a failing channel never blocks the caller's flow.
 package notify
@@ -20,22 +20,22 @@ type Notification struct {
 	Message string
 	// ID names the notification in the daemon's inbox (store.InboxEntry). The
 	// macOS notification carries it so a click can mark that entry read (see
-	// cmd/claudeqapp, notifyclick_cocoa.m); other channels ignore it.
+	// cmd/dispatchqapp, notifyclick_cocoa.m); other channels ignore it.
 	ID string
 	// Kind says what the notification announces (a store.InboxKind constant).
 	// It is bookkeeping for the inbox, not something a channel shows.
 	Kind string
 	// ArtifactID, when set, makes the macOS notification open that artifact in
-	// the ClaudeQ window on click. Channels that cannot carry a click target
+	// the DispatchQ window on click. Channels that cannot carry a click target
 	// ignore it.
 	ArtifactID string
 	// RunID, when set, makes the macOS notification open that run's log in the
-	// ClaudeQ window on click. Channels that cannot carry a click target ignore
+	// DispatchQ window on click. Channels that cannot carry a click target ignore
 	// it.
 	RunID string
 	// URL, when set, is the notification's link: Pushover shows it as the
 	// message's supplementary URL, and clicking the macOS notification opens it
-	// (again via cmd/claudeqapp). Channels that cannot carry a link ignore it.
+	// (again via cmd/dispatchqapp). Channels that cannot carry a link ignore it.
 	URL string
 	// TaskID and TaskName attribute the notification to the task it is about
 	// or that sent it, for the inbox. Channels ignore them.
@@ -65,7 +65,7 @@ type Mac struct {
 	Runner system.Runner
 }
 
-// Notify displays a native notification. When claudeq runs from its app bundle
+// Notify displays a native notification. When dispatchq runs from its app bundle
 // it posts through UNUserNotificationCenter so the notification carries the app
 // icon; otherwise (or if that fails) it falls back to osascript, whose
 // notifications show a generic script icon but always work from a LaunchAgent.

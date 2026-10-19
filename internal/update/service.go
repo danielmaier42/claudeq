@@ -198,7 +198,7 @@ func (s *Service) downloadPkg(ctx context.Context, rel *Release) (string, error)
 	// "../../evil.pkg") can never write outside the download directory.
 	name := filepath.Base(rel.PkgName)
 	if name == "" || name == "." || name == string(filepath.Separator) {
-		name = fmt.Sprintf("claudeq-%s.pkg", rel.Version)
+		name = fmt.Sprintf("dispatchq-%s.pkg", rel.Version)
 	}
 	dest := filepath.Join(s.destDir, name)
 
@@ -215,7 +215,7 @@ func (s *Service) downloadPkg(ctx context.Context, rel *Release) (string, error)
 		return "", fmt.Errorf("download installer: unexpected status %s", resp.Status)
 	}
 
-	tmp, err := os.CreateTemp(s.destDir, ".claudeq-dl-*.pkg")
+	tmp, err := os.CreateTemp(s.destDir, ".dispatchq-dl-*.pkg")
 	if err != nil {
 		return "", fmt.Errorf("create temp file: %w", err)
 	}

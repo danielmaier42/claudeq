@@ -8,7 +8,7 @@ export type TaskEditorRequest =
   | {mode: 'edit'; task: QueueTask}
   // Schedule a past run's task again: a new task prefilled from the run's snapshot.
   | {mode: 'replay'; run: Run}
-  // A .claudeq file read by POST /api/tasks/import, reviewed before it is created.
+  // A .dispatchq file read by POST /api/tasks/import, reviewed before it is created.
   | {mode: 'import'; result: ImportResult}
 
 export const useTaskEditor = create<{request: TaskEditorRequest | null}>(() => ({request: null}))

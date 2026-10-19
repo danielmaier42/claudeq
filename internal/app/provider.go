@@ -115,7 +115,7 @@ func SetProviderEnabled(s *store.Store, id string, enabled bool) error {
 
 // RemoveProvider deletes a provider instance. It refuses while anything still
 // names it and lists every reference, because silently re-pointing that work at
-// another provider is exactly the substitution claudeq never makes.
+// another provider is exactly the substitution dispatchq never makes.
 func RemoveProvider(s *store.Store, id string) error {
 	err := s.UpdateConfig(func(cfg *store.Config) error {
 		idx := providerIndex(cfg.Providers, id)
