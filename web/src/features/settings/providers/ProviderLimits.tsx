@@ -4,13 +4,16 @@ import {Tooltip} from '@/components/ui/tooltip'
 import {fullTime} from '@/lib/format'
 import type {ProviderLimits as Limits} from '@/lib/types'
 import {cn} from '@/lib/utils'
-import {limitStatusText, resetText, windowLeft, windowTone} from './provider-logic'
+import {limitStatusText, readFailed, resetText, windowLeft} from '@/features/dashboard/limits'
+import {windowTone} from './provider-logic'
 
 // ProviderLimits is the provider's allowance windows, the same reading the
 // Dashboard shows: what the daemon last read, never a fresh read of its own.
 export function ProviderLimits({limits}: {limits: Limits}) {
   const windows = limits.windows ?? []
-  const problem = limits.state === 'unavailable'
+  // An account without a plan is a fact, not a failure: only a reading that
+  // should have worked takes the warning colour.
+  const problem = readFailed(limits)
   return (
     <div className="flex flex-col gap-2.5">
       <div className="flex items-center gap-1.5 text-[12px]">

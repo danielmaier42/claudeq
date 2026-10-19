@@ -55,6 +55,7 @@ const collide: CollisionDetection = (args) => {
 export function QueueBoard({
   tasks,
   onlyActive,
+  searching,
   collapsed,
   groups,
   ctx,
@@ -62,6 +63,9 @@ export function QueueBoard({
 }: {
   tasks: QueueTask[]
   onlyActive: boolean
+  // While a search hides rows, a drop could not say where between the hidden
+  // ones a task belongs, so dragging is off.
+  searching: boolean
   collapsed: (group: string) => boolean
   groups: string[]
   ctx: QueueContext
@@ -164,7 +168,13 @@ export function QueueBoard({
     >
       <SortableContext items={blocks.map((b) => sectionId(b.group))} strategy={verticalListSortingStrategy}>
         {blocks.map((b) => (
-          <GroupSection key={b.group} block={b} collapsed={!!b.group && collapsed(b.group)} groups={groups}>
+          <GroupSection
+            key={b.group}
+            block={b}
+            collapsed={!!b.group && collapsed(b.group)}
+            groups={groups}
+            dragDisabled={searching}
+          >
             {b.tasks.map((t, i) => (
               <SortableTaskRow
                 key={t.id}
@@ -174,6 +184,7 @@ export function QueueBoard({
                 groups={groups}
                 prevId={b.tasks[i - 1]?.id}
                 nextId={b.tasks[i + 1]?.id}
+                dragDisabled={searching}
               />
             ))}
           </GroupSection>

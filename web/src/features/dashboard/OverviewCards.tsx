@@ -10,37 +10,67 @@ import {
   OctagonAlert,
 } from 'lucide-react'
 import {navigate} from '@/app/nav'
+import type {ReactNode} from 'react'
 import {Badge} from '@/components/ui/badge'
 import {Button} from '@/components/ui/button'
 import {Tooltip} from '@/components/ui/tooltip'
+import {clearLogFilters, setLogFilters} from '@/features/log/filters-store'
 import {openRunLog} from '@/features/log/store'
 import {openAddTask, openTaskEditor} from '@/features/task-editor/store'
 import {compact, fullTime, relTime, resumeAt, resumeText, runDuration, usd} from '@/lib/format'
 import {useHealth, useRuns, useSettings, useStats, useTasks} from '@/lib/queries'
 import type {QueueTask, Run} from '@/lib/types'
 import {OverviewCard, OverviewEmpty, OverviewRow} from './OverviewCard'
-import {holdText, recentFailures, upNext, waitingRuns} from './overview'
+import {cardOrder, type CardId, holdText, recentFailures, upNext, waitingRuns} from './overview'
 import {useNow} from '@/hooks/use-now'
 
 const SHOWN = 3
-const warnText = 'text-[color-mix(in_oklab,var(--warning)_75%,var(--foreground))]'
 
-// OverviewCards answer what someone opening the app wants first: what runs
-// now, what starts next, what failed, and how much work went through lately.
+const cards: Record<CardId, () => ReactNode> = {
+  failed: FailuresCard,
+  next: UpNextCard,
+  running: RunningCard,
+  week: WeekCard,
+}
+
+// OverviewCards answer what someone opening the app wants first, in the order
+// it needs action: what failed, what starts next, what runs now, and how much
+// work went through lately. Each card is as tall as what it lists; an empty
+// one is a single line rather than a box held open by its neighbour.
 export function OverviewCards() {
+  const runs = useRuns()
+  const now = useNow()
+  const failures = recentFailures(runs.data ?? [], now).length
   return (
-    <div className="mb-7 grid gap-3 md:grid-cols-2">
-      <RunningCard />
-      <UpNextCard />
-      <FailuresCard />
-      <WeekCard />
+    <div className="mb-7 grid items-start gap-3 md:grid-cols-2">
+      {cardOrder(failures).map((id) => {
+        const Tile = cards[id]
+        return <Tile key={id} />
+      })}
     </div>
   )
 }
 
-function More({n}: {n: number}) {
+// More is the count past what a card lists, as a link to the full list.
+function More({n, onClick}: {n: number; onClick: () => void}) {
   if (n <= 0) return null
-  return <div className="px-2 pt-0.5 text-[12px] text-subtle-foreground">+{n} more</div>
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-fit rounded-sm px-2 pt-0.5 text-[12px] text-muted-foreground outline-none hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-accent/40"
+    >
+      +{n} more
+    </button>
+  )
+}
+
+// Failed runs open in the Log with only failures showing, whatever filter
+// was left there before.
+function showFailedRuns() {
+  clearLogFilters()
+  setLogFilters({show: 'failed'})
+  navigate('log')
 }
 
 function RunningCard() {
@@ -86,10 +116,10 @@ function RunningCard() {
               ) : (
                 <OverviewRow
                   key={r.run_id}
-                  lead={<Hourglass className={`size-3.5 ${warnText}`} />}
+                  lead={<Hourglass className={`$"text-warning-text" size-3.5`} />}
                   title={r.task_name}
                   meta={
-                    <span className={warnText}>
+                    <span className="text-warning-text">
                       Rate limited, {resumeText(resumeAt(r.resume_at, limitedUntil))}
                     </span>
                   }
@@ -97,7 +127,7 @@ function RunningCard() {
                 />
               ),
             )}
-          <More n={items.length - SHOWN} />
+          <More n={items.length - SHOWN} onClick={() => navigate('log')} />
         </>
       ) : (
         <OverviewEmpty icon={<Clock />}>
@@ -140,14 +170,14 @@ function UpNextCard() {
               onClick={() => openTaskEditor({mode: 'edit', task})}
             />
           ))}
-          <More n={next.length - SHOWN} />
+          <More n={next.length - SHOWN} onClick={() => navigate('queue')} />
         </>
       ) : (
         <OverviewEmpty
           icon={<ListPlus />}
           action={
             <Button size="sm" onClick={() => openAddTask()}>
-              Add task
+              New task
             </Button>
           }
         >
@@ -166,7 +196,7 @@ const triggerText: Record<QueueTask['trigger'], string> = {
 
 function NextMeta({task}: {task: QueueTask}) {
   const hold = holdText(task)
-  if (hold) return <span className={task.blocked_reason ? 'text-danger' : warnText}>{hold}</span>
+  if (hold) return <span className={task.blocked_reason ? 'text-danger' : 'text-warning-text'}>{hold}</span>
   const when =
     task.trigger === 'cron' && task.cron ? (describeCron(task.cron) ?? task.cron) : triggerText[task.trigger]
   const parts = [when, task.pool || task.provider, task.backfill && 'backfill'].filter(Boolean)
@@ -183,7 +213,7 @@ function FailuresCard() {
       title="Failed in the last 24 hours"
       count={failed.length > 0 && <Badge tone="danger">{failed.length}</Badge>}
       link="Log"
-      onLink={() => navigate('log')}
+      onLink={showFailedRuns}
       loading={runs.isPending}
     >
       {failed.length ? (
@@ -198,7 +228,7 @@ function FailuresCard() {
               onClick={() => openRunLog(r.run_id)}
             />
           ))}
-          <More n={failed.length - SHOWN} />
+          <More n={failed.length - SHOWN} onClick={showFailedRuns} />
         </>
       ) : (
         <OverviewEmpty icon={<CircleCheck className="text-success" />}>
@@ -225,7 +255,7 @@ function WeekCard() {
       loading={stats.isPending}
     >
       {w && w.runs ? (
-        <div className="flex flex-1 flex-col justify-between gap-3 px-2 pt-1">
+        <div className="flex flex-col gap-3 px-2 pt-1">
           <div className="grid grid-cols-3 gap-3">
             <Figure label="runs" value={String(w.runs)} />
             <Figure label="succeeded" value={rate === null ? '–' : `${rate}%`} />

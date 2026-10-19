@@ -11,6 +11,8 @@ import {openTaskEditor} from '@/features/task-editor/store'
 import type {QueueTask} from '@/lib/types'
 import {cn} from '@/lib/utils'
 import {runNow, setEnabled} from './actions'
+import {DRAG_OFF} from './GroupSection'
+import {lastOutcome, type Outcome, type OutcomeTone} from './outcome'
 import {ScheduleText} from './ScheduleText'
 import {STATUS_CHIPS, TaskChips, taskChips} from './TaskChips'
 import {TaskMenu} from './TaskMenu'
@@ -23,6 +25,7 @@ export interface TaskRowProps {
   groups: string[]
   prevId?: string
   nextId?: string
+  dragDisabled?: boolean
 }
 
 // SortableTaskRow is a row the queue can drag: only the grip starts a drag, so
@@ -32,6 +35,7 @@ export function SortableTaskRow(props: TaskRowProps) {
     useSortable({
       id: props.task.id,
       data: {kind: 'task', group: props.task.group || ''},
+      disabled: props.dragDisabled,
     })
   return (
     <TaskRow
@@ -51,6 +55,7 @@ export function TaskRow({
   groups,
   prevId,
   nextId,
+  dragDisabled,
   rowRef,
   style,
   dragging,
@@ -77,6 +82,7 @@ export function TaskRow({
       : 'Start this task now, outside its schedule'
   const live = ctx.liveRun(t)
   const RunsOnIcon = t.pool ? Workflow : Cpu
+  const outcome = lastOutcome(ctx.lastRun(t))
 
   return (
     <div
@@ -89,13 +95,18 @@ export function TaskRow({
         overlay && 'rounded-lg border shadow-lg',
       )}
     >
-      <Tooltip content="Drag to reorder, or onto a group to move it there" side="left">
+      <Tooltip
+        content={dragDisabled ? DRAG_OFF : 'Drag to reorder, or onto a group to move it there'}
+        side="left"
+      >
+        {/* The hit area is wider than the icon, so the grip is easy to catch. */}
         <button
           type="button"
           aria-label={`Reorder ${t.name}`}
+          aria-disabled={dragDisabled}
           {...grip}
           className={cn(
-            'flex h-8 w-5 shrink-0 cursor-grab touch-none items-center justify-center rounded-sm text-subtle-foreground opacity-50 outline-none group-hover/row:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-accent/40 active:cursor-grabbing',
+            'flex h-8 w-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-sm text-subtle-foreground opacity-50 outline-none group-hover/row:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-accent/40 active:cursor-grabbing aria-disabled:cursor-not-allowed',
             overlay && 'cursor-grabbing opacity-100',
           )}
         >
@@ -149,6 +160,7 @@ export function TaskRow({
               </span>
             </>
           )}
+          {outcome && <LastOutcome outcome={outcome} />}
           {traits.length > 0 && (
             <span className="flex flex-wrap items-center gap-1">
               <TaskChips chips={traits} />
@@ -213,5 +225,35 @@ export function TaskRow({
         </>
       )}
     </div>
+  )
+}
+
+const DOT: Record<OutcomeTone, string> = {
+  success: 'bg-success',
+  danger: 'bg-danger',
+  warning: 'bg-warning',
+  neutral: 'bg-subtle-foreground',
+}
+
+// LastOutcome says how the last run went and opens its log. A success stays
+// in the meta line's grey; a failure takes the colour of its dot.
+function LastOutcome({outcome: o}: {outcome: Outcome}) {
+  return (
+    <>
+      <span className="text-border-strong">·</span>
+      <Tooltip content="Open the log of the last run">
+        <button
+          type="button"
+          onClick={() => openRunLog(o.runId)}
+          className={cn(
+            'inline-flex shrink-0 items-center gap-1.5 rounded-sm outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent/40',
+            !o.quiet && (o.tone === 'danger' ? 'text-danger' : 'text-foreground'),
+          )}
+        >
+          <span className={cn('size-1.5 shrink-0 rounded-full', DOT[o.tone])} aria-hidden />
+          {o.text}
+        </button>
+      </Tooltip>
+    </>
   )
 }

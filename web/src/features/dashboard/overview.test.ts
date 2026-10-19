@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest'
 import type {QueueTask, Run} from '@/lib/types'
-import {recentFailures, upNext} from './overview'
+import {cardOrder, recentFailures, upNext} from './overview'
 
 const now = Date.parse('2026-10-19T12:00:00Z')
 
@@ -59,5 +59,9 @@ describe('overview', () => {
       run('b', 'auth_error', 2),
     ]
     expect(recentFailures(runs, now).map((r) => r.run_id)).toEqual(['b', 'a'])
+  })
+  it('cardOrder leads with failures only while there are any', () => {
+    expect(cardOrder(2)[0]).toBe('failed')
+    expect(cardOrder(0)).toEqual(['next', 'running', 'week', 'failed'])
   })
 })

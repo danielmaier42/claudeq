@@ -1,14 +1,5 @@
 import {relTime} from '@/lib/format'
-import type {LimitWindow, PoolRanking, ProviderLimits, Settings} from '@/lib/types'
-
-// The daemon's default when Settings carries no threshold (0).
-export const DEFAULT_BACKFILL_URGENCY = 1.5
-export const BACKFILL_MIN = 0.5
-export const BACKFILL_MAX = 5
-
-export function backfillThreshold(s: Settings | undefined): number {
-  return s?.backfill_urgency || DEFAULT_BACKFILL_URGENCY
-}
+import type {LimitWindow, LimitsEntry, ProviderLimits} from '@/lib/types'
 
 // A window shows what is left of it, so the bar empties as it is used. It is
 // coloured before it runs dry: at 0% left the provider's tasks already wait,
@@ -33,7 +24,7 @@ export function resetText(w: LimitWindow, now = Date.now()): string {
 }
 
 // The week sits in the same column on every provider, also where an account has
-// no five-hour window, so the cards can be read down a column.
+// no five-hour window, so the rows can be read down a column.
 export function windowSlots(windows: LimitWindow[] = []): (LimitWindow | null)[] {
   const five = windows.find((w) => w.id === 'five_hour') ?? null
   const week = windows.find((w) => w.id === 'week') ?? null
@@ -41,6 +32,13 @@ export function windowSlots(windows: LimitWindow[] = []): (LimitWindow | null)[]
   if (!five && !week) return rest
   return [five, week, ...rest]
 }
+
+// noLimits is an instance with no allowance to show: a harness without one, or
+// an account on an API key rather than a plan. A plain fact, not a warning.
+export const noLimits = (l: ProviderLimits) => l.state === 'unsupported'
+
+// readFailed is a reading that should have worked and did not.
+export const readFailed = (l: ProviderLimits) => l.state === 'unavailable'
 
 // limitStatusText says when the figures are from, or why there are none.
 export function limitStatusText(l: ProviderLimits, now = Date.now()): string {
@@ -56,20 +54,28 @@ export function limitStatusText(l: ProviderLimits, now = Date.now()): string {
   return (l.reason || 'Could not be read.') + when
 }
 
-// A provider above the threshold with room in both windows is one backfill
-// tasks may run on (provider.MemberScore.Spare). The Dashboard previews it
-// while the slider moves; the daemon's own `backfill` flag wins otherwise.
-export function isSpare(u: PoolRanking | undefined, threshold: number): boolean {
-  return !!u && u.tier === 0 && u.urgency > threshold
+// The daemon reads every provider at once, so one age heads the strip; the
+// newest reading is the one the last read produced.
+export function newestReading(entries: LimitsEntry[]): string | undefined {
+  let best: string | undefined
+  for (const e of entries) {
+    const at = e.limits.updated_at
+    if (at && (!best || Date.parse(at) > Date.parse(best))) best = at
+  }
+  return best
 }
 
-// urgencyText is a provider's urgency in words: a tier above 0 has a note
-// instead of a usable number.
-export function urgencyText(u: PoolRanking | undefined): string {
-  if (!u) return ''
-  if (u.tier > 0) return u.note
-  const shared = u.running ? ` · shared by ${u.running} run${u.running > 1 ? 's' : ''}` : ''
-  return `Urgency ${u.urgency.toFixed(1)}${shared}`
+export function readText(at: string | undefined, now = Date.now()): string {
+  if (!at) return 'Refreshes every 15 min'
+  // The daemon's clock may run a little ahead; a reading is never from the future.
+  return `Read ${relTime(new Date(Math.min(Date.parse(at), now)), now)} · refreshes every 15 min`
+}
+
+// A row names its own age only when it lags the strip's: a reading that failed
+// since, or one the last read could not renew.
+export function rowAge(l: ProviderLimits, newest: string | undefined): string | undefined {
+  if (!l.updated_at || !newest) return undefined
+  return Date.parse(newest) - Date.parse(l.updated_at) > 120_000 ? l.updated_at : undefined
 }
 
 export const fmtWeight = (w: number) => `${Math.round(w * 100) / 100}×`

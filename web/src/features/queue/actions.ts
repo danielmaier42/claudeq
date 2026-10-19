@@ -119,7 +119,7 @@ export function setEnabled(t: QueueTask, enabled: boolean) {
     (prev) => prev?.map((x) => (x.id === t.id ? {...x, enabled} : x)),
     () => post(`/api/tasks/${encodeURIComponent(t.id)}/${enabled ? 'enable' : 'disable'}`),
     enabled ? 'Could not enable the task' : 'Could not pause the task',
-  ).then((ok) => ok && toast.success(enabled ? 'Enabled' : 'Paused', {description: t.name}))
+  )
 }
 
 export async function deleteTask(t: QueueTask) {
@@ -148,7 +148,10 @@ export async function exportTask(t: QueueTask) {
   }
 }
 
-export async function runNow(t: QueueTask) {
+// runNow starts a task outside its schedule and leaves the user where they
+// are: the row shows it running, and the toast's "Open log" follows the run.
+// With follow, the Log opens on the run as soon as it appears instead.
+export async function runNow(t: QueueTask, opts: {follow?: boolean} = {}) {
   const since = Date.now()
   try {
     await post(`/api/tasks/${encodeURIComponent(t.id)}/run-now`)
@@ -164,26 +167,44 @@ export async function runNow(t: QueueTask) {
     } else toast.error('Could not start the task', {description: errorMessage(e)})
     return
   }
-  toast.success('Started', {description: t.name})
   void invalidate(keys.tasks)
-  navigate('log')
-  watchNewRun(t.id, since)
+  const run = findNewRun(t.id, since)
+  const openLog = () => {
+    navigate('log')
+    void run.then((id) => id && openRunLog(id))
+  }
+  if (opts.follow) return openLog()
+  toast.success('Started', {
+    // A one-shot job leaves the queue while it runs; say where it went.
+    description: t.trigger === 'cron' ? t.name : `${t.name} · in the Log while it runs`,
+    action: {label: 'Open log', onClick: openLog},
+  })
 }
 
-// Poll briefly until the just-started run appears, then open its live log. The
-// start time keeps an earlier run of the same task from being taken for it.
-function watchNewRun(taskId: string, since: number) {
+// findNewRun polls briefly until the just-started run appears and resolves to
+// its id, or to undefined when it does not show up in time. The start time
+// keeps an earlier run of the same task from being taken for it.
+function findNewRun(taskId: string, since: number): Promise<string | undefined> {
   const deadline = Date.now() + 12_000
-  const tick = async () => {
-    try {
-      const runs = await get<Run[]>('/api/runs')
-      queryClient.setQueryData(keys.runs, runs)
-      const run = runs.find((r) => r.task_id === taskId && new Date(r.started_at).getTime() >= since - 2_000)
-      if (run) return openRunLog(run.run_id)
-    } catch {
-      /* the next tick or the regular poll tries again */
+  return new Promise((resolve) => {
+    const tick = async () => {
+      try {
+        const runs = await get<Run[]>('/api/runs')
+        queryClient.setQueryData(keys.runs, runs)
+        const run = runs.find(
+          (r) => r.task_id === taskId && new Date(r.started_at).getTime() >= since - 2_000,
+        )
+        if (run) {
+          // The run exists, so the task now reports running too.
+          void invalidate(keys.tasks)
+          return resolve(run.run_id)
+        }
+      } catch {
+        /* the next tick or the regular poll tries again */
+      }
+      if (Date.now() < deadline) setTimeout(tick, 500)
+      else resolve(undefined)
     }
-    if (Date.now() < deadline) setTimeout(tick, 500)
-  }
-  setTimeout(tick, 400)
+    setTimeout(tick, 400)
+  })
 }

@@ -257,6 +257,11 @@ func (e *Engine) Tick(ctx context.Context) error {
 	// asked without the cache — this is the moment right before a start, which is
 	// exactly when a stale verdict would cost a recorded run.
 	health := e.refreshProviderHealth(ctx, providers, assigned)
+	if ctx.Err() != nil {
+		// Stopping: the probes were cut short, so their verdicts must not hold
+		// tasks back or start them. The next daemon's first tick decides.
+		return nil
+	}
 
 	// Back under the lock, with the scheduling state read *here*: a run that
 	// finished while the probes were out has already written its completion, and
@@ -653,6 +658,10 @@ func (e *Engine) resolveRunnable(ctx context.Context, set provider.Set, st *stor
 		return provider.Resolved{}, err
 	}
 	h := e.providers.CheckFresh(ctx, res.Instance)
+	if err := ctx.Err(); err != nil {
+		// A probe cut short says nothing about the provider; see refreshProviderHealth.
+		return provider.Resolved{}, fmt.Errorf("check provider %q: %w", res.Instance.ID, err)
+	}
 	e.noteProviderHealth(st, res.Instance, h)
 	if !h.Ready() {
 		return provider.Resolved{}, fmt.Errorf("provider %q is not ready: %s",
@@ -698,6 +707,12 @@ func (e *Engine) refreshProviderHealth(ctx context.Context, set provider.Set, du
 			continue
 		}
 		h := e.providers.CheckFresh(ctx, inst)
+		if ctx.Err() != nil {
+			// The daemon is stopping (an update, a restart). A probe cut off
+			// halfway says nothing about the provider, and announcing it as
+			// unable to run tasks would raise an alarm about a working account.
+			return out
+		}
 		out[inst.ID] = h
 		e.noteProviderHealth(st, inst, h)
 	}
@@ -1450,14 +1465,18 @@ func (e *Engine) Loop(ctx context.Context, interval time.Duration) error {
 		if e.waker != nil {
 			// Wake scheduling is best-effort (needs root); never fatal. Log a
 			// given failure only once to avoid spamming on every tick.
-			if err := e.planWake(ctx); err != nil {
+			err := e.planWake(ctx)
+			switch {
+			case ctx.Err() != nil:
+				// Stopping: a wake plan cut short is neither a failure nor a success.
+			case err != nil:
 				msg := err.Error()
 				if msg != e.lastWakeErr {
 					fmt.Fprintln(os.Stderr, "claudeqd: wake scheduling failed:", err)
 					e.lastWakeErr = msg
 				}
 				e.wakeErr.Store(&msg)
-			} else {
+			default:
 				e.lastWakeErr = ""
 				empty := ""
 				e.wakeErr.Store(&empty)

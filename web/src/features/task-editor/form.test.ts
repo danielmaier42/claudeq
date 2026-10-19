@@ -8,6 +8,7 @@ import {
   validate,
   withKind,
   withTarget,
+  withTrigger,
 } from './form'
 
 const task: Task = {
@@ -56,10 +57,23 @@ describe('withKind / withTarget', () => {
   })
 })
 
+describe('withTrigger', () => {
+  it('prefills an empty schedule with the nightly one', () => {
+    expect(withTrigger(formFromTask({}), 'cron').cron).toBe('0 3 * * *')
+  })
+  it('keeps a schedule already typed', () => {
+    const f = {...formFromTask({}), cron: '0 9 * * 1'}
+    expect(withTrigger(withTrigger(f, 'asap'), 'cron').cron).toBe('0 9 * * 1')
+  })
+})
+
 describe('validate', () => {
   it('names every missing field', () => {
     const e = validate({...formFromTask({}), trigger: 'fixed'})
     expect(Object.keys(e).sort()).toEqual(['fixedAt', 'prompt', 'workingDir'])
+  })
+  it('refuses a group name longer than the daemon keeps', () => {
+    expect(validate({...formFromTask({}), group: 'x'.repeat(61)}).group).toMatch(/60/)
   })
   it('says script for a script', () => {
     expect(validate({...formFromTask({kind: 'script'})}).prompt).toMatch(/script/)
@@ -94,6 +108,17 @@ describe('buildPayload', () => {
   it('drops the effort where the harness takes none', () => {
     expect(buildPayload(formFromTask(task), {takesEffort: false}).reasoning_effort).toBeUndefined()
   })
+  it('sends the group on an add, empty for none', () => {
+    expect(buildPayload({...formFromTask(task), group: ' Night '}, {takesEffort: false}).group).toBe('Night')
+    expect(buildPayload(formFromTask({}), {takesEffort: false}).group).toBe('')
+  })
+  it('sends an edited group only when it was changed', () => {
+    const f = formFromTask(task)
+    expect(buildPayload(f, {takesEffort: false, keptGroup: 'Ops'}).group).toBeUndefined()
+    expect(buildPayload({...f, group: 'Night'}, {takesEffort: false, keptGroup: 'Ops'}).group).toBe('Night')
+    // Clearing it is a change too: the task leaves its group.
+    expect(buildPayload({...f, group: ''}, {takesEffort: false, keptGroup: 'Ops'}).group).toBe('')
+  })
   it('sends a fixed time as an ISO instant', () => {
     const p = buildPayload(
       {...formFromTask({}), trigger: 'fixed', fixedAt: '2026-10-19T20:00'},
@@ -110,6 +135,7 @@ describe('fieldForError', () => {
     ['invalid task: trigger "fixed" requires fixed_at', 'fixedAt'],
     ['invalid task: the hour field "99" is not valid (hour accepts 0-23)', 'cron'],
     ['provider "x" is not ready', 'target'],
+    ['invalid group: at most 60 characters', 'group'],
     ['disk full', null],
   ])('%s', (msg, field) => expect(fieldForError(msg)).toBe(field))
 })

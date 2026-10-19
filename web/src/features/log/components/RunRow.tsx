@@ -8,7 +8,7 @@ import {cn} from '@/lib/utils'
 import {cancelResume, replayRun} from '../actions'
 import {useNow} from '@/hooks/use-now'
 import {runMetrics, runTimeTip} from '../metrics'
-import {runFolder} from '../runs'
+import {errorLine, runFolder} from '../runs'
 import {openRunLog} from '../store'
 import {StatusPill} from './StatusPill'
 
@@ -34,6 +34,7 @@ export function RunRow({
   const folder = runFolder(run)
   const p = run.provider
   const provider = p?.name && (showProvider || p.kind === 'script') ? p : undefined
+  const error = errorLine(run)
 
   return (
     <div
@@ -64,24 +65,38 @@ export function RunRow({
           <Tooltip content={[runTimeTip(run, now), ...metrics.detail].join('\n')}>
             <span className="shrink-0 tabular-nums">{relTime(run.started_at, now)}</span>
           </Tooltip>
-          {folder && (
+          {error ? (
             <Meta>
-              <span className="font-mono text-[11.5px]">{folder}</span>
+              <Tooltip content={run.error}>
+                <span className="text-[color-mix(in_oklab,var(--danger)_80%,var(--foreground))]">
+                  {error}
+                </span>
+              </Tooltip>
             </Meta>
-          )}
-          {provider && (
-            <Meta>
-              {provider.name}
-              {provider.model && <span className="ml-1 font-mono text-[11.5px]">{provider.model}</span>}
-              {provider.pool && <span className="ml-1 text-subtle-foreground">via pool {provider.pool}</span>}
-            </Meta>
-          )}
-          {run.resume_pending && (
-            <Meta>
-              <span className="font-medium text-[color-mix(in_oklab,var(--warning)_80%,var(--foreground))]">
-                {resumeText(resumeAt(run.resume_at, limitedUntil))}
-              </span>
-            </Meta>
+          ) : (
+            <>
+              {folder && (
+                <Meta>
+                  <span className="font-mono text-[11.5px]">{folder}</span>
+                </Meta>
+              )}
+              {provider && (
+                <Meta>
+                  {provider.name}
+                  {provider.model && <span className="ml-1 font-mono text-[11.5px]">{provider.model}</span>}
+                  {provider.pool && (
+                    <span className="ml-1 text-subtle-foreground">via pool {provider.pool}</span>
+                  )}
+                </Meta>
+              )}
+              {run.resume_pending && (
+                <Meta>
+                  <span className="font-medium text-[color-mix(in_oklab,var(--warning)_80%,var(--foreground))]">
+                    {resumeText(resumeAt(run.resume_at, limitedUntil))}
+                  </span>
+                </Meta>
+              )}
+            </>
           )}
         </div>
       </div>

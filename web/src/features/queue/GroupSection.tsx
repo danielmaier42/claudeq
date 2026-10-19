@@ -9,6 +9,8 @@ import {cn} from '@/lib/utils'
 import {renameGroup, setCollapsed} from './actions'
 import type {Block} from './queue-model'
 
+export const DRAG_OFF = 'Clear the search to reorder: with rows hidden, a drop has no clear place'
+
 export const sectionId = (group: string) => 'g:' + group
 export const headerId = (group: string) => 'h:' + group
 
@@ -19,11 +21,13 @@ export function GroupSection({
   block,
   collapsed,
   groups,
+  dragDisabled,
   children,
 }: {
   block: Block
   collapsed: boolean
   groups: string[]
+  dragDisabled?: boolean
   children: ReactNode
 }) {
   const named = block.group !== ''
@@ -33,7 +37,7 @@ export function GroupSection({
       data: {kind: 'group', group: block.group},
       // The ungrouped tasks cannot be dragged as a section, but a section can be
       // dropped around them.
-      disabled: {draggable: !named, droppable: false},
+      disabled: {draggable: !named || !!dragDisabled, droppable: false},
     })
   return (
     <section
@@ -46,6 +50,7 @@ export function GroupSection({
           block={block}
           collapsed={collapsed}
           groups={groups}
+          dragDisabled={dragDisabled}
           grip={{ref: setActivatorNodeRef, ...attributes, ...listeners}}
         />
       )}
@@ -68,11 +73,13 @@ function GroupHeader({
   block,
   collapsed,
   groups,
+  dragDisabled,
   grip,
 }: {
   block: Block
   collapsed: boolean
   groups: string[]
+  dragDisabled?: boolean
   grip: ComponentProps<'button'> & {ref?: Ref<HTMLButtonElement>}
 }) {
   const name = block.group
@@ -89,12 +96,13 @@ function GroupHeader({
         taskOver && 'bg-accent-soft text-accent-text ring-1 ring-accent/40',
       )}
     >
-      <Tooltip content="Drag to move the whole group" side="left">
+      <Tooltip content={dragDisabled ? DRAG_OFF : 'Drag to move the whole group'} side="left">
         <button
           type="button"
           aria-label={`Move the group ${name}`}
+          aria-disabled={dragDisabled}
           {...grip}
-          className="flex h-6 w-5 shrink-0 cursor-grab touch-none items-center justify-center rounded-sm text-subtle-foreground opacity-0 outline-none group-hover/hd:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-accent/40 active:cursor-grabbing"
+          className="flex h-6 w-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-sm text-subtle-foreground opacity-0 outline-none group-hover/hd:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-accent/40 active:cursor-grabbing aria-disabled:cursor-not-allowed"
         >
           <GripVertical className="size-3.5" />
         </button>

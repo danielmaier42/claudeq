@@ -6,7 +6,7 @@ import {Tooltip} from '@/components/ui/tooltip'
 import {fullTime, relTime} from '@/lib/format'
 import type {TaskTrigger} from '@/lib/types'
 import {cn} from '@/lib/utils'
-import type {FieldErrors, TaskForm} from '../form'
+import {DEFAULT_CRON, withTrigger, type FieldErrors, type TaskForm} from '../form'
 import {useCronCheck} from '../hooks/useCronCheck'
 import {EditorSection} from './parts'
 
@@ -19,6 +19,7 @@ const CRON_FIELDS: [string, string][] = [
 ]
 
 const PRESETS: [string, string][] = [
+  ['Nightly 03:00', DEFAULT_CRON],
   ['Hourly', '0 * * * *'],
   ['Daily 20:00', '0 20 * * *'],
   ['Weekdays 9:00', '0 9 * * 1-5'],
@@ -29,10 +30,12 @@ export function WhenSection({
   form,
   errors,
   update,
+  apply,
 }: {
   form: TaskForm
   errors: FieldErrors
   update: (patch: Partial<TaskForm>) => void
+  apply: (next: TaskForm, touched: (keyof TaskForm)[]) => void
 }) {
   return (
     <EditorSection icon={Clock} title="When">
@@ -41,7 +44,7 @@ export function WhenSection({
         aria-label="Trigger"
         className="self-start"
         value={form.trigger}
-        onValueChange={(trigger) => update({trigger})}
+        onValueChange={(trigger) => apply(withTrigger(form, trigger), ['trigger', 'cron'])}
         options={[
           {
             value: 'asap',
@@ -127,7 +130,7 @@ function CronField({value, error, onChange}: {value: string; error?: string; onC
       <Input
         id="te-cron"
         value={value}
-        placeholder="0 20 * * *"
+        placeholder={DEFAULT_CRON}
         spellCheck={false}
         autoComplete="off"
         aria-invalid={!!bad}

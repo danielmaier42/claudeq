@@ -1,7 +1,8 @@
 import {MessageSquareText} from 'lucide-react'
 import {EXAMPLES} from '../feedback'
 
-// The empty chat: what happens to the message, and a few ways to start.
+// The empty chat: what happens to the message, and a few ways to start. The
+// chips are examples, not a menu: picking one only fills the composer.
 export function FeedbackIntro({
   repo,
   maxTurns,
@@ -29,7 +30,8 @@ export function FeedbackIntro({
         )}
         . Nothing reaches GitHub until you file it yourself.
       </p>
-      <div className="mt-5 flex flex-wrap justify-center gap-2">
+      <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+        <span className="text-[12.5px] text-subtle-foreground">For example:</span>
         {EXAMPLES.map((ex) => (
           <button
             key={ex}

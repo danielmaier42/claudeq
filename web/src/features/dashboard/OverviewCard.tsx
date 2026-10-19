@@ -24,7 +24,7 @@ export function OverviewCard({
   children: ReactNode
 }) {
   return (
-    <Card className="flex min-h-[176px] flex-col">
+    <Card className="flex flex-col">
       <div className="flex items-center gap-2 px-4 pt-3.5 pb-2">
         <span className="text-muted-foreground [&_svg]:size-4">{icon}</span>
         <h3 className="text-[13px] font-semibold">{title}</h3>
@@ -38,7 +38,7 @@ export function OverviewCard({
           <ChevronRight className="size-3.5" />
         </button>
       </div>
-      <div className="flex flex-1 flex-col px-2 pb-2">
+      <div className="flex flex-col px-2 pb-2">
         {loading ? (
           <div className="space-y-2 px-2 pt-1">
             <Skeleton className="h-9" />
@@ -86,7 +86,8 @@ export function OverviewRow({
   )
 }
 
-// OverviewEmpty is a tile's quiet line when it has nothing to list.
+// OverviewEmpty is a tile's quiet line when it has nothing to list: one line,
+// so an empty tile takes no more room than its heading needs.
 export function OverviewEmpty({
   icon,
   children,
@@ -97,9 +98,9 @@ export function OverviewEmpty({
   action?: ReactNode
 }) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 py-4 text-center text-[12.5px] text-muted-foreground">
-      {icon && <span className="text-subtle-foreground [&_svg]:size-5">{icon}</span>}
-      <span>{children}</span>
+    <div className="flex min-h-8 items-center gap-2 px-2 text-[12.5px] text-muted-foreground">
+      {icon && <span className="flex text-subtle-foreground [&_svg]:size-4">{icon}</span>}
+      <span className="min-w-0 flex-1">{children}</span>
       {action}
     </div>
   )

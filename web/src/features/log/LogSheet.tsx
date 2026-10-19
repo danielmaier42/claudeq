@@ -49,6 +49,8 @@ export function LogSheet() {
 function RunLogPanel({runId, mode, setMode}: {runId: string; mode: Mode; setMode: (m: Mode) => void}) {
   const {run, live, log, logError, loading} = useRunData(runId)
   const prompt = run?.task?.prompt ?? ''
+  // A script run has a command and its output, not a conversation.
+  const script = run?.task?.kind === 'script' || run?.provider?.kind === 'script'
   const entries = useMemo(() => parseLog(log ?? ''), [log])
   const {
     ref: bodyRef,
@@ -70,13 +72,17 @@ function RunLogPanel({runId, mode, setMode}: {runId: string; mode: Mode; setMode
               value={mode}
               onValueChange={setMode}
               options={[
-                {value: 'chat', label: 'Chat', tip: 'The conversation, with tool calls folded'},
+                script
+                  ? {value: 'chat', label: 'Output', tip: 'The script and what it printed'}
+                  : {value: 'chat', label: 'Chat', tip: 'The conversation, with tool calls folded'},
                 {value: 'raw', label: 'Raw', tip: 'The log file exactly as the run wrote it'},
               ]}
             />
             <CopyButton
               text={() => (mode === 'raw' ? (log ?? '') : chatTranscript(prompt, entries))}
-              label={mode === 'raw' ? 'Copy the raw log' : 'Copy the conversation'}
+              label={
+                mode === 'raw' ? 'Copy the raw log' : script ? 'Copy the output' : 'Copy the conversation'
+              }
             />
           </>
         }
@@ -112,7 +118,12 @@ function RunLogPanel({runId, mode, setMode}: {runId: string; mode: Mode; setMode
               }
             />
           ) : (
-            <ChatLog prompt={prompt} entries={entries} live={live} />
+            <ChatLog
+              prompt={prompt}
+              entries={entries}
+              live={live}
+              promptTitle={script ? 'Script' : 'Prompt'}
+            />
           )}
           {live && log !== undefined && (
             <div className="mx-auto mt-4 flex max-w-[820px] items-center gap-2 text-[12px] text-muted-foreground">

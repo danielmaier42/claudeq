@@ -7,7 +7,7 @@ import {Segmented} from '@/components/ui/segmented'
 import {setLogFilters} from '../filters-store'
 import type {FilterMenus, LogFilters, Show} from '../runs'
 
-// The filter row under the Log's title: search and the All | Running switch
+// The filter row under the Log's title: search and the All | Running | Failed switch
 // stay in sight, the menus (filled from the runs there are) and the days sit
 // behind the Filter button, and whatever is set there shows as a chip.
 // `f` is what the list applies: a stale menu choice already fell back to all.
@@ -37,6 +37,11 @@ export function LogToolbar({f, menus}: {f: LogFilters; menus: FilterMenus}) {
         options={[
           {value: '', label: 'All', tip: 'Show every run'},
           {value: 'running', label: 'Running', tip: 'Show only the runs that are executing right now'},
+          {
+            value: 'failed',
+            label: 'Failed',
+            tip: 'Show only the runs that ended in an error, auth errors included',
+          },
         ]}
       />
       <FilterPopover

@@ -1,33 +1,34 @@
-import {Bot, FileText, Terminal} from 'lucide-react'
+import {Bot, FileCode, FileText, MessageSquareText, Terminal} from 'lucide-react'
 import {Field} from '@/components/ui/field'
 import {Input, Textarea} from '@/components/ui/input'
 import {Segmented} from '@/components/ui/segmented'
 import type {TaskKind} from '@/lib/types'
 import type {FieldErrors, TaskForm} from '../form'
 import {PromptReview} from '../review/PromptReview'
+import {GroupCombobox} from './GroupCombobox'
 import {EditorSection} from './parts'
 
 const mono = 'font-mono text-[12.5px]'
 
+// WhatSection names the task, files it in a group and picks the job type. The
+// prompt itself has its own section further down, so the trigger (When) sits
+// right below this one and is in view without scrolling.
 export function WhatSection({
   form,
   errors,
   update,
   setKind,
   autoFocusName,
-  freshReview,
 }: {
   form: TaskForm
   errors: FieldErrors
   update: (patch: Partial<TaskForm>) => void
   setKind: (k: TaskKind) => void
   autoFocusName: boolean
-  freshReview: boolean
 }) {
-  const script = form.kind === 'script'
   return (
     <EditorSection icon={FileText} title="What">
-      <div className="grid grid-cols-[1fr_auto] items-end gap-3">
+      <div className="grid grid-cols-[1fr_10rem_auto] items-start gap-3">
         <Field label="Name" htmlFor="te-name" error={errors.name}>
           <Input
             id="te-name"
@@ -36,6 +37,14 @@ export function WhatSection({
             autoFocus={autoFocusName}
             autoComplete="off"
             onChange={(e) => update({name: e.target.value})}
+          />
+        </Field>
+        <Field label="Group" htmlFor="te-group" error={errors.group}>
+          <GroupCombobox
+            id="te-group"
+            value={form.group}
+            invalid={!!errors.group}
+            onChange={(group) => update({group})}
           />
         </Field>
         <Field label="Job type">
@@ -69,6 +78,24 @@ export function WhatSection({
           />
         </Field>
       </div>
+    </EditorSection>
+  )
+}
+
+export function PromptSection({
+  form,
+  errors,
+  update,
+  freshReview,
+}: {
+  form: TaskForm
+  errors: FieldErrors
+  update: (patch: Partial<TaskForm>) => void
+  freshReview: boolean
+}) {
+  const script = form.kind === 'script'
+  return (
+    <EditorSection icon={script ? FileCode : MessageSquareText} title={script ? 'Script' : 'Prompt'}>
       {script && (
         <p className="rounded-md bg-surface-2 px-3 py-2 text-[12px] leading-relaxed text-muted-foreground">
           Runs without a model: no provider, no usage, and a rate limit never holds it up. Start it with a
@@ -78,9 +105,10 @@ export function WhatSection({
           jobs with <code className={mono}>"$CLAUDEQ_BIN" queue --prompt …</code>.
         </p>
       )}
-      <Field label={script ? 'Script' : 'Prompt'} htmlFor="te-prompt" error={errors.prompt}>
+      <Field htmlFor="te-prompt" error={errors.prompt}>
         <Textarea
           id="te-prompt"
+          aria-label={script ? 'Script' : 'Prompt'}
           value={form.prompt}
           aria-invalid={!!errors.prompt}
           spellCheck={!script}

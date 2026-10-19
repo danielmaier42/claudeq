@@ -61,3 +61,12 @@ export function holdText(t: QueueTask): string {
   if (t.waiting_for?.length) return `Waits for ${t.waiting_for.join(', ')}`
   return ''
 }
+
+export type CardId = 'failed' | 'next' | 'running' | 'week'
+
+// cardOrder puts what needs action first: failures lead while there are any,
+// then what starts next, what runs, and the week's tally. Without failures
+// their card says so last, where a quiet "all clear" belongs.
+export function cardOrder(failures: number): CardId[] {
+  return failures > 0 ? ['failed', 'next', 'running', 'week'] : ['next', 'running', 'week', 'failed']
+}

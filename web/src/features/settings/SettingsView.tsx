@@ -53,10 +53,7 @@ export function SettingsView() {
   const def = sections.find((s) => s.id === current) ?? sections[0]
 
   return (
-    <ViewLayout
-      title="Settings"
-      subtitle="Changes to switches and pickers apply at once; typed text waits for Save"
-    >
+    <ViewLayout title="Settings">
       <div className="flex flex-col gap-6 md:flex-row md:gap-8">
         <nav className="shrink-0 md:w-48">
           <SettingsNav sections={sections} current={current} marks={marks} onSelect={setSection} />

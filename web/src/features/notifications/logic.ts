@@ -18,6 +18,18 @@ export const shortTitle = (t: string) =>
     .replace(/^ClaudeQ\s*:?\s*/, '')
     .replace(/^(?:✓|✗|📄)\s*/u, '')
 
+// The daemon attributes a message to its task for the channels outside the
+// app ("Report · from nightly", or a last line "· from nightly"). The row
+// shows the task's name beside the title, so in here that is said twice.
+export function shortMessage(message: string, taskName?: string): string {
+  if (!taskName) return message
+  const from = `·\\s*from\\s+${taskName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`
+  return message
+    .replace(new RegExp(`(?:^|\\n)\\s*${from}\\s*$`), '')
+    .replace(new RegExp(`\\s+${from}(?=\\n|$)`), '')
+    .trim()
+}
+
 export interface NotificationFilters {
   query: string
   unread: boolean

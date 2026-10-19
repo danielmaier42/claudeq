@@ -1,7 +1,11 @@
 import {describe, expect, it} from 'vitest'
-import type {QueueTask} from '@/lib/types'
+import type {QueueTask, RunStatus} from '@/lib/types'
 import {buildBlocks, moveGroup, placeTask, sameOrder, waitedFor} from './queue-model'
-import {describeCron} from './schedule'
+import {matchesWords} from '@/lib/search'
+import {lastOutcome} from './outcome'
+import {searchTexts} from './TaskChips'
+import type {QueueContext} from './use-queue-context'
+import {describeCron, nextRunText} from './schedule'
 
 const task = (id: string, group = '', enabled = true) =>
   ({
@@ -82,11 +86,80 @@ describe('describeCron', () => {
     ['0 9,17 * * *', 'Every day at 09:00 and 17:00'],
     ['0 6 1 * *', 'Monthly on the 1st at 06:00'],
     ['0 6 22 * *', 'Monthly on the 22nd at 06:00'],
+    ['0 4 1 * *', 'Monthly on the 1st at 04:00'],
+    ['0 0 1 1 *', 'Yearly on 1 Jan at 00:00'],
+    ['30 7 24 DEC *', 'Yearly on 24 Dec at 07:30'],
+    ['0 0 31 2 *', null],
+    ['0 0 29 2 *', 'Yearly on 29 Feb at 00:00'],
   ])('%s', (expr, want) => expect(describeCron(expr)).toBe(want))
 
   it('gives up on what it cannot say simply', () => {
-    expect(describeCron('0 3 1 1 *')).toBeNull()
+    expect(describeCron('0 3 * 1 *')).toBeNull()
+    expect(describeCron('0 3 1 1-3 *')).toBeNull()
+    expect(describeCron('0 3 1 13 *')).toBeNull()
+    expect(describeCron('0 3 1 1 1')).toBeNull()
     expect(describeCron('*/5 9-17 * * 1-5')).toBeNull()
     expect(describeCron('bogus')).toBeNull()
+  })
+})
+
+describe('nextRunText', () => {
+  const now = new Date(2026, 9, 19, 12, 0).getTime()
+  it('is relative within the week', () => {
+    expect(nextRunText(new Date(2026, 9, 20, 12, 0).toISOString(), now)).toBe('in 1 d')
+  })
+  it('spells out a far date as day month year', () => {
+    expect(nextRunText(new Date(2027, 0, 1, 0, 0).toISOString(), now)).toBe('1 Jan 2027')
+  })
+})
+
+describe('lastOutcome', () => {
+  const now = Date.parse('2026-10-19T12:00:00Z')
+  it('says how the last run ended and when', () => {
+    const run = (status: RunStatus, finished?: string) => ({
+      run_id: 'r1',
+      status,
+      started_at: '2026-10-19T10:30:00Z',
+      finished_at: finished,
+    })
+    expect(lastOutcome(run('failed', '2026-10-19T11:00:00Z'), now)).toEqual({
+      runId: 'r1',
+      tone: 'danger',
+      text: 'last: failed 1 h ago',
+      quiet: false,
+    })
+    expect(lastOutcome(run('success'), now)).toEqual({
+      runId: 'r1',
+      tone: 'success',
+      text: 'last: succeeded 1 h ago',
+      quiet: true,
+    })
+  })
+  it('stays out of the way for a task that never ran or is running', () => {
+    expect(lastOutcome(undefined, now)).toBeNull()
+    expect(lastOutcome({run_id: 'r3', status: 'running', started_at: '2026-10-19T11:59:00Z'}, now)).toBeNull()
+  })
+})
+
+describe('searchTexts', () => {
+  const ctx = {
+    runsOn: () => 'Claude Code · Opus',
+    beta: () => null,
+    liveRun: () => undefined,
+    lastRun: () => undefined,
+    limitedUntil: undefined,
+  } satisfies QueueContext
+  it('covers name, group, provider, schedule and chips', () => {
+    const t = {
+      ...task('nightly', 'Ops'),
+      trigger: 'cron',
+      cron: '0 3 * * *',
+      parallel: true,
+      enabled: false,
+    } as QueueTask
+    const texts = searchTexts(t, ctx)
+    for (const q of ['nightly', 'ops', 'opus', 'every day at 03', 'parallel', 'paused'])
+      expect(matchesWords(q, ...texts), q).toBe(true)
+    expect(matchesWords('script', ...texts)).toBe(false)
   })
 })

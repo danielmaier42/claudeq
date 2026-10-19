@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest'
 import type {AppNotification} from '@/lib/types'
-import {kindOptions, NO_FILTERS, shortTitle, shown, targetLabel} from './logic'
+import {kindOptions, NO_FILTERS, shortMessage, shortTitle, shown, targetLabel} from './logic'
 
 const note = (p: Partial<AppNotification>): AppNotification => ({
   id: 'n',
@@ -49,5 +49,21 @@ describe('targetLabel', () => {
     expect(targetLabel(note({artifact_id: 'a', run_id: 'r'}))).toBe('Opens the artifact')
     expect(targetLabel(note({run_id: 'r'}))).toBe('Opens the run’s log')
     expect(targetLabel(note({}))).toBe('')
+  })
+})
+
+describe('shortMessage', () => {
+  it('drops the attribution to the task the row already names', () => {
+    expect(shortMessage('Report.md · from nightly (v2)\nWeekly numbers', 'nightly (v2)')).toBe(
+      'Report.md\nWeekly numbers',
+    )
+    expect(shortMessage('Deploy done\n· from nightly (v2)', 'nightly (v2)')).toBe('Deploy done')
+    expect(shortMessage('· from nightly', 'nightly')).toBe('')
+  })
+
+  it('leaves other text alone', () => {
+    expect(shortMessage('Copied from nightly backup', 'nightly')).toBe('Copied from nightly backup')
+    expect(shortMessage('Done · from other', 'nightly')).toBe('Done · from other')
+    expect(shortMessage('Done · from nightly', undefined)).toBe('Done · from nightly')
   })
 })

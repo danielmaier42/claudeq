@@ -2,7 +2,7 @@ import {CalendarClock, Repeat, Zap} from 'lucide-react'
 import {Tooltip} from '@/components/ui/tooltip'
 import {fullTime, relTime} from '@/lib/format'
 import type {QueueTask} from '@/lib/types'
-import {describeSchedule} from './schedule'
+import {describeSchedule, nextRunText} from './schedule'
 
 // Hover text for a repeating task: the expression, when it runs next, and when
 // it last ran (never, until it actually has).
@@ -30,7 +30,7 @@ export function ScheduleText({task: t}: {task: QueueTask}) {
         <Icon className="size-3.5 shrink-0 text-subtle-foreground" />
         <span className="truncate">{describeSchedule(t)}</span>
         {t.trigger === 'cron' && t.next_run && t.enabled && (
-          <span className="shrink-0 text-subtle-foreground">· next {relTime(t.next_run)}</span>
+          <span className="shrink-0 text-subtle-foreground">· next {nextRunText(t.next_run)}</span>
         )}
       </span>
     </Tooltip>

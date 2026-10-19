@@ -17,6 +17,15 @@ export const METRICS: MetricDef[] = [
   {id: 'cost', label: 'API-equiv. cost', value: (d) => d.cost_usd, fmt: (n) => usd(n)},
 ]
 
+// emptyText is the chart's line for a period without any of the chosen
+// measure, in place of an axis that would run from 0 to 1 over nothing.
+const EMPTY: Record<Metric, string> = {
+  tokens: 'No tokens recorded in this period',
+  runs: 'No runs in this period',
+  cost: 'No cost recorded in this period',
+}
+export const emptyText = (m: Metric) => EMPTY[m]
+
 export const metricDef = (m: Metric) => METRICS.find((x) => x.id === m) ?? METRICS[0]
 
 export function fmtTokens(n: number): string {

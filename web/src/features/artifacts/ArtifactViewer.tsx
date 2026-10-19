@@ -200,7 +200,7 @@ function ViewerHeader({
 }
 
 // The footer offers what is left to do with the artifact: delete it, or pick
-// up the chat that published it.
+// up the chat that published it. Closing is the X and Esc, not a button here.
 function ViewerFooter({a, after}: {a: Artifact; after: string | null}) {
   const run = useRuns().data?.find((r) => r.run_id === a.run_id)
   const [continuing, setContinuing] = useState(false)
@@ -239,9 +239,6 @@ function ViewerFooter({a, after}: {a: Artifact; after: string | null}) {
             </Button>
           </Tooltip>
         )}
-        <Button variant="primary" onClick={closeArtifact}>
-          Done
-        </Button>
       </div>
     </DialogFooter>
   )

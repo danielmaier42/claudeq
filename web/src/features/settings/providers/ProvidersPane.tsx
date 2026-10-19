@@ -11,6 +11,7 @@ import {errorMessage} from '@/lib/api'
 import {useBeta} from '@/lib/providers'
 import {useLimits, useProviders} from '@/lib/queries'
 import {AddProviderDialog} from './AddProviderDialog'
+import {BackfillSection} from './BackfillSection'
 import {ProviderCard} from './ProviderCard'
 import {byName, groupByKind} from './provider-logic'
 
@@ -87,6 +88,7 @@ export function ProvidersPane() {
               </div>
             </div>
           ))}
+          <BackfillSection providers={list} />
         </div>
       )}
       <AddProviderDialog open={adding} onOpenChange={setAdding} />

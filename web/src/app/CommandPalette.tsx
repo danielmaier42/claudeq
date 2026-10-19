@@ -122,7 +122,7 @@ export function CommandPalette() {
                         onClick={(e) => {
                           e.stopPropagation()
                           setPaletteOpen(false)
-                          void runNow(t)
+                          void runNow(t, {follow: true})
                         }}
                       >
                         Run now

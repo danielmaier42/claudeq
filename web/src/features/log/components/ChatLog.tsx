@@ -10,11 +10,22 @@ import {ToolSteps} from './ToolSteps'
 
 // ChatLog shows a run as the conversation it was: the prompt, the agent's
 // messages, folded tool activity, claudeq's own remarks and the final result.
-export function ChatLog({prompt, entries, live}: {prompt: string; entries: LogEntry[]; live: boolean}) {
+export function ChatLog({
+  prompt,
+  entries,
+  live,
+  promptTitle = 'Prompt',
+}: {
+  prompt: string
+  entries: LogEntry[]
+  live: boolean
+  // A script run's "prompt" is the script it ran.
+  promptTitle?: string
+}) {
   const last = entries.length - 1
   return (
     <div className="mx-auto flex max-w-[820px] flex-col gap-3">
-      {prompt.trim() && <UserMessage who="You" text={prompt} title="Prompt" />}
+      {prompt.trim() && <UserMessage who="You" text={prompt} title={promptTitle} />}
       {entries.map((e, i) => {
         switch (e.kind) {
           case 'message':

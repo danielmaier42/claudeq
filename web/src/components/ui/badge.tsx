@@ -10,7 +10,7 @@ export const badgeVariants = cva(
         neutral: 'bg-surface-3 text-muted-foreground',
         accent: 'bg-accent-soft text-accent-text',
         success: 'bg-success-soft text-success',
-        warning: 'bg-warning-soft text-[color-mix(in_oklab,var(--warning)_75%,var(--foreground))]',
+        warning: 'bg-warning-soft text-warning-text',
         danger: 'bg-danger-soft text-danger',
         info: 'bg-info-soft text-info',
         ai: 'bg-ai-soft text-ai',

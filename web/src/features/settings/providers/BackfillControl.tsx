@@ -1,9 +1,9 @@
 import {Slider} from '@/components/ui/slider'
 import {Spinner} from '@/components/ui/spinner'
-import {BACKFILL_MAX, BACKFILL_MIN} from './limits'
+import {BACKFILL_MAX, BACKFILL_MIN} from './backfill'
 
-// The backfill threshold is a slider next to the providers it lights up. It
-// applies on release, without Save; while it is held the cards preview which
+// The backfill threshold is a slider above the providers it lights up. It
+// applies on release, without Save; while it is held the rows preview which
 // providers would qualify, and the poll cannot pull it out from under the
 // pointer because the draft wins over what the daemon reports.
 export function BackfillControl({

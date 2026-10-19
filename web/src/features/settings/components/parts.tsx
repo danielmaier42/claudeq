@@ -31,7 +31,7 @@ export function SaveMode({mode, dirty}: {mode: 'instant' | 'draft'; dirty?: bool
       }
     >
       <span className="cursor-default text-[11.5px] text-subtle-foreground">
-        {mode === 'instant' ? 'Applies instantly' : 'Saved with Save'}
+        {mode === 'instant' ? 'Applies instantly' : 'Needs Save'}
       </span>
     </Tooltip>
   )

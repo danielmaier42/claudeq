@@ -5,6 +5,7 @@ import {
   canTakeOver,
   cancelMode,
   emptyFilters,
+  errorLine,
   filterMenus,
   groupWorkflows,
   runMatches,
@@ -56,6 +57,10 @@ describe('runMatches', () => {
     const r = run({task})
     expect(runMatches(r, {...emptyFilters, show: ''})).toBe(true)
     expect(runMatches(r, {...emptyFilters, show: 'running'})).toBe(false)
+    expect(runMatches(r, {...emptyFilters, show: 'failed'})).toBe(false)
+    expect(runMatches(run({status: 'failed'}), {...emptyFilters, show: 'failed'})).toBe(true)
+    expect(runMatches(run({status: 'auth_error'}), {...emptyFilters, show: 'failed'})).toBe(true)
+    expect(runMatches(run({status: 'canceled'}), {...emptyFilters, show: 'failed'})).toBe(false)
     expect(runMatches(r, {...emptyFilters, group: 'Work'})).toBe(true)
     expect(runMatches(run({}), {...emptyFilters, group: ' none'})).toBe(true)
     expect(runMatches(r, {...emptyFilters, from: '2026-10-20'})).toBe(false)
@@ -72,6 +77,29 @@ describe('filterMenus', () => {
     expect(m.tasks.map((t) => t.value)).toEqual(['t1'])
     expect(m.groups.map((g) => g.label)).toEqual(['Work', 'No group'])
     expect(staleChoices({...emptyFilters, status: 'canceled', task: 't1'}, m)).toEqual({status: ''})
+  })
+})
+
+describe('filterMenus with Failed', () => {
+  it('offers only the failed outcomes and drops an outcome the segment hides', () => {
+    const runs = [
+      run({run_id: 'a'}),
+      run({run_id: 'b', status: 'failed'}),
+      run({run_id: 'c', status: 'auth_error'}),
+    ]
+    const f = {...emptyFilters, show: 'failed' as const}
+    const m = filterMenus(runs, f)
+    expect(m.statuses.map((s) => s.value)).toEqual(['auth_error', 'failed'])
+    expect(staleChoices({...f, status: 'success'}, m)).toEqual({status: ''})
+  })
+})
+
+describe('errorLine', () => {
+  it('gives the error of a run that ended badly, on one line', () => {
+    expect(errorLine({status: 'failed', error: 'exit 1:\n  no such file'})).toBe('exit 1: no such file')
+    expect(errorLine({status: 'canceled', error: 'canceled by user'})).toBe('canceled by user')
+    expect(errorLine({status: 'failed'})).toBe('')
+    expect(errorLine({status: 'success', error: 'ignored'})).toBe('')
   })
 })
 

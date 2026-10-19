@@ -34,7 +34,9 @@ const statusMenuLabel: Record<RunStatus, string> = {
   canceled: 'Canceled',
 }
 
-export type Show = '' | 'running'
+// The quick switch next to the search. "Failed" is every run that ended in an
+// error, so an auth error counts as one; the Outcome menu then offers only those.
+export type Show = '' | 'running' | 'failed'
 
 export interface LogFilters {
   query: string
@@ -80,7 +82,21 @@ function haystack(r: Run): string[] {
   ].filter((s): s is string => !!s)
 }
 
-export const showMatch = (r: Run, show: Show) => (show === 'running' ? r.status === 'running' : true)
+const failedStatuses: RunStatus[] = ['failed', 'auth_error']
+
+export function showMatch(r: Run, show: Show): boolean {
+  if (show === 'running') return r.status === 'running'
+  if (show === 'failed') return failedStatuses.includes(r.status)
+  return true
+}
+
+// A run that ended badly says why in its meta line: the reason is what the
+// reader scans the Log for, the folder and harness are not. Empty when there
+// is nothing to say, so the row keeps its usual meta.
+export function errorLine(r: Pick<Run, 'status' | 'error'>): string {
+  if (!['failed', 'auth_error', 'canceled'].includes(r.status)) return ''
+  return r.error?.replace(/\s+/g, ' ').trim() ?? ''
+}
 
 export function runMatches(r: Run, f: LogFilters): boolean {
   return (
@@ -114,7 +130,7 @@ const byLabel = (m: Map<string, string>, noneKey?: string): MenuOption[] =>
     .map(([value, label]) => ({value, label}))
 
 // The menus fill themselves from the runs there are: groups, tasks, providers
-// and outcomes that occur. With "Running" they offer only what the
+// and outcomes that occur. With "Running" or "Failed" they offer only what the
 // segment lets through, and the task menu only offers tasks in the chosen group.
 export function filterMenus(runs: Run[], f: LogFilters): FilterMenus {
   const groups = new Map<string, string>()
@@ -154,6 +170,8 @@ export function staleChoices(f: LogFilters, m: FilterMenus): Partial<LogFilters>
 export function emptyReason(f: LogFilters): string {
   if (f.query.trim()) return `Nothing matches "${f.query.trim()}". Try fewer or different words.`
   if (f.show === 'running') return 'Nothing is running right now. Switch to All to see the rest.'
+  if (f.show === 'failed' && !anyFilter({...f, show: ''}))
+    return 'No run has failed. Switch to All to see the rest.'
   return 'Adjust the date, group, task, provider or outcome filter to see runs.'
 }
 

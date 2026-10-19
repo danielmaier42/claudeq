@@ -1,7 +1,7 @@
 import {Tooltip} from '@/components/ui/tooltip'
 import type {PoolRanking} from '@/lib/types'
 import {cn} from '@/lib/utils'
-import {BACKFILL_MAX, urgencyText} from './limits'
+import {BACKFILL_MAX, urgencyText} from './backfill'
 
 // UrgencyGauge puts a provider's urgency on the threshold's own scale, with
 // the threshold as a tick, so "above it" reads without comparing numbers.

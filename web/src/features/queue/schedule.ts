@@ -1,8 +1,16 @@
-import {clockTime, pad2} from '@/lib/format'
+import {clockTime, pad2, relTime} from '@/lib/format'
 import type {QueueTask} from '@/lib/types'
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const DAY_NAMES = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+// month reads a single month (1-12 or JAN-DEC) into 0-11, or -1.
+function month(s: string): number {
+  const n = num(s)
+  if (!Number.isNaN(n)) return n >= 1 && n <= 12 ? n - 1 : -1
+  return MONTHS.findIndex((m) => m.toUpperCase() === s.toUpperCase())
+}
 
 const num = (s: string) => (/^\d+$/.test(s) ? Number(s) : NaN)
 
@@ -40,16 +48,37 @@ function ordinal(n: number): string {
 }
 
 // describeCron says a five-field cron expression in words ("Weekdays at
-// 09:30", "Every 15 minutes"), or returns null for one it cannot put simply;
-// the row shows the expression itself then.
+// 09:30", "Every 15 minutes", "Yearly on 1 Jan at 00:00"), or returns null for
+// one it cannot put simply; the row shows the expression itself then.
 export function describeCron(expr: string): string | null {
   const f = expr.trim().split(/\s+/)
   if (f.length !== 5) return null
   const [min, hour, dom, mon, dow] = f
-  if (mon !== '*') return null
   const m = num(min)
   const step = (s: string) => (/^\*\/\d+$/.test(s) ? Number(s.slice(2)) : NaN)
 
+  // A month narrows only a fixed day of it, once a year; anything else with a
+  // month in it is left as the expression.
+  if (mon !== '*') {
+    const mo = month(mon)
+    const d = num(dom)
+    const hh = num(hour)
+    // The longest each month gets (February in a leap year): a day past it
+    // never comes, and is left as the expression rather than described.
+    const longest = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    if (
+      mo < 0 ||
+      dow !== '*' ||
+      Number.isNaN(d) ||
+      d < 1 ||
+      d > longest[mo] ||
+      Number.isNaN(m) ||
+      Number.isNaN(hh)
+    )
+      return null
+    if (m > 59 || hh > 23) return null
+    return `Yearly on ${d} ${MONTHS[mo]} at ${pad2(hh)}:${pad2(m)}`
+  }
   if (dom === '*' && dow === '*') {
     if (min === '*' && hour === '*') return 'Every minute'
     if (!Number.isNaN(step(min)) && hour === '*') return `Every ${step(min)} minutes`
@@ -72,6 +101,20 @@ export function describeCron(expr: string): string | null {
     return Number.isNaN(d) ? null : `Monthly on the ${ordinal(d)} ${at}`
   }
   return null
+}
+
+// dayText is a calendar day spelled out so it cannot be misread as month/day
+// ("1 Jan 2027"); withYear false leaves the year off.
+export function dayText(d: Date, withYear = true): string {
+  return `${d.getDate()} ${MONTHS[d.getMonth()]}` + (withYear ? ` ${d.getFullYear()}` : '')
+}
+
+// nextRunText is when a recurring task comes up next: relative while it is
+// within the week, then the day itself.
+export function nextRunText(iso: string, now = Date.now()): string {
+  const d = new Date(iso)
+  if (d.getTime() - now < 7 * 86_400_000) return relTime(d, now)
+  return dayText(d)
 }
 
 // describeSchedule is the row's "when" in words: how the task is triggered.

@@ -14,7 +14,7 @@ import {Tooltip} from '@/components/ui/tooltip'
 import {fullTime, relTime} from '@/lib/format'
 import type {AppNotification} from '@/lib/types'
 import {cn} from '@/lib/utils'
-import {kindLabel, shortTitle, targetLabel} from './logic'
+import {kindLabel, shortMessage, shortTitle, targetLabel} from './logic'
 import {markNotificationRead, openTarget} from './open-target'
 
 // The icon says at a glance what kind of notification a row is.
@@ -37,22 +37,23 @@ function openNotification(n: AppNotification) {
 
 // One notification as one row: the unread dot, the kind's icon, the title with
 // the message under it, when it was sent and where a click leads; the
-// mark-read eye shows while the pointer or focus is on the row.
+// mark-read eye shows while the pointer or focus is on the row. The whole row
+// opens the notification through a stretched button under the title, so the
+// row holds no button inside a button and the eye stays its own target. The
+// stretched button is what ↑/↓ move between. The icon, the time and the
+// chevron sit above it for their tooltips; a click on them still opens the
+// row, which the row's own handler sees for anything that is not a button.
 export function NotificationRow({n}: {n: AppNotification}) {
   const {icon: Icon, tone} = KIND_LOOK[n.kind] ?? OTHER
   const target = targetLabel(n)
+  const message = shortMessage(n.message, n.task_name)
   return (
     <div
-      role="button"
-      tabIndex={0}
       data-notification-row
-      onClick={() => openNotification(n)}
-      onKeyDown={(e) => {
-        if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return
-        e.preventDefault()
-        openNotification(n)
+      onClick={(e) => {
+        if (!(e.target as Element).closest('button')) openNotification(n)
       }}
-      className="group relative flex cursor-pointer items-start gap-3 px-3 py-2.5 transition-colors outline-none hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset"
+      className="group relative flex cursor-pointer items-start gap-3 px-3 py-2.5 transition-colors focus-within:bg-surface-2 hover:bg-surface-2"
     >
       <div className="flex w-2 shrink-0 justify-center pt-[11px]">
         {n.unread && <span aria-label="Unread" className="size-2 rounded-full bg-accent" />}
@@ -60,7 +61,7 @@ export function NotificationRow({n}: {n: AppNotification}) {
       <Tooltip content={kindLabel(n.kind)}>
         <div
           className={cn(
-            'mt-px flex size-7 shrink-0 items-center justify-center rounded-lg [&_svg]:size-3.5',
+            'relative z-[1] mt-px flex size-7 shrink-0 items-center justify-center rounded-lg [&_svg]:size-3.5',
             tone,
           )}
         >
@@ -69,40 +70,38 @@ export function NotificationRow({n}: {n: AppNotification}) {
       </Tooltip>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
-          <span
+          <button
+            type="button"
+            data-notification-open
+            onClick={() => openNotification(n)}
             className={cn(
-              'min-w-0 truncate text-[13px] leading-5',
+              "min-w-0 truncate text-left text-[13px] leading-5 outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-accent/40 focus-visible:after:ring-inset",
               n.unread ? 'font-semibold' : 'font-medium',
             )}
           >
             {shortTitle(n.title)}
-          </span>
+          </button>
           {n.task_name && (
-            <span className="hidden min-w-0 shrink truncate text-[12px] text-subtle-foreground sm:inline">
-              {n.task_name}
-            </span>
+            <span className="min-w-0 shrink truncate text-[12px] text-subtle-foreground">{n.task_name}</span>
           )}
         </div>
         {/* The message as the notification showed it, line breaks kept, cut
             after a few lines so one long-winded task does not take the page. */}
-        {n.message && (
+        {message && (
           <p className="line-clamp-4 text-[12.5px] leading-[18px] whitespace-pre-line text-muted-foreground">
-            {n.message}
+            {message}
           </p>
         )}
       </div>
       <div className="flex h-7 shrink-0 items-center gap-1">
-        <div className="flex items-center opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+        <div className="relative z-[1] flex items-center opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
           {n.unread && (
             <Tooltip content="Mark read">
               <Button
                 variant="ghost"
                 size="icon-sm"
                 aria-label="Mark read"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  void markNotificationRead(n.id)
-                }}
+                onClick={() => void markNotificationRead(n.id)}
               >
                 <Eye />
               </Button>
@@ -110,13 +109,13 @@ export function NotificationRow({n}: {n: AppNotification}) {
           )}
         </div>
         <Tooltip content={fullTime(n.sent_at)}>
-          <span className="w-16 text-right text-[12px] text-subtle-foreground tabular-nums">
+          <span className="relative z-[1] w-16 text-right text-[12px] text-subtle-foreground tabular-nums">
             {relTime(n.sent_at)}
           </span>
         </Tooltip>
         {target ? (
           <Tooltip content={target}>
-            <span className="flex size-5 items-center justify-center text-subtle-foreground opacity-50 transition-opacity group-hover:opacity-100">
+            <span className="relative z-[1] flex size-5 items-center justify-center text-subtle-foreground opacity-50 transition-opacity group-hover:opacity-100">
               <ChevronRight className="size-4" />
             </span>
           </Tooltip>

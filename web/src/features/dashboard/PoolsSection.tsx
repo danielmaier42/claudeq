@@ -21,7 +21,7 @@ export function PoolsSection() {
           Pools <Badge tone="ai">beta</Badge>
         </span>
       }
-      description="Each run of a pool task goes to the member whose weekly allowance would otherwise expire unused soonest."
+      description="A pool task runs on the member whose weekly allowance would otherwise expire unused soonest."
     >
       <Card className="divide-y divide-border">
         {pools.map((p) => (
@@ -32,55 +32,45 @@ export function PoolsSection() {
   )
 }
 
+// PoolRow is one pool on one line: its name, then its members in the order a
+// run started now would try them, the next one marked.
 function PoolRow({pool}: {pool: Pool}) {
   const ranking = pool.ranking ?? []
   const next = ranking.find((r) => r.tier < 3)
   return (
-    <div className="flex flex-wrap items-start gap-x-6 gap-y-3 px-4 py-3.5">
-      <div className="min-w-[200px] flex-1 basis-[220px]">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[13.5px] font-semibold">{pool.name || pool.id}</span>
-          <Badge tone="outline">Pool</Badge>
-        </div>
-        <p className="mt-1 text-[12.5px] text-muted-foreground">
-          {next ? (
-            <>
-              Next run goes to <span className="font-medium text-foreground">{next.name}</span>
-            </>
-          ) : (
-            <span className="text-[color-mix(in_oklab,var(--warning)_75%,var(--foreground))]">
-              No member can take work right now
-            </span>
-          )}
-        </p>
-      </div>
-      <ol className="min-w-[300px] flex-[2] basis-[320px] space-y-1">
+    <div className="flex min-h-10 flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-2">
+      <span className="w-[140px] shrink-0 truncate text-[13px] font-medium">{pool.name || pool.id}</span>
+      <ol className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
         {ranking.map((r, i) => (
-          <MemberRow key={r.provider} r={r} rank={i + 1} next={r === next} />
+          <MemberChip key={r.provider} r={r} rank={i + 1} next={r === next} />
         ))}
       </ol>
+      {!next && (
+        <span className={cn('text-[12px]', 'text-warning-text')}>No member can take work right now</span>
+      )}
     </div>
   )
 }
 
-function MemberRow({r, rank, next}: {r: PoolRanking; rank: number; next: boolean}) {
+function MemberChip({r, rank, next}: {r: PoolRanking; rank: number; next: boolean}) {
   // Nearly out (tier 2) or unable to take work (tier 3) go to the back.
   const back = r.tier >= 2
   return (
-    <li
-      className={cn(
-        'flex items-center gap-2.5 rounded-md px-2 py-1 text-[13px]',
-        next && 'bg-accent-soft',
-        back && 'text-muted-foreground',
-      )}
-    >
-      <span className="w-4 text-right text-[11.5px] text-subtle-foreground tabular-nums">{rank}</span>
-      <span className={cn('truncate', next && 'font-medium')}>{r.name}</span>
-      {next && <ArrowRight className="size-3.5 shrink-0 text-accent-text" aria-label="next" />}
-      <span className="ml-auto truncate text-[12px] text-muted-foreground">{r.note}</span>
-      <Tooltip content="Weight: how large its plan is next to the others'.">
-        <span className="shrink-0 text-[12px] text-subtle-foreground tabular-nums">
-          {fmtWeight(r.weight)}
+    <li>
+      <Tooltip
+        content={`${next ? 'Next run goes here. ' : ''}${r.note ? `${r.note}. ` : ''}Weight ${fmtWeight(r.weight)}: how large its plan is next to the others'.`}
+      >
+        <span
+          tabIndex={0}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-0.5 text-[12.5px] outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
+            next && 'border-transparent bg-accent-soft font-medium text-accent-text',
+            back && 'text-muted-foreground',
+          )}
+        >
+          <span className="text-[11px] text-subtle-foreground tabular-nums">{rank}</span>
+          {r.name}
+          {next && <ArrowRight className="size-3" aria-label="next" />}
         </span>
       </Tooltip>
     </li>

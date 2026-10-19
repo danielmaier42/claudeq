@@ -166,7 +166,8 @@ export function NotificationsView() {
   )
 }
 
-// ↑ and ↓ move between rows, the way an inbox reads; Enter opens the row.
+// ↑ and ↓ move between rows, the way an inbox reads, from the row's open
+// button or its mark-read eye; Enter opens the row.
 function stepFocus(e: KeyboardEvent<HTMLDivElement>) {
   if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
   const row = (e.target as HTMLElement).closest('[data-notification-row]')
@@ -175,7 +176,7 @@ function stepFocus(e: KeyboardEvent<HTMLDivElement>) {
   const to = rows[rows.indexOf(row as HTMLElement) + (e.key === 'ArrowDown' ? 1 : -1)]
   if (!to) return
   e.preventDefault()
-  to.focus()
+  to.querySelector<HTMLElement>('[data-notification-open]')?.focus()
 }
 
 function RowSkeletons() {

@@ -3,7 +3,9 @@ import {Badge, type BadgeTone} from '@/components/ui/badge'
 import {Tooltip} from '@/components/ui/tooltip'
 import {resumeAt, resumeText} from '@/lib/format'
 import type {QueueTask} from '@/lib/types'
+import {lastOutcome} from './outcome'
 import {waitedFor} from './queue-model'
+import {describeSchedule} from './schedule'
 import type {QueueContext} from './use-queue-context'
 
 // The chips that say why a task is not running yet; they sit next to the name.
@@ -112,6 +114,19 @@ export function taskChips(t: QueueTask, ctx: QueueContext): Chip[] {
       tone: 'neutral',
       tip: 'Successful runs stay out of the Log; failures are kept',
     })
+  return out
+}
+
+// searchTexts is what the queue's search looks through for a task: what the
+// row shows, in the words it shows it.
+export function searchTexts(t: QueueTask, ctx: QueueContext): string[] {
+  const out = [t.name, t.group ?? '', describeSchedule(t), t.cron ?? '']
+  if (t.kind !== 'script') out.push(ctx.runsOn(t))
+  if (!t.enabled) out.push('Paused')
+  if (t.running) out.push('Running')
+  const last = lastOutcome(ctx.lastRun(t))
+  if (last) out.push(last.text)
+  for (const c of taskChips(t, ctx)) if (typeof c.label === 'string') out.push(c.label)
   return out
 }
 

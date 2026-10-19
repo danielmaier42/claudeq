@@ -6,6 +6,8 @@ import type {Task, TaskInput, TaskKind, TaskTrigger} from '@/lib/types'
 // runs on one or the other, never both.
 export interface TaskForm {
   name: string
+  // The queue section the task sits in; "" is none.
+  group: string
   kind: TaskKind
   prompt: string
   workingDir: string
@@ -23,8 +25,11 @@ export interface TaskForm {
   backfill: boolean
 }
 
-export type FieldKey = 'name' | 'prompt' | 'workingDir' | 'fixedAt' | 'cron' | 'target'
+export type FieldKey = 'name' | 'group' | 'prompt' | 'workingDir' | 'fixedAt' | 'cron' | 'target'
 export type FieldErrors = Partial<Record<FieldKey, string>>
+
+// The daemon's limit (task.MaxGroupLen): a group name is a section header.
+export const MAX_GROUP_LEN = 60
 
 export const POOL_PREFIX = 'pool:'
 export const poolOf = (target: string) =>
@@ -40,6 +45,7 @@ export function formFromTask(t: Partial<Task>): TaskForm {
   const trigger = t.trigger ?? 'asap'
   return {
     name: t.name ?? '',
+    group: t.group ?? '',
     kind: t.kind === 'script' ? 'script' : 'agent',
     prompt: t.prompt ?? '',
     workingDir: t.working_dir ?? '',
@@ -70,6 +76,16 @@ export function withTarget(f: TaskForm, target: string): TaskForm {
   return {...f, target, model: '', effort: ''}
 }
 
+// A new recurring task starts from the most common schedule rather than an
+// empty field: once a night, while nobody is at the Mac.
+export const DEFAULT_CRON = '0 3 * * *'
+
+// withTrigger switches how the task is triggered; an empty schedule is
+// prefilled so Recurring is never a blank expression to work out.
+export function withTrigger(f: TaskForm, trigger: TaskTrigger): TaskForm {
+  return trigger === 'cron' && !f.cron.trim() ? {...f, trigger, cron: DEFAULT_CRON} : {...f, trigger}
+}
+
 // validate catches what the daemon would refuse anyway, so the reason lands on
 // the field instead of arriving as one line from the server. The cron
 // expression is judged by the daemon itself (useCronCheck), not here.
@@ -77,6 +93,7 @@ export function validate(f: TaskForm): FieldErrors {
   const e: FieldErrors = {}
   if (!f.prompt.trim())
     e.prompt = f.kind === 'script' ? 'Write the script to run.' : 'Tell Claude what to do.'
+  if ([...f.group.trim()].length > MAX_GROUP_LEN) e.group = `At most ${MAX_GROUP_LEN} characters.`
   if (!f.workingDir.trim()) e.workingDir = 'Please choose a working directory.'
   if (f.trigger === 'fixed') {
     if (!f.fixedAt) e.fixedAt = 'Choose when it may start.'
@@ -87,16 +104,8 @@ export function validate(f: TaskForm): FieldErrors {
 
 // Fields a task carries that the editor does not show. An edit keeps them as
 // stored (PUT replaces the whole task), and an add keeps what its caller
-// prefilled — the queue's "add to this group", for instance.
-const CARRIED = [
-  'id',
-  'group',
-  'depends_on',
-  'include_results',
-  'parent_run',
-  'workflow_id',
-  'enabled',
-] as const
+// prefilled.
+const CARRIED = ['id', 'depends_on', 'include_results', 'parent_run', 'workflow_id', 'enabled'] as const
 type Carried = Pick<TaskInput, (typeof CARRIED)[number]>
 
 export function carriedFields(t: Partial<TaskInput> | undefined): Carried {
@@ -109,13 +118,22 @@ export function carriedFields(t: Partial<TaskInput> | undefined): Carried {
 // buildPayload turns the form into the request body. What only an agent job
 // has is left off entirely for a script rather than sent empty: the daemon
 // refuses a script that names any of it.
-export function buildPayload(f: TaskForm, opts: {takesEffort: boolean; carried?: Carried}): TaskInput {
+//
+// keptGroup is the group an edited task had when the editor opened. Left as it
+// was, the group is not sent at all: the daemon then keeps the stored one, so a
+// drag to another group while the editor is open is not undone by saving.
+export function buildPayload(
+  f: TaskForm,
+  opts: {takesEffort: boolean; carried?: Carried; keptGroup?: string},
+): TaskInput {
   const script = f.kind === 'script'
   const pool = poolOf(f.target)
+  const group = f.group.trim()
   return {
     enabled: true,
     ...opts.carried,
     name: f.name.trim(),
+    group: opts.keptGroup !== undefined && group === opts.keptGroup ? undefined : group,
     kind: script ? 'script' : undefined,
     prompt: f.prompt,
     working_dir: f.workingDir.trim(),
@@ -139,6 +157,7 @@ export function buildPayload(f: TaskForm, opts: {takesEffort: boolean; carried?:
 export function fieldForError(message: string): FieldKey | null {
   const m = message.toLowerCase()
   if (/missing (prompt|script)/.test(m)) return 'prompt'
+  if (m.includes('invalid group')) return 'group'
   if (m.includes('working_dir') || m.includes('working directory')) return 'workingDir'
   if (m.includes('fixed_at')) return 'fixedAt'
   if (m.includes('cron') || /\b(minute|hour|day|month|weekday|day of week)\b.*field/.test(m)) return 'cron'

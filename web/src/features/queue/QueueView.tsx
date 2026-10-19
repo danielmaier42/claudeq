@@ -1,9 +1,10 @@
-import {FileUp, ListOrdered, Pause, Plus} from 'lucide-react'
-import {useState} from 'react'
+import {FileUp, ListOrdered, Pause, Plus, SearchX} from 'lucide-react'
+import {useMemo, useState} from 'react'
 import {ViewLayout} from '@/components/layout/view-layout'
 import {Alert} from '@/components/ui/alert'
 import {Button} from '@/components/ui/button'
 import {EmptyState} from '@/components/ui/empty-state'
+import {SearchInput} from '@/components/ui/search-input'
 import {Segmented} from '@/components/ui/segmented'
 import {Skeleton} from '@/components/ui/skeleton'
 import {Tooltip} from '@/components/ui/tooltip'
@@ -11,9 +12,11 @@ import {pickAndImportTask} from '@/features/task-editor/import'
 import {openAddTask} from '@/features/task-editor/store'
 import {errorMessage} from '@/lib/api'
 import {useGroups, useSettings, useTasks} from '@/lib/queries'
+import {matchesWords} from '@/lib/search'
 import {setPaused} from '@/features/settings/actions'
 import {QueueBoard} from './QueueBoard'
-import {setOnlyActive, useQueueFilter} from './store'
+import {setOnlyActive, setQueueQuery, useQueueFilter} from './store'
+import {searchTexts} from './TaskChips'
 import {useQueueContext} from './use-queue-context'
 
 export function QueueView() {
@@ -21,9 +24,17 @@ export function QueueView() {
   const groupsQ = useGroups()
   const paused = !!useSettings().data?.paused
   const onlyActive = useQueueFilter((s) => s.onlyActive)
+  // The raw text goes back into the search field; only matching trims it, or a
+  // space being typed would be taken away under the cursor.
+  const rawQuery = useQueueFilter((s) => s.query)
+  const query = rawQuery.trim()
   const ctx = useQueueContext()
 
   const tasks = tasksQ.data
+  const shown = useMemo(
+    () => (query && tasks ? tasks.filter((t) => matchesWords(query, ...searchTexts(t, ctx))) : tasks),
+    [tasks, query, ctx],
+  )
   // The daemon owns the fold state, so it survives a reload, a restart and
   // the window closing.
   const groups = groupsQ.data ?? []
@@ -40,22 +51,33 @@ export function QueueView() {
               <FileUp /> Import…
             </Button>
           </Tooltip>
-          <Button variant="primary" onClick={() => openAddTask()}>
+          {/* The sidebar carries the primary New task; here it is one more way in. */}
+          <Button variant="secondary" onClick={() => openAddTask()}>
             <Plus /> New task
           </Button>
         </>
       }
       toolbar={
-        <Segmented
-          aria-label="Which tasks to show"
-          value={onlyActive ? 'active' : 'all'}
-          onValueChange={(v) => setOnlyActive(v === 'active')}
-          size="sm"
-          options={[
-            {value: 'all', label: 'All', tip: 'Show every task, paused ones included'},
-            {value: 'active', label: 'Active', tip: 'Hide paused tasks'},
-          ]}
-        />
+        tasks?.length ? (
+          <>
+            <SearchInput
+              hotkey
+              value={rawQuery}
+              onChange={setQueueQuery}
+              placeholder="Search tasks"
+              className="w-60"
+            />
+            <Segmented
+              aria-label="Which tasks to show"
+              value={onlyActive ? 'active' : 'all'}
+              onValueChange={(v) => setOnlyActive(v === 'active')}
+              options={[
+                {value: 'all', label: 'All', tip: 'Show every task, paused ones included'},
+                {value: 'active', label: 'Active', tip: 'Hide paused tasks'},
+              ]}
+            />
+          </>
+        ) : undefined
       }
     >
       {paused && <PausedBanner />}
@@ -83,22 +105,37 @@ export function QueueView() {
             </>
           }
         />
-      ) : onlyActive && !tasks.some((t) => t.enabled) ? (
-        <EmptyState
-          icon={<Pause />}
-          title="No active tasks"
-          description={`All ${tasks.length} task${tasks.length !== 1 ? 's are' : ' is'} paused. Switch the filter to All to see them.`}
-          action={
-            <Button variant="secondary" onClick={() => setOnlyActive(false)}>
-              Show all tasks
-            </Button>
-          }
-        />
+      ) : !shown?.length || (onlyActive && !shown.some((t) => t.enabled)) ? (
+        query ? (
+          <EmptyState
+            icon={<SearchX />}
+            title="No matching tasks"
+            description={`Nothing in the queue matches “${query}”${onlyActive ? ' among the active tasks' : ''}.`}
+            action={
+              <Button variant="secondary" onClick={() => setQueueQuery('')}>
+                Clear search
+              </Button>
+            }
+          />
+        ) : (
+          <EmptyState
+            icon={<Pause />}
+            title="No active tasks"
+            description={`All ${tasks.length} task${tasks.length !== 1 ? 's are' : ' is'} paused. Switch the filter to All to see them.`}
+            action={
+              <Button variant="secondary" onClick={() => setOnlyActive(false)}>
+                Show all tasks
+              </Button>
+            }
+          />
+        )
       ) : (
         <QueueBoard
-          tasks={tasks}
+          tasks={shown}
           onlyActive={onlyActive}
-          collapsed={collapsed}
+          searching={!!query}
+          // A search shows its hits even inside a folded group.
+          collapsed={query ? () => false : collapsed}
           groups={groups.map((g) => g.name)}
           ctx={ctx}
           paused={paused}

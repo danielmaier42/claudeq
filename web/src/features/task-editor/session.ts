@@ -15,6 +15,8 @@ export interface EditorSession {
   submitLabel: string
   initial: TaskForm
   carried: ReturnType<typeof carriedFields>
+  // The edited task's group as it was; see buildPayload.
+  keptGroup?: string
   // Task id for PUT (edit only).
   editId?: string
   // The prompt is new to this Mac and deserves a real review on open; without
@@ -65,10 +67,8 @@ export async function resolveSession(req: TaskEditorRequest): Promise<EditorSess
         description: t.name || t.id,
         submitLabel: 'Save changes',
         initial: formFromTask(t),
-        // The group is left out: the daemon keeps the stored one when a PUT
-        // names none, so a drag to another group while the editor is open is
-        // not undone by saving it.
-        carried: {...carriedFields(t), group: undefined},
+        carried: carriedFields(t),
+        keptGroup: t.group ?? '',
         editId: t.id,
         fresh: false,
       }
@@ -93,7 +93,9 @@ export async function resolveSession(req: TaskEditorRequest): Promise<EditorSess
         title: 'Replay task',
         description: `A new task from the run of ${req.run.task_name || task.name}.`,
         submitLabel: 'Schedule again',
-        initial: formFromTask(task),
+        // A replay starts outside any group, as it always has: the run's group
+        // may be long gone. The Group field puts it into one.
+        initial: {...formFromTask(task), group: ''},
         carried: {},
         fresh: false,
       }
@@ -105,7 +107,8 @@ export async function resolveSession(req: TaskEditorRequest): Promise<EditorSess
         title: 'Import task',
         description: 'Nothing is queued until you add it. Check the prompt and the paths first.',
         submitLabel: 'Add task',
-        initial: formFromTask(task),
+        // A group from another Mac's queue means nothing here.
+        initial: {...formFromTask(task), group: ''},
         carried: {},
         // A prompt written on another Mac is new here even though nobody typed
         // it — reviewed for real once there is a folder to resolve it against.

@@ -12,6 +12,7 @@ import type {Task, TaskKind} from '@/lib/types'
 import {
   buildPayload,
   fieldForError,
+  poolOf,
   validate,
   withKind,
   withTarget,
@@ -22,14 +23,17 @@ import {
 import {checkCron} from '../hooks/useCronCheck'
 import type {EditorSession} from '../session'
 import {closeTaskEditor} from '../store'
+import {triggerSummary} from '../summary'
 import {takesEffort} from '../targets'
+import {useRunsOn} from '@/features/queue/use-queue-context'
 import {AdvancedSection} from './AdvancedSection'
 import {HowSection} from './HowSection'
-import {WhatSection} from './WhatSection'
+import {PromptSection, WhatSection} from './WhatSection'
 import {WhenSection} from './WhenSection'
 import {WhereSection} from './WhereSection'
 
-const FIELD_ORDER: FieldKey[] = ['name', 'prompt', 'workingDir', 'fixedAt', 'cron', 'target']
+// The order the fields appear in, so the first complaint is the one in view.
+const FIELD_ORDER: FieldKey[] = ['name', 'group', 'fixedAt', 'cron', 'prompt', 'workingDir', 'target']
 
 // The reason stays on the field itself; the field is scrolled into view and
 // focused, rather than the reason repeated at the footer.
@@ -50,6 +54,13 @@ export function EditorForm({session, onDirty}: {session: EditorSession; onDirty:
   const pools = usePools().data ?? []
   const beta = useBeta()
   const effort = takesEffort(form.target, providers, pools)
+  // The footer reads the setup back in the words the queue row will use.
+  const runsOn = useRunsOn()
+  const pool = poolOf(form.target)
+  const summary = triggerSummary(
+    form,
+    runsOn({kind: form.kind, pool, provider: pool ? '' : form.target, model: form.model}),
+  )
 
   const dirty = useMemo(
     () => JSON.stringify(form) !== JSON.stringify(session.initial),
@@ -105,7 +116,11 @@ export function EditorForm({session, onDirty}: {session: EditorSession; onDirty:
     if (first) return focusField(first)
 
     setSaving(true)
-    const body = buildPayload(form, {takesEffort: effort, carried: session.carried})
+    const body = buildPayload(form, {
+      takesEffort: effort,
+      carried: session.carried,
+      keptGroup: session.keptGroup,
+    })
     try {
       if (session.editId) {
         await api<Task>('PUT', '/api/tasks/' + encodeURIComponent(session.editId), body)
@@ -154,12 +169,13 @@ export function EditorForm({session, onDirty}: {session: EditorSession; onDirty:
           update={update}
           setKind={setKind}
           autoFocusName={session.mode === 'add'}
-          freshReview={session.fresh}
         />
         <Separator />
-        <WhereSection value={form.workingDir} error={errors.workingDir} hint={dirHint} onChange={setDir} />
+        <WhenSection form={form} errors={errors} update={update} apply={apply} />
         <Separator />
-        <WhenSection form={form} errors={errors} update={update} />
+        <PromptSection form={form} errors={errors} update={update} freshReview={session.fresh} />
+        <Separator />
+        <WhereSection value={form.workingDir} error={errors.workingDir} hint={dirHint} onChange={setDir} />
         <Separator />
         <HowSection
           form={form}
@@ -182,11 +198,16 @@ export function EditorForm({session, onDirty}: {session: EditorSession; onDirty:
         </div>
       )}
       <SheetFooter className="px-6">
-        <span className="mr-auto flex items-center gap-1 text-[12px] text-subtle-foreground">
-          <Kbd>⌘</Kbd>
-          <Kbd>↵</Kbd>
-          <span className="ml-1">to {session.submitLabel.toLowerCase()}</span>
-        </span>
+        <div className="mr-auto flex min-w-0 flex-col gap-1">
+          <p className="truncate text-[12.5px] text-foreground" aria-live="polite">
+            {summary}
+          </p>
+          <span className="flex items-center gap-1 text-[12px] text-subtle-foreground">
+            <Kbd>⌘</Kbd>
+            <Kbd>↵</Kbd>
+            <span className="ml-1">to {session.submitLabel.toLowerCase()}</span>
+          </span>
+        </div>
         <SheetClose asChild>
           <Button type="button" variant="ghost">
             Cancel

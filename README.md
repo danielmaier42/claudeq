@@ -330,31 +330,43 @@ the **command palette** (**⌘K**): type to jump to a view, add or import a task
 pause or resume all runs, switch the appearance, open a task (or run it now)
 or a recent run's log. **⌘1** to **⌘8** switch views in sidebar order. Tasks
 are added and edited in a panel that slides in from the right, so the list stays
-visible; **⌘↵** saves it, and closing it with unsaved changes asks first. The
-window opens on the Dashboard:
+visible. Its sections run What (name, group, job type), When, Prompt or
+Script, Where, How it runs, so the schedule is in view before the long prompt;
+**Group** picks an existing queue group or starts one by typing a name (an edit
+changes the group only when this field is changed). A one-line summary above
+the footer says what saving will do ("Runs every weekday at 07:00 on Claude
+Code · Opus"). **Recurring** starts from `0 3 * * *`, nightly at 03:00, which is
+also the first preset. **⌘↵** saves, and closing with unsaved changes asks
+first. The window opens on the Dashboard:
 
-- **Dashboard** — what needs attention at a glance: four cards for what is
-  **running now** (and runs a rate limit paused, with their resume time), what
-  is **up next** (due tasks first, with the reason a task is held), runs that
-  **failed in the last 24 hours**, and the **last 7 days** (runs, success rate,
-  tokens and cost). Each entry opens its log or its task. Below the cards, how much of each provider's allowance is left: one row per
-  enabled provider with a bar per window (for Claude the 5-hour and the weekly
-  window, for Codex the windows its account has) and when each one resets. Each
-  bar shows the percent left and empties as the window is used; it turns orange
-  at 25% left and red at 10%. Read without spending any usage;
-  see [How much is left](#how-much-is-left) for when and how. Under each
-  provider's name is its **urgency**, how far behind it is on spending its
-  week; a provider above the **backfill threshold** is lit up green, because
-  [backfill tasks](#backfill-tasks) may run on it right now. The threshold is
-  the slider at the top of the list and applies on release, without Save.
-  Below the providers, every [pool](#provider-pools) lists its members in the
-  order a run started now would take them, with the reason and the weight of
-  each, and says which one the next run goes to.
+- **Dashboard** — what needs attention at a glance. On top, the **allowance
+  strip**: one line per enabled provider with its logo, what is left of each
+  window (for Claude the 5-hour and the weekly window, for Codex the windows its
+  account has) and when each resets; a bar turns orange at 25% left and red at
+  10%, and a green *backfill* badge marks a provider above the
+  [backfill threshold](#backfill-tasks). It is read without spending any usage
+  (see [How much is left](#how-much-is-left)); the strip says how old the
+  reading is and **Read now** asks again. An account on an API key has no plan
+  limits and says so plainly. Below it, cards in the order they need action:
+  runs that **failed in the last 24 hours** (first while there are any), what
+  is **up next** (due tasks first, with the reason a task is held), what is
+  **running now** (and runs a rate limit paused, with their resume time), and
+  the **last 7 days** (runs, success rate, tokens and cost). Each entry opens
+  its log or its task; *+N more* opens the Log filtered to failures, or the
+  Queue. Every [pool](#provider-pools) follows on one line, its members in the
+  order a run started now would take them.
 - **Queue** — the pending tasks in priority order. Add, edit, delete, enable/pause,
   reorder, or **run now** (a manual test run, independent of the trigger). Each
   row carries its task's name, its schedule in words (*Every day at 03:00*,
-  *Mondays at 06:30*) and when it is next due, and what it runs on (the provider
-  and the model that provider will use for it). **Run now** and the edit button
+  *Mondays at 06:30*, *Yearly on 1 Jan at 00:00*) and when it is next due (a
+  date once it is more than a week away), what it runs on (the provider and the
+  model that provider will use for it), and how its last run ended — a dot and
+  *last: failed 1 h ago*; clicking it opens that run's log. **⌘F** searches the
+  tasks by name, group, provider or model, schedule and label; groups without a
+  match are hidden, and dragging is off while a search is active. **Run now**
+  keeps you on the Queue; its toast offers **Open log** (from the command
+  palette it opens the log straight away). Enabling or pausing a task with its
+  switch takes effect without a toast. **Run now** and the edit button
   appear when the pointer is on a row; the **…** menu holds the rest, including
   **Move up / Move down** and **Move to group**, so everything dragging does
   also works from the keyboard. The **All / Active** switch in the toolbar hides
@@ -393,13 +405,16 @@ window opens on the Dashboard:
   is reviewed as the program it is, and the sheet hides the provider, model and
   permission settings it cannot have.
   See [The prompt review](#the-prompt-review).
-- **Log** — every run, newest first.
+- **Log** — every run, newest first. A failed or canceled run shows its error
+  under the task name (the whole text on hover).
   Open a run to see the live/finished log as a chat view or raw output, along
   with the prompt. The chat view pairs every tool call with its result and folds
   a run of tool calls into one line, renders the assistant's text with its
   headings, lists and code blocks, follows a live run as it writes (scrolling up
   stops that), and has copy buttons for messages, code and the whole log;
-  the artifacts the run published sit at the top and open in the viewer; a running task can be stopped from there with **Cancel task**
+  the artifacts the run published sit at the top and open in the viewer, and
+  **Edit task** opens the task as it is now in the queue (off once it was
+  deleted). A script run shows its script and **Output | Raw** instead; a running task can be stopped from there with **Cancel task**
   (its process is terminated and the run is recorded as `canceled`); a run the
   rate limit paused shows as **rescheduled** with the time it continues, and
   **Cancel resume** — on the row and in its log view — drops that plan: the
@@ -419,8 +434,9 @@ window opens on the Dashboard:
   after ~30 days; **Show more** loads older runs 25 at a time; and replay a task. Above the list sits the
   same filter bar as in Artifacts: a **search field** (⌘F jumps to it, Escape
   clears it) where every word has to occur somewhere in the run — task, folder,
-  harness, model, group, outcome or error —, **All | Running**
-  (Running shows only the runs executing right now), and **Filter**, which
+  harness, model, group, outcome or error —, **All | Running | Failed**
+  (Running shows only the runs executing right now, Failed the failed ones and
+  auth errors), and **Filter**, which
   holds the queue **group**, the **task**, the **provider**, the **outcome**
   (success, failed, rate limited, …) and the start date (Any time, Today,
   7 days, 30 days, or a From/To day). Its badge counts what is set; each active
@@ -470,7 +486,8 @@ window opens on the Dashboard:
   the title, the message — and when it was sent; the list is grouped by day
   and grows with **Show more** like Artifacts; **↑** and **↓** move between rows. A row does what clicking the macOS notification
   does: it turns read, and what it is about opens — the artifact in the viewer,
-  the run's log, a task's link in the browser. The other way round, clicking a
+  the run's log, a task's link in the browser. A message does not repeat the
+  task's name, which stands next to the title. The other way round, clicking a
   macOS notification marks it read here before it opens its target; a
   notification with no target (a provider's state) lands in this view. Opening
   an artifact or a run's log from its own view also reads the notification
@@ -512,7 +529,7 @@ beta features on, or while a pool exists. An available update puts a red dot on
 Switches, menus and pickers apply the moment they change. Typed text (the
 custom system prompt and the notification channels) waits for the bar that
 appears at the bottom — *Unsaved changes · Discard · Save*, or **⌘S** — and every
-group says which of the two it does. A section with unsaved text carries a dot
+group says which of the two it does (*Applies instantly* or *Needs Save*). A section with unsaved text carries a dot
 in the list, and leaving Settings keeps the draft for the session.
 
 | Section | Group | Setting | What it does |
@@ -530,7 +547,8 @@ in the list, and leaving Settings keeps the draft for the session.
 | | Pushover | Send to Pushover | Toggle plus API token and user key for phone push. A stored secret shows as *set*, with **Replace** and **Remove**; it is never shown again. |
 | | ntfy | Send to ntfy | Toggle, server (empty = ntfy.sh), topic, and an optional access token for a protected topic. |
 | | Webhook | Post to a webhook | Toggle, endpoint URL, and a JSON body template using `{{title}}`, `{{message}}`, `{{url}}` (empty = ClaudeQ's own body). |
-| **Providers** | One card per provider | Its settings | Name and type, a health dot with **Check**, its current limits (the same bars as the Dashboard, when the harness reports any), the binary and configuration directory in use, the default model, and the provider that takes over when the limit is reached (and the model it uses). The switch turns it on or off at once; **Edit** opens a dialog that saves that provider alone; **Make default** and **Remove** sit in its **…** menu. See [Providers](#providers). |
+| **Providers** | Backfill threshold | Slider | Below the providers: the urgency above which [backfill tasks](#backfill-tasks) run, with each provider's urgency next to it. Applies on release. |
+| | One card per provider | Its settings | Name and type, a health dot with **Check**, its current limits (the same bars as the Dashboard, when the harness reports any), the binary and configuration directory in use, the default model, and the provider that takes over when the limit is reached (and the model it uses). The switch turns it on or off at once; **Edit** opens a dialog that saves that provider alone; **Make default** and **Remove** sit in its **…** menu. See [Providers](#providers). |
 | | | **Add provider** | Only with beta features on: asks for an id, a type, a name and optionally a configuration directory. |
 | **Pools** (beta) | One card per pool | Its settings | Name, members and their weights, which member the next run goes to and why. **Edit** opens a dialog with, per provider of the pool's type, a switch for membership and a weight (empty = the plan size the provider reports, e.g. *auto · 20×*). **Remove** is refused while a task uses the pool. **Add pool** asks for an id, a name and the members. See [Provider pools](#provider-pools). |
 | **Assistant** | Prompt review | Check prompts with Claude | Whether Claude reviews a prompt against this Mac before the task is queued (on by default). |
@@ -1471,9 +1489,10 @@ otherwise expire unused.
 
 At 1, spending evenly from now on uses up exactly what is left; a fresh week
 starts there. At 2 it would take twice that pace, so half of what is left is
-at risk. The Dashboard shows each provider's urgency and lights up the ones
-above the **backfill threshold**, the slider at the top of the provider list
-(0.5 to 5, default 1.5). `claudeq settings --backfill-urgency X` sets the same
+at risk. The Dashboard's allowance strip marks the providers above the **backfill
+threshold**, which is the slider at the bottom of **Settings → Providers** (0.5
+to 5, default 1.5); while it moves, each provider's urgency gauge shows whether
+it would qualify, and it applies on release. `claudeq settings --backfill-urgency X` sets the same
 value.
 
 A backfill task is due by its trigger as usual (once, at a time, or on a cron
@@ -1684,7 +1703,8 @@ Practicalities:
 report or a wish into a GitHub issue without you having to write one.
 
 1. Say what is wrong, or what ClaudeQ should be able to do — in whatever
-   language you think in.
+   language you think in. The page offers a few examples to start from; picking
+   one only fills the message box.
 2. Claude reads it and either asks one short clarifying question (at most twice,
    and only when the report cannot be acted on as it stands) or goes straight to
    a draft. This runs on the provider you chose under Settings → Assistant →

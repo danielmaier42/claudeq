@@ -60,13 +60,6 @@ export function ToggleRow({
 // missing folder, or a provider nobody here matches.
 export function Hint({tone, children}: {tone: 'warning' | 'danger'; children: ReactNode}) {
   return (
-    <p
-      className={cn(
-        'text-[12px]',
-        tone === 'danger' ? 'text-danger' : 'text-[color-mix(in_oklab,var(--warning)_75%,var(--foreground))]',
-      )}
-    >
-      {children}
-    </p>
+    <p className={cn('text-[12px]', tone === 'danger' ? 'text-danger' : 'text-warning-text')}>{children}</p>
   )
 }

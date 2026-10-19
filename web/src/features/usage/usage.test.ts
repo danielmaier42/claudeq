@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {niceTicks, successRate} from './usage'
+import {emptyText, niceTicks, successRate} from './usage'
 
 describe('usage', () => {
   it('niceTicks rounds to 1/2/5 steps and covers the maximum', () => {
@@ -13,5 +13,9 @@ describe('usage', () => {
     const b = {runs: 5, success: 3, failed: 1, cost_usd: 0, input_tokens: 0, output_tokens: 0, duration_ms: 0}
     expect(successRate(b)).toBe(75)
     expect(successRate({...b, success: 0, failed: 0})).toBeNull()
+  })
+  it('emptyText names the chosen measure', () => {
+    expect(emptyText('tokens')).toBe('No tokens recorded in this period')
+    expect(emptyText('runs')).toBe('No runs in this period')
   })
 })

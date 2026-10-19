@@ -61,6 +61,9 @@ export function TaskEditor() {
         aria-busy={!current}
         onEscapeKeyDown={(e) => {
           e.preventDefault()
+          // An open suggestion list (the Group field) takes Escape for itself:
+          // it closes the list, not the editor.
+          if (document.activeElement?.getAttribute('aria-expanded') === 'true') return
           void requestClose()
         }}
         onPointerDownOutside={(e) => {

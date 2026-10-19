@@ -16,7 +16,7 @@ import {ProviderBreakdown} from './ProviderBreakdown'
 import {setUsageRange, useUsageRange} from './store'
 import {UsageChart} from './UsageChart'
 import {UsageSummary} from './UsageSummary'
-import {METRICS, metricDef, type Metric} from './usage'
+import {emptyText, METRICS, metricDef, type Metric} from './usage'
 
 // Usage counts only what claudeq's own runs consumed (tokens recorded per
 // run), not the account's overall usage. The poll keeps it current; the query
@@ -99,10 +99,17 @@ function UsageContent({stats}: {stats: Stats}) {
           />
         }
       >
-        <Card className="px-4 pt-5 pb-3">
-          <UsageChart buckets={buckets} unit={unit} metric={def} />
-          <BucketTable buckets={buckets} unit={unit} />
-        </Card>
+        {total > 0 ? (
+          <Card className="px-4 pt-5 pb-3">
+            <UsageChart buckets={buckets} unit={unit} metric={def} />
+            <BucketTable buckets={buckets} unit={unit} />
+          </Card>
+        ) : (
+          <Card className="flex items-center gap-2 px-4 py-6 text-[12.5px] text-muted-foreground">
+            <ChartNoAxesColumn className="size-4 text-subtle-foreground" />
+            {emptyText(metric)}
+          </Card>
+        )}
       </Section>
       {!!stats.by_provider?.length && <ProviderBreakdown providers={stats.by_provider} period={label} />}
       <p className="text-[12px] text-muted-foreground">
