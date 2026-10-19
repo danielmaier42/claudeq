@@ -1,4 +1,5 @@
-import {Eye, FolderOpen, SearchX} from 'lucide-react'
+import {ArtifactNotifyToggle} from './ArtifactNotifyToggle'
+import {FolderOpen, SearchX} from 'lucide-react'
 import {useMemo, useState} from 'react'
 import {DayHeading, ViewLayout} from '@/components/layout/view-layout'
 import {Alert} from '@/components/ui/alert'
@@ -8,7 +9,6 @@ import {Skeleton} from '@/components/ui/skeleton'
 import {errorMessage} from '@/lib/api'
 import {groupByDay} from '@/lib/format'
 import {useArtifacts} from '@/lib/queries'
-import {markAllArtifactsRead} from './actions'
 import {ArtifactCard} from './ArtifactCard'
 import {ArtifactsToolbar} from './ArtifactsToolbar'
 import {anyFilter, shown, sourceOptions} from './logic'
@@ -25,14 +25,12 @@ export function ArtifactsView() {
   // A new filter starts again from the first batch.
   const [paging, setPaging] = useState({filters, limit: BATCH})
   const limit = paging.filters === filters ? paging.limit : BATCH
-  const [marking, setMarking] = useState(false)
 
   const {groups, origins, group, origin} = useMemo(() => sourceOptions(arts ?? [], filters), [arts, filters])
   const effective = useMemo(() => ({...filters, group, origin}), [filters, group, origin])
   const filtered = useMemo(() => (arts ?? []).filter((a) => shown(a, effective)), [arts, effective])
   const visible = filtered.slice(0, limit)
   const days = groupByDay(visible, (a) => a.published_at)
-  const unread = arts?.filter((a) => a.unread).length ?? 0
   // The viewer steps through the list as it is filtered here.
   const open = (id: string) =>
     openArtifact(
@@ -40,14 +38,8 @@ export function ArtifactsView() {
       filtered.map((a) => a.id),
     )
 
-  const markAll = async () => {
-    setMarking(true)
-    await markAllArtifactsRead()
-    setMarking(false)
-  }
-
   const subtitle = arts?.length
-    ? `${arts.length} artifact${arts.length === 1 ? '' : 's'}${unread ? ` · ${unread} unread` : ''}`
+    ? `${arts.length} artifact${arts.length === 1 ? '' : 's'}`
     : 'Files your tasks publish'
 
   return (
@@ -55,12 +47,7 @@ export function ArtifactsView() {
       title="Artifacts"
       subtitle={subtitle}
       wide
-      actions={
-        <Button onClick={markAll} loading={marking} disabled={!unread}>
-          {!marking && <Eye />}
-          Mark all read
-        </Button>
-      }
+      actions={<ArtifactNotifyToggle />}
       toolbar={
         arts?.length ? (
           <ArtifactsToolbar
@@ -92,9 +79,7 @@ export function ArtifactsView() {
           description={
             filters.query.trim()
               ? `Nothing matches “${filters.query.trim()}”. Try fewer or different words.`
-              : filters.unread
-                ? 'Everything here has been read. Switch to All to see the rest.'
-                : 'Adjust the date, group or parent filter to see artifacts.'
+              : 'Adjust the date, group or parent filter to see artifacts.'
           }
           action={
             <Button variant="secondary" onClick={clearArtifactFilters}>

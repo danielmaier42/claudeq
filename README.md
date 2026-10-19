@@ -393,7 +393,7 @@ window opens on the Dashboard:
   is reviewed as the program it is, and the sheet hides the provider, model and
   permission settings it cannot have.
   See [The prompt review](#the-prompt-review).
-- **Log** — every run, newest first, with an unread badge for new results.
+- **Log** — every run, newest first.
   Open a run to see the live/finished log as a chat view or raw output, along
   with the prompt. The chat view pairs every tool call with its result and folds
   a run of tool calls into one line, renders the assistant's text with its
@@ -416,20 +416,18 @@ window opens on the Dashboard:
   mode the run had (a skip-permissions task resumes with
   `--dangerously-skip-permissions`);
   the button needs the session to still exist — Claude Code prunes old sessions
-  after ~30 days; mark one or
-  all read; **Show more** loads older runs 25 at a time; and replay a task. Above the list sits the
+  after ~30 days; **Show more** loads older runs 25 at a time; and replay a task. Above the list sits the
   same filter bar as in Artifacts: a **search field** (⌘F jumps to it, Escape
   clears it) where every word has to occur somewhere in the run — task, folder,
-  harness, model, group, outcome or error —, **All | Unread | Running**
+  harness, model, group, outcome or error —, **All | Running**
   (Running shows only the runs executing right now), and menus for
   the queue **group**, the **task** and the **outcome** (success, failed, rate
   limited, …), plus a from–to date range. Runs of a *quiet history* task
   appear here only if they did not succeed.
-- **Artifacts** — files your tasks published, newest first, with an unread badge.
+- **Artifacts** — files your tasks published, newest first.
   The list is grouped by day (Today, Yesterday, then the date), one card per
   artifact with an icon and colour for its file type: its title, its
-  description, the file name and size, a type tag, who made it, and when. Unread
-  artifacts have a dot and a bold title. "Who made it" is the parent job when
+  description, the file name and size, a type tag, who made it, and when. "Who made it" is the parent job when
   another job created the publisher (a watcher that filed a review job), else
   the publisher itself; hovering it spells out the whole chain, clicking it
   opens the producing run's log (while that run is still in history). Clicking a card opens the
@@ -440,15 +438,17 @@ window opens on the Dashboard:
   **Open externally**, which hands the file to your
   browser to open or save, and — when the run that published the artifact can
   still be resumed — **Continue in Chat…**, the same interactive resume as in
-  a run's log. Either way, opening an artifact marks it read automatically; the
-  actions to mark one read or delete it (which removes the stored copy) appear
-  when the pointer is on its row, and **Mark all read** in the toolbar does what it says.
+  a run's log. Opening an artifact either way also marks the notification about
+  it read. Deleting one (which removes the stored copy) is on its card while the
+  pointer is there. **Notify me** in the toolbar is the same switch as
+  *Settings → Notifications → Notify about new artifacts*: off, new artifacts
+  arrive here quietly, without a notification.
   Above the list sits a filter bar. It starts with a **search field** (⌘F
   jumps to it, Escape clears it): every word you type has to occur somewhere
   in the artifact — title, description, file name, task, parent, group or
   file type — so "adr 0050" finds the ADR-0050 review and "seo pdf" the PDF
   of the SEO job. Next to it, as in the Log, a from–to date filter; the list
-  shows 25 artifacts at a time with a footer holding the count and **Show more**. **All | Unread** hides everything already opened,
+  shows 25 artifacts at a time with a footer holding the count and **Show more**.
   **All groups** narrows the list to one queue group, and **All parents** to the
   artifacts one top-level job produced, itself or through the jobs it created
   (see [where an artifact comes from](#where-an-artifact-comes-from)). The
@@ -457,7 +457,8 @@ window opens on the Dashboard:
   Clicking the notification of a newly published artifact opens it in the
   viewer over whatever view is showing.
 - **Notifications** — every notification ClaudeQ sent, newest first, with an
-  unread badge: a run's outcome, a new artifact, a provider that stopped or
+  unread badge. It is the one view with a read state; the Log and Artifacts
+  carry no badges, since what matters in them arrives here as well: a run's outcome, a new artifact, a provider that stopped or
   resumed running tasks, and whatever a task said with `claudeq notify`. Each
   row shows the notification as it was shown on screen — a glyph for its kind,
   the title, the message — and when it was sent; the list is grouped by day
@@ -516,7 +517,7 @@ in the list, and leaving Settings keeps the draft for the session.
 | | | Keep run history | How many runs (and their logs) to retain before pruning (default 500; Unlimited keeps everything). |
 | | Scheduler | Check for due tasks every | How often the daemon wakes to look for work (15 min – 6 h; also the wake safety-net interval). |
 | **Notifications** | On this Mac | Keep alerts on screen | Opens System Settings → Notifications, where ClaudeQ's alert style lives: *Banners* disappear on their own, *Alerts* stay until you click them. A warning sits on top while macOS hides ClaudeQ's notifications. |
-| | | Notify about new artifacts | On by default. Off: a published artifact still lands in Artifacts with its unread flag, but raises no notification on any channel and no entry in Notifications. Switching it back on does not announce what was published in the meantime. |
+| | | Notify about new artifacts | On by default; the same switch sits as **Notify me** in the Artifacts toolbar. Off: a published artifact still lands in Artifacts, but raises no notification on any channel and no entry in Notifications. Switching it back on does not announce what was published in the meantime. |
 | | Pushover | Send to Pushover | Toggle plus API token and user key for phone push. A stored secret shows as *set*, with **Replace** and **Remove**; it is never shown again. |
 | | ntfy | Send to ntfy | Toggle, server (empty = ntfy.sh), topic, and an optional access token for a protected topic. |
 | | Webhook | Post to a webhook | Toggle, endpoint URL, and a JSON body template using `{{title}}`, `{{message}}`, `{{url}}` (empty = ClaudeQ's own body). |

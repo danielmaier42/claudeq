@@ -1,5 +1,4 @@
 import {Workflow} from 'lucide-react'
-import {Badge} from '@/components/ui/badge'
 import {relTime} from '@/lib/format'
 import type {WorkflowRun} from '../runs'
 import {RunRow} from './RunRow'
@@ -15,7 +14,6 @@ export function WorkflowGroup({
   showProvider: boolean
   limitedUntil?: string
 }) {
-  const unread = runs.filter((w) => w.run.unread).length
   const last = runs[runs.length - 1].run
   return (
     <div className="bg-surface-2/50">
@@ -26,7 +24,6 @@ export function WorkflowGroup({
         <span>
           {runs.length} runs · {relTime(last.started_at)}
         </span>
-        {unread > 0 && <Badge tone="accent">{unread} unread</Badge>}
       </div>
       {runs.map((w) => (
         <RunRow

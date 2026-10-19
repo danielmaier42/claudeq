@@ -1,11 +1,11 @@
-import {Eye, ExternalLink, Trash2} from 'lucide-react'
+import {ExternalLink, Trash2} from 'lucide-react'
 import {Button} from '@/components/ui/button'
 import {Tooltip} from '@/components/ui/tooltip'
 import {openRunLog} from '@/features/log/store'
 import {bytes, fullTime, relTime} from '@/lib/format'
 import type {Artifact} from '@/lib/types'
 import {cn} from '@/lib/utils'
-import {deleteArtifact, markArtifactRead, openArtifactExternal} from './actions'
+import {deleteArtifact, openArtifactExternal} from './actions'
 import {FileIcon} from './FileIcon'
 import {extLabel, sourceName} from './logic'
 
@@ -19,18 +19,11 @@ export function ArtifactCard({a, onOpen}: {a: Artifact; onOpen: () => void}) {
     <div
       className={cn(
         'group relative flex min-h-[148px] flex-col rounded-xl border border-border bg-surface p-3.5 shadow-xs transition-[border-color,box-shadow] focus-within:border-accent/60 hover:border-border-strong hover:shadow-sm',
-        a.unread && 'bg-[color-mix(in_oklab,var(--accent)_3%,var(--surface))]',
       )}
     >
       <div className="flex items-start gap-3">
         <div className="relative">
           <FileIcon fileName={a.file_name} contentType={a.content_type} />
-          {a.unread && (
-            <span
-              aria-label="Unread"
-              className="absolute -top-1 -right-1 size-2.5 rounded-full bg-accent ring-2 ring-surface"
-            />
-          )}
         </div>
         <div className="min-w-0 flex-1 pt-0.5">
           <button
@@ -38,29 +31,10 @@ export function ArtifactCard({a, onOpen}: {a: Artifact; onOpen: () => void}) {
             onClick={onOpen}
             className="block w-full text-left outline-none after:absolute after:inset-0 after:rounded-xl after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-accent/40"
           >
-            <span
-              className={cn(
-                'line-clamp-2 text-[13.5px] leading-[19px]',
-                a.unread ? 'font-semibold' : 'font-medium',
-              )}
-            >
-              {a.title}
-            </span>
+            <span className={cn('line-clamp-2 text-[13.5px] leading-[19px]', 'font-medium')}>{a.title}</span>
           </button>
         </div>
         <div className="relative z-[1] -mt-1 -mr-1 flex shrink-0 gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
-          {a.unread && (
-            <Tooltip content="Mark read">
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Mark read"
-                onClick={() => void markArtifactRead(a.id)}
-              >
-                <Eye />
-              </Button>
-            </Tooltip>
-          )}
           <Tooltip content="Open in the default app">
             <Button
               variant="ghost"

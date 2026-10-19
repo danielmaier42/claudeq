@@ -35,17 +35,15 @@ export const groupKey = (a: Artifact) => a.group || NO_GROUP
 
 export interface ArtifactFilters {
   query: string
-  unread: boolean
   group: string
   origin: string
   from: string
   to: string
 }
 
-export const NO_FILTERS: ArtifactFilters = {query: '', unread: false, group: '', origin: '', from: '', to: ''}
+export const NO_FILTERS: ArtifactFilters = {query: '', group: '', origin: '', from: '', to: ''}
 
-export const anyFilter = (f: ArtifactFilters) =>
-  !!(f.query.trim() || f.unread || f.group || f.origin || f.from || f.to)
+export const anyFilter = (f: ArtifactFilters) => !!(f.query.trim() || f.group || f.origin || f.from || f.to)
 
 // Every word of the search has to occur somewhere in the artifact — title,
 // description, file name, task, parent, group or type — so "adr 0050" finds
@@ -68,7 +66,6 @@ export function shown(a: Artifact, f: ArtifactFilters): boolean {
     inDateRange(a.published_at, f.from, f.to) &&
     (!f.group || groupKey(a) === f.group) &&
     (!f.origin || a.origin_id === f.origin) &&
-    (!f.unread || a.unread) &&
     matchesQuery(a, f.query)
   )
 }
@@ -79,14 +76,13 @@ export interface Option {
 }
 
 // sourceOptions fills the group and parent menus from the artifacts there are.
-// With "Unread" they offer only groups and parents with something unread. The
-// parent is the job at the root of the chain that published (a watcher behind
+// The parent is the job at the root of the chain that published (a watcher behind
 // its review job), resolved by the daemon, and the parent menu only offers
 // parents in the chosen group. A choice that no longer matches anything falls
 // back to "all", so the list can never be filtered to nothing by a stale
 // selection.
 export function sourceOptions(arts: Artifact[], f: ArtifactFilters) {
-  const pool = f.unread ? arts.filter((a) => a.unread) : arts
+  const pool = arts
   const groups = new Map<string, string>()
   for (const a of pool) groups.set(groupKey(a), a.group || 'No group')
   const group = f.group && groups.has(f.group) ? f.group : ''

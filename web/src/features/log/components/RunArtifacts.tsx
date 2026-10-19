@@ -23,7 +23,6 @@ export function RunArtifacts({runId}: {runId: string}) {
             onClick={() => openArtifact(a.id, ids)}
             className="inline-flex max-w-64 items-center gap-1.5 rounded-md border border-border bg-surface-2 px-2 py-1 text-[12px] font-medium outline-none hover:bg-surface-3 focus-visible:ring-2 focus-visible:ring-accent/40"
           >
-            {a.unread && <span className="size-1.5 shrink-0 rounded-full bg-accent" />}
             <FileText className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="truncate">{a.title || a.file_name}</span>
           </button>

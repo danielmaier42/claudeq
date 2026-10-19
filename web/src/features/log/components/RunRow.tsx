@@ -1,11 +1,11 @@
-import {CornerDownRight, Eye, FileText, RotateCcw, TimerOff} from 'lucide-react'
+import {CornerDownRight, FileText, RotateCcw, TimerOff} from 'lucide-react'
 import {useState, type MouseEvent, type ReactNode} from 'react'
 import {Button} from '@/components/ui/button'
 import {Tooltip} from '@/components/ui/tooltip'
 import {relTime, resumeAt, resumeText} from '@/lib/format'
 import type {Run} from '@/lib/types'
 import {cn} from '@/lib/utils'
-import {cancelResume, markRunRead, replayRun} from '../actions'
+import {cancelResume, replayRun} from '../actions'
 import {useNow} from '@/hooks/use-now'
 import {runMetrics, runTimeTip} from '../metrics'
 import {runFolder} from '../runs'
@@ -40,9 +40,6 @@ export function RunRow({
       onClick={() => openRunLog(run.run_id)}
       className="group/row relative flex min-h-12 cursor-pointer items-center gap-3 px-3 py-2 transition-colors hover:bg-surface-2/70"
     >
-      <span className="flex w-2 shrink-0 justify-center" aria-hidden>
-        {run.unread && <span className="size-2 rounded-full bg-accent" />}
-      </span>
       {depth > 0 && (
         <CornerDownRight
           className="-mr-1 size-3.5 shrink-0 text-subtle-foreground"
@@ -58,11 +55,10 @@ export function RunRow({
           }}
           className={cn(
             'block max-w-full truncate rounded-sm text-left text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
-            run.unread ? 'font-semibold' : 'font-medium',
+            'font-medium',
           )}
         >
           {run.task_name}
-          {run.unread && <span className="sr-only"> (unread)</span>}
         </button>
         <div className="flex min-w-0 items-center gap-1.5 truncate text-[12px] text-muted-foreground">
           <Tooltip content={[runTimeTip(run, now), ...metrics.detail].join('\n')}>
@@ -134,18 +130,6 @@ function RowActions({run}: {run: Run}) {
           >
             <TimerOff />
             Cancel resume
-          </Button>
-        </Tooltip>
-      )}
-      {run.unread && (
-        <Tooltip content="Mark read">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Mark read"
-            onClick={stop(() => void markRunRead(run.run_id))}
-          >
-            <Eye />
           </Button>
         </Tooltip>
       )}

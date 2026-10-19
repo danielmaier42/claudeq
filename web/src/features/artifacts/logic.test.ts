@@ -51,15 +51,14 @@ describe('shown', () => {
     expect(shown(a, {...NO_FILTERS, query: 'seo pdf'})).toBe(true)
     expect(shown(a, {...NO_FILTERS, query: 'seo html'})).toBe(false)
   })
-  it('filters by group, "no group", parent, unread and date', () => {
-    const a = art({group: 'nightly', origin_id: 'w', unread: true})
+  it('filters by group, "no group", parent and date', () => {
+    const a = art({group: 'nightly', origin_id: 'w'})
     const b = art({id: 'b'})
     expect(shown(a, {...NO_FILTERS, group: 'nightly'})).toBe(true)
     expect(shown(b, {...NO_FILTERS, group: 'nightly'})).toBe(false)
     expect(shown(b, {...NO_FILTERS, group: NO_GROUP})).toBe(true)
     expect(shown(a, {...NO_FILTERS, origin: 'w'})).toBe(true)
     expect(shown(b, {...NO_FILTERS, origin: 'w'})).toBe(false)
-    expect(shown(b, {...NO_FILTERS, unread: true})).toBe(false)
     expect(shown(a, {...NO_FILTERS, from: '2026-10-20'})).toBe(false)
   })
 })
@@ -67,7 +66,7 @@ describe('shown', () => {
 describe('sourceOptions', () => {
   const arts = [
     art({id: '1', group: 'b', origin_id: 'w1', origin_name: 'Watcher'}),
-    art({id: '2', group: 'a', origin_id: 'w2', origin_name: 'Alpha', unread: true}),
+    art({id: '2', group: 'a', origin_id: 'w2', origin_name: 'Alpha'}),
     art({id: '3', origin_id: 'w3', origin_name: 'Loose'}),
   ]
   it('sorts groups by label with "No group" last', () => {
@@ -81,10 +80,6 @@ describe('sourceOptions', () => {
     const o = sourceOptions(arts, {...NO_FILTERS, group: 'gone', origin: 'w9'})
     expect(o.group).toBe('')
     expect(o.origin).toBe('')
-  })
-  it('offers only what is unread under Unread', () => {
-    const o = sourceOptions(arts, {...NO_FILTERS, unread: true})
-    expect(o.groups.map((g) => g.value)).toEqual(['a'])
   })
 })
 

@@ -27,19 +27,6 @@ export async function markRunRead(id: string) {
   }
 }
 
-export async function markAllRunsRead() {
-  const before = queryClient.getQueryData<Run[]>(keys.runs)
-  queryClient.setQueryData<Run[]>(keys.runs, (rs) => rs?.map((r) => ({...r, unread: false})))
-  try {
-    await post('/api/runs/read-all')
-    toast.success('All marked read')
-  } catch (e) {
-    queryClient.setQueryData(keys.runs, before)
-    toast.error('Could not mark all read', {description: errorMessage(e)})
-  }
-  void invalidate(keys.runs)
-}
-
 // The prompt is the one thing the run list leaves out (it is the bulk of that
 // list and no row shows it), so the single run is asked for when it is needed.
 export const fetchRun = (id: string) =>

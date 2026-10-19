@@ -2,7 +2,6 @@ import {X} from 'lucide-react'
 import {Button} from '@/components/ui/button'
 import {DateRange} from '@/components/ui/date-range'
 import {SearchInput} from '@/components/ui/search-input'
-import {Segmented} from '@/components/ui/segmented'
 import {Select} from '@/components/ui/select'
 import {Tooltip} from '@/components/ui/tooltip'
 import {anyFilter, type ArtifactFilters, type Option} from './logic'
@@ -33,15 +32,6 @@ export function ArtifactsToolbar({
         onChange={(query) => setArtifactFilters({query})}
         placeholder="Search artifacts"
         className="w-60"
-      />
-      <Segmented
-        aria-label="Read state"
-        value={filters.unread ? 'unread' : 'all'}
-        onValueChange={(v) => setArtifactFilters({unread: v === 'unread'})}
-        options={[
-          {value: 'all', label: 'All', tip: 'Show every artifact'},
-          {value: 'unread', label: 'Unread', tip: 'Show only the artifacts you have not opened yet'},
-        ]}
       />
       <Tooltip content="Show the artifacts of one queue group">
         <div className="w-40">

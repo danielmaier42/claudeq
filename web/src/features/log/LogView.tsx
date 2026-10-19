@@ -1,13 +1,11 @@
-import {CheckCheck, History, SearchX, WifiOff} from 'lucide-react'
-import {Fragment, useMemo, useState} from 'react'
+import {History, SearchX, WifiOff} from 'lucide-react'
+import {Fragment, useMemo} from 'react'
 import {DayHeading, ViewLayout} from '@/components/layout/view-layout'
 import {Button} from '@/components/ui/button'
 import {EmptyState} from '@/components/ui/empty-state'
 import {Skeleton} from '@/components/ui/skeleton'
-import {Tooltip} from '@/components/ui/tooltip'
 import {groupByDay} from '@/lib/format'
 import {useHealth, useProviders, useRuns} from '@/lib/queries'
-import {markAllRunsRead} from './actions'
 import {LogToolbar} from './components/LogToolbar'
 import {RunRow} from './components/RunRow'
 import {WorkflowGroup} from './components/WorkflowGroup'
@@ -30,7 +28,6 @@ export function LogView() {
   const state = useLogFilters()
   const limitedUntil = useHealth().data?.limited_until || undefined
   const showProvider = (useProviders().data?.length ?? 0) > 1
-  const [marking, setMarking] = useState(false)
 
   const {f, menus} = useMemo(() => {
     const all = runs ?? []
@@ -45,33 +42,12 @@ export function LogView() {
     () => groupByDay(groupWorkflows(filtered.slice(0, state.limit)), entryStart),
     [filtered, state.limit],
   )
-  const unread = runs?.filter((r) => r.unread).length ?? 0
   const shown = Math.min(state.limit, filtered.length)
-
-  const markAll = async () => {
-    setMarking(true)
-    await markAllRunsRead()
-    setMarking(false)
-  }
 
   return (
     <ViewLayout
       title="Log"
-      subtitle={
-        runs?.length
-          ? `${runs.length} run${runs.length === 1 ? '' : 's'}${unread ? ` · ${unread} unread` : ''}`
-          : undefined
-      }
-      actions={
-        <Tooltip content={unread ? 'Mark every run as read' : 'Nothing unread'}>
-          <span>
-            <Button onClick={markAll} loading={marking} disabled={!unread}>
-              <CheckCheck />
-              Mark all read
-            </Button>
-          </span>
-        </Tooltip>
-      }
+      subtitle={runs?.length ? `${runs.length} run${runs.length === 1 ? '' : 's'}` : undefined}
       toolbar={runs?.length ? <LogToolbar f={f} menus={menus} /> : undefined}
     >
       {!runs ? (

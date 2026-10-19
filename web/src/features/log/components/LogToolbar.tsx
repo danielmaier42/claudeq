@@ -7,7 +7,7 @@ import {Select} from '@/components/ui/select'
 import {clearLogFilters, setLogFilters} from '../filters-store'
 import {anyFilter, type FilterMenus, type LogFilters, type MenuOption, type Show} from '../runs'
 
-// The filter row under the Log's title: search and the All | Unread | Running
+// The filter row under the Log's title: search and the All | Running
 // switch first, then the menus (filled from the runs there are) and the days.
 // A menu with a single entry has nothing to choose and stays out of the way.
 // `f` is what the list applies: a stale menu choice already fell back to all.
@@ -27,7 +27,6 @@ export function LogToolbar({f, menus}: {f: LogFilters; menus: FilterMenus}) {
         onValueChange={(show) => setLogFilters({show})}
         options={[
           {value: '', label: 'All', tip: 'Show every run'},
-          {value: 'unread', label: 'Unread', tip: 'Show only the runs you have not looked at yet'},
           {value: 'running', label: 'Running', tip: 'Show only the runs that are executing right now'},
         ]}
       />

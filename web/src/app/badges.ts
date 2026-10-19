@@ -1,18 +1,15 @@
-import {useArtifacts, useNotifications, useRuns, useUpdate} from '@/lib/queries'
+import {useNotifications, useUpdate} from '@/lib/queries'
 import type {ViewId} from './nav'
 
-// useBadges counts what is waiting behind each sidebar entry: unread runs,
-// artifacts and notifications, and an update that is ready.
+// useBadges counts what is waiting behind a sidebar entry. Only Notifications
+// keeps a read state worth counting: a run or an artifact that matters arrives
+// there too, so the Log and Artifacts stay quiet lists. Settings shows a ready
+// update.
 export function useBadges(): Partial<Record<ViewId, number>> {
-  const runs = useRuns().data
-  const artifacts = useArtifacts().data
   const notes = useNotifications().data
   const update = useUpdate().data
-  const unread = (xs?: {unread: boolean}[]) => xs?.filter((x) => x.unread).length ?? 0
   return {
-    log: unread(runs),
-    artifacts: unread(artifacts),
-    notifications: unread(notes),
+    notifications: notes?.filter((n) => n.unread).length ?? 0,
     settings: update && (update.available || update.restart_required) ? 1 : 0,
   }
 }

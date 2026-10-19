@@ -24,17 +24,6 @@ export async function markArtifactRead(id: string) {
   await invalidate(keys.artifacts)
 }
 
-export async function markAllArtifactsRead() {
-  await patch((arts) => arts.map((a) => ({...a, unread: false})))
-  try {
-    await api('POST', '/api/artifacts/read-all')
-    toast.success('All marked read')
-  } catch (e) {
-    toast.error('Could not mark all read', {description: errorMessage(e)})
-  }
-  await invalidate(keys.artifacts)
-}
-
 // deleteArtifact asks first. onGone runs once the daemon has deleted it and
 // before the list drops it, so the viewer can step away from it in time.
 export async function deleteArtifact(a: Artifact, onGone?: () => void) {

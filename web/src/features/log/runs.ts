@@ -34,7 +34,7 @@ const statusMenuLabel: Record<RunStatus, string> = {
   canceled: 'Canceled',
 }
 
-export type Show = '' | 'unread' | 'running'
+export type Show = '' | 'running'
 
 export interface LogFilters {
   query: string
@@ -80,8 +80,7 @@ function haystack(r: Run): string[] {
   ].filter((s): s is string => !!s)
 }
 
-export const showMatch = (r: Run, show: Show) =>
-  show === 'unread' ? r.unread : show === 'running' ? r.status === 'running' : true
+export const showMatch = (r: Run, show: Show) => (show === 'running' ? r.status === 'running' : true)
 
 export function runMatches(r: Run, f: LogFilters): boolean {
   return (
@@ -115,7 +114,7 @@ const byLabel = (m: Map<string, string>, noneKey?: string): MenuOption[] =>
     .map(([value, label]) => ({value, label}))
 
 // The menus fill themselves from the runs there are: groups, tasks, providers
-// and outcomes that occur. With "Unread" or "Running" they offer only what the
+// and outcomes that occur. With "Running" they offer only what the
 // segment lets through, and the task menu only offers tasks in the chosen group.
 export function filterMenus(runs: Run[], f: LogFilters): FilterMenus {
   const groups = new Map<string, string>()
@@ -154,7 +153,6 @@ export function staleChoices(f: LogFilters, m: FilterMenus): Partial<LogFilters>
 
 export function emptyReason(f: LogFilters): string {
   if (f.query.trim()) return `Nothing matches "${f.query.trim()}". Try fewer or different words.`
-  if (f.show === 'unread') return 'Everything here has been looked at. Switch to All to see the rest.'
   if (f.show === 'running') return 'Nothing is running right now. Switch to All to see the rest.'
   return 'Adjust the date, group, task, provider or outcome filter to see runs.'
 }

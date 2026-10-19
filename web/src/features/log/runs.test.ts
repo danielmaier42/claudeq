@@ -53,8 +53,8 @@ describe('runMatches', () => {
   })
 
   it('applies the segment, the group and the date range', () => {
-    const r = run({unread: true, task})
-    expect(runMatches(r, {...emptyFilters, show: 'unread'})).toBe(true)
+    const r = run({task})
+    expect(runMatches(r, {...emptyFilters, show: ''})).toBe(true)
     expect(runMatches(r, {...emptyFilters, show: 'running'})).toBe(false)
     expect(runMatches(r, {...emptyFilters, group: 'Work'})).toBe(true)
     expect(runMatches(run({}), {...emptyFilters, group: ' none'})).toBe(true)
