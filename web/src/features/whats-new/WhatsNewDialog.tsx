@@ -1,4 +1,3 @@
-import {useQuery} from '@tanstack/react-query'
 import {CheckCircle2, Palette, Search, Sparkles, Tag, Unlock} from 'lucide-react'
 import {useEffect, useState, type ReactNode} from 'react'
 import {Button} from '@/components/ui/button'
@@ -9,20 +8,23 @@ import {Meter} from '@/components/ui/progress'
 import {toast} from '@/components/ui/toaster'
 import {errorMessage, get, post} from '@/lib/api'
 import {invalidate, keys} from '@/lib/queries'
-import type {RenameApplyRequest, RenameApplyResult, RenameCheck, WhatsNewStatus} from '@/lib/types'
+import type {RenameApplyRequest, RenameApplyResult, RenameCheck} from '@/lib/types'
+import {useWhatsNew, useWhatsNewStatus, whatsNewKey} from './store'
 
 // WhatsNewDialog introduces DispatchQ 2.0 once, on the first start after the
-// update from ClaudeQ. From it the operator can have the prompt reviewer check
-// the queue for tasks that still name ClaudeQ and apply the fixes they pick.
+// update from ClaudeQ, and again whenever the command palette asks for it. From
+// it the operator can have the prompt reviewer check the queue for tasks that
+// still name ClaudeQ and apply the fixes they pick.
 export function WhatsNewDialog() {
-  const status = useQuery({queryKey: ['whats-new'], queryFn: () => get<WhatsNewStatus>('/api/whats-new')})
+  const status = useWhatsNewStatus()
   const [closed, setClosed] = useState(false)
   const [check, setCheck] = useState<RenameCheck | null>(null)
   const [migrated, setMigrated] = useState(false)
-  const open = !!status.data?.show && !closed
+  const reopened = useWhatsNew((s) => s.reopened)
+  const open = (!!status.data?.show && !closed) || reopened
 
-  // The dialog is the only place the check is offered, so closing it with
-  // the check still running or its fixes not applied asks first.
+  // Closing with the check still running or its fixes not applied asks first:
+  // a running check's results are lost with the dialog.
   const close = async () => {
     const pending =
       check?.state === 'running' ||
@@ -32,15 +34,19 @@ export function WhatsNewDialog() {
       !(await confirm({
         title: 'Close without migrating?',
         description:
-          'The check is not offered again. A task that still calls ClaudeQ.app fails once the old app is gone; you can still fix it in its task panel.',
+          'A task that still calls ClaudeQ.app runs through a link that a later release removes. The banner at the top offers the check again until it is done.',
         confirmLabel: 'Close',
         cancelLabel: 'Keep open',
       }))
     )
       return
     setClosed(true)
+    useWhatsNew.setState({reopened: false, autoCheck: false})
+    if (!status.data?.show) return
     try {
       await post('/api/whats-new/dismiss')
+      // Closed, the dialog hands over to the banner if the check is still due.
+      invalidate(whatsNewKey)
     } catch (e) {
       toast.error('Could not save that you have seen this', {description: errorMessage(e)})
     }
@@ -58,7 +64,8 @@ export function WhatsNewDialog() {
           <Item icon={<Tag />} title="A new name">
             ClaudeQ is now DispatchQ, with a new icon. Your tasks, run history and settings moved over as they
             were. The command line tool is now <code>dispatchq</code>, in{' '}
-            <code>/Applications/DispatchQ.app/Contents/MacOS</code>.
+            <code>/Applications/DispatchQ.app/Contents/MacOS</code>. The old <code>claudeq</code> path still
+            works through a link, but it is deprecated and goes away in a later release.
           </Item>
           <Item icon={<Palette />} title="A complete redesign">
             The app was rebuilt from the ground up: a Dashboard overview, a command palette (⌘K), shortcuts
@@ -95,6 +102,11 @@ function Item({icon, title, children}: {icon: ReactNode; title: string; children
   )
 }
 
+// fixable selects every finding that comes with a rewrite.
+function fixable(c: RenameCheck) {
+  return new Set(c.findings.filter((f) => f.revised_prompt).map((f) => f.task_id))
+}
+
 // RenameCheckPanel runs the check and lists what it found, each fix selected
 // until the operator deselects it.
 function RenameCheckPanel({
@@ -110,14 +122,44 @@ function RenameCheckPanel({
   const [applying, setApplying] = useState(false)
 
   const running = check?.state === 'running'
+  const done = check?.state === 'done'
+
+  // A check started earlier, or from the banner, is picked up where it is.
+  useEffect(() => {
+    let live = true
+    void (async () => {
+      try {
+        const c = await get<RenameCheck>('/api/rename-check')
+        if (!live) return
+        // The banner asks for a fresh look: tasks may have changed since an
+        // earlier check, so its result is not reused.
+        if (c.state !== 'running' && useWhatsNew.getState().autoCheck) {
+          useWhatsNew.setState({autoCheck: false})
+          setCheck(await post<RenameCheck>('/api/rename-check'))
+          return
+        }
+        setCheck(c)
+        if (c.state === 'done') setSelected(fixable(c))
+      } catch (e) {
+        toast.error('Could not load the check', {description: errorMessage(e)})
+      }
+    })()
+    return () => {
+      live = false
+    }
+  }, [setCheck])
+
+  // A finished check may have settled the banner.
+  useEffect(() => {
+    if (done) invalidate(whatsNewKey)
+  }, [done])
   useEffect(() => {
     if (!running) return
     const t = setInterval(async () => {
       try {
         const c = await get<RenameCheck>('/api/rename-check')
         setCheck(c)
-        if (c.state === 'done')
-          setSelected(new Set(c.findings.filter((f) => f.revised_prompt).map((f) => f.task_id)))
+        if (c.state === 'done') setSelected(fixable(c))
       } catch {
         /* the next poll tries again */
       }
@@ -139,7 +181,7 @@ function RenameCheckPanel({
       const r = await post<RenameApplyResult>('/api/rename-check/apply', {
         task_ids: [...selected],
       } satisfies RenameApplyRequest)
-      invalidate(keys.tasks, keys.settings)
+      invalidate(keys.tasks, keys.settings, whatsNewKey)
       onMigrated()
       setCheck(await get<RenameCheck>('/api/rename-check'))
       setSelected(new Set())
@@ -173,17 +215,18 @@ function RenameCheckPanel({
             reviewer checks every task that mentions ClaudeQ; you choose which fixes to apply.
           </p>
         </div>
-        {(!check || check.state === 'idle' || check.state === 'unavailable') && (
+        {!running && (
           <Button onClick={() => void start()}>
             <Search />
-            Check tasks
+            {done ? 'Check again' : 'Check tasks'}
           </Button>
         )}
       </div>
 
       {check?.state === 'unavailable' && (
         <p className="mt-3 text-muted-foreground">
-          No prompt reviewer is available. Choose one in Settings, then check again.
+          No prompt reviewer is available. Pick a Claude Code or Codex provider under Settings › Assistant ›
+          Prompt review, then check again from the banner at the top.
         </p>
       )}
 

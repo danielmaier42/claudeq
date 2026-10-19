@@ -190,8 +190,8 @@ What the update does:
 
 | ClaudeQ | DispatchQ | How it moves |
 |---------|-----------|--------------|
-| `/Applications/ClaudeQ.app` | `/Applications/DispatchQ.app` | The installer puts the new app in place and moves the old one to your Bin once DispatchQ runs (only a bundle whose id says it is ClaudeQ). Installed with nobody logged in, the old app stays; delete it yourself. |
-| `claudeq`, `claudeqd`, `claudeqapp` | `dispatchq`, `dispatchqd`, `dispatchqapp` | Inside the new app. |
+| `/Applications/ClaudeQ.app` | `/Applications/DispatchQ.app` | The installer puts the new app in place and moves the old one to your Bin once DispatchQ runs (only a bundle whose id says it is ClaudeQ). In its place it leaves a link to `DispatchQ.app`. Installed with nobody logged in, the old app stays; delete it yourself. |
+| `claudeq`, `claudeqd`, `claudeqapp` | `dispatchq`, `dispatchqd`, `dispatchqapp` | Inside the new app. The app also carries `claudeq` as a link to `dispatchq`, so a script that calls `/Applications/ClaudeQ.app/Contents/MacOS/claudeq` keeps working. That path is deprecated: a later release removes both links, so move scripts to the new path (the check below finds them). |
 | LaunchAgent `de.maierdaniel.claudeq` | `de.maierdaniel.dispatchq` | The old agent is booted out, its daemon stopped and its plist removed before the new one starts, so the queue never runs twice. Installed with nobody logged in, DispatchQ does this the first time you open it. |
 | `~/Library/Application Support/claudeq` | `~/Library/Application Support/dispatchq` | Moved on the first start, tasks, history, logs and artifacts included. The old path stays as a link to the new folder, so log paths in the history and scripts that read the old folder keep working. |
 | `/etc/sudoers.d/claudeq` | `/etc/sudoers.d/dispatchq` | Replaced. |
@@ -208,11 +208,17 @@ prompt if it does (a task that never does is skipped and costs nothing) and list
 variable or name the old data folder, each with what it would change. Every
 fix with a rewrite is selected; untick the ones you want to keep as they are
 and click **Migrate**. A task you edited after the check is left alone. A task
-that calls the old CLI by its full path fails once `ClaudeQ.app` is gone, so
-run the check before the next night. Closing the dialog while the check runs
-or before migrating asks first, because the check is not offered again.
+that calls the old CLI still runs through the compatibility link, but the check
+reports it anyway, because the link goes away in a later release. Closing the dialog while the check runs
+or before migrating asks first.
 
-The dialog shows once; a fresh installation that never had ClaudeQ skips it.
+The dialog opens by itself once; a fresh installation that never had ClaudeQ
+skips it. Until the check has run with nothing left to fix, a banner above every
+view says that some tasks still mention ClaudeQ; its **Check tasks** button
+reopens the dialog and starts the check, and its close button hides the banner
+for good. The command palette (⌘K) reopens the dialog too, under **What's new
+in DispatchQ**. The check needs a prompt reviewer that can answer (Claude Code
+or Codex, see [the prompt review](#the-prompt-review)).
 
 Two things do not carry over, because macOS keys them to the app's bundle id:
 the notification permission (macOS asks again) and the window's view
@@ -1697,7 +1703,9 @@ Practicalities:
   directory outside any repository. It reads; it never writes. DispatchQ calls
   this an *aside* — a question it asks a harness on its own behalf rather than
   to do your work — and a provider has to be able to hold one to be offered for
-  it. Claude Code can; Codex cannot yet.
+  it. Claude Code and Codex can; opencode cannot yet. Codex has no switch that
+  removes its tools, so it answers in a read-only sandbox inside that empty
+  directory, with your own Codex config, MCP servers and rules left out.
 - It runs on a change, not on a look. Editing the prompt, choosing a working
   directory or importing a task starts a review from scratch and cancels the one
   still in flight — including its Claude process — so only the newest answer is
@@ -1749,8 +1757,9 @@ limit is exhausted — the page keeps what you typed and lets you write the issu
 by hand.
 
 The chat runs as an *aside* (see [The prompt review](#the-prompt-review)): tools,
-MCP servers, skills and `CLAUDE.md` files all switched off, in an empty
-throwaway directory, so it can neither touch your machine nor pull project
+MCP servers, skills and `CLAUDE.md` files all switched off (on Codex: a
+read-only sandbox without your own Codex config), in an empty throwaway
+directory, so it can neither touch your machine nor pull project
 context into a public issue. Only a provider that can hold such a conversation
 is offered for it. It is told not to put
 personal data (paths, names, addresses, prompt contents) in the issue — and
@@ -1820,7 +1829,7 @@ Everything lives under `~/Library/Application Support/dispatchq` (override with 
 | `artifacts/<id>/<file>` | The published files themselves (snapshots copied at publish time). |
 | `notifications.json` | Outbox of notifications sent with `dispatchq notify`, waiting for the daemon to deliver them (normally empty). |
 | `inbox.json` | The last 200 notifications the daemon sent (title, message, kind, what each points at, read flag), as listed in the Notifications view. |
-| `state.json` | Machine bookkeeping: read/unread flags (runs and artifacts), which artifacts have been notified about, cron anchors, pending-resume sessions, the provider health you were last told about, which queue groups are folded shut, dismissed update version, the What's new edition you closed. |
+| `state.json` | Machine bookkeeping: read/unread flags (runs and artifacts), which artifacts have been notified about, cron anchors, pending-resume sessions, the provider health you were last told about, which queue groups are folded shut, dismissed update version, the What's new edition you closed, whether the ClaudeQ rename check is done. |
 | `dispatchqd.out.log` / `dispatchqd.err.log` | Daemon stdout/stderr. |
 | `../claudeq` | After an update from ClaudeQ: a link from the old data folder to this one (see [Coming from ClaudeQ](#coming-from-claudeq)). |
 | `.lock` / `.daemon.lock` | Lock files, both empty of interest. `.lock` serializes config/state writes between the daemon and a `dispatchq` command; `.daemon.lock` holds the running daemon's pid and is what makes a second daemon on the same store refuse to start. Both are released when the holding process exits, so neither needs clearing by hand. |
@@ -1846,7 +1855,7 @@ It removes:
 | The background agent | `~/Library/LaunchAgents/de.maierdaniel.dispatchq.plist`; every running DispatchQ daemon and window is stopped, and a run in progress is cancelled |
 | The wake permission | `/etc/sudoers.d/dispatchq` |
 | The installer receipt | `pkgutil --forget de.maierdaniel.dispatchq` |
-| What ClaudeQ left | `ClaudeQ.app`, its LaunchAgent `de.maierdaniel.claudeq`, its daemon and window, `/etc/sudoers.d/claudeq` and its receipt, if any of them are still there |
+| What ClaudeQ left | `ClaudeQ.app` (or the link the installer put in its place), its LaunchAgent `de.maierdaniel.claudeq`, its daemon and window, `/etc/sudoers.d/claudeq` and its receipt, if any of them are still there |
 | **Customize → Tasks, history and settings** (off by default) | `~/Library/Application Support/dispatchq` and the `claudeq` link next to it, and the app's own folders (also those of ClaudeQ) under `~/Library` (`WebKit`, `Caches`, `HTTPStorages`, `Saved Application State`, `Preferences`) |
 
 The uninstaller leaves no receipt of its own. It also cleans up after an app

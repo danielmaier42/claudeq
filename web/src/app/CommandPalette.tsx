@@ -1,6 +1,17 @@
 import {Command} from 'cmdk'
 import {Dialog as DialogPrimitive} from 'radix-ui'
-import {Download, Moon, Pause, Play, Plus, RefreshCw, Sun, SunMoon, type LucideIcon} from 'lucide-react'
+import {
+  Download,
+  Moon,
+  Pause,
+  Play,
+  Plus,
+  RefreshCw,
+  Sparkles,
+  Sun,
+  SunMoon,
+  type LucideIcon,
+} from 'lucide-react'
 import {useEffect, type ReactNode} from 'react'
 import {DialogOverlay} from '@/components/ui/dialog'
 import {Kbd} from '@/components/ui/kbd'
@@ -9,6 +20,7 @@ import {setPaused} from '@/features/settings/actions'
 import {openRunLog} from '@/features/log/store'
 import {pickAndImportTask} from '@/features/task-editor/import'
 import {openAddTask, openTaskEditor} from '@/features/task-editor/store'
+import {openWhatsNew} from '@/features/whats-new/store'
 import {refreshAll, useRuns, useSettings, useTasks} from '@/lib/queries'
 import {useSaveAppearance} from '@/features/settings/use-appearance'
 import {navigate} from './nav'
@@ -69,6 +81,13 @@ export function CommandPalette() {
                 </Item>
                 <Item icon={RefreshCw} onSelect={run(() => void refreshAll())} hint="⌘R">
                   Refresh everything
+                </Item>
+                <Item
+                  icon={Sparkles}
+                  onSelect={run(openWhatsNew)}
+                  keywords={['rename', 'claudeq', 'migrate']}
+                >
+                  What’s new in DispatchQ
                 </Item>
                 {settings &&
                   (settings.paused ? (

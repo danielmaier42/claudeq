@@ -21,9 +21,10 @@ import (
 	"github.com/danielmaier42/claudeq/internal/provider"
 )
 
-// DefaultModel is what a feedback turn runs on when Settings names no model.
-// Drafting an issue from two short messages is cheap work, and it must not
-// silently land on the expensive model someone picked for real tasks.
+// DefaultModel is what a feedback turn on Claude Code runs on when Settings
+// names no model. Drafting an issue from two short messages is cheap work, and
+// it must not silently land on the expensive model someone picked for real
+// tasks. Other harnesses do not know the name and use their own default.
 const DefaultModel = "haiku"
 
 // MaxUserTurns caps the conversation: the opening report plus at most two
@@ -132,7 +133,8 @@ func New(a Asker) *Service {
 
 // Turn sends text to the conversation identified by sessionID (empty starts a
 // new one) and returns the assistant's answer. inst is the provider that
-// answers, and model the model it answers with ("" uses DefaultModel).
+// answers, and model the model it answers with ("" uses DefaultModel on Claude
+// Code and the harness's own default elsewhere).
 func (s *Service) Turn(ctx context.Context, inst provider.Instance, model, sessionID, text string) (Draft, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -144,7 +146,7 @@ func (s *Service) Turn(ctx context.Context, inst provider.Instance, model, sessi
 	if s.ask == nil {
 		return Draft{}, errors.New("the feedback assistant is not available")
 	}
-	if model == "" {
+	if model == "" && inst.Kind == provider.KindClaudeCode {
 		model = DefaultModel
 	}
 

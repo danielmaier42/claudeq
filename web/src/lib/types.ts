@@ -732,6 +732,8 @@ export type UninstallRequest = Record<string, never>
 export interface WhatsNewStatus {
   edition: string
   show: boolean
+  // Some task or the system prompt still names ClaudeQ and was never checked.
+  rename_pending: boolean
 }
 
 export interface RenameFinding {

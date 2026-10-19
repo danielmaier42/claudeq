@@ -37,6 +37,19 @@ if [ ! -x "$DAEMON" ]; then
 	exit 0
 fi
 
+# link_claudeq_cli makes ClaudeQ.app a link to DispatchQ.app, so a script that
+# still calls /Applications/ClaudeQ.app/Contents/MacOS/claudeq reaches the new
+# CLI (the bundle carries a claudeq link to dispatchq, see scripts/build-app.sh).
+# The old path is deprecated, not gone; a later release drops the link. It is
+# made only where nothing is: a real ClaudeQ.app waits for retire_claudeq.
+link_claudeq_cli() {
+	if [ ! -e "$LEGACY_APP" ] && [ ! -L "$LEGACY_APP" ]; then
+		ln -s "$(basename "$APP")" "$LEGACY_APP" && echo "dispatchq: linked $LEGACY_APP to $APP for old scripts"
+	fi
+	return 0
+}
+link_claudeq_cli
+
 consoleUser=$(stat -f "%Su" /dev/console 2>/dev/null || echo "")
 if [ -z "$consoleUser" ] || [ "$consoleUser" = "root" ]; then
 	# Headless / no GUI login window user — the app will set up autostart on its
@@ -98,8 +111,9 @@ stop_daemons() {
 # and the app. Nothing under /Applications is ever deleted here (see the guard
 # in scripts/acceptance.sh): the old app goes to the user's Bin, and only a
 # bundle that says it is ClaudeQ.
+# In its place goes the link_claudeq_cli link.
 retire_claudeq() {
-	if [ -n "$homeDir" ] && [ -d "$homeDir/.Trash" ] && [ -d "$LEGACY_APP" ] &&
+	if [ -n "$homeDir" ] && [ -d "$homeDir/.Trash" ] && [ -d "$LEGACY_APP" ] && [ ! -L "$LEGACY_APP" ] &&
 		[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$LEGACY_APP/Contents/Info.plist" 2>/dev/null)" = "$LEGACY_LABEL" ]; then
 		dest="$homeDir/.Trash/ClaudeQ.app"
 		[ -e "$dest" ] && dest="$homeDir/.Trash/ClaudeQ $(date +%Y-%m-%d-%H%M%S).app"
@@ -108,6 +122,7 @@ retire_claudeq() {
 			echo "dispatchq: moved $LEGACY_APP to the Bin"
 		fi
 	fi
+	link_claudeq_cli
 	if [ -f /etc/sudoers.d/claudeq ]; then
 		rm -f /etc/sudoers.d/claudeq
 		echo "dispatchq: removed ClaudeQ wake permission"

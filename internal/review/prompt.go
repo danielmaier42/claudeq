@@ -180,7 +180,7 @@ These names changed, old on the left, new on the right:
   LaunchAgent de.maierdaniel.claudeq              de.maierdaniel.dispatchq
   the product name "ClaudeQ"                      "DispatchQ"
 
-ClaudeQ.app is gone after the update, so a job that runs anything inside it fails. The old data directory is a link to the new one and the old variables are still set, so those keep working for now, but they should move to the new names as well. For this check, an outdated name that still works counts as a finding too.
+After the update, /Applications/ClaudeQ.app is only a link to DispatchQ.app and its claudeq CLI a link to dispatchq, the old data directory is a link to the new one, and the old variables are still set. Those links are a stopgap for a later release to remove, so the path checks below will show the old paths as existing: that does not make them right. A job that calls the ClaudeQ CLI, by its path or as "claudeq", is a finding, and so is every other outdated name, even though it still works today.
 
 Report a finding when the job names anything in the left column in a way the run uses: a path it runs, reads or writes, a command it calls, a variable it reads, or the app's name in an instruction to the model. Give a revised version that changes exactly those names to the right column and nothing else.
 

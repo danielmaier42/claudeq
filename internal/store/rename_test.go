@@ -82,8 +82,8 @@ func TestPrimeWhatsNewOnlyOnAFreshInstall(t *testing.T) {
 	if err := fresh.PrimeWhatsNew("2.0"); err != nil {
 		t.Fatal(err)
 	}
-	if st, _ := fresh.LoadState(); st.WhatsNewSeen != "2.0" {
-		t.Errorf("fresh install: seen = %q, want 2.0", st.WhatsNewSeen)
+	if st, _ := fresh.LoadState(); st.WhatsNewSeen != "2.0" || !st.RenameCheckDone {
+		t.Errorf("fresh install: seen = %q, check done = %v, want 2.0 and done", st.WhatsNewSeen, st.RenameCheckDone)
 	}
 
 	upgraded, err := Open(t.TempDir())
@@ -96,7 +96,7 @@ func TestPrimeWhatsNewOnlyOnAFreshInstall(t *testing.T) {
 	if err := upgraded.PrimeWhatsNew("2.0"); err != nil {
 		t.Fatal(err)
 	}
-	if st, _ := upgraded.LoadState(); st.WhatsNewSeen != "" {
-		t.Errorf("upgrade: seen = %q, want empty so the dialog shows", st.WhatsNewSeen)
+	if st, _ := upgraded.LoadState(); st.WhatsNewSeen != "" || st.RenameCheckDone {
+		t.Errorf("upgrade: seen = %q, check done = %v, want neither so the dialog and banner show", st.WhatsNewSeen, st.RenameCheckDone)
 	}
 }

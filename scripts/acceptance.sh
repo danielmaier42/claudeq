@@ -270,6 +270,12 @@ check "postinstall never removes anything under /Applications" bash -c '! grep -
 # once its bundle id says it is ClaudeQ.
 check "postinstall never deletes ClaudeQ.app"                 bash -c '! grep -Eq "rm -[a-z]*r[a-z]* .*LEGACY_APP" "'"$ROOT"'/scripts/pkg/postinstall"'
 check "postinstall moves ClaudeQ.app to the Bin only by id"   precedes "$ROOT/scripts/pkg/postinstall" 'CFBundleIdentifier.*LEGACY_LABEL' 'mv "\$LEGACY_APP"'
+# Old scripts keep calling /Applications/ClaudeQ.app/Contents/MacOS/claudeq:
+# the bundle carries a claudeq link, and ClaudeQ.app becomes a link to it only
+# where nothing else is. The uninstaller removes that link and nothing behind it.
+check "app bundle carries ClaudeQ's CLI name"                 contains "$ROOT/scripts/build-app.sh" 'ln -sf dispatchq "\$MACOS/claudeq"'
+check "postinstall links ClaudeQ.app only where nothing is"   contains "$ROOT/scripts/pkg/postinstall" '\[ ! -e "\$LEGACY_APP" \] && \[ ! -L "\$LEGACY_APP" \]'
+check "uninstaller removes only a ClaudeQ.app link to DispatchQ" contains "$ROOT/scripts/uninstall/main/postinstall" 'readlink "\$LEGACY_APP"'
 # The install is only done once the *new* daemon answers on its own loopback
 # port; only then may the app be reopened. Both halves are matched by intent,
 # not by literals: the port lives in a PORT= variable, and `open` has to run

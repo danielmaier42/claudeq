@@ -46,6 +46,10 @@ go build -ldflags "$LDFLAGS" -o "$MACOS/dispatchqd" "$ROOT/cmd/dispatchqd"
 # The dispatchq CLI ships alongside the daemon so a running task can queue
 # follow-up work via it (dispatchqd passes its absolute path as DISPATCHQ_BIN).
 go build -ldflags "$LDFLAGS" -o "$MACOS/dispatchq" "$ROOT/cmd/dispatchq"
+# ClaudeQ's CLI name, for scripts written before 2.0. Together with the
+# ClaudeQ.app link the installer leaves in /Applications (scripts/pkg/
+# postinstall), /Applications/ClaudeQ.app/Contents/MacOS/claudeq keeps working.
+ln -sf dispatchq "$MACOS/claudeq"
 
 echo "==> Building the uninstaller"
 # Settings > System > Uninstall and `dispatchq uninstall` run this package.

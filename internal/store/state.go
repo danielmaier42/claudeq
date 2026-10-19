@@ -48,6 +48,10 @@ type State struct {
 	// WhatsNewSeen is the edition of the "What's new" dialog the user has
 	// closed. The dialog shows while it differs from the running edition.
 	WhatsNewSeen string `json:"whats_new_seen,omitempty"`
+	// RenameCheckDone records that the tasks were checked for ClaudeQ names
+	// and nothing is left to migrate, or that the operator waved it off. Until
+	// then a banner offers the check.
+	RenameCheckDone bool `json:"rename_check_done,omitempty"`
 	// CollapsedGroups maps a queue group name to true while its section is
 	// folded shut in the dashboard. It lives in the state, not the config: it is
 	// a view preference the app writes, not something to hand-edit — and it has
@@ -289,9 +293,10 @@ func (s *State) DismissUpdate(version string) { s.DismissedUpdateVersion = versi
 // DismissedUpdate returns the last dismissed update version, or "" if none.
 func (s *State) DismissedUpdate() string { return s.DismissedUpdateVersion }
 
-// PrimeWhatsNew marks the "What's new" edition as seen on a fresh installation,
-// one with neither a config nor a state yet: the dialog introduces changes to
-// people who used the app before, not to someone opening it for the first time.
+// PrimeWhatsNew marks the "What's new" edition as seen, and the rename check as
+// done, on a fresh installation, one with neither a config nor a state yet: the
+// dialog introduces changes to people who used the app before, not to someone
+// opening it for the first time.
 func (s *Store) PrimeWhatsNew(edition string) error {
 	for _, name := range []string{configFile, stateFile} {
 		if _, err := os.Stat(s.path(name)); err == nil || !errors.Is(err, os.ErrNotExist) {
@@ -300,6 +305,7 @@ func (s *Store) PrimeWhatsNew(edition string) error {
 	}
 	return s.UpdateState(func(st *State) error {
 		st.WhatsNewSeen = edition
+		st.RenameCheckDone = true
 		return nil
 	})
 }

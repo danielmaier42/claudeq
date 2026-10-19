@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -75,6 +76,9 @@ func TestRenameCheckReviewsOnlyTasksNamingClaudeQAndAppliesTheSelection(t *testi
 		t.Fatal(err)
 	}
 
+	if !renamePending(t, srv) {
+		t.Fatal("tasks naming ClaudeQ that were never checked must ask for the check")
+	}
 	var c renameCheck
 	do(t, srv, "POST", "/api/rename-check", nil).into(t, &c)
 	if c.State != "running" || c.Total != 4 || c.Skipped != 1 {
@@ -126,6 +130,59 @@ func TestRenameCheckReviewsOnlyTasksNamingClaudeQAndAppliesTheSelection(t *testi
 	do(t, srv, "GET", "/api/rename-check", nil).into(t, &c)
 	if len(c.Findings) != 2 {
 		t.Errorf("an applied finding must leave the list, got %+v", c.Findings)
+	}
+	if !renamePending(t, srv) {
+		t.Error("a deselected fix is still waiting, so the banner must stay")
+	}
+}
+
+func renamePending(t *testing.T, srv *httptest.Server) bool {
+	t.Helper()
+	var got whatsNewStatus
+	do(t, srv, "GET", "/api/whats-new", nil).into(t, &got)
+	return got.RenamePending
+}
+
+func TestRenameCheckIsNotPendingWithoutClaudeQNames(t *testing.T) {
+	srv, st := newReviewServer(t, nil, store.Settings{}, "/opt/claude", "")
+	tk := sampleTask("plain")
+	tk.Prompt = "write a poem"
+	if err := st.UpdateConfig(func(cfg *store.Config) error { cfg.Tasks = []task.Task{tk}; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if renamePending(t, srv) {
+		t.Fatal("nothing names ClaudeQ, so there is nothing to check")
+	}
+}
+
+func TestRenameCheckDismissEndsThePrompt(t *testing.T) {
+	srv, _ := newReviewServer(t, nil, store.Settings{SystemPrompt: "use claudeq"}, "/opt/claude", "")
+	if !renamePending(t, srv) {
+		t.Fatal("a system prompt naming ClaudeQ must ask for the check")
+	}
+	if r := do(t, srv, "POST", "/api/rename-check/dismiss", nil); r.Status != http.StatusOK {
+		t.Fatalf("dismiss: %d %s", r.Status, r.Body)
+	}
+	if renamePending(t, srv) {
+		t.Fatal("a dismissed check must not ask again")
+	}
+}
+
+func TestRenameCheckWithNothingToFixSettles(t *testing.T) {
+	srv, st := newReviewServer(t, &promptReviewer{}, store.Settings{}, "/opt/claude", "")
+	tk := sampleTask("fine")
+	tk.Prompt = "the claudeq repo is fine"
+	if err := st.UpdateConfig(func(cfg *store.Config) error { cfg.Tasks = []task.Task{tk}; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	var c renameCheck
+	do(t, srv, "POST", "/api/rename-check", nil).into(t, &c)
+	deadline := time.Now().Add(5 * time.Second)
+	for renamePending(t, srv) {
+		if time.Now().After(deadline) {
+			t.Fatal("a check that finds nothing to fix must end the prompt")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
@@ -190,5 +247,8 @@ func TestRenameCheckCoversTheCustomSystemPrompt(t *testing.T) {
 	cfg, _ := st.LoadConfig()
 	if len(res.Applied) != 1 || !strings.Contains(cfg.Settings.SystemPrompt, "DispatchQ.app") {
 		t.Fatalf("applied %+v, system prompt %q", res, cfg.Settings.SystemPrompt)
+	}
+	if renamePending(t, srv) {
+		t.Error("every fix is applied, so the check is done")
 	}
 }
