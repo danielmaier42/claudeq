@@ -108,7 +108,7 @@ export async function loadDashboard(fresh){
     +shown.map(p=>{
       const l=p.limits, problem=l.state==='unavailable';
       return `<div class="row limit-row${p.backfill?' backfill-on':''}">
-        <div class="limit-name"><div class="title">${esc(p.name)} <span class="chip">${esc(p.type_name||'')}</span>${p.backfill?' <span class="chip ok" title="Its weekly allowance would otherwise go unused, so backfill tasks run on it">backfill</span>':''}</div>
+        <div class="limit-name"><div class="title">${esc(p.name)} <span class="chip">${esc(p.type_name||'')}</span>${p.backfill?' <span class="chip ok" data-tip="Its weekly allowance would otherwise go unused, so backfill tasks run on it">backfill</span>':''}</div>
           <div class="sub multi${problem?' limit-problem':''}">${esc(limitStatusText(l))}</div>
           ${p.urgency?`<div class="sub urgency">${esc(urgencyText(p.urgency))}</div>`:''}</div>
         ${(l.windows||[]).length?limitWindowsHTML(l):''}
