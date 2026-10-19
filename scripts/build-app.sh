@@ -5,7 +5,7 @@
 # parent) instead of a bare executable owned by Terminal.
 #
 # Usage: scripts/build-app.sh [output-dir]   (default: build/)
-# Requires: go, rsvg-convert (librsvg), iconutil, sips — all macOS/brew tools.
+# Requires: go, Node.js 22+ (npm), rsvg-convert (librsvg), iconutil, sips.
 set -euo pipefail
 
 # Leave a few cores for the desktop: an unbounded Go build on a 12-core Mac
@@ -18,7 +18,7 @@ APP="$OUT/ClaudeQ.app"
 CONTENTS="$APP/Contents"
 MACOS="$CONTENTS/MacOS"
 RES="$CONTENTS/Resources"
-LOGO="$ROOT/internal/api/web/logo.svg"
+LOGO="$ROOT/web/public/logo.svg"
 
 # An explicit CLAUDEQ_VERSION wins — the release workflow sets it from the
 # pushed tag, so only that CI build carries a real version number. Every other
@@ -30,6 +30,10 @@ else
   BRANCH="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
   VERSION="dev-${BRANCH//\//-}"
 fi
+
+echo "==> Building the web UI"
+# The daemon embeds the UI at compile time, so it has to exist first.
+"$ROOT/scripts/build-web.sh"
 
 echo "==> Building binaries"
 mkdir -p "$MACOS" "$RES"

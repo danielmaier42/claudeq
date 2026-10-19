@@ -181,7 +181,7 @@ echo "$USER ALL=(root) NOPASSWD: /usr/bin/pmset" | sudo tee /etc/sudoers.d/claud
 
 1. **New task** — give it a prompt, choose the **job type** (*Agent*, the
    default, or *Script* — see [Script jobs](#script-jobs)), pick the working folder (prefilled from
-   **Settings → General → Prefill new tasks with**, if you set one), and choose a trigger
+   **Settings → General → Default working directory**, if you set one), and choose a trigger
    (as-soon-as-possible, earliest start, or cron; a cron schedule is validated as
    you type, with a preview of its next three runs). Optionally pick the provider
    it runs on (only ones that can actually run are offered), override the model
@@ -309,8 +309,11 @@ explains it.
 - **Scriptable.** The bundled `claudeq` CLI does everything the window does,
   with `--json` output for tools and agents. See
   [Command-line interface](#command-line-interface).
-- **Native macOS**: its own window, Dock icon, menu bar, live accent colour,
-  light and dark — following macOS, or pinned in Settings.
+- **Native macOS**: its own window, Dock icon and menu bar. Light or dark and
+  the accent colour follow macOS live, and either can be pinned in Settings →
+  Appearance.
+- **Keyboard first**: a command palette (**⌘K**) for every view, action, task
+  and recent run, **⌘1**–**⌘8** for the views, **⌘F** to search a list.
 - **Automatic updates** from GitHub releases, one click to install. A version
   whose daemon never took over is flagged with a **Finish update** button.
 - **Feedback that writes itself.** Describe a bug or a wish, Claude drafts the
@@ -322,10 +325,19 @@ explains it.
 
 The dashboard (and the native window that wraps it) has eight views. Six sit at
 the top of the sidebar; **Settings** and **Feedback** ([below](#sending-feedback))
-sit at the bottom, out of the way of the work. The window opens on the
-Dashboard:
+sit at the bottom, out of the way of the work. Above them are **New task** and
+the **command palette** (**⌘K**): type to jump to a view, add or import a task,
+pause or resume all runs, switch the appearance, open a task (or run it now)
+or a recent run's log. **⌘1** to **⌘8** switch views in sidebar order. Tasks
+are added and edited in a panel that slides in from the right, so the list stays
+visible; **⌘↵** saves it, and closing it with unsaved changes asks first. The
+window opens on the Dashboard:
 
-- **Dashboard** — how much of each provider's allowance is left: one row per
+- **Dashboard** — what needs attention at a glance: four cards for what is
+  **running now** (and runs a rate limit paused, with their resume time), what
+  is **up next** (due tasks first, with the reason a task is held), runs that
+  **failed in the last 24 hours**, and the **last 7 days** (runs, success rate,
+  tokens and cost). Each entry opens its log or its task. Below the cards, how much of each provider's allowance is left: one row per
   enabled provider with a bar per window (for Claude the 5-hour and the weekly
   window, for Codex the windows its account has) and when each one resets. Each
   bar shows the percent left and empties as the window is used; it turns orange
@@ -340,11 +352,14 @@ Dashboard:
   each, and says which one the next run goes to.
 - **Queue** — the pending tasks in priority order. Add, edit, delete, enable/pause,
   reorder, or **run now** (a manual test run, independent of the trigger). Each
-  row carries its task's name, what it runs on (the provider and the model that
-  provider will use for it), its trigger and when it is next due. The
-  **All / Active** switch in the toolbar hides the paused tasks; moving a task
-  up then puts it above the next visible one, skipping the hidden tasks in
-  between. Tasks can be filed into **groups**: grab a row by its handle and drag
+  row carries its task's name, its schedule in words (*Every day at 03:00*,
+  *Mondays at 06:30*) and when it is next due, and what it runs on (the provider
+  and the model that provider will use for it). **Run now** and the edit button
+  appear when the pointer is on a row; the **…** menu holds the rest, including
+  **Move up / Move down** and **Move to group**, so everything dragging does
+  also works from the keyboard. The **All / Active** switch in the toolbar hides
+  the paused tasks; moving a task up then puts it above the next visible one,
+  skipping the hidden tasks in between. Tasks can be filed into **groups**: grab a row by its handle and drag
   it onto a group's header to move it there, between two rows to reorder it, or
   onto **Drop here to start a new group** to make a group on the spot — it is
   named as it is created. A group header folds its section shut and says how
@@ -360,7 +375,7 @@ Dashboard:
   each task sits a badge for every option it has switched on: *script* (it runs
   as a program, without a model), *parallel*, *granted* (orange, the task skips
   permission prompts), *notifies* (blue), and *silent* (quiet history). A script
-  job says **Script** where the others name their provider and model. A task the rate limit interrupted carries a
+  job has no provider or model to name; its *script* badge says so. A task the rate limit interrupted carries a
   *rescheduled* badge (orange) whose tooltip names when its interrupted session
   continues, and a task whose provider cannot run it carries a red *blocked*
   badge naming what is wrong. A task that is due but did not start carries an
@@ -369,7 +384,7 @@ Dashboard:
   tooltip gives the scheduler's reason, such as the pause, a task that runs
   alone, or an account out of allowance until a given time. A wait of five
   minutes or more is also written to `claudeqd.out.log` with its reason, once,
-  so it can still be explained after the badge is gone. An **export** button on each row saves the task as a `.claudeq`
+  so it can still be explained after the badge is gone. **Export** in a row's **…** menu saves the task as a `.claudeq`
   file via the native save panel, and **Import…** in the toolbar opens such a
   file in the task sheet for review. Whenever a prompt is written or changed,
   Claude checks it against this Mac and shows what it found in a purple banner
@@ -380,7 +395,11 @@ Dashboard:
   See [The prompt review](#the-prompt-review).
 - **Log** — every run, newest first, with an unread badge for new results.
   Open a run to see the live/finished log as a chat view or raw output, along
-  with the prompt; a running task can be stopped from there with **Cancel task**
+  with the prompt. The chat view pairs every tool call with its result and folds
+  a run of tool calls into one line, renders the assistant's text with its
+  headings, lists and code blocks, follows a live run as it writes (scrolling up
+  stops that), and has copy buttons for messages, code and the whole log;
+  the artifacts the run published sit at the top and open in the viewer; a running task can be stopped from there with **Cancel task**
   (its process is terminated and the run is recorded as `canceled`); a run the
   rate limit paused shows as **rescheduled** with the time it continues, and
   **Cancel resume** — on the row and in its log view — drops that plan: the
@@ -398,7 +417,7 @@ Dashboard:
   `--dangerously-skip-permissions`);
   the button needs the session to still exist — Claude Code prunes old sessions
   after ~30 days; mark one or
-  all read; page through history; and replay a task. Above the list sits the
+  all read; **Show more** loads older runs 25 at a time; and replay a task. Above the list sits the
   same filter bar as in Artifacts: a **search field** (⌘F jumps to it, Escape
   clears it) where every word has to occur somewhere in the run — task, folder,
   harness, model, group, outcome or error —, **All | Unread | Running**
@@ -407,15 +426,15 @@ Dashboard:
   limited, …), plus a from–to date range. Runs of a *quiet history* task
   appear here only if they did not succeed.
 - **Artifacts** — files your tasks published, newest first, with an unread badge.
-  The list is grouped by day (Today, Yesterday, then the date), one row per
-  artifact: its title, a one-line summary (the description, or the file name
-  when there is none) behind a small type tag, who made it, and when. Unread
+  The list is grouped by day (Today, Yesterday, then the date), one card per
+  artifact with an icon and colour for its file type: its title, its
+  description, the file name and size, a type tag, who made it, and when. Unread
   artifacts have a dot and a bold title. "Who made it" is the parent job when
   another job created the publisher (a watcher that filed a review job), else
   the publisher itself; hovering it spells out the whole chain, clicking it
-  opens the producing run's log (while that run is still in history). Hovering
-  the title shows the file name and size. Clicking a row opens the
-  artifact in an in-app viewer: HTML, PDF, images, and text are previewed
+  opens the producing run's log (while that run is still in history). Clicking a card opens the
+  artifact in a full-window viewer; **←** and **→** step to the previous and
+  next artifact of the list, like Quick Look: HTML, PDF, images, and text are previewed
   inline, anything else (archives, binaries) shows a short note instead of a
   preview. The viewer names the file and its size under the title and offers
   **Open externally**, which hands the file to your
@@ -429,22 +448,20 @@ Dashboard:
   in the artifact — title, description, file name, task, parent, group or
   file type — so "adr 0050" finds the ADR-0050 review and "seo pdf" the PDF
   of the SEO job. Next to it, as in the Log, a from–to date filter; the list
-  shows 25 artifacts per page with a footer holding the count, the page and
-  the pager. **All | Unread** hides everything already opened,
+  shows 25 artifacts at a time with a footer holding the count and **Show more**. **All | Unread** hides everything already opened,
   **All groups** narrows the list to one queue group, and **All parents** to the
   artifacts one top-level job produced, itself or through the jobs it created
   (see [where an artifact comes from](#where-an-artifact-comes-from)). The
   parent menu lists only jobs at the root of a chain, never the one-off jobs a
   watcher filed.
-  Clicking the notification of a newly published artifact lands here with that
-  artifact already open — on the page that holds it, with any filter or search
-  that would hide it dropped.
+  Clicking the notification of a newly published artifact opens it in the
+  viewer over whatever view is showing.
 - **Notifications** — every notification ClaudeQ sent, newest first, with an
   unread badge: a run's outcome, a new artifact, a provider that stopped or
   resumed running tasks, and whatever a task said with `claudeq notify`. Each
   row shows the notification as it was shown on screen — a glyph for its kind,
   the title, the message — and when it was sent; the list is grouped by day
-  and paged like Artifacts. A row does what clicking the macOS notification
+  and grows with **Show more** like Artifacts; **↑** and **↓** move between rows. A row does what clicking the macOS notification
   does: it turns read, and what it is about opens — the artifact in the viewer,
   the run's log, a task's link in the browser. The other way round, clicking a
   macOS notification marks it read here before it opens its target; a
@@ -456,8 +473,10 @@ Dashboard:
   run failed, new artifact, provider, from a task). The daemon keeps the last
   200 notifications; older ones make room. Notifications macOS is set to hide
   still arrive here, so nothing is lost while the banner is off.
-- **Usage** — a per-day bar chart of runs, tokens, and cost for the last 14 days,
-  plus totals and a 7-day summary.
+- **Usage** — a per-day bar chart for the last 14 days with a **Tokens | Runs |
+  Cost** switch; hovering a day (or the arrow keys) shows all three for it.
+  Above it the totals and a 7-day summary, below it one row per provider with
+  its runs, outcomes, runtime, tokens and cost.
 - **Settings** — global defaults and integrations (below). The custom system
   prompt gets the same review banner as a task prompt. A red badge here means
   an update is available.
@@ -466,44 +485,50 @@ The views keep themselves current: every few seconds the window re-reads the
 queue, the log, the artifacts, the notifications, the usage and the limits the daemon last read,
 including the views that are not open, so a view you click shows the present state. Coming
 back to the window re-reads them at once. **View → Refresh** (**⌘R**) in the
-menu bar redraws every view on demand; it leaves an unsaved Settings form alone.
+menu bar re-reads every view and the providers' limits on demand; it leaves an
+unsaved Settings form alone.
 
 The dashboard is also reachable in a normal browser at
 `http://127.0.0.1:10765` while the daemon is running.
 
 ## Settings
 
-Settings is split into five tabs — **General**, **Providers**, **Pools**,
-**Notifications** and **System**. **Pools** is there with beta features on, or
-while a pool exists. An available update is announced by a banner
-above the tabs and by a red dot on **General**, which is where the About section
-and the update button live.
+Settings lists its sections on the left — **General**, **Appearance**,
+**Execution**, **Notifications**, **Providers**, **Pools**, **Assistant**,
+**System** and **About**; **↑**/**↓** step through them. **Pools** is there with
+beta features on, or while a pool exists. An available update puts a red dot on
+**About**, which is where the update banner and button live.
 
-| Tab | Group | Setting | What it does |
-|-----|-------|---------|--------------|
-| **General** | Defaults for every run | Custom system prompt | Extra instructions appended to every run after the built-in prompt. |
-| | New tasks | Prefill new tasks with | The folder a new task's working directory starts at. Still editable per task; empty leaves the field blank. |
-| | Prompt review | Check prompts with Claude | Whether Claude reviews a prompt against this Mac before the task is queued (on by default). |
-| | | Review provider | Which provider answers the review. Only providers that can hold an *aside* are offered. *Default* follows the global default provider. |
-| | | Review model | Model used for that review; *The provider's default model* falls back to the reviewing provider's own default. |
-| | Feedback | Feedback provider | Which provider drafts the GitHub issue on the [Feedback](#sending-feedback) page. Same rule as above. |
-| | | Feedback model | Model it drafts with; left at *ClaudeQ's choice* it uses a small, fast model rather than whatever you picked for real tasks. |
-| | Execution | Pause all runs | Global stop switch: nothing starts while it is on, not even *Run now*; a run already in flight keeps going. Applies immediately, without pressing Save. |
-| | Appearance | Colour scheme | *System* follows macOS; *Light* or *Dark* keeps the window and the dashboard that way whatever the Mac is doing. Applies immediately, without pressing Save; stored as `appearance` in `config.toml`, so a browser tab shows the same scheme. |
-| | About | Version / Software updates | Current version and a manual "Check for updates" button. |
-| **Providers** | One block per provider | Its settings | Name, status, its current limits (the same bars as the Dashboard, when the harness reports any), binary path, configuration directory, default model, the provider that takes over when the limit is reached (and the model it uses), and an on/off switch — written by the **Save** button at the top of Settings, like every other field here. **Check again**, **Make default** and **Remove** are actions and take effect at once. The block is headed by the provider's name and type. See [Providers](#providers). |
-| | | **Add provider** | Below the blocks, and only with beta features on: opens a sheet asking for an id, a type and optionally a configuration directory. |
-| **Pools** (beta) | One block per pool | Its settings | Name, and per provider of the pool's type a switch for membership and a weight. An empty weight takes the plan size the provider reports (shown as the placeholder, e.g. *auto · 20×*). Written by **Save**; **Remove** acts at once and is refused while a task uses the pool. **Add pool** below asks for an id, a name and the members. The tab is there with [beta features](#beta-features) on, or while a pool exists. See [Provider pools](#provider-pools). |
-| **Notifications** | macOS | Alerts that wait for you | Opens System Settings → Notifications, where ClaudeQ's alert style lives: *Banners* disappear on their own, *Alerts* stay until you click them. |
-| | Artifacts | Notify about new artifacts | On by default. Off: a published artifact still lands in Artifacts with its unread flag, but raises no notification on any channel and no entry in Notifications. Switching it back on does not announce what was published in the meantime. |
-| | Pushover | Send to Pushover | Toggle plus API token and user key for phone push. |
-| | ntfy | Send to ntfy | Toggle, server (empty = ntfy.sh), topic, and an optional access token for a protected topic. |
-| | Webhook | Post to a webhook | Toggle, endpoint URL, and a JSON body template using `{{title}}`, `{{message}}`, `{{url}}` (empty = ClaudeQ's own body). |
-| **System** | Runs | Stop a run with no output for | Idle-timeout watchdog: kills a hung run (default 30 min; a working run keeps streaming and is unaffected; Off disables it). |
+Switches, menus and pickers apply the moment they change. Typed text (the
+custom system prompt and the notification channels) waits for the bar that
+appears at the bottom — *Unsaved changes · Discard · Save*, or **⌘S** — and every
+group says which of the two it does. A section with unsaved text carries a dot
+in the list, and leaving Settings keeps the draft for the session.
+
+| Section | Group | Setting | What it does |
+|---------|-------|---------|--------------|
+| **General** | Custom system prompt | Custom system prompt | Extra instructions appended to every run after the built-in prompt. Reviewed like a task prompt. |
+| | Default working directory | Choose folder… | The folder a new task's working directory starts at. Still editable per task; **Clear** leaves the field blank. |
+| **Appearance** | Appearance | System / Light / Dark | *System* follows macOS; *Light* or *Dark* keeps the window and the dashboard that way whatever the Mac is doing. Stored as `appearance` in `config.toml`, so a browser tab shows the same scheme. |
+| | Accent colour | System, a preset, or your own | *System* follows the accent colour set in macOS, live. A preset or the colour picker pins another one for buttons, selections and highlights; text on it switches between white and black so it stays readable. Stored as `accent` (`#rrggbb`, empty = follow macOS). |
+| **Execution** | Global pause | Pause all runs | Global stop switch: nothing starts while it is on, not even *Run now*; a run already in flight keeps going. |
+| | Runs | Stop a run with no output for | Idle-timeout watchdog: kills a hung run (default 30 min; a working run keeps streaming and is unaffected; Off disables it). |
 | | | Keep run history | How many runs (and their logs) to retain before pruning (default 500; Unlimited keeps everything). |
 | | Scheduler | Check for due tasks every | How often the daemon wakes to look for work (15 min – 6 h; also the wake safety-net interval). |
-| | Beta features | Beta features | Reveals the parts of ClaudeQ that are not finished yet — currently **Add provider** and the **Codex** and **opencode** providers. Presentation only: anything already set up keeps working and the CLI accepts it either way. |
-| | Uninstall | Remove ClaudeQ from this Mac | **Uninstall…** opens the uninstaller in the macOS Installer. Your tasks, history and settings are kept unless you select them under **Customize**. See [Uninstall](#uninstall). |
+| **Notifications** | On this Mac | Keep alerts on screen | Opens System Settings → Notifications, where ClaudeQ's alert style lives: *Banners* disappear on their own, *Alerts* stay until you click them. A warning sits on top while macOS hides ClaudeQ's notifications. |
+| | | Notify about new artifacts | On by default. Off: a published artifact still lands in Artifacts with its unread flag, but raises no notification on any channel and no entry in Notifications. Switching it back on does not announce what was published in the meantime. |
+| | Pushover | Send to Pushover | Toggle plus API token and user key for phone push. A stored secret shows as *set*, with **Replace** and **Remove**; it is never shown again. |
+| | ntfy | Send to ntfy | Toggle, server (empty = ntfy.sh), topic, and an optional access token for a protected topic. |
+| | Webhook | Post to a webhook | Toggle, endpoint URL, and a JSON body template using `{{title}}`, `{{message}}`, `{{url}}` (empty = ClaudeQ's own body). |
+| **Providers** | One card per provider | Its settings | Name and type, a health dot with **Check**, its current limits (the same bars as the Dashboard, when the harness reports any), the binary and configuration directory in use, the default model, and the provider that takes over when the limit is reached (and the model it uses). The switch turns it on or off at once; **Edit** opens a dialog that saves that provider alone; **Make default** and **Remove** sit in its **…** menu. See [Providers](#providers). |
+| | | **Add provider** | Only with beta features on: asks for an id, a type, a name and optionally a configuration directory. |
+| **Pools** (beta) | One card per pool | Its settings | Name, members and their weights, which member the next run goes to and why. **Edit** opens a dialog with, per provider of the pool's type, a switch for membership and a weight (empty = the plan size the provider reports, e.g. *auto · 20×*). **Remove** is refused while a task uses the pool. **Add pool** asks for an id, a name and the members. See [Provider pools](#provider-pools). |
+| **Assistant** | Prompt review | Check prompts with Claude | Whether Claude reviews a prompt against this Mac before the task is queued (on by default). |
+| | | Review provider / Review model | Which provider answers the review, and with which model. Only providers that can hold an *aside* are offered; *Default* follows the global default provider, and the model falls back to the reviewing provider's own default. |
+| | Feedback assistant | Feedback provider / Feedback model | Which provider drafts the GitHub issue on the [Feedback](#sending-feedback) page, and with which model; left at *ClaudeQ's choice* it uses a small, fast model rather than whatever you picked for real tasks. |
+| **System** | Beta features | Beta features | Reveals the parts of ClaudeQ that are not finished yet — currently **Add provider**, pools, and the **Codex** and **opencode** providers. Presentation only: anything already set up keeps working and the CLI accepts it either way. |
+| | Danger zone | Remove ClaudeQ from this Mac | **Uninstall…** asks you to type *uninstall*, then opens the uninstaller in the macOS Installer. Your tasks, history and settings are kept unless you select them under **Customize**. See [Uninstall](#uninstall). |
+| **About** | Software updates | Version / Check for updates | Current version, when the last check ran, and a manual **Check for updates**; an available update shows its notes with **Download & install**, **Dismiss** and **All releases**. |
 
 ## Providers
 
@@ -547,11 +572,11 @@ One provider is the **default**: tasks that name none run on it. It cannot be
 switched off or removed while it holds that role — make another one the default
 first — because most tasks name no provider and would all stop at once.
 
-**Settings → Providers manages all of this.** Each provider gets its own block,
-headed by its name and type, where you edit the name, binary, configuration
-directory, default model and the on/off switch; one **Save** at the top of
-Settings writes them all, together with everything else on the page. *Check
-again*, *Make default* and *Remove* are actions and take effect at once. Below them sits **Add provider**, which opens a sheet asking for the two things
+**Settings → Providers manages all of this.** Each provider gets its own card,
+headed by its name and type, with an on/off switch that applies at once and
+**Edit**, which opens a dialog for the name, binary, configuration directory,
+default model and fallback and saves that provider alone. *Check*, *Make
+default* and *Remove* are actions and take effect at once. Below them sits **Add provider**, which opens a dialog asking for the two things
 that cannot be changed afterwards — the id and the type — plus an optional
 configuration directory, which is what makes the new one a second account.
 
@@ -564,10 +589,10 @@ instance, which names the tasks that have to change first.
 Three things are behind one switch, **Settings → System → Beta features**:
 adding providers at all, the two beta harnesses Codex and opencode, and
 [provider pools](#provider-pools). With it off there is no **Add provider**
-button, neither harness is offered, and there is no **Pools** tab and no pool in
-the task sheet; with it on all of them appear, the buttons marked as beta, and
+button, neither harness is offered, and there is no **Pools** section and no pool in
+the task panel; with it on all of them appear, the buttons marked as beta, and
 anything on a beta provider or a pool is labelled *beta* wherever it shows up.
-A pool that already exists keeps its tab, its Dashboard row and its tasks with
+A pool that already exists keeps its section, its Dashboard row and its tasks with
 the switch off. The switch itself does not enumerate what it contains — that is what
 this section is for.
 
@@ -1606,7 +1631,7 @@ directory, so a relative path there means something different every time.
 Practicalities:
 
 - It runs on a provider, so it costs a little usage each time. Which provider
-  and which model are yours to pick under Settings → General → Prompt review —
+  and which model are yours to pick under Settings → Assistant → Prompt review —
   reviewing is frequent, cheap work with no claim on the allowance you reserved
   for real tasks, so a second account or a fast model earns its keep. Or switch
   the whole thing off with the toggle above. Only providers that can answer a
@@ -1650,8 +1675,8 @@ report or a wish into a GitHub issue without you having to write one.
    language you think in.
 2. Claude reads it and either asks one short clarifying question (at most twice,
    and only when the report cannot be acted on as it stands) or goes straight to
-   a draft. This runs on the provider you chose under Settings → General →
-   Feedback, on a small model by default, and costs a fraction of a cent per
+   a draft. This runs on the provider you chose under Settings → Assistant →
+   Feedback assistant, on a small model by default, and costs a fraction of a cent per
    message; it does not go through the queue, so it works while tasks are
    running.
 3. You get the finished issue — an English title and body, labelled either
@@ -1786,15 +1811,23 @@ see a `CLAUDEQ_HOME` set in your shell, so delete such a folder yourself
 
 ## Build from source
 
-Requires Go 1.26+ and `librsvg` (`brew install librsvg`) for icon rendering.
+Requires Go 1.26+, Node.js 22+ with npm (for the web UI) and `librsvg`
+(`brew install librsvg`) for icon rendering.
 
 ```sh
 scripts/build-app.sh    # build/ClaudeQ.app          (double-click or `open` it)
 scripts/build-pkg.sh    # dist/claudeq-<version>.pkg  (installer)
+make web                # only the web UI, into internal/api/web
 ```
 
-Run the same quality gates CI enforces with `make check` (format, vet, lint, and
-race tests). Releases are built automatically: pushing a `v*` tag runs
+The daemon embeds the web UI when it is compiled, so build the UI first
+(`make web`; `build-app.sh` does it for you). A daemon compiled without it serves
+a page that says so. To work on the UI with hot reload against a running daemon,
+run `npm run dev` in `web/` (it proxies `/api` to `127.0.0.1:10765`, or to
+`CLAUDEQ_URL`).
+
+Run the same quality gates CI enforces with `make check` (format, vet, lint,
+race tests, and the web UI's typecheck, lint and tests). Releases are built automatically: pushing a `v*` tag runs
 [`.github/workflows/release.yml`](.github/workflows/release.yml), which builds the
 universal `.pkg` on macOS and attaches it to the GitHub Release.
 
@@ -1810,10 +1843,11 @@ as they happen and capture the session id, token usage, and cost from the final
 result. The daemon also spawns a second, far smaller kind of `claude` call for
 the [prompt review](#the-prompt-review): one turn, no tools, no session. ClaudeQ
 performs **no Git operations** — any branch/commit behavior is driven entirely by
-your prompts and the repo's own configuration. The dashboard itself is plain ES
-modules with no build step and no framework: design tokens and shared primitives
-under `styles/`, and one directory per component holding its markup, its style
-and its code together. The full design, decisions, and
+your prompts and the repo's own configuration. The window's UI is a React and
+TypeScript app in `web/` (Vite, Tailwind CSS, Radix UI primitives, TanStack
+Query), built into `internal/api/web` and embedded in the daemon: design-system
+components under `web/src/components/ui`, the shell under `web/src/app`, and one
+folder per view under `web/src/features`. The full design, decisions, and
 verification notes are in [PLAN.md](PLAN.md).
 
 ## Requirements

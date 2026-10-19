@@ -13,6 +13,7 @@ package store
 import (
 	"bufio"
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -759,6 +760,9 @@ type Settings struct {
 	// AppearanceDark; empty follows macOS. Presentation state only: the daemon
 	// and the CLI never look at it.
 	Appearance string `toml:"appearance,omitempty" json:"appearance"`
+	// Accent pins the app's accent colour as "#rrggbb"; empty follows the macOS
+	// accent. Presentation state only, like Appearance.
+	Accent string `toml:"accent,omitempty" json:"accent"`
 }
 
 // The appearances Settings.Appearance can pin. Empty means "follow macOS" and
@@ -775,6 +779,19 @@ func ValidAppearance(v string) bool {
 		return true
 	}
 	return false
+}
+
+// ValidAccent reports whether v is a value Settings.Accent may hold: empty, or
+// a colour written as "#" and six hex digits.
+func ValidAccent(v string) bool {
+	if v == "" {
+		return true
+	}
+	if len(v) != 7 || v[0] != '#' {
+		return false
+	}
+	_, err := hex.DecodeString(v[1:])
+	return err == nil
 }
 
 // ErrPaused is what a refused run carries while Settings.Paused is on. A pause

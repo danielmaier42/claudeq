@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/danielmaier42/claudeq/internal/app"
@@ -585,6 +587,28 @@ func TestPutSettingsAppearance(t *testing.T) {
 	}
 }
 
+func TestPutSettingsAccent(t *testing.T) {
+	srv, st := newServer(t, nil)
+	if r := do(t, srv, "PUT", "/api/settings", map[string]any{"accent": "#FF9F0A"}); r.Status != http.StatusOK {
+		t.Fatalf("put accent status = %d (%s)", r.Status, r.Body)
+	}
+	if cfg, _ := st.LoadConfig(); cfg.Settings.Accent != "#ff9f0a" {
+		t.Fatalf("accent = %q, want it stored lower-case", cfg.Settings.Accent)
+	}
+	if r := do(t, srv, "PUT", "/api/settings", map[string]any{"accent": "orange"}); r.Status != http.StatusBadRequest {
+		t.Fatalf("put named colour status = %d, want 400 (%s)", r.Status, r.Body)
+	}
+	if cfg, _ := st.LoadConfig(); cfg.Settings.Accent != "#ff9f0a" {
+		t.Fatal("a rejected accent must not replace the stored one")
+	}
+	if r := do(t, srv, "PUT", "/api/settings", map[string]any{"accent": ""}); r.Status != http.StatusOK {
+		t.Fatalf("put empty accent status = %d (%s)", r.Status, r.Body)
+	}
+	if cfg, _ := st.LoadConfig(); cfg.Settings.Accent != "" {
+		t.Fatalf("accent = %q, want empty (follow macOS)", cfg.Settings.Accent)
+	}
+}
+
 type stubRunner struct{ done chan string }
 
 func (s *stubRunner) RunTaskNow(_ context.Context, id string) error {
@@ -1039,36 +1063,63 @@ func TestListModels(t *testing.T) {
 	}
 }
 
+// uiFS stands in for a built UI: the page, and one hashed bundle it loads.
+var uiFS = fstest.MapFS{
+	"index.html":             {Data: []byte(`<!doctype html><title>ClaudeQ</title><script type="module" src="/assets/index-abc123.js"></script>`)},
+	"assets/index-abc123.js": {Data: []byte("console.log('claudeq')")},
+	"logo.svg":               {Data: []byte("<svg/>")},
+}
+
+func newUIServer(t *testing.T, web fs.FS) *httptest.Server {
+	t.Helper()
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	return newServerDeps(t, Deps{Store: st, Web: web})
+}
+
 func TestServesDashboard(t *testing.T) {
-	srv, _ := newServer(t, nil)
+	srv := newUIServer(t, uiFS)
 	r := do(t, srv, "GET", "/", nil)
 	if r.Status != http.StatusOK {
 		t.Fatalf("dashboard status = %d", r.Status)
 	}
-	if !bytes.Contains(r.Body, []byte("ClaudeQ")) {
-		t.Fatal("dashboard HTML should mention ClaudeQ")
+	if !bytes.Contains(r.Body, []byte("/assets/index-abc123.js")) {
+		t.Fatalf("dashboard HTML = %q, want the built page", r.Body)
 	}
-	// The page is a shell: its stylesheet and its module entry point pull in
-	// everything else, so serving them is what makes it a dashboard.
-	for _, ref := range []string{"/styles/app.css", "/main.js"} {
-		if !bytes.Contains(r.Body, []byte(ref)) {
-			t.Fatalf("dashboard HTML should load %s", ref)
+	for _, path := range []string{"/assets/index-abc123.js", "/logo.svg"} {
+		if r := do(t, srv, "GET", path, nil); r.Status != http.StatusOK || len(r.Body) == 0 {
+			t.Fatalf("GET %s = %d (%d bytes), want the file", path, r.Status, len(r.Body))
 		}
 	}
 }
 
-// The dashboard is split across a tree of component files. Embedding only the
-// top level would still serve a page — an empty one — so check that a file from
-// each nested directory comes back.
-func TestServesDashboardAssets(t *testing.T) {
-	srv, _ := newServer(t, nil)
-	for _, path := range []string{"/main.js", "/styles/app.css", "/styles/tokens.css", "/core/dom.js", "/components/queue/queue.js", "/components/sidebar/sidebar.css"} {
-		r := do(t, srv, "GET", path, nil)
-		if r.Status != http.StatusOK {
-			t.Fatalf("GET %s = %d, want 200", path, r.Status)
+// A daemon compiled before the UI was built must say so instead of serving an
+// empty directory listing into the app window.
+func TestServesNotBuiltPage(t *testing.T) {
+	srv := newUIServer(t, fstest.MapFS{".gitkeep": {}})
+	r := do(t, srv, "GET", "/", nil)
+	if r.Status != http.StatusServiceUnavailable || !bytes.Contains(r.Body, []byte("make web")) {
+		t.Fatalf("GET / without a build = %d %q, want 503 with build instructions", r.Status, r.Body)
+	}
+}
+
+// Hashed bundles never change under the same name, so they may be cached for
+// good; the page that names them must not be, or a new build would never load.
+func TestAssetsAreCachedPageIsNot(t *testing.T) {
+	srv := newUIServer(t, uiFS)
+	for path, want := range map[string]string{
+		"/":                       "no-cache, no-store, must-revalidate",
+		"/assets/index-abc123.js": "public, max-age=31536000, immutable",
+	} {
+		resp, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
 		}
-		if len(r.Body) == 0 {
-			t.Fatalf("GET %s served an empty file", path)
+		_ = resp.Body.Close()
+		if got := resp.Header.Get("Cache-Control"); got != want {
+			t.Fatalf("GET %s Cache-Control = %q, want %q", path, got, want)
 		}
 	}
 }
@@ -1470,7 +1521,7 @@ func TestTaskBecomesAScriptOnEdit(t *testing.T) {
 // earlier request, so every read of the daemon, data and assets alike, forbids it.
 func TestResponsesAreNeverCached(t *testing.T) {
 	srv, _ := newServer(t, nil)
-	for _, path := range []string{"/api/tasks", "/api/runs", "/api/artifacts", "/api/stats", "/", "/main.js"} {
+	for _, path := range []string{"/api/tasks", "/api/runs", "/api/artifacts", "/api/stats"} {
 		resp, err := http.Get(srv.URL + path)
 		if err != nil {
 			t.Fatal(err)

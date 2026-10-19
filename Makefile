@@ -3,12 +3,12 @@
 GO      ?= go
 GOBIN   := $(shell $(GO) env GOPATH)/bin
 
-.PHONY: all check fmt fmt-check vet lint test build tidy tools
+.PHONY: all check fmt fmt-check vet lint test build tidy tools web web-check
 
 all: check
 
-## check: run every quality gate (format check, vet, lint, race tests, build)
-check: fmt-check vet lint test build
+## check: run every quality gate (format check, vet, lint, race tests, build, web UI)
+check: fmt-check vet lint test web-check build
 
 ## fmt: format the code (gofmt + goimports)
 fmt:
@@ -31,8 +31,17 @@ lint:
 test:
 	$(GO) test ./... -race
 
-## build: build all packages
-build:
+## web: build the web UI into internal/api/web (embedded by the daemon)
+web:
+	scripts/build-web.sh
+
+## web-check: typecheck, lint and test the web UI
+web-check:
+	scripts/build-web.sh --deps-only
+	cd web && npm run typecheck && npm run lint && npm test
+
+## build: build the web UI, then all packages
+build: web
 	$(GO) build ./...
 
 ## tidy: tidy go.mod / go.sum

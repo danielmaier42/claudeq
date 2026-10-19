@@ -100,17 +100,19 @@ func main() {
 		w.Dispatch(func() { w.Eval("window.cqOpenPendingNotification && window.cqOpenPendingNotification()") })
 	})
 
-	// Settings → General → Appearance pins the window light or dark. The page
-	// colours itself through CSS (core/theme.js); this sets the AppKit side,
-	// so the title bar and what WKWebView reports to the page follow suit.
+	// Settings → Appearance pins the window light or dark. The page colours
+	// itself (web/src/lib/theme.ts); this sets the AppKit side, so the title bar
+	// and what WKWebView reports to the page follow suit.
 	_ = w.Bind("cqSetAppearance", func(mode string) { w.Dispatch(func() { setAppearance(mode) }) })
 
-	// Expose the current accent to the page and (re)apply it on each load.
+	// Expose the macOS accent to the page and tell it about every change. The
+	// page decides what to do with it: Settings → Appearance can pin another
+	// accent, so the system one is only a value it may use, not a style.
 	_ = w.Bind("cqReadAccent", func() string { return accentHex() })
 	w.Init(`
 		window.cqApplyAccent = function(hex){
-			var r = document.documentElement.style;
-			if (hex) r.setProperty('--accent', hex); else r.removeProperty('--accent');
+			window.cqSystemAccent = hex || '';
+			window.dispatchEvent(new CustomEvent('cq:system-accent', {detail: hex || ''}));
 		};
 		window.cqOpenPendingNotification = async function(){
 			try {

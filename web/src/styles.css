@@ -1,0 +1,231 @@
+@import 'tailwindcss';
+
+/* Dark mode is a class on <html>, set by lib/theme from the Mac's scheme or the
+   pinned appearance — not the media query, so a pinned choice always wins. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* The palette. Neutrals are a slightly cool grey ramp; every tint of the accent
+   is mixed from --accent at runtime, so the system accent (or the one picked in
+   Settings → Appearance) recolours the whole app at once. */
+:root {
+  color-scheme: light;
+  --accent: #0a84ff;
+  --accent-foreground: #fff;
+
+  --background: oklch(0.985 0.002 260);
+  --foreground: oklch(0.2 0.01 260);
+  --surface: oklch(1 0 0);
+  --surface-2: oklch(0.97 0.003 260);
+  --surface-3: oklch(0.94 0.004 260);
+  --sidebar: oklch(0.965 0.004 260);
+  --muted-foreground: oklch(0.52 0.012 260);
+  --subtle-foreground: oklch(0.65 0.01 260);
+  --border: oklch(0.91 0.004 260);
+  --border-strong: oklch(0.85 0.006 260);
+  --overlay: oklch(0.2 0.01 260 / 0.28);
+
+  --success: oklch(0.62 0.16 150);
+  --warning: oklch(0.72 0.16 65);
+  --danger: oklch(0.6 0.21 25);
+  --info: oklch(0.6 0.17 250);
+  --ai: oklch(0.55 0.22 295);
+
+  --shadow-color: 220 20% 10%;
+}
+
+.dark {
+  color-scheme: dark;
+  --background: oklch(0.17 0.004 260);
+  --foreground: oklch(0.96 0.003 260);
+  --surface: oklch(0.21 0.005 260);
+  --surface-2: oklch(0.24 0.005 260);
+  --surface-3: oklch(0.28 0.006 260);
+  --sidebar: oklch(0.19 0.005 260);
+  --muted-foreground: oklch(0.7 0.01 260);
+  --subtle-foreground: oklch(0.56 0.01 260);
+  --border: oklch(0.29 0.006 260);
+  --border-strong: oklch(0.36 0.008 260);
+  --overlay: oklch(0 0 0 / 0.5);
+
+  --success: oklch(0.72 0.17 150);
+  --warning: oklch(0.8 0.15 75);
+  --danger: oklch(0.68 0.2 25);
+  --info: oklch(0.7 0.15 250);
+  --ai: oklch(0.75 0.16 295);
+
+  --shadow-color: 0 0% 0%;
+}
+
+@theme inline {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Helvetica Neue', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-sidebar: var(--sidebar);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-overlay: var(--overlay);
+
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  /* The accent as text on a surface: pulled toward the foreground so a light
+     accent (yellow, graphite) stays readable in either scheme. */
+  --color-accent-text: color-mix(in oklab, var(--accent) 78%, var(--foreground));
+  --color-accent-soft: color-mix(in oklab, var(--accent) 14%, transparent);
+  --color-accent-muted: color-mix(in oklab, var(--accent) 24%, transparent);
+
+  --color-success: var(--success);
+  --color-success-soft: color-mix(in oklab, var(--success) 14%, transparent);
+  --color-warning: var(--warning);
+  --color-warning-soft: color-mix(in oklab, var(--warning) 16%, transparent);
+  --color-danger: var(--danger);
+  --color-danger-soft: color-mix(in oklab, var(--danger) 13%, transparent);
+  --color-info: var(--info);
+  --color-info-soft: color-mix(in oklab, var(--info) 14%, transparent);
+  --color-ai: var(--ai);
+  --color-ai-soft: color-mix(in oklab, var(--ai) 13%, transparent);
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  --shadow-xs: 0 1px 2px hsl(var(--shadow-color) / 0.06);
+  --shadow-sm: 0 1px 2px hsl(var(--shadow-color) / 0.06), 0 2px 6px hsl(var(--shadow-color) / 0.05);
+  --shadow-md: 0 2px 4px hsl(var(--shadow-color) / 0.06), 0 8px 24px hsl(var(--shadow-color) / 0.1);
+  --shadow-lg: 0 4px 12px hsl(var(--shadow-color) / 0.1), 0 24px 64px hsl(var(--shadow-color) / 0.22);
+
+  --animate-in: cq-in 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-out: cq-out 120ms ease-in;
+  --animate-slide-in: cq-slide-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-slide-out: cq-slide-out 160ms ease-in;
+  --animate-fade-in: cq-fade-in 160ms ease-out;
+  --animate-fade-out: cq-fade-out 120ms ease-in;
+  --animate-pulse-dot: cq-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes cq-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}
+@keyframes cq-out {
+  to {
+    opacity: 0;
+    transform: translateY(2px) scale(0.98);
+  }
+}
+@keyframes cq-slide-in {
+  from {
+    opacity: 0.6;
+    transform: translateX(24px);
+  }
+}
+@keyframes cq-slide-out {
+  to {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+@keyframes cq-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes cq-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes cq-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    overflow: hidden;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: 13.5px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  /* A desktop app: nothing is selectable by accident, text that is worth
+     copying opts back in with select-text. */
+  body {
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: default;
+  }
+  input,
+  textarea,
+  [contenteditable],
+  pre,
+  code {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+  :focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--accent) 70%, transparent);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--accent) 30%, transparent);
+  }
+  button {
+    cursor: default;
+  }
+  /* Thin overlay scrollbars that only darken on hover, in both schemes. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--foreground) 16%, transparent);
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in oklab, var(--foreground) 28%, transparent);
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}

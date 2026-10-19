@@ -1,0 +1,83 @@
+import {toast} from '@/components/ui/toaster'
+import {errorMessage, get, post} from '@/lib/api'
+import {keys, queryClient} from '@/lib/queries'
+import type {PathResult, RelaunchResult, UpdateDismissRequest, UpdateStatus} from '@/lib/types'
+
+const store = (u: UpdateStatus) => queryClient.setQueryData(keys.update, u)
+
+export const updatePending = (u: UpdateStatus | undefined) => !!u && (u.available || !!u.restart_required)
+
+export const versionLabel = (u: UpdateStatus) => (u.supported ? 'v' + u.current : u.current)
+
+// A link from the release feed is only followed when it is https.
+export const httpsOnly = (url: string | undefined) => (url && /^https:\/\//i.test(url) ? url : '')
+
+export function updateSummary(u: UpdateStatus): string {
+  if (u.restart_required) return `ClaudeQ ${u.installed} is installed but not running yet`
+  if (u.available) return `ClaudeQ ${u.latest} is available`
+  if (!u.supported) return 'Development build: updates are checked in released versions'
+  return 'You’re on the latest version' + (u.current ? ` (${u.current})` : '')
+}
+
+export async function checkForUpdates() {
+  let u: UpdateStatus
+  try {
+    u = await post<UpdateStatus>('/api/update/check')
+  } catch (e) {
+    toast.error('Check failed', {description: errorMessage(e)})
+    return
+  }
+  store(u)
+  if (u.restart_required)
+    toast(`ClaudeQ ${u.installed} is installed but not running`, {description: 'Finish the update below.'})
+  else if (u.available) toast.success(`Update available: ClaudeQ ${u.latest}`)
+  else if (!u.supported) toast('Running a development build')
+  else if (u.error) toast.error('Check failed', {description: u.error})
+  else toast.success('You’re up to date')
+}
+
+export async function downloadUpdate() {
+  try {
+    const r = await post<PathResult>('/api/update/download')
+    toast.success('Installer downloaded', {
+      description: `Follow the prompts to finish updating.${r?.path ? ` Saved to ${r.path}` : ''}`,
+    })
+  } catch (e) {
+    toast.error('Download failed', {description: errorMessage(e)})
+  }
+}
+
+export async function dismissUpdate(version: string) {
+  try {
+    store(await post<UpdateStatus>('/api/update/dismiss', {version} satisfies UpdateDismissRequest))
+    toast.success('Dismissed', {description: 'We’ll tell you about the next version.'})
+  } catch (e) {
+    toast.error('Could not dismiss the update', {description: errorMessage(e)})
+  }
+}
+
+// finishUpdate hands over to the installed build. The daemon answering this
+// page is being replaced, so the page waits for the new one before reloading;
+// otherwise it would reload into a dead port. Resolves false when it gave up.
+export async function finishUpdate(): Promise<boolean> {
+  try {
+    await post<RelaunchResult>('/api/update/relaunch')
+  } catch (e) {
+    toast.error('Could not finish the update', {description: errorMessage(e)})
+    return false
+  }
+  for (let i = 0; i < 100; i++) {
+    await new Promise((r) => setTimeout(r, 300))
+    try {
+      const u = await get<UpdateStatus>('/api/update')
+      if (!u.restart_required) {
+        location.reload()
+        return true
+      }
+    } catch {
+      /* still restarting */
+    }
+  }
+  toast.error('The background service did not come back', {description: 'Reopen ClaudeQ.'})
+  return false
+}
