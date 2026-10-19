@@ -190,8 +190,8 @@ What the update does:
 
 | ClaudeQ | DispatchQ | How it moves |
 |---------|-----------|--------------|
-| `/Applications/ClaudeQ.app` | `/Applications/DispatchQ.app` | The installer puts the new app in place and moves the old one to your Bin once DispatchQ runs (only a bundle whose id says it is ClaudeQ). Installed with nobody logged in, the old app stays; delete it yourself. |
-| `claudeq`, `claudeqd`, `claudeqapp` | `dispatchq`, `dispatchqd`, `dispatchqapp` | Inside the new app. |
+| `/Applications/ClaudeQ.app` | `/Applications/DispatchQ.app` | The installer puts the new app in place and moves the old one to your Bin once DispatchQ runs (only a bundle whose id says it is ClaudeQ). In its place it leaves a link to `DispatchQ.app`. Installed with nobody logged in, the old app stays; delete it yourself. |
+| `claudeq`, `claudeqd`, `claudeqapp` | `dispatchq`, `dispatchqd`, `dispatchqapp` | Inside the new app. The app also carries `claudeq` as a link to `dispatchq`, so a script that calls `/Applications/ClaudeQ.app/Contents/MacOS/claudeq` keeps working. That path is deprecated: a later release removes both links, so move scripts to the new path (the check below finds them). |
 | LaunchAgent `de.maierdaniel.claudeq` | `de.maierdaniel.dispatchq` | The old agent is booted out, its daemon stopped and its plist removed before the new one starts, so the queue never runs twice. Installed with nobody logged in, DispatchQ does this the first time you open it. |
 | `~/Library/Application Support/claudeq` | `~/Library/Application Support/dispatchq` | Moved on the first start, tasks, history, logs and artifacts included. The old path stays as a link to the new folder, so log paths in the history and scripts that read the old folder keep working. |
 | `/etc/sudoers.d/claudeq` | `/etc/sudoers.d/dispatchq` | Replaced. |
@@ -208,8 +208,8 @@ prompt if it does (a task that never does is skipped and costs nothing) and list
 variable or name the old data folder, each with what it would change. Every
 fix with a rewrite is selected; untick the ones you want to keep as they are
 and click **Migrate**. A task you edited after the check is left alone. A task
-that calls the old CLI by its full path fails once `ClaudeQ.app` is gone, so
-run the check before the next night. Closing the dialog while the check runs
+that calls the old CLI still runs through the compatibility link, but the check
+reports it anyway, because the link goes away in a later release. Closing the dialog while the check runs
 or before migrating asks first.
 
 The dialog opens by itself once; a fresh installation that never had ClaudeQ
@@ -1854,7 +1854,7 @@ It removes:
 | The background agent | `~/Library/LaunchAgents/de.maierdaniel.dispatchq.plist`; every running DispatchQ daemon and window is stopped, and a run in progress is cancelled |
 | The wake permission | `/etc/sudoers.d/dispatchq` |
 | The installer receipt | `pkgutil --forget de.maierdaniel.dispatchq` |
-| What ClaudeQ left | `ClaudeQ.app`, its LaunchAgent `de.maierdaniel.claudeq`, its daemon and window, `/etc/sudoers.d/claudeq` and its receipt, if any of them are still there |
+| What ClaudeQ left | `ClaudeQ.app` (or the link the installer put in its place), its LaunchAgent `de.maierdaniel.claudeq`, its daemon and window, `/etc/sudoers.d/claudeq` and its receipt, if any of them are still there |
 | **Customize → Tasks, history and settings** (off by default) | `~/Library/Application Support/dispatchq` and the `claudeq` link next to it, and the app's own folders (also those of ClaudeQ) under `~/Library` (`WebKit`, `Caches`, `HTTPStorages`, `Saved Application State`, `Preferences`) |
 
 The uninstaller leaves no receipt of its own. It also cleans up after an app

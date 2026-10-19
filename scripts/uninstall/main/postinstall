@@ -95,6 +95,13 @@ for label in "$LABEL" "$LEGACY_LABEL"; do
 	pkgutil --forget "$label" >/dev/null 2>&1 && echo "dispatchq: forgot installer receipt $label"
 done
 
+# The link the installer left in ClaudeQ's place for old scripts. Only a link
+# that points at DispatchQ goes; rm removes the link, never what it points to.
+if [ -L "$LEGACY_APP" ] && [ "$(readlink "$LEGACY_APP")" = "$(basename "$APP")" ]; then
+	rm -f "$LEGACY_APP"
+	echo "dispatchq: removed the ClaudeQ.app link"
+fi
+
 # Word splitting on newlines only: an app path may contain spaces.
 IFS='
 '

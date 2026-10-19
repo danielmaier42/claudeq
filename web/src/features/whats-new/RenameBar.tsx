@@ -9,7 +9,7 @@ import {invalidate} from '@/lib/queries'
 import {openWhatsNew, whatsNewKey} from './store'
 
 // RenameBar stays above every view until the tasks were checked for ClaudeQ
-// names: a task that still calls ClaudeQ.app fails once the old app is gone.
+// names: calling ClaudeQ.app only works through a link a later release removes.
 export function RenameBar() {
   const [dismissing, setDismissing] = useState(false)
 
@@ -50,8 +50,8 @@ export function RenameBar() {
         </>
       }
     >
-      A task that calls ClaudeQ.app or reads a CLAUDEQ_ variable fails once the old app is gone. The prompt
-      reviewer can check them and fix the ones you pick.
+      Calling ClaudeQ.app or reading a CLAUDEQ_ variable still works, but it is deprecated and stops in a
+      later release. The prompt reviewer can check your tasks and fix the ones you pick.
     </StatusBar>
   )
 }

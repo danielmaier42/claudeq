@@ -34,7 +34,7 @@ export function WhatsNewDialog() {
       !(await confirm({
         title: 'Close without migrating?',
         description:
-          'A task that still calls ClaudeQ.app fails once the old app is gone. The banner at the top offers the check again until it is done.',
+          'A task that still calls ClaudeQ.app runs through a link that a later release removes. The banner at the top offers the check again until it is done.',
         confirmLabel: 'Close',
         cancelLabel: 'Keep open',
       }))
@@ -62,7 +62,8 @@ export function WhatsNewDialog() {
           <Item icon={<Tag />} title="A new name">
             ClaudeQ is now DispatchQ, with a new icon. Your tasks, run history and settings moved over as they
             were. The command line tool is now <code>dispatchq</code>, in{' '}
-            <code>/Applications/DispatchQ.app/Contents/MacOS</code>.
+            <code>/Applications/DispatchQ.app/Contents/MacOS</code>. The old <code>claudeq</code> path still
+            works through a link, but it is deprecated and goes away in a later release.
           </Item>
           <Item icon={<Palette />} title="A complete redesign">
             The app was rebuilt from the ground up: a Dashboard overview, a command palette (⌘K), shortcuts
@@ -128,7 +129,9 @@ function RenameCheckPanel({
       try {
         const c = await get<RenameCheck>('/api/rename-check')
         if (!live) return
-        if (c.state === 'idle' && useWhatsNew.getState().autoCheck) {
+        // The banner asks for a fresh look: tasks may have changed since an
+        // earlier check, so its result is not reused.
+        if (c.state !== 'running' && useWhatsNew.getState().autoCheck) {
           useWhatsNew.setState({autoCheck: false})
           setCheck(await post<RenameCheck>('/api/rename-check'))
           return
