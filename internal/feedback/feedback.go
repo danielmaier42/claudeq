@@ -9,7 +9,6 @@ package feedback
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +18,7 @@ import (
 	"time"
 
 	"github.com/danielmaier42/claudeq/internal/provider"
+	"github.com/danielmaier42/claudeq/internal/randid"
 )
 
 // DefaultModel is what a feedback turn on Claude Code runs on when Settings
@@ -201,28 +201,11 @@ func (s *Service) Turn(ctx context.Context, inst provider.Instance, model, sessi
 }
 
 func parse(answer provider.Aside) (Draft, error) {
-	raw := answer.Structured
-	if len(raw) == 0 {
-		// The harness did not validate the shape itself, so the object has to be
-		// found in what it wrote.
-		raw = json.RawMessage(jsonObject(answer.Text))
-	}
 	var d Draft
-	if err := json.Unmarshal(raw, &d); err != nil {
+	if err := json.Unmarshal(answer.JSON(), &d); err != nil {
 		return Draft{}, errors.New("the feedback assistant returned no usable answer")
 	}
 	return sanitize(d)
-}
-
-// jsonObject pulls the outermost JSON object out of an answer, tolerating the
-// code fence and the odd sentence models like to wrap it in.
-func jsonObject(s string) string {
-	start := strings.IndexByte(s, '{')
-	end := strings.LastIndexByte(s, '}')
-	if start < 0 || end <= start {
-		return ""
-	}
-	return s[start : end+1]
 }
 
 // sanitize normalizes a draft and rejects one that says nothing usable.
@@ -291,22 +274,9 @@ func (s *Service) begin(sessionID string) (id string, turns int, resume bool) {
 	}
 	// An unknown id (daemon restarted, session expired) starts over rather than
 	// failing: the user keeps typing and gets an issue either way.
-	id = newSessionID()
+	id = randid.UUID()
 	s.sessions[id] = &session{turns: 1, seen: s.now()}
 	return id, 1, false
-}
-
-// newSessionID names a conversation before it exists, so two started at once
-// cannot be confused for one another. A harness that insists on naming its own
-// reports that name back and rename adopts it.
-func newSessionID() string {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return fmt.Sprintf("%08x-0000-4000-8000-%012x", time.Now().UnixNano()&0xffffffff, time.Now().UnixNano())
-	}
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
 // rename moves a conversation's bookkeeping to the id the harness reported for

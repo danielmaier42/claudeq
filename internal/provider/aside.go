@@ -1,6 +1,10 @@
 package provider
 
-import "encoding/json"
+import (
+	"bytes"
+	"encoding/json"
+	"strings"
+)
 
 // An aside is a question dispatchq asks a harness on its own behalf rather than
 // to carry out the operator's work: the prompt review that checks a task before
@@ -50,4 +54,28 @@ type Aside struct {
 	// validated it against the requested schema. A caller that asked for JSON
 	// still has to be able to read it out of Text.
 	Structured json.RawMessage
+}
+
+// JSON is the answer as a JSON object: the validated one when the harness
+// checked it, otherwise the first complete object in what the model wrote,
+// which tolerates the code fence and the odd sentence models wrap it in. It is
+// nil when the answer holds no object at all.
+func (a Aside) JSON() []byte {
+	if s := bytes.TrimSpace(a.Structured); len(s) > 0 && s[0] == '{' {
+		return s
+	}
+	// Each '{' could open the object; the first one that decodes as a whole
+	// object wins, so a brace in the prose before or after it does no harm.
+	for i := strings.IndexByte(a.Text, '{'); i >= 0; {
+		var obj json.RawMessage
+		if err := json.NewDecoder(strings.NewReader(a.Text[i:])).Decode(&obj); err == nil {
+			return obj
+		}
+		next := strings.IndexByte(a.Text[i+1:], '{')
+		if next < 0 {
+			break
+		}
+		i += next + 1
+	}
+	return nil
 }

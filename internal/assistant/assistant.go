@@ -14,7 +14,6 @@ package assistant
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -24,6 +23,7 @@ import (
 	"time"
 
 	"github.com/danielmaier42/claudeq/internal/provider"
+	"github.com/danielmaier42/claudeq/internal/randid"
 )
 
 // DefaultModel is what the chat runs on Claude Code when Settings names no
@@ -243,12 +243,8 @@ func (s *Service) call(ctx context.Context, inst provider.Instance, model, id st
 	if out.SessionID != "" {
 		id = s.rename(id, out.SessionID)
 	}
-	raw := out.Structured
-	if len(raw) == 0 {
-		raw = json.RawMessage(jsonObject(out.Text))
-	}
 	var a answer
-	if err := json.Unmarshal(raw, &a); err != nil {
+	if err := json.Unmarshal(out.JSON(), &a); err != nil {
 		// A harness that ignored the schema still said something; showing it
 		// beats an error.
 		if t := strings.TrimSpace(out.Text); t != "" {
@@ -302,17 +298,6 @@ func limit[T any](in []T, n int) []T {
 	return in
 }
 
-// jsonObject pulls the outermost JSON object out of an answer, tolerating the
-// code fence and the odd sentence models like to wrap it in.
-func jsonObject(s string) string {
-	start := strings.IndexByte(s, '{')
-	end := strings.LastIndexByte(s, '}')
-	if start < 0 || end <= start {
-		return ""
-	}
-	return s[start : end+1]
-}
-
 // clip cuts s to at most n runes.
 func clip(s string, n int) string {
 	r := []rune(s)
@@ -339,7 +324,7 @@ func (s *Service) begin(sessionID string) (string, session, bool) {
 	}
 	// An unknown id (daemon restarted, session expired) starts over; the
 	// history the app sent along carries the conversation into the new one.
-	id := newSessionID()
+	id := randid.UUID()
 	s.sessions[id] = &session{seen: s.now()}
 	return id, session{}, false
 }
@@ -379,14 +364,4 @@ func (s *Service) pruneLocked() {
 			delete(s.sessions, id)
 		}
 	}
-}
-
-func newSessionID() string {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return fmt.Sprintf("%08x-0000-4000-8000-%012x", time.Now().UnixNano()&0xffffffff, time.Now().UnixNano())
-	}
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }

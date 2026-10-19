@@ -5,8 +5,6 @@ package api
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +22,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/assistant"
 	"github.com/danielmaier42/claudeq/internal/feedback"
 	"github.com/danielmaier42/claudeq/internal/provider"
+	"github.com/danielmaier42/claudeq/internal/randid"
 	"github.com/danielmaier42/claudeq/internal/schedule"
 	"github.com/danielmaier42/claudeq/internal/store"
 	"github.com/danielmaier42/claudeq/internal/task"
@@ -1495,12 +1494,7 @@ func (s *server) chooseFolder(w http.ResponseWriter, r *http.Request) {
 // genTaskID builds a URL-safe id from a name plus a short random suffix, so the
 // user never has to supply one.
 func genTaskID(name string) string {
-	slug := task.Slug(name)
-	b := make([]byte, 3)
-	if _, err := rand.Read(b); err != nil {
-		return slug
-	}
-	return slug + "-" + hex.EncodeToString(b)
+	return task.Slug(name) + "-" + randid.Hex(3)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
