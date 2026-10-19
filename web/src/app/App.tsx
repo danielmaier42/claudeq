@@ -3,6 +3,8 @@ import {ConfirmHost} from '@/components/ui/confirm'
 import {Toaster} from '@/components/ui/toaster'
 import {TooltipProvider} from '@/components/ui/tooltip'
 import {ArtifactViewer} from '@/features/artifacts/ArtifactViewer'
+import {AssistantPanel} from '@/features/assistant/AssistantPanel'
+import {toggleAssistant} from '@/features/assistant/store'
 import {LogSheet} from '@/features/log/LogSheet'
 import {StatusBanners} from '@/features/status/StatusBanners'
 import {TaskEditor} from '@/features/task-editor/TaskEditor'
@@ -18,6 +20,7 @@ export function App() {
   useThemeEffects()
   useSettingsTheme()
   useViewShortcuts()
+  useAssistantShortcut()
   const view = useNav((s) => s.view)
   const View = viewDef(view).component
 
@@ -31,6 +34,7 @@ export function App() {
             <View key={view} />
           </div>
         </main>
+        <AssistantPanel />
       </div>
       <TaskEditor />
       <LogSheet />
@@ -54,6 +58,19 @@ function useSettingsTheme() {
       accent: validAccent(settings.accent),
     })
   }, [settings?.appearance, settings?.accent]) // eslint-disable-line react-hooks/exhaustive-deps
+}
+
+// ⌘J opens and closes the assistant, wherever focus is.
+function useAssistantShortcut() {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'j') return
+      e.preventDefault()
+      toggleAssistant()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [])
 }
 
 // ⌘1…⌘8 switch views in sidebar order.

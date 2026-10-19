@@ -1,6 +1,6 @@
 // Package aside runs the questions dispatchq asks a harness on its own behalf:
-// the prompt review that checks a task before it is queued, and the feedback
-// assistant that drafts a GitHub issue.
+// the prompt review that checks a task before it is queued, the assistant chat
+// that operates dispatchq, and the feedback assistant that drafts a GitHub issue.
 //
 // It is the one place that turns a provider instance plus a question into a
 // child process and an answer. The features themselves compose the question and

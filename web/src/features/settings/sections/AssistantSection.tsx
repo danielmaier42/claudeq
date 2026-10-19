@@ -4,12 +4,13 @@ import {ModelSelect} from '@/components/domain/model-select'
 import {Select, type SelectOption} from '@/components/ui/select'
 import {Switch} from '@/components/ui/switch'
 import {defaultProvider, providerName, useProviderList} from '@/lib/providers'
+import {invalidate, keys} from '@/lib/queries'
 import type {Settings} from '@/lib/types'
 import {commitSettings} from '../actions'
 import {SaveMode} from '../components/parts'
 
 // asideProviderOptions lists the providers that can do a job DispatchQ runs on
-// its own behalf (prompt review, the feedback assistant). Only a harness that
+// its own behalf (prompt review, the assistant). Only a harness that
 // can answer such a question is offered: one that cannot would leave the
 // feature silently unavailable. A stored provider that is gone keeps its place,
 // marked, so nothing quietly moves the job somewhere else. "Default" is marked
@@ -35,7 +36,7 @@ function useAsideProviderOptions(current: string): SelectOption[] {
 export function AssistantSection({value}: {value: Settings}) {
   const reviewOn = !value.prompt_review_disabled
   const reviewProviders = useAsideProviderOptions(value.prompt_review_provider)
-  const feedbackProviders = useAsideProviderOptions(value.feedback_provider)
+  const assistantProviders = useAsideProviderOptions(value.assistant_provider)
 
   return (
     <>
@@ -90,34 +91,38 @@ export function AssistantSection({value}: {value: Settings}) {
         </RowGroup>
       </Section>
 
-      <Section title="Feedback assistant" actions={<SaveMode mode="instant" />}>
+      <Section title="Assistant" actions={<SaveMode mode="instant" />}>
         <RowGroup>
           <Row
-            htmlFor="s-feedback-provider"
-            label="Feedback provider"
-            description="Drafts the GitHub issue on the Feedback page. Nothing is sent anywhere: the draft opens as a prefilled issue in your browser, and you press Create there."
+            htmlFor="s-assistant-provider"
+            label="Assistant provider"
+            description="Answers in the Ask DispatchQ chat and drafts the GitHub issue on the Feedback page. It sees DispatchQ's queue, runs and artifacts, never your projects, and every change it proposes waits for your OK."
             control={
               <Select
-                id="s-feedback-provider"
+                id="s-assistant-provider"
                 className="w-56"
-                value={value.feedback_provider}
-                options={feedbackProviders}
-                onValueChange={(v) => void commitSettings({feedback_provider: v, feedback_model: ''})}
+                value={value.assistant_provider}
+                options={assistantProviders}
+                onValueChange={(v) => {
+                  void commitSettings({assistant_provider: v, assistant_model: ''}).then(() =>
+                    invalidate(keys.assistant, keys.feedback),
+                  )
+                }}
               />
             }
           />
           <Row
-            htmlFor="s-feedback-model"
-            label="Feedback model"
-            description="Two short messages into an issue: a small model is enough"
+            htmlFor="s-assistant-model"
+            label="Assistant model"
+            description="DispatchQ's choice is a mid-size model for the chat and a small one for feedback"
             control={
               <ModelSelect
-                id="s-feedback-model"
+                id="s-assistant-model"
                 className="w-56"
-                provider={value.feedback_provider}
-                value={value.feedback_model}
-                emptyLabel="DispatchQ's choice (a small, fast model)"
-                onValueChange={(v) => void commitSettings({feedback_model: v})}
+                provider={value.assistant_provider}
+                value={value.assistant_model}
+                emptyLabel="DispatchQ's choice"
+                onValueChange={(v) => void commitSettings({assistant_model: v})}
               />
             }
           />

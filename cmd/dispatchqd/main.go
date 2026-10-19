@@ -29,6 +29,7 @@ import (
 	"github.com/danielmaier42/claudeq/internal/api"
 	"github.com/danielmaier42/claudeq/internal/app"
 	"github.com/danielmaier42/claudeq/internal/aside"
+	"github.com/danielmaier42/claudeq/internal/assistant"
 	"github.com/danielmaier42/claudeq/internal/clock"
 	"github.com/danielmaier42/claudeq/internal/engine"
 	"github.com/danielmaier42/claudeq/internal/executor"
@@ -215,9 +216,9 @@ func cmdRun(args []string) error {
 		fmt.Fprintf(os.Stderr, "dispatchqd: "+format+"\n", args...)
 	})
 
-	// Prompt review and the feedback assistant ask a harness questions of
-	// dispatchq's own (see internal/aside); both go through the one runner, so
-	// they cannot drift apart in how they invoke a provider.
+	// Prompt review, the assistant chat and the feedback assistant ask a
+	// harness questions of dispatchq's own (see internal/aside); all go through
+	// the one runner, so they cannot drift apart in how they invoke a provider.
 	asides := &aside.Runner{Registry: registry}
 
 	httpSrv := &http.Server{
@@ -232,8 +233,9 @@ func cmdRun(args []string) error {
 			Holds: eng.Holds, RunningOn: eng.RunningOn,
 			NotifyStatus: notify.MacAuthorization,
 			Feedback:     feedback.New(asides), OSVersion: osVersion(system.Real{}),
-			Review:   &review.Reviewer{Ask: asides},
-			Registry: registry, Providers: checker, Limits: limits,
+			Assistant: assistant.New(asides, &assistant.StoreSource{Store: st}),
+			Review:    &review.Reviewer{Ask: asides},
+			Registry:  registry, Providers: checker, Limits: limits,
 			Uninstall: openUninstaller,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,

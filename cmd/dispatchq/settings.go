@@ -71,8 +71,8 @@ type settingsPatch struct {
 	artifactNotify   bool
 	promptReviewMdl  string
 	promptReviewProv string
-	feedbackProvider string
-	feedbackModel    string
+	assistantProv    string
+	assistantModel   string
 	defaultWorkDir   string
 	pushoverOn       bool
 	pushoverToken    string
@@ -98,8 +98,11 @@ func (p *settingsPatch) register(fs *flag.FlagSet) {
 	fs.BoolVar(&p.promptReview, "prompt-review", true, "let Claude check a task's prompt against this machine before it is queued")
 	fs.StringVar(&p.promptReviewProv, "prompt-review-provider", "", "provider that answers that check (empty = the default provider)")
 	fs.StringVar(&p.promptReviewMdl, "prompt-review-model", "", "model for that check (empty = the provider's default model)")
-	fs.StringVar(&p.feedbackProvider, "feedback-provider", "", "provider the feedback assistant drafts on (empty = the default provider)")
-	fs.StringVar(&p.feedbackModel, "feedback-model", "", "model it drafts with (empty = dispatchq's own small, fast choice)")
+	fs.StringVar(&p.assistantProv, "assistant-provider", "", "provider the assistant chat and the feedback page answer on (empty = the default provider)")
+	fs.StringVar(&p.assistantModel, "assistant-model", "", "model they answer with (empty = dispatchq's own choice per job)")
+	// The names these two had while only the feedback page used them.
+	fs.StringVar(&p.assistantProv, "feedback-provider", "", "old name of -assistant-provider")
+	fs.StringVar(&p.assistantModel, "feedback-model", "", "old name of -assistant-model")
 	fs.StringVar(&p.defaultWorkDir, "default-working-dir", "", "prefills a new task's working directory (empty = no prefill)")
 	fs.BoolVar(&p.artifactNotify, "artifact-notify", true, "notify when a task publishes an artifact")
 	fs.BoolVar(&p.pushoverOn, "pushover", false, "send notifications to Pushover")
@@ -172,11 +175,11 @@ func (p settingsPatch) apply(s store.Settings) (store.Settings, error) {
 	if p.set["prompt-review-model"] {
 		s.PromptReviewModel = p.promptReviewMdl
 	}
-	if p.set["feedback-provider"] {
-		s.FeedbackProvider = p.feedbackProvider
+	if p.set["assistant-provider"] || p.set["feedback-provider"] {
+		s.AssistantProvider = p.assistantProv
 	}
-	if p.set["feedback-model"] {
-		s.FeedbackModel = p.feedbackModel
+	if p.set["assistant-model"] || p.set["feedback-model"] {
+		s.AssistantModel = p.assistantModel
 	}
 	if p.set["default-working-dir"] {
 		s.DefaultWorkingDir = p.defaultWorkDir
@@ -229,8 +232,8 @@ type settingsView struct {
 	PromptReview       bool    `json:"prompt_review"`
 	PromptReviewProv   string  `json:"prompt_review_provider"`
 	PromptReviewModel  string  `json:"prompt_review_model"`
-	FeedbackProvider   string  `json:"feedback_provider"`
-	FeedbackModel      string  `json:"feedback_model"`
+	AssistantProvider  string  `json:"assistant_provider"`
+	AssistantModel     string  `json:"assistant_model"`
 	DefaultWorkingDir  string  `json:"default_working_dir"`
 	ArtifactNotify     bool    `json:"artifact_notify"`
 	Appearance         string  `json:"appearance"`
@@ -257,8 +260,8 @@ func newSettingsView(s store.Settings) settingsView {
 		PromptReview:       !s.PromptReviewDisabled,
 		PromptReviewProv:   s.PromptReviewProvider,
 		PromptReviewModel:  s.PromptReviewModel,
-		FeedbackProvider:   s.FeedbackProvider,
-		FeedbackModel:      s.FeedbackModel,
+		AssistantProvider:  s.AssistantProvider,
+		AssistantModel:     s.AssistantModel,
 		DefaultWorkingDir:  s.DefaultWorkingDir,
 		ArtifactNotify:     !s.ArtifactNotifyDisabled,
 		Appearance:         s.Appearance,
@@ -287,8 +290,8 @@ func printSettings(s store.Settings) {
 	fmt.Printf("prompt_review:             %s\n", boolLabel(v.PromptReview))
 	fmt.Printf("prompt_review_provider:    %s\n", orDefault(v.PromptReviewProv, "(the default provider)"))
 	fmt.Printf("prompt_review_model:       %s\n", orDefault(v.PromptReviewModel, "(the provider's default model)"))
-	fmt.Printf("feedback_provider:         %s\n", orDefault(v.FeedbackProvider, "(the default provider)"))
-	fmt.Printf("feedback_model:            %s\n", orDefault(v.FeedbackModel, "(dispatchq's own choice)"))
+	fmt.Printf("assistant_provider:        %s\n", orDefault(v.AssistantProvider, "(the default provider)"))
+	fmt.Printf("assistant_model:           %s\n", orDefault(v.AssistantModel, "(dispatchq's own choice)"))
 	fmt.Printf("default_working_dir:       %s\n", orDefault(v.DefaultWorkingDir, "(none, field starts blank)"))
 	fmt.Printf("appearance:                %s (app only)\n", orDefault(v.Appearance, "(follows macOS)"))
 	fmt.Printf("accent:                    %s (app only)\n", orDefault(v.Accent, "(follows macOS)"))

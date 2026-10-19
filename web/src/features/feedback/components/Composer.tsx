@@ -6,6 +6,8 @@ import {cn} from '@/lib/utils'
 
 // Composer is the chat input: it grows with its text up to a cap, and
 // ⌘↵ sends, like the other multi-line inputs in the app (plain ↵ is a newline).
+// A quick back-and-forth (the assistant) sends on plain ↵ instead, with ⇧↵ for
+// a newline, as chat apps do.
 export function Composer({
   value,
   onChange,
@@ -14,6 +16,8 @@ export function Composer({
   placeholder,
   hint,
   error,
+  enterSends = false,
+  rows = 2,
 }: {
   value: string
   onChange: (v: string) => void
@@ -22,6 +26,8 @@ export function Composer({
   placeholder: string
   hint?: string
   error?: string
+  enterSends?: boolean
+  rows?: number
 }) {
   const ref = useRef<HTMLTextAreaElement>(null)
 
@@ -47,7 +53,7 @@ export function Composer({
       >
         <textarea
           ref={ref}
-          rows={2}
+          rows={rows}
           value={value}
           disabled={busy}
           placeholder={placeholder}
@@ -55,7 +61,8 @@ export function Composer({
           aria-invalid={!!error}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            if (e.key !== 'Enter' || e.nativeEvent.isComposing) return
+            if (e.metaKey || e.ctrlKey || (enterSends && !e.shiftKey)) {
               e.preventDefault()
               onSend()
             }
@@ -65,7 +72,7 @@ export function Composer({
         <div className="flex items-center gap-2 px-2.5 pb-2.5">
           <span className="flex-1 truncate pl-1 text-[12px] text-subtle-foreground">{hint}</span>
           <span className="flex items-center gap-0.5 text-[11px] text-subtle-foreground">
-            <Kbd>⌘</Kbd>
+            {!enterSends && <Kbd>⌘</Kbd>}
             <Kbd>↵</Kbd>
           </span>
           <Button size="sm" variant="primary" loading={busy} onClick={onSend} aria-label="Send">

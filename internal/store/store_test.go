@@ -708,6 +708,45 @@ func TestMigrateDropsTheBetaSwitch(t *testing.T) {
 	}
 }
 
+func TestMigrateMovesTheFeedbackSettingsToTheAssistant(t *testing.T) {
+	for _, tc := range []struct {
+		raw         string
+		prov, model string
+	}{
+		// The model stays behind: it was picked for drafting issues, not the chat.
+		{"[settings]\nfeedback_provider = \"cheap\"\nfeedback_model = \"haiku\"\n", "cheap", ""},
+		{"[settings]\nfeedback_model = \"haiku\"\n", "", ""},
+		// A value under the new name was chosen later and wins.
+		{"[settings]\nassistant_provider = \"new\"\nfeedback_provider = \"old\"\n", "new", ""},
+	} {
+		s := openTemp(t)
+		if err := os.WriteFile(filepath.Join(s.Home(), configFile), []byte(tc.raw), 0o600); err != nil {
+			t.Fatalf("write config: %v", err)
+		}
+		if migrated, err := s.MigrateConfig(); err != nil || !migrated {
+			t.Fatalf("MigrateConfig(%q) = (%t, %v), want the file rewritten", tc.raw, migrated, err)
+		}
+		cfg, err := s.LoadConfig()
+		if err != nil {
+			t.Fatalf("load: %v", err)
+		}
+		if cfg.Settings.AssistantProvider != tc.prov || cfg.Settings.AssistantModel != tc.model {
+			t.Fatalf("%q: assistant = (%q, %q), want (%q, %q)", tc.raw,
+				cfg.Settings.AssistantProvider, cfg.Settings.AssistantModel, tc.prov, tc.model)
+		}
+		data, err := os.ReadFile(filepath.Join(s.Home(), configFile))
+		if err != nil {
+			t.Fatalf("read config: %v", err)
+		}
+		if strings.Contains(string(data), "feedback_") {
+			t.Fatalf("old keys written back:\n%s", data)
+		}
+		if migrated, err := s.MigrateConfig(); err != nil || migrated {
+			t.Fatalf("second MigrateConfig = (%t, %v), want (false, nil)", migrated, err)
+		}
+	}
+}
+
 func TestValidAppearance(t *testing.T) {
 	for _, v := range []string{"", AppearanceLight, AppearanceDark} {
 		if !ValidAppearance(v) {

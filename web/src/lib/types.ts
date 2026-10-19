@@ -278,7 +278,7 @@ export interface Provider extends ProviderInstance {
   detected?: string
   // Harness accepts a reasoning-effort setting.
   reasoning_effort: boolean
-  // Harness can run prompt review / feedback assistant.
+  // Harness can run prompt review / the assistant / feedback drafting.
   asides: boolean
   // Display name of the harness, e.g. "Claude".
   type_name: string
@@ -444,8 +444,9 @@ export interface Settings {
   artifact_notify_disabled: boolean
   prompt_review_provider: string
   prompt_review_model: string
-  feedback_provider: string
-  feedback_model: string
+  // Provider and model of the assistant chat and the feedback page; "" = default provider / DispatchQ's choice.
+  assistant_provider: string
+  assistant_model: string
   default_working_dir: string
   appearance: Appearance
   // "#rrggbb" pins the accent colour; "" follows macOS.
@@ -611,6 +612,85 @@ export interface RelaunchResult {
 }
 
 // ---------------------------------------------------------------------------
+// Assistant
+// ---------------------------------------------------------------------------
+
+// GET /api/assistant response.
+export interface AssistantInfo {
+  available: boolean
+  reason?: string
+  // Label of the provider instance that answers.
+  provider?: string
+}
+
+// assistant.Message: one line of the conversation, replayed when the daemon forgot the session.
+export interface AssistantMessage {
+  role: 'user' | 'assistant'
+  text: string
+}
+
+// POST /api/assistant/turn request. Empty session_id starts a conversation.
+export interface AssistantTurnRequest {
+  session_id: string
+  text: string
+  history: AssistantMessage[]
+  // What the operator has open, so "this run" resolves.
+  focus: {view?: string; run_id?: string; artifact_id?: string}
+}
+
+// assistant.TaskDraft: a job as the assistant wrote it; on update_task only the changed fields.
+export interface AssistantTaskDraft {
+  name?: string
+  kind?: TaskKind
+  prompt?: string
+  working_dir?: string
+  trigger?: TaskTrigger
+  fixed_at?: ISOTime
+  cron?: string
+  group?: string
+  provider?: string
+  model?: string
+  permissions?: TaskPermissions
+}
+
+// open_* happen at once; every other type is a proposal the operator confirms.
+export type AssistantActionType =
+  | 'open_view'
+  | 'open_run'
+  | 'open_artifact'
+  | 'open_task'
+  | 'add_task'
+  | 'update_task'
+  | 'run_now'
+  | 'enable_task'
+  | 'disable_task'
+  | 'delete_task'
+  | 'cancel_run'
+  | 'pause_all'
+  | 'resume_all'
+
+// assistant.Action.
+export interface AssistantAction {
+  type: AssistantActionType
+  view?: string
+  id?: string
+  task?: AssistantTaskDraft
+  // What id refers to (task name, artifact title, run).
+  label?: string
+  // Why the proposal cannot be confirmed as it stands.
+  problem?: string
+}
+
+// POST /api/assistant/turn response (assistant.Reply).
+export interface AssistantReply {
+  session_id: string
+  text: string
+  actions: AssistantAction[]
+  // What it looked up on the way.
+  steps?: string[]
+}
+
+// ---------------------------------------------------------------------------
 // Feedback
 // ---------------------------------------------------------------------------
 
@@ -724,6 +804,8 @@ export type UninstallRequest = Record<string, never>
 // POST    /api/update/download                   -                            PathResult
 // POST    /api/update/relaunch                   -                            RelaunchResult (202)
 // POST    /api/uninstall                         UninstallRequest             204
+// GET     /api/assistant                         -                            AssistantInfo
+// POST    /api/assistant/turn                    AssistantTurnRequest         AssistantReply
 // GET     /api/feedback                          -                            FeedbackInfo
 // POST    /api/feedback/turn                     FeedbackTurnRequest          FeedbackDraft
 // POST    /api/feedback/url                      FeedbackUrlRequest           FeedbackUrlResponse
