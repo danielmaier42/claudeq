@@ -47,11 +47,11 @@ describe('groupByKind', () => {
       ({id, name: id, kind, type_name: kind, default: dflt, enabled: true}) as Provider
     const groups = groupByKind([
       p('alpha', 'claude-code'),
-      p('beta', 'codex'),
+      p('bob', 'codex'),
       p('zed', 'codex', true),
       p('aaa', 'codex'),
     ])
     expect(groups.map((g) => g.kind)).toEqual(['codex', 'claude-code'])
-    expect(groups[0].providers.map((x) => x.id)).toEqual(['zed', 'aaa', 'beta'])
+    expect(groups[0].providers.map((x) => x.id)).toEqual(['zed', 'aaa', 'bob'])
   })
 })

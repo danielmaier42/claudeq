@@ -218,7 +218,7 @@ explains it.
 
 **Providers**
 
-- **Three harnesses, one queue**: Claude Code, and in beta Codex and opencode.
+- **Three harnesses, one queue**: Claude Code, Codex and opencode.
   Same queue, same history, same limit handling. See [Providers](#providers).
 - **Any number of accounts.** Two providers of the same kind with separate
   configuration directories are two accounts with two allowances.
@@ -522,8 +522,7 @@ The dashboard is also reachable in a normal browser at
 
 Settings lists its sections on the left — **General**, **Appearance**,
 **Execution**, **Notifications**, **Providers**, **Pools**, **Assistant**,
-**System** and **About**; **↑**/**↓** step through them. **Pools** is there with
-beta features on, or while a pool exists. An available update puts a red dot on
+**System** and **About**; **↑**/**↓** step through them. An available update puts a red dot on
 **About**, which is where the update banner and button live.
 
 Switches, menus and pickers apply the moment they change. Typed text (the
@@ -549,13 +548,12 @@ in the list, and leaving Settings keeps the draft for the session.
 | | Webhook | Post to a webhook | Toggle, endpoint URL, and a JSON body template using `{{title}}`, `{{message}}`, `{{url}}` (empty = ClaudeQ's own body). |
 | **Providers** | Backfill threshold | Slider | Below the providers: the urgency above which [backfill tasks](#backfill-tasks) run, with each provider's urgency next to it. Applies on release. |
 | | One card per provider | Its settings | Name and type, a health dot with **Check**, its current limits (the same bars as the Dashboard, when the harness reports any), the binary and configuration directory in use, the default model, and the provider that takes over when the limit is reached (and the model it uses). The switch turns it on or off at once; **Edit** opens a dialog that saves that provider alone; **Make default** and **Remove** sit in its **…** menu. See [Providers](#providers). |
-| | | **Add provider** | Only with beta features on: asks for an id, a type, a name and optionally a configuration directory. |
-| **Pools** (beta) | One card per pool | Its settings | Name, members and their weights, which member the next run goes to and why. **Edit** opens a dialog with, per provider of the pool's type, a switch for membership and a weight (empty = the plan size the provider reports, e.g. *auto · 20×*). **Remove** is refused while a task uses the pool. **Add pool** asks for an id, a name and the members. See [Provider pools](#provider-pools). |
+| | | **Add provider** | Asks for an id, a type, a name and optionally a configuration directory. |
+| **Pools** | One card per pool | Its settings | Name, members and their weights, which member the next run goes to and why. **Edit** opens a dialog with, per provider of the pool's type, a switch for membership and a weight (empty = the plan size the provider reports, e.g. *auto · 20×*). **Remove** is refused while a task uses the pool. **Add pool** asks for an id, a name and the members. See [Provider pools](#provider-pools). |
 | **Assistant** | Prompt review | Check prompts with Claude | Whether Claude reviews a prompt against this Mac before the task is queued (on by default). |
 | | | Review provider / Review model | Which provider answers the review, and with which model. Only providers that can hold an *aside* are offered; *Default* follows the global default provider, and the model falls back to the reviewing provider's own default. |
 | | Feedback assistant | Feedback provider / Feedback model | Which provider drafts the GitHub issue on the [Feedback](#sending-feedback) page, and with which model; left at *ClaudeQ's choice* it uses a small, fast model rather than whatever you picked for real tasks. |
-| **System** | Beta features | Beta features | Reveals the parts of ClaudeQ that are not finished yet — currently **Add provider**, pools, and the **Codex** and **opencode** providers. Presentation only: anything already set up keeps working and the CLI accepts it either way. |
-| | Danger zone | Remove ClaudeQ from this Mac | **Uninstall…** asks you to type *uninstall*, then opens the uninstaller in the macOS Installer. Your tasks, history and settings are kept unless you select them under **Customize**. See [Uninstall](#uninstall). |
+| **System** | Danger zone | Remove ClaudeQ from this Mac | **Uninstall…** asks you to type *uninstall*, then opens the uninstaller in the macOS Installer. Your tasks, history and settings are kept unless you select them under **Customize**. See [Uninstall](#uninstall). |
 | **About** | Software updates | Version / Check for updates | Current version, when the last check ran, and a manual **Check for updates**; an available update shows its notes with **Download & install**, **Dismiss** and **All releases**. |
 
 ## Providers
@@ -571,8 +569,8 @@ Three harnesses are supported:
 | Type | CLI | Notes |
 |------|-----|-------|
 | Claude (`claude-code`) | [Claude Code](https://claude.com/claude-code) | Passes a task's reasoning effort through Claude Code's `--effort` flag. Reports token counts and cost. Its only authority settings are "ask" and "skip every prompt". |
-| Codex (`codex`) | [Codex](https://learn.chatgpt.com/docs/developer-commands?surface=cli) | **Beta.** Takes a reasoning effort and a real sandbox mode, so read-only and workspace-write actually mean something. Tasks may use a working folder that is not itself a Git repository. Reports tokens but no cost — ClaudeQ never invents one. |
-| opencode (`opencode`) | [opencode](https://opencode.ai) | **Beta.** Runs whatever model opencode is configured for, including local ones (it was brought up against LM Studio). Takes a reasoning effort as opencode's *variant*. Permission handling is all or nothing: the CLI's own prompts, or none. Reports tokens and cost as opencode states them. It cannot answer ClaudeQ's own questions yet, so the prompt review and the feedback assistant are not offered on it, and its errors do not tell a rate limit from any other failure, so a limited run fails instead of pausing. |
+| Codex (`codex`) | [Codex](https://learn.chatgpt.com/docs/developer-commands?surface=cli) | Takes a reasoning effort and a real sandbox mode, so read-only and workspace-write actually mean something. Tasks may use a working folder that is not itself a Git repository. Reports tokens but no cost — ClaudeQ never invents one. |
+| opencode (`opencode`) | [opencode](https://opencode.ai) | Runs whatever model opencode is configured for, including local ones (it was brought up against LM Studio). Takes a reasoning effort as opencode's *variant*. Permission handling is all or nothing: the CLI's own prompts, or none. Reports tokens and cost as opencode states them. It cannot answer ClaudeQ's own questions yet, so the prompt review and the feedback assistant are not offered on it, and its errors do not tell a rate limit from any other failure, so a limited run fails instead of pausing. |
 
 You can configure as many instances as you like, including two of the same kind:
 give each its own configuration directory and they are two accounts, with their
@@ -614,34 +612,20 @@ configuration directory, which is what makes the new one a second account.
 changes for the same reasons — removing an instance a task still names, for
 instance, which names the tasks that have to change first.
 
-### Beta features
+### What Codex and opencode cannot tell ClaudeQ yet
 
-Three things are behind one switch, **Settings → System → Beta features**:
-adding providers at all, the two beta harnesses Codex and opencode, and
-[provider pools](#provider-pools). With it off there is no **Add provider**
-button, neither harness is offered, and there is no **Pools** section and no pool in
-the task panel; with it on all of them appear, the buttons marked as beta, and
-anything on a beta provider or a pool is labelled *beta* wherever it shows up.
-A pool that already exists keeps its section, its Dashboard row and its tasks with
-the switch off. The switch itself does not enumerate what it contains — that is what
-this section is for.
+Both harnesses run tasks like Claude Code does, with two limits worth knowing.
 
-That switch decides what the app *offers* and nothing else. The adapter is
-always part of the build, the API and `claudeq` always accept Codex, opencode
-and pools, and the scheduler never looks at the switch — so a Codex task created from the command
-line runs, and stays visible in Queue and Log, whatever the app is showing.
-Hiding setup controls never hides actual work.
+Codex: what a real exhausted ChatGPT allowance looks like in its output has not
+been observed yet. A rate-limited Codex run is paused and resumed on a fixed
+delay rather than at the time the provider names, because in the controlled
+test it named none.
 
-Codex is beta for one concrete reason: what a real exhausted ChatGPT allowance
-looks like in its output has not been observed yet. A rate-limited Codex run is
-paused and resumed on a fixed delay rather than at the time the provider names,
-because in the controlled test it named none.
-
-opencode is beta because its error reporting is the weakest of the three:
-running it locally, every failure came back in the same generic shape, so
-ClaudeQ cannot tell an exhausted allowance or a logged-out account from any
-other error. A failed opencode run is therefore recorded as failed, not paused
-and resumed, and the readiness check can only confirm that the binary runs.
+opencode: its error reporting is the weakest of the three. Running it locally,
+every failure came back in the same generic shape, so ClaudeQ cannot tell an
+exhausted allowance or a logged-out account from any other error. A failed
+opencode run is therefore recorded as failed, not paused and resumed, and the
+readiness check can only confirm that the binary runs.
 
 Editing a task changes its provider only when you say so. Every other edit — the
 prompt, the folder, the schedule — goes through whatever state the current
@@ -783,9 +767,6 @@ only, the same place the CLI sends it. It is held for that one request and is
 never written, logged or served over the API.
 
 ## Provider pools
-
-Pools are a [beta feature](#beta-features): the app offers them only with beta
-features on, while `claudeq pool` and `--pool` work either way.
 
 A **pool** is a set of providers of one type, two Claude subscriptions for
 example, that a task can be given instead of a single provider. ClaudeQ
@@ -1888,7 +1869,7 @@ verification notes are in [PLAN.md](PLAN.md).
 - The [Claude Code](https://claude.com/claude-code) CLI, installed and
   authenticated
 - Optionally the [Codex](https://learn.chatgpt.com/docs/developer-commands?surface=cli)
-  CLI, installed and logged in, for tasks you want to run on it (beta)
+  CLI, installed and logged in, for tasks you want to run on it
 
 ## License
 

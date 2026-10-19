@@ -5,7 +5,7 @@ import {ViewLayout} from '@/components/layout/view-layout'
 import {Button} from '@/components/ui/button'
 import {EmptyState} from '@/components/ui/empty-state'
 import {errorMessage} from '@/lib/api'
-import {invalidate, keys, usePools, useUpdate} from '@/lib/queries'
+import {invalidate, keys, useUpdate} from '@/lib/queries'
 import {SaveBar} from './components/SaveBar'
 import {SettingsNav, type NavMark} from './components/SettingsNav'
 import {SectionTitle, SettingsSkeleton} from './components/parts'
@@ -19,23 +19,18 @@ import {ExecutionSection} from './sections/ExecutionSection'
 import {GeneralSection} from './sections/GeneralSection'
 import {NotificationsSection} from './sections/NotificationsSection'
 import {SystemSection} from './sections/SystemSection'
-import {pickSection, visibleSections, type SectionId} from './sections'
+import {pickSection, SECTIONS, type SectionId} from './sections'
 import {setSection, useSettingsUi} from './store'
 import {updatePending} from './update'
 import {useSettingsForm} from './use-settings-form'
 
 export function SettingsView() {
   const form = useSettingsForm()
-  const pools = usePools().data
   const update = useUpdate().data
   const requested = useNav((s) => s.settingsSection)
   const last = useSettingsUi((s) => s.section)
 
-  const sections = useMemo(
-    () => visibleSections(!!form.stored?.beta_features, pools?.length ?? 0),
-    [form.stored?.beta_features, pools?.length],
-  )
-  const current = pickSection({requested, last, updatePending: updatePending(update), visible: sections})
+  const current = pickSection({requested, last, updatePending: updatePending(update)})
 
   // A requested section (a link, the native menu) is taken over as the
   // session's own choice, and the request is cleared so it is not replayed.
@@ -50,13 +45,13 @@ export function SettingsView() {
   for (const id of edited) marks[id as SectionId] = 'unsaved'
   if (updatePending(update)) marks.about = 'update'
 
-  const def = sections.find((s) => s.id === current) ?? sections[0]
+  const def = SECTIONS.find((s) => s.id === current) ?? SECTIONS[0]
 
   return (
     <ViewLayout title="Settings">
       <div className="flex flex-col gap-6 md:flex-row md:gap-8">
         <nav className="shrink-0 md:w-48">
-          <SettingsNav sections={sections} current={current} marks={marks} onSelect={setSection} />
+          <SettingsNav sections={SECTIONS} current={current} marks={marks} onSelect={setSection} />
         </nav>
         <div className="min-w-0 flex-1">
           <SectionTitle title={def.label} description={def.description} />
@@ -100,6 +95,6 @@ function SectionBody({id, form}: {id: SectionId; form: ReturnType<typeof useSett
     case 'assistant':
       return <AssistantSection value={value} />
     case 'system':
-      return <SystemSection value={value} />
+      return <SystemSection />
   }
 }

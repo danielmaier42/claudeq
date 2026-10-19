@@ -2,7 +2,7 @@ import {describe, expect, it} from 'vitest'
 import type {Settings} from '@/lib/types'
 import {combineEdits, editedSections, fieldError, hasEdits, mergeSettings, pruneEdits} from './draft'
 import {choiceOptions, IDLE, idleValue} from './options'
-import {pickSection, SECTIONS, visibleSections} from './sections'
+import {pickSection} from './sections'
 
 const base: Settings = {
   default_provider: 'claude',
@@ -21,7 +21,6 @@ const base: Settings = {
   prompt_review_model: '',
   feedback_provider: '',
   feedback_model: '',
-  beta_features: false,
   default_working_dir: '',
   appearance: '',
   accent: '',
@@ -82,21 +81,11 @@ describe('options', () => {
 })
 
 describe('sections', () => {
-  it('hides Pools unless beta is on or a pool exists', () => {
-    expect(visibleSections(false, 0).some((s) => s.id === 'pools')).toBe(false)
-    expect(visibleSections(true, 0).some((s) => s.id === 'pools')).toBe(true)
-    expect(visibleSections(false, 1).some((s) => s.id === 'pools')).toBe(true)
-  })
-
   it('prefers the requested section, then the last one, then About while an update waits', () => {
-    const visible = visibleSections(false, 0)
-    expect(pickSection({requested: 'system', last: 'general', updatePending: true, visible})).toBe('system')
-    expect(pickSection({requested: 'pools', last: 'notifications', updatePending: false, visible})).toBe(
-      'notifications',
-    )
-    expect(pickSection({requested: '', last: '', updatePending: true, visible})).toBe('about')
-    expect(pickSection({requested: 'nope', last: '', updatePending: false, visible: SECTIONS})).toBe(
-      'general',
-    )
+    expect(pickSection({requested: 'system', last: 'general', updatePending: true})).toBe('system')
+    expect(pickSection({requested: 'pools', last: 'notifications', updatePending: false})).toBe('pools')
+    expect(pickSection({requested: '', last: 'notifications', updatePending: true})).toBe('notifications')
+    expect(pickSection({requested: '', last: '', updatePending: true})).toBe('about')
+    expect(pickSection({requested: 'nope', last: '', updatePending: false})).toBe('general')
   })
 })

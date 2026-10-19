@@ -3,7 +3,7 @@ import {Section} from '@/components/layout/view-layout'
 import {ModelSelect} from '@/components/domain/model-select'
 import {Select, type SelectOption} from '@/components/ui/select'
 import {Switch} from '@/components/ui/switch'
-import {defaultProvider, providerName, useBeta, useProviderList} from '@/lib/providers'
+import {defaultProvider, providerName, useProviderList} from '@/lib/providers'
 import type {Settings} from '@/lib/types'
 import {commitSettings} from '../actions'
 import {SaveMode} from '../components/parts'
@@ -15,12 +15,11 @@ import {SaveMode} from '../components/parts'
 // marked, so nothing quietly moves the job somewhere else.
 function useAsideProviderOptions(current: string): SelectOption[] {
   const providers = useProviderList()
-  const beta = useBeta()
-  const offered = providers.filter((p) => p.enabled && p.asides && (!p.beta || beta))
+  const offered = providers.filter((p) => p.enabled && p.asides)
   const dflt = defaultProvider(providers)
   const opts: SelectOption[] = [
     {value: '', label: dflt ? `Default (${providerName(dflt)})` : 'Default provider'},
-    ...offered.map((p) => ({value: p.id, label: providerName(p) + (p.beta ? ' (beta)' : '')})),
+    ...offered.map((p) => ({value: p.id, label: providerName(p)})),
   ]
   if (current && !offered.some((p) => p.id === current))
     opts.push({value: current, label: `${current} (unavailable)`})

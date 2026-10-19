@@ -8,8 +8,6 @@ import type {QueueTask, Run} from '@/lib/types'
 export interface QueueContext {
   // What a task actually runs on: "Claude · Opus", "Pool Night · Sonnet", "Script".
   runsOn: (t: QueueTask) => string
-  // Whether the task runs on something still in beta, and which kind.
-  beta: (t: QueueTask) => 'pool' | 'provider' | null
   // The live run of a running task, to open its log from the row.
   liveRun: (t: QueueTask) => string | undefined
   // The task's most recent run, finished or not, from the run list the app
@@ -48,7 +46,6 @@ export function useRunsOn(): (t: TaskTarget) => string {
 }
 
 export function useQueueContext(): QueueContext {
-  const providers = useProviders().data
   const runs = useRuns().data
   const limitedUntil = useHealth().data?.limited_until || undefined
   const runsOn = useRunsOn()
@@ -64,15 +61,9 @@ export function useQueueContext(): QueueContext {
     }
     return {
       runsOn,
-      beta: (t) => {
-        if (t.kind === 'script') return null
-        if (t.pool) return 'pool'
-        const p = t.provider ? providers?.find((x) => x.id === t.provider) : providers?.find((x) => x.default)
-        return p?.beta ? 'provider' : null
-      },
       liveRun: (t) => live.get(t.id),
       lastRun: (t) => last.get(t.id),
       limitedUntil,
     } satisfies QueueContext
-  }, [providers, runs, limitedUntil, runsOn])
+  }, [runs, limitedUntil, runsOn])
 }

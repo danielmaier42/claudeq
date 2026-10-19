@@ -167,10 +167,6 @@ type Capabilities struct {
 	// session of its own, returning the structure claudeq asked for. Prompt
 	// review needs one turn of this; the feedback assistant needs several.
 	Asides bool
-	// Beta marks an adapter claudeq does not yet consider finished. It is a
-	// property of the adapter, not a preference: the app uses it to label and to
-	// decide what to offer, so nothing has to branch on a particular kind.
-	Beta bool
 	// AccessModes lists the access modes this adapter can actually enforce.
 	AccessModes []AccessMode
 }

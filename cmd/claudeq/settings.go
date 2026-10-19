@@ -233,7 +233,6 @@ type settingsView struct {
 	FeedbackModel      string  `json:"feedback_model"`
 	DefaultWorkingDir  string  `json:"default_working_dir"`
 	ArtifactNotify     bool    `json:"artifact_notify"`
-	BetaFeatures       bool    `json:"beta_features"`
 	Appearance         string  `json:"appearance"`
 	Accent             string  `json:"accent"`
 	Paused             bool    `json:"paused"`
@@ -262,7 +261,6 @@ func newSettingsView(s store.Settings) settingsView {
 		FeedbackModel:      s.FeedbackModel,
 		DefaultWorkingDir:  s.DefaultWorkingDir,
 		ArtifactNotify:     !s.ArtifactNotifyDisabled,
-		BetaFeatures:       s.BetaFeatures,
 		Appearance:         s.Appearance,
 		Accent:             s.Accent,
 		Paused:             s.Paused,
@@ -292,9 +290,6 @@ func printSettings(s store.Settings) {
 	fmt.Printf("feedback_provider:         %s\n", orDefault(v.FeedbackProvider, "(the default provider)"))
 	fmt.Printf("feedback_model:            %s\n", orDefault(v.FeedbackModel, "(claudeq's own choice)"))
 	fmt.Printf("default_working_dir:       %s\n", orDefault(v.DefaultWorkingDir, "(none, field starts blank)"))
-	// Shown but not settable here: it decides what the *app* offers, and the CLI
-	// accepts every provider either way. Settings → System owns it.
-	fmt.Printf("beta_features:             %s (app only)\n", boolLabel(v.BetaFeatures))
 	fmt.Printf("appearance:                %s (app only)\n", orDefault(v.Appearance, "(follows macOS)"))
 	fmt.Printf("accent:                    %s (app only)\n", orDefault(v.Accent, "(follows macOS)"))
 	fmt.Printf("artifact_notify:           %s\n", boolLabel(v.ArtifactNotify))

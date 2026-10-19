@@ -4,9 +4,8 @@ import {POOL_PREFIX, poolOf} from './form'
 export interface TargetOption {
   value: string
   label: string
-  // Shown under the label: why a kept choice cannot run, or that it is beta.
+  // Shown under the label: why a kept choice cannot run.
   note?: string
-  beta?: boolean
   broken?: boolean
 }
 
@@ -23,19 +22,12 @@ const nameOf = (x: {id: string; name?: string}) => x.name || x.id
 // list, marked — an existing task stays visible with the reason it is blocked
 // rather than being quietly moved.
 //
-// Pools sit below the providers in the same field. They are a beta feature:
-// offered with beta features on, and kept for a task that already runs on one
-// either way.
-export function targetOptions(
-  providers: Provider[],
-  pools: Pool[],
-  beta: boolean,
-  current: string,
-): TargetGroups {
+// Pools sit below the providers in the same field.
+export function targetOptions(providers: Provider[], pools: Pool[], current: string): TargetGroups {
   const poolID = poolOf(current)
   const dflt = providers.find((p) => p.default)
   const offered = providers
-    .filter((p) => p.enabled && p.health?.state === 'ready' && (!p.beta || beta))
+    .filter((p) => p.enabled && p.health?.state === 'ready')
     .sort((a, b) => nameOf(a).localeCompare(nameOf(b)))
   const picked = providers.find((p) => p.id === current)
   if (current && picked && !offered.some((p) => p.id === current)) offered.push(picked)
@@ -47,7 +39,6 @@ export function targetOptions(
       return {
         value: p.id,
         label: nameOf(p),
-        beta: p.beta,
         broken: !ready,
         note: ready ? undefined : healthText(p),
       }
@@ -56,9 +47,7 @@ export function targetOptions(
   if (current && !poolID && !picked)
     list.push({value: current, label: current, broken: true, note: 'not configured'})
 
-  const poolList: TargetOption[] = pools
-    .filter((p) => beta || p.id === poolID)
-    .map((p) => ({value: POOL_PREFIX + p.id, label: nameOf(p), beta: true}))
+  const poolList: TargetOption[] = pools.map((p) => ({value: POOL_PREFIX + p.id, label: nameOf(p)}))
   if (poolID && !pools.some((p) => p.id === poolID))
     poolList.push({value: current, label: poolID, broken: true, note: 'not configured'})
 

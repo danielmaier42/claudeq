@@ -3,7 +3,7 @@ import type {NtfySettings, PushoverSettings, Settings, WebhookSettings} from '@/
 // Settings are written whole (PUT /api/settings takes every field), but the
 // form only ever owns a few of them at a time. Edits are therefore kept as a
 // patch and laid over the latest stored settings when they are written, so a
-// value changed elsewhere meanwhile (appearance, accent, pause, beta) is never
+// value changed elsewhere meanwhile (appearance, accent, pause) is never
 // carried back stale.
 
 type Channel = 'pushover' | 'ntfy' | 'webhook'
@@ -84,7 +84,6 @@ export function sectionOfEdit(key: string): string {
   if (key === 'system_prompt' || key === 'default_working_dir') return 'general'
   if (key.startsWith('prompt_review') || key.startsWith('feedback')) return 'assistant'
   if (key === 'appearance' || key === 'accent') return 'appearance'
-  if (key === 'beta_features') return 'system'
   return 'execution'
 }
 

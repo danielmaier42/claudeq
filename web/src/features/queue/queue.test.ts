@@ -144,7 +144,6 @@ describe('lastOutcome', () => {
 describe('searchTexts', () => {
   const ctx = {
     runsOn: () => 'Claude Code · Opus',
-    beta: () => null,
     liveRun: () => undefined,
     lastRun: () => undefined,
     limitedUntil: undefined,

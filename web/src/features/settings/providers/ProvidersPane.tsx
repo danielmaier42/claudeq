@@ -8,7 +8,6 @@ import {EmptyState} from '@/components/ui/empty-state'
 import {Skeleton} from '@/components/ui/skeleton'
 import {Tooltip} from '@/components/ui/tooltip'
 import {errorMessage} from '@/lib/api'
-import {useBeta} from '@/lib/providers'
 import {useLimits, useProviders} from '@/lib/queries'
 import {AddProviderDialog} from './AddProviderDialog'
 import {BackfillSection} from './BackfillSection'
@@ -18,7 +17,6 @@ import {byName, groupByKind} from './provider-logic'
 // ProvidersPane is Settings → Providers: one card per configured harness.
 // Every action on a card takes effect at once; there is no page-wide Save.
 export function ProvidersPane() {
-  const beta = useBeta()
   const providers = useProviders()
   // The limits are what the daemon last read. A card without them is still a
   // complete card, so a failure here costs only the meters.
@@ -27,11 +25,9 @@ export function ProvidersPane() {
   const list = [...(providers.data ?? [])].sort(byName)
   const limitsOf = (id: string) => limits?.find((l) => l.id === id)?.limits
 
-  // Adding a provider is one of the parts ClaudeQ does not consider finished,
-  // so the button appears only once the operator has asked for beta features.
-  const add = beta && (
-    <Tooltip content="Beta: a second account, or another harness such as Codex">
-      <Button variant="ai" size="sm" onClick={() => setAdding(true)}>
+  const add = (
+    <Tooltip content="A second account, or another harness such as Codex or opencode">
+      <Button size="sm" onClick={() => setAdding(true)}>
         <Plus />
         Add provider
       </Button>
@@ -65,11 +61,7 @@ export function ProvidersPane() {
         <EmptyState
           icon={<Server />}
           title="No providers"
-          description={
-            beta
-              ? 'Add the CLI ClaudeQ should run tasks with.'
-              : 'Turn on beta features under System to add one.'
-          }
+          description="Add the CLI ClaudeQ should run tasks with."
           action={add}
         />
       ) : (

@@ -276,7 +276,6 @@ export interface Provider extends ProviderInstance {
   default: boolean
   // Binary claudeq would use when binary_path is empty.
   detected?: string
-  beta?: boolean
   // Harness accepts a reasoning-effort setting.
   reasoning_effort: boolean
   // Harness can run prompt review / feedback assistant.
@@ -306,7 +305,6 @@ export interface ProviderKindInfo {
   kind: ProviderKind
   name: string
   default_config_dir?: string
-  beta: boolean
 }
 
 // GET /api/models[?provider=<id>] -> Model[] (default provider when no id).
@@ -448,7 +446,6 @@ export interface Settings {
   prompt_review_model: string
   feedback_provider: string
   feedback_model: string
-  beta_features: boolean
   default_working_dir: string
   appearance: Appearance
   // "#rrggbb" pins the accent colour; "" follows macOS.
