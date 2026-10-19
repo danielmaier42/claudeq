@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -165,5 +166,29 @@ func TestRenameCheckWithoutAReviewer(t *testing.T) {
 	do(t, srv, "POST", "/api/rename-check", nil).into(t, &c)
 	if c.State != "unavailable" {
 		t.Fatalf("got %+v", c)
+	}
+}
+
+func TestRenameCheckCoversTheCustomSystemPrompt(t *testing.T) {
+	old := "Queue follow-ups with /Applications/ClaudeQ.app/Contents/MacOS/claudeq queue."
+	rv := &promptReviewer{answers: map[string]review.Result{
+		old: {Message: "Old CLI.", RevisedPrompt: "Queue follow-ups with /Applications/DispatchQ.app/Contents/MacOS/dispatchq queue."},
+	}}
+	srv, st := newReviewServer(t, rv, store.Settings{SystemPrompt: old}, "/opt/claude", "")
+	var c renameCheck
+	do(t, srv, "POST", "/api/rename-check", nil).into(t, &c)
+	deadline := time.Now().Add(5 * time.Second)
+	for c.State != "done" && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+		do(t, srv, "GET", "/api/rename-check", nil).into(t, &c)
+	}
+	if len(c.Findings) != 1 || c.Findings[0].TaskID != renameSystemID {
+		t.Fatalf("findings: %+v", c.Findings)
+	}
+	var res renameApplyResponse
+	do(t, srv, "POST", "/api/rename-check/apply", renameApplyRequest{TaskIDs: []string{renameSystemID}}).into(t, &res)
+	cfg, _ := st.LoadConfig()
+	if len(res.Applied) != 1 || !strings.Contains(cfg.Settings.SystemPrompt, "DispatchQ.app") {
+		t.Fatalf("applied %+v, system prompt %q", res, cfg.Settings.SystemPrompt)
 	}
 }

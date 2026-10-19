@@ -117,7 +117,9 @@ func (r *Reviewer) Review(ctx context.Context, req Request) (Result, error) {
 	}
 	facts := Inspect(req.Prompt, req.WorkingDir, home)
 	var cmds []Command
-	if req.Kind == KindScript && isShellScript(req.Prompt) {
+	// The rename check sees scripts too: a script calling the old `claudeq`
+	// by name needs to learn it is no longer on the PATH.
+	if (req.Kind == KindScript || req.Kind == KindRename) && isShellScript(req.Prompt) {
 		pathEnv := r.PATH
 		if pathEnv == "" {
 			pathEnv = os.Getenv("PATH")

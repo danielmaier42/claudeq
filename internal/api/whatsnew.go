@@ -10,6 +10,7 @@ import (
 
 	"github.com/danielmaier42/claudeq/internal/review"
 	"github.com/danielmaier42/claudeq/internal/store"
+	"github.com/danielmaier42/claudeq/internal/task"
 )
 
 // WhatsNewEdition names the release the "What's new" dialog introduces. The
@@ -47,7 +48,12 @@ func (s *server) dismissWhatsNew(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, whatsNewStatus{Edition: WhatsNewEdition})
 }
 
-// renameFinding is one task the rename check wants to change.
+// renameSystemID stands for the custom system prompt among the findings: it
+// goes into every run, so a ClaudeQ path there breaks them all.
+const renameSystemID = "@system"
+
+// renameFinding is one task (or the custom system prompt) the rename check
+// wants to change.
 type renameFinding struct {
 	TaskID        string `json:"task_id"`
 	Name          string `json:"name"`
@@ -89,9 +95,12 @@ func (j *renameJob) snapshot() renameCheck {
 	return c
 }
 
-// mentionsClaudeQ reports whether a task can need the rename at all. Only these
-// go to the reviewer: a task that never names ClaudeQ has nothing to migrate,
-// and checking it would only cost model usage.
+// mentionsClaudeQ reports whether a prompt can need the rename at all. Only
+// these go to the reviewer: a prompt that never names ClaudeQ has nothing to
+// migrate, and checking it would only cost model usage. The working directory
+// is not looked at: only the prompt can be rewritten, the old data folder
+// stays reachable through its link, and a repository called claudeq keeps
+// its name.
 func mentionsClaudeQ(text string) bool {
 	return strings.Contains(strings.ToLower(text), "claudeq")
 }
@@ -108,33 +117,38 @@ func (s *server) startRenameCheck(w http.ResponseWriter, _ *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	// Resolved before taking the lock: it probes the filesystem for the
+	// provider's binary, and the dialog's polls must not wait on that.
+	inst, model, ok := s.reviewTarget(cfg)
 	s.rename.mu.Lock()
 	if s.rename.check.State == "running" {
 		s.rename.mu.Unlock()
 		writeJSON(w, http.StatusOK, s.rename.snapshot())
 		return
 	}
-	inst, model, ok := s.reviewTarget(cfg)
 	if s.d.Review == nil || !ok {
 		s.rename.check = renameCheck{State: "unavailable"}
 		s.rename.mu.Unlock()
 		writeJSON(w, http.StatusOK, s.rename.snapshot())
 		return
 	}
-	var todo []int
-	for i, t := range cfg.Tasks {
-		if mentionsClaudeQ(t.Prompt) || mentionsClaudeQ(t.WorkingDir) {
-			todo = append(todo, i)
+	var todo []task.Task
+	for _, t := range cfg.Tasks {
+		if mentionsClaudeQ(t.Prompt) {
+			todo = append(todo, t)
 		}
 	}
-	s.rename.check = renameCheck{State: "running", Total: len(todo), Skipped: len(cfg.Tasks) - len(todo)}
+	skipped := len(cfg.Tasks) - len(todo)
+	if mentionsClaudeQ(cfg.Settings.SystemPrompt) {
+		todo = append(todo, task.Task{ID: renameSystemID, Name: "Custom system prompt", Prompt: cfg.Settings.SystemPrompt})
+	}
+	s.rename.check = renameCheck{State: "running", Total: len(todo), Skipped: skipped}
 	s.rename.mu.Unlock()
 
 	go func() {
 		sem := make(chan struct{}, renameCheckParallel)
 		var wg sync.WaitGroup
-		for _, i := range todo {
-			t := cfg.Tasks[i]
+		for _, t := range todo {
 			wg.Add(1)
 			sem <- struct{}{}
 			go func() {
@@ -176,7 +190,8 @@ type renameApplyResponse struct {
 	Changed []string `json:"changed,omitempty"`
 }
 
-// applyRename writes the revised prompt of each selected finding to its task.
+// applyRename writes the revised prompt of each selected finding to its task,
+// or to the custom system prompt.
 func (s *server) applyRename(w http.ResponseWriter, r *http.Request) {
 	var in renameApplyRequest
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -203,6 +218,15 @@ func (s *server) applyRename(w http.ResponseWriter, r *http.Request) {
 		for _, id := range in.TaskIDs {
 			f, ok := byID[id]
 			if !ok {
+				continue
+			}
+			if id == renameSystemID {
+				if cfg.Settings.SystemPrompt != f.prompt {
+					out.Changed = append(out.Changed, id)
+					continue
+				}
+				cfg.Settings.SystemPrompt = f.RevisedPrompt
+				out.Applied = append(out.Applied, id)
 				continue
 			}
 			for i := range cfg.Tasks {

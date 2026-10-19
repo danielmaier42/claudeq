@@ -21,8 +21,9 @@ LABEL="de.maierdaniel.dispatchq"
 PORT=10765
 # The app was called ClaudeQ before 2.0. An update from there finds its app,
 # LaunchAgent, wake permission and receipt under these names; they are retired
-# once DispatchQ runs (see retire_claudeq). The data directory moves with the
-# first DispatchQ start (internal/store/rename.go).
+# once DispatchQ runs: `dispatchqd install` boots out ClaudeQ's agent and stops
+# its daemon before it moves the data directory (internal/store/rename.go), and
+# retire_claudeq clears away the rest.
 LEGACY_LABEL="de.maierdaniel.claudeq"
 LEGACY_APP="/Applications/ClaudeQ.app"
 # The port ClaudeQ used before 10765. An old daemon still listens there, and
@@ -49,10 +50,8 @@ uid=$(id -u "$consoleUser")
 # LaunchAgents directory, which this script must never touch.
 homeDir=$(dscl . -read "/Users/$consoleUser" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
 plist=""
-legacyPlist=""
 if [ -n "$homeDir" ] && [ -d "$homeDir" ]; then
 	plist="$homeDir/Library/LaunchAgents/$LABEL.plist"
-	legacyPlist="$homeDir/Library/LaunchAgents/$LEGACY_LABEL.plist"
 fi
 
 # The version this package just put in /Applications. The running daemon must
@@ -92,17 +91,6 @@ stop_daemons() {
 	fi
 	# Give launchd and the OS a moment to reap the processes and free the port.
 	sleep 1
-}
-
-# stop_claudeq drops ClaudeQ's LaunchAgent before the takeover. launchd keeps
-# restarting a daemon its job still owns, so killing the process alone would
-# leave the ClaudeQ daemon running the queue next to the new one.
-stop_claudeq() {
-	as_user launchctl bootout "gui/$uid/$LEGACY_LABEL" 2>/dev/null || true
-	if [ -n "$legacyPlist" ] && [ -f "$legacyPlist" ]; then
-		rm -f "$legacyPlist"
-		echo "dispatchq: removed ClaudeQ LaunchAgent $legacyPlist"
-	fi
 }
 
 # retire_claudeq clears away what is left of ClaudeQ once DispatchQ runs: its
@@ -152,7 +140,6 @@ settled() {
 	return 1
 }
 
-stop_claudeq
 takeover || true
 
 if [ -n "$want" ] && ! settled; then

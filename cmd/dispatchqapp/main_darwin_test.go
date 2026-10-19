@@ -5,6 +5,8 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 )
@@ -59,5 +61,22 @@ func TestReachableGivesUpWhenNothingListens(t *testing.T) {
 
 	if reachable(url, daemonProbeAttempts) {
 		t.Fatal("reachable = true, want false with no daemon there")
+	}
+}
+
+func TestClaudeQAgentInstalled(t *testing.T) {
+	home := t.TempDir()
+	if claudeQAgentInstalled(home) {
+		t.Fatal("no agent yet")
+	}
+	dir := filepath.Join(home, "Library", "LaunchAgents")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "de.maierdaniel.claudeq.plist"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !claudeQAgentInstalled(home) {
+		t.Fatal("ClaudeQ's agent not found")
 	}
 }

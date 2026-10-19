@@ -203,3 +203,16 @@ func (blockingAsker) Ask(ctx context.Context, _ provider.Instance, _ provider.As
 	<-ctx.Done()
 	return provider.Aside{}, ctx.Err()
 }
+
+func TestRenameReviewLooksUpAScriptsCommands(t *testing.T) {
+	r, c := reviewer(t, `{"ok": true}`)
+	r.PATH = t.TempDir()
+	if _, err := r.Review(context.Background(), Request{
+		Kind: KindRename, Prompt: "#!/bin/sh\nclaudeq queue --name x 'y'\n", Provider: claude,
+	}); err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+	if !strings.Contains(c.req.Text, "Commands the script runs by name") || !strings.Contains(c.req.Text, "claudeq") {
+		t.Errorf("the reviewer was not told about the script's commands:\n%s", c.req.Text)
+	}
+}

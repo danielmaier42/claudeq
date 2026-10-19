@@ -232,7 +232,7 @@ func userMessage(req Request, cands []Candidate, cmds []Command) string {
 		b.WriteString("- " + candidateLine(c) + "\n")
 	}
 
-	if req.Kind == KindScript {
+	if req.Kind == KindScript || (req.Kind == KindRename && len(cmds) > 0) {
 		b.WriteString("\n## Commands the script runs by name, looked up on the PATH it runs with\n\n")
 		if len(cmds) == 0 {
 			b.WriteString("None found (not a shell script, or it calls programs only by path).\n")

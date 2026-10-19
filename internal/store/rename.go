@@ -52,6 +52,11 @@ func migrateLegacyHome(legacy, home string) error {
 		return fmt.Errorf("move ClaudeQ data dir to %s: %w", home, err)
 	}
 	if err := os.Symlink(filepath.Base(home), legacy); err != nil {
+		// The move is done and is what matters; something that recreated the
+		// old directory in between keeps it, and only the link is missing.
+		if errors.Is(err, os.ErrExist) {
+			return nil
+		}
 		return fmt.Errorf("link ClaudeQ data dir to %s: %w", home, err)
 	}
 	return nil

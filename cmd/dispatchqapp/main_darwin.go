@@ -19,6 +19,7 @@ import (
 
 	webview "github.com/webview/webview_go"
 
+	"github.com/danielmaier42/claudeq/internal/launchd"
 	"github.com/danielmaier42/claudeq/internal/notify"
 )
 
@@ -51,6 +52,7 @@ func main() {
 	// launch cycle, and a click that launched DispatchQ is only delivered to a
 	// delegate that was already in place by then.
 	installNotifyDelegate()
+	takeOverFromClaudeQ()
 	ensureDaemon()
 
 	// Opening the window is a reliable "user is present" moment, so ask the daemon
@@ -163,6 +165,38 @@ func applyAccent(w webview.WebView) {
 			})
 		}()
 	}
+}
+
+// takeOverFromClaudeQ hands the background service over from ClaudeQ, the
+// app's name before 2.0, when the installer could not: it does so only for the
+// user logged in at the screen, so an install with nobody logged in leaves
+// ClaudeQ's agent behind, and its daemon would keep answering on the dashboard
+// port. The bundled `dispatchqd install` boots that agent out, stops its
+// daemon and installs DispatchQ's own.
+func takeOverFromClaudeQ() {
+	home, err := os.UserHomeDir()
+	if err != nil || !claudeQAgentInstalled(home) {
+		return
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	daemon := filepath.Join(filepath.Dir(exe), "dispatchqd")
+	if !fileExists(daemon) {
+		return
+	}
+	cmd := exec.Command(daemon, "install")
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintln(os.Stderr, "dispatchqapp: could not take over from ClaudeQ:", err)
+	}
+}
+
+// claudeQAgentInstalled reports whether ClaudeQ's LaunchAgent is still in
+// place under home.
+func claudeQAgentInstalled(home string) bool {
+	return fileExists(filepath.Join(home, "Library", "LaunchAgents", launchd.LegacyLabel+".plist"))
 }
 
 // ensureDaemon starts dispatchqd if the dashboard isn't already responding.

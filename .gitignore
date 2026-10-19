@@ -16,3 +16,8 @@ coverage.*
 /internal/api/web/*
 !/internal/api/web/.gitkeep
 web/node_modules/
+
+# Binaries from a `go build ./cmd/...` at the repository root
+/dispatchq
+/dispatchqd
+/dispatchqapp

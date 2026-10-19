@@ -3,6 +3,7 @@ import {CheckCircle2, Palette, Search, Sparkles, Tag, Unlock} from 'lucide-react
 import {useEffect, useState, type ReactNode} from 'react'
 import {Button} from '@/components/ui/button'
 import {Checkbox} from '@/components/ui/checkbox'
+import {confirm} from '@/components/ui/confirm'
 import {Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader} from '@/components/ui/dialog'
 import {Meter} from '@/components/ui/progress'
 import {toast} from '@/components/ui/toaster'
@@ -16,9 +17,27 @@ import type {RenameApplyRequest, RenameApplyResult, RenameCheck, WhatsNewStatus}
 export function WhatsNewDialog() {
   const status = useQuery({queryKey: ['whats-new'], queryFn: () => get<WhatsNewStatus>('/api/whats-new')})
   const [closed, setClosed] = useState(false)
+  const [check, setCheck] = useState<RenameCheck | null>(null)
+  const [migrated, setMigrated] = useState(false)
   const open = !!status.data?.show && !closed
 
+  // The dialog is the only place the check is offered, so closing it with
+  // the check still running or its fixes not applied asks first.
   const close = async () => {
+    const pending =
+      check?.state === 'running' ||
+      (check?.state === 'done' && !migrated && check.findings.some((f) => f.revised_prompt))
+    if (
+      pending &&
+      !(await confirm({
+        title: 'Close without migrating?',
+        description:
+          'The check is not offered again. A task that still calls ClaudeQ.app fails once the old app is gone; you can still fix it in its task panel.',
+        confirmLabel: 'Close',
+        cancelLabel: 'Keep open',
+      }))
+    )
+      return
     setClosed(true)
     try {
       await post('/api/whats-new/dismiss')
@@ -50,7 +69,7 @@ export function WhatsNewDialog() {
             Codex, opencode, adding your own providers and provider pools are no longer behind the beta
             switch. They are available to everyone, and the switch is gone.
           </Item>
-          <RenameCheckPanel />
+          <RenameCheckPanel check={check} setCheck={setCheck} onMigrated={() => setMigrated(true)} />
         </DialogBody>
         <DialogFooter>
           <Button variant="primary" onClick={() => void close()}>
@@ -78,8 +97,15 @@ function Item({icon, title, children}: {icon: ReactNode; title: string; children
 
 // RenameCheckPanel runs the check and lists what it found, each fix selected
 // until the operator deselects it.
-function RenameCheckPanel() {
-  const [check, setCheck] = useState<RenameCheck | null>(null)
+function RenameCheckPanel({
+  check,
+  setCheck,
+  onMigrated,
+}: {
+  check: RenameCheck | null
+  setCheck: (c: RenameCheck) => void
+  onMigrated: () => void
+}) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [applying, setApplying] = useState(false)
 
@@ -97,7 +123,7 @@ function RenameCheckPanel() {
       }
     }, 1000)
     return () => clearInterval(t)
-  }, [running])
+  }, [running, setCheck])
 
   const start = async () => {
     try {
@@ -113,7 +139,8 @@ function RenameCheckPanel() {
       const r = await post<RenameApplyResult>('/api/rename-check/apply', {
         task_ids: [...selected],
       } satisfies RenameApplyRequest)
-      invalidate(keys.tasks)
+      invalidate(keys.tasks, keys.settings)
+      onMigrated()
       setCheck(await get<RenameCheck>('/api/rename-check'))
       setSelected(new Set())
       if (r.changed?.length)

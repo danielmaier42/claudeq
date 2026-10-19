@@ -382,6 +382,20 @@ func cmdInstall() error {
 	if err != nil {
 		return fmt.Errorf("locate executable: %w", err)
 	}
+	agentsDir, err := launchAgentsDir()
+	if err != nil {
+		return err
+	}
+	// ClaudeQ's agent and daemon go first. launchd would restart a daemon its
+	// job still owns, and it would run the same queue next to this one; and
+	// DefaultHome below moves ClaudeQ's data, which its daemon must no longer
+	// be writing to.
+	legacy := launchd.Agent{Runner: system.Real{}, Dir: agentsDir, Label: launchd.LegacyLabel, UID: os.Getuid()}
+	if err := legacy.Uninstall(context.Background()); err != nil {
+		return fmt.Errorf("remove ClaudeQ LaunchAgent: %w", err)
+	}
+	killStrayDaemons()
+
 	home, err := store.DefaultHome()
 	if err != nil {
 		return err
@@ -407,20 +421,10 @@ func cmdInstall() error {
 		return err
 	}
 
-	agentsDir, err := launchAgentsDir()
-	if err != nil {
-		return err
-	}
 	// Stop any stray daemon still holding the loopback port (an orphan from a
 	// prior run/version that launchd's bootout won't catch) so the freshly
 	// bootstrapped one can bind and actually take over — otherwise an update
 	// wouldn't take effect until a reboot.
-	// ClaudeQ's agent goes first: launchd would restart its daemon right after
-	// killStrayDaemons, and it would run the same queue next to this one.
-	legacy := launchd.Agent{Runner: system.Real{}, Dir: agentsDir, Label: launchd.LegacyLabel, UID: os.Getuid()}
-	if err := legacy.Uninstall(context.Background()); err != nil {
-		return fmt.Errorf("remove ClaudeQ LaunchAgent: %w", err)
-	}
 	killStrayDaemons()
 
 	agent := launchd.Agent{Runner: system.Real{}, Dir: agentsDir, Label: launchd.DefaultLabel, UID: os.Getuid()}

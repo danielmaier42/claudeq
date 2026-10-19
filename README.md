@@ -190,25 +190,27 @@ What the update does:
 
 | ClaudeQ | DispatchQ | How it moves |
 |---------|-----------|--------------|
-| `/Applications/ClaudeQ.app` | `/Applications/DispatchQ.app` | The installer puts the new app in place and moves the old one to your Bin once DispatchQ runs (only a bundle whose id says it is ClaudeQ). |
+| `/Applications/ClaudeQ.app` | `/Applications/DispatchQ.app` | The installer puts the new app in place and moves the old one to your Bin once DispatchQ runs (only a bundle whose id says it is ClaudeQ). Installed with nobody logged in, the old app stays; delete it yourself. |
 | `claudeq`, `claudeqd`, `claudeqapp` | `dispatchq`, `dispatchqd`, `dispatchqapp` | Inside the new app. |
-| LaunchAgent `de.maierdaniel.claudeq` | `de.maierdaniel.dispatchq` | The old agent is booted out and its plist removed before the new one starts, so the queue never runs twice. |
+| LaunchAgent `de.maierdaniel.claudeq` | `de.maierdaniel.dispatchq` | The old agent is booted out, its daemon stopped and its plist removed before the new one starts, so the queue never runs twice. Installed with nobody logged in, DispatchQ does this the first time you open it. |
 | `~/Library/Application Support/claudeq` | `~/Library/Application Support/dispatchq` | Moved on the first start, tasks, history, logs and artifacts included. The old path stays as a link to the new folder, so log paths in the history and scripts that read the old folder keep working. |
 | `/etc/sudoers.d/claudeq` | `/etc/sudoers.d/dispatchq` | Replaced. |
 | `CLAUDEQ_HOME`, `CLAUDEQ_BIN`, `CLAUDEQ_RUN_ID`, … | `DISPATCHQ_HOME`, `DISPATCHQ_BIN`, `DISPATCHQ_RUN_ID`, … | Every run gets both names for now. `CLAUDEQ_HOME` set in your shell is still honoured when `DISPATCHQ_HOME` is not set. |
 | `.claudeq` task files | `.dispatchq` | Both import. |
+| Webhook default body `"source":"claudeq"` | `"source":"dispatchq"` | Changes with the update. An automation that filters on the old value needs the new one; a webhook with its own template is unaffected. |
 
 Your tasks themselves are not rewritten behind your back. The first time
 DispatchQ 2.0 opens, a **What's new** dialog introduces the new name, the
 redesigned app and the beta features that are now available to everyone. It
 has a **Check tasks** button: the [prompt review](#the-prompt-review) looks at
-every task that mentions ClaudeQ (a task that never does is skipped and costs
-nothing) and lists the ones that still call `ClaudeQ.app`, read a `CLAUDEQ_`
+every task whose prompt or script mentions ClaudeQ, and at the custom system
+prompt if it does (a task that never does is skipped and costs nothing) and lists the ones that still call `ClaudeQ.app`, read a `CLAUDEQ_`
 variable or name the old data folder, each with what it would change. Every
 fix with a rewrite is selected; untick the ones you want to keep as they are
 and click **Migrate**. A task you edited after the check is left alone. A task
 that calls the old CLI by its full path fails once `ClaudeQ.app` is gone, so
-run the check before the next night.
+run the check before the next night. Closing the dialog while the check runs
+or before migrating asks first, because the check is not offered again.
 
 The dialog shows once; a fresh installation that never had ClaudeQ skips it.
 
