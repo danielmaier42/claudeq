@@ -8,6 +8,8 @@ import {errorMessage} from '@/lib/api'
 import {relTime} from '@/lib/format'
 import {isAppWindow, openExternal} from '@/lib/native'
 import {invalidate, keys, useHealth} from '@/lib/queries'
+import {RenameBar} from '@/features/whats-new/RenameBar'
+import {useWhatsNewStatus} from '@/features/whats-new/store'
 import type {LimitedProvider, NotifyStatus} from '@/lib/types'
 import {
   activeLimit,
@@ -26,6 +28,7 @@ import {StatusBar} from './StatusBar'
 export function StatusBanners() {
   const health = useHealth()
   const h = health.data
+  const whatsNew = useWhatsNewStatus().data
 
   if (health.isError)
     return (
@@ -41,6 +44,7 @@ export function StatusBanners() {
       {h.wake_error && <WakeBar error={h.wake_error} />}
       {notificationsBlocked(h.notify_status) && <NotifyBar status={h.notify_status} />}
       {h.limited_until && <LimitBar until={h.limited_until} providers={h.limited_providers ?? []} />}
+      {whatsNew?.rename_pending && !whatsNew.show && <RenameBar />}
     </div>
   )
 }

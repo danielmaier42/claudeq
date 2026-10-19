@@ -210,9 +210,15 @@ fix with a rewrite is selected; untick the ones you want to keep as they are
 and click **Migrate**. A task you edited after the check is left alone. A task
 that calls the old CLI by its full path fails once `ClaudeQ.app` is gone, so
 run the check before the next night. Closing the dialog while the check runs
-or before migrating asks first, because the check is not offered again.
+or before migrating asks first.
 
-The dialog shows once; a fresh installation that never had ClaudeQ skips it.
+The dialog opens by itself once; a fresh installation that never had ClaudeQ
+skips it. Until the check has run with nothing left to fix, a banner above every
+view says that some tasks still mention ClaudeQ; its **Check tasks** button
+reopens the dialog and starts the check, and its close button hides the banner
+for good. The command palette (⌘K) reopens the dialog too, under **What's new
+in DispatchQ**. The check needs a prompt reviewer that can answer (Claude Code
+or Codex, see [the prompt review](#the-prompt-review)).
 
 Two things do not carry over, because macOS keys them to the app's bundle id:
 the notification permission (macOS asks again) and the window's view
@@ -1697,7 +1703,9 @@ Practicalities:
   directory outside any repository. It reads; it never writes. DispatchQ calls
   this an *aside* — a question it asks a harness on its own behalf rather than
   to do your work — and a provider has to be able to hold one to be offered for
-  it. Claude Code can; Codex cannot yet.
+  it. Claude Code and Codex can; opencode cannot yet. Codex has no switch that
+  removes its tools, so it answers in a read-only sandbox inside that empty
+  directory, with your own Codex config, MCP servers and rules left out.
 - It runs on a change, not on a look. Editing the prompt, choosing a working
   directory or importing a task starts a review from scratch and cancels the one
   still in flight — including its Claude process — so only the newest answer is
@@ -1820,7 +1828,7 @@ Everything lives under `~/Library/Application Support/dispatchq` (override with 
 | `artifacts/<id>/<file>` | The published files themselves (snapshots copied at publish time). |
 | `notifications.json` | Outbox of notifications sent with `dispatchq notify`, waiting for the daemon to deliver them (normally empty). |
 | `inbox.json` | The last 200 notifications the daemon sent (title, message, kind, what each points at, read flag), as listed in the Notifications view. |
-| `state.json` | Machine bookkeeping: read/unread flags (runs and artifacts), which artifacts have been notified about, cron anchors, pending-resume sessions, the provider health you were last told about, which queue groups are folded shut, dismissed update version, the What's new edition you closed. |
+| `state.json` | Machine bookkeeping: read/unread flags (runs and artifacts), which artifacts have been notified about, cron anchors, pending-resume sessions, the provider health you were last told about, which queue groups are folded shut, dismissed update version, the What's new edition you closed, whether the ClaudeQ rename check is done. |
 | `dispatchqd.out.log` / `dispatchqd.err.log` | Daemon stdout/stderr. |
 | `../claudeq` | After an update from ClaudeQ: a link from the old data folder to this one (see [Coming from ClaudeQ](#coming-from-claudeq)). |
 | `.lock` / `.daemon.lock` | Lock files, both empty of interest. `.lock` serializes config/state writes between the daemon and a `dispatchq` command; `.daemon.lock` holds the running daemon's pid and is what makes a second daemon on the same store refuse to start. Both are released when the holding process exits, so neither needs clearing by hand. |

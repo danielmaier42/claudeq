@@ -65,6 +65,7 @@ func (a *Adapter) Capabilities() provider.Capabilities {
 		CostMetrics:       false,
 		RateLimitResume:   true,
 		Subagents:         true,
+		Asides:            true,
 		// Known gap: a real ChatGPT allowance exhaustion has not been observed in
 		// the JSONL stream yet, so a rate-limited run resumes on a fixed delay.
 		AccessModes: []provider.AccessMode{

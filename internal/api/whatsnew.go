@@ -25,6 +25,9 @@ const renameCheckParallel = 3
 type whatsNewStatus struct {
 	Edition string `json:"edition"`
 	Show    bool   `json:"show"`
+	// RenamePending asks for the rename check: some task or the custom system
+	// prompt still names ClaudeQ, and the check has not settled that yet.
+	RenamePending bool `json:"rename_pending"`
 }
 
 func (s *server) getWhatsNew(w http.ResponseWriter, _ *http.Request) {
@@ -33,7 +36,62 @@ func (s *server) getWhatsNew(w http.ResponseWriter, _ *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, whatsNewStatus{Edition: WhatsNewEdition, Show: st.WhatsNewSeen != WhatsNewEdition})
+	out := whatsNewStatus{Edition: WhatsNewEdition, Show: st.WhatsNewSeen != WhatsNewEdition}
+	if !st.RenameCheckDone {
+		cfg, err := s.d.Store.LoadConfig()
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		out.RenamePending = len(renameCandidates(cfg)) > 0
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// renameCandidates are the prompts the rename check reviews: the tasks that
+// mention ClaudeQ, and the custom system prompt if it does.
+func renameCandidates(cfg store.Config) []task.Task {
+	var todo []task.Task
+	for _, t := range cfg.Tasks {
+		if mentionsClaudeQ(t.Prompt) {
+			todo = append(todo, t)
+		}
+	}
+	if mentionsClaudeQ(cfg.Settings.SystemPrompt) {
+		todo = append(todo, task.Task{ID: renameSystemID, Name: "Custom system prompt", Prompt: cfg.Settings.SystemPrompt})
+	}
+	return todo
+}
+
+// dismissRenameCheck waves the check off: the banner offering it goes away
+// for good.
+func (s *server) dismissRenameCheck(w http.ResponseWriter, _ *http.Request) {
+	if err := s.markRenameCheckDone(); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *server) markRenameCheckDone() error {
+	return s.d.Store.UpdateState(func(st *store.State) error {
+		st.RenameCheckDone = true
+		return nil
+	})
+}
+
+// settled reports whether a finished check leaves nothing to do: every prompt
+// was reviewed and no rewrite is waiting to be applied. Callers hold j.mu.
+func (c renameCheck) settled() bool {
+	if c.State != "done" || len(c.Errors) > 0 {
+		return false
+	}
+	for _, f := range c.Findings {
+		if f.RevisedPrompt != "" {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *server) dismissWhatsNew(w http.ResponseWriter, _ *http.Request) {
@@ -132,15 +190,12 @@ func (s *server) startRenameCheck(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, s.rename.snapshot())
 		return
 	}
-	var todo []task.Task
-	for _, t := range cfg.Tasks {
-		if mentionsClaudeQ(t.Prompt) {
-			todo = append(todo, t)
+	todo := renameCandidates(cfg)
+	skipped := len(cfg.Tasks)
+	for _, t := range todo {
+		if t.ID != renameSystemID {
+			skipped--
 		}
-	}
-	skipped := len(cfg.Tasks) - len(todo)
-	if mentionsClaudeQ(cfg.Settings.SystemPrompt) {
-		todo = append(todo, task.Task{ID: renameSystemID, Name: "Custom system prompt", Prompt: cfg.Settings.SystemPrompt})
 	}
 	s.rename.check = renameCheck{State: "running", Total: len(todo), Skipped: skipped}
 	s.rename.mu.Unlock()
@@ -174,7 +229,15 @@ func (s *server) startRenameCheck(w http.ResponseWriter, _ *http.Request) {
 		wg.Wait()
 		s.rename.mu.Lock()
 		s.rename.check.State = "done"
+		settled := s.rename.check.settled()
 		s.rename.mu.Unlock()
+		if settled {
+			if err := s.markRenameCheckDone(); err != nil {
+				s.rename.mu.Lock()
+				s.rename.check.Errors = append(s.rename.check.Errors, "remembering the check: "+err.Error())
+				s.rename.mu.Unlock()
+			}
+		}
 	}()
 	writeJSON(w, http.StatusOK, s.rename.snapshot())
 }
@@ -257,7 +320,14 @@ func (s *server) applyRename(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.rename.check.Findings = kept
+	settled := s.rename.check.settled()
 	s.rename.mu.Unlock()
+	if settled {
+		if err := s.markRenameCheckDone(); err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 
