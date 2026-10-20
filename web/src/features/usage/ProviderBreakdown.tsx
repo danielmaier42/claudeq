@@ -9,12 +9,10 @@ import {bucketTokens, fmtTokens} from './usage'
 // Several providers mean several allowances, so the split says which account
 // the work went to. With one provider in the period the daemon sends none:
 // nothing to split. Under each provider its models, since the model decides
-// what a run costs. A bar is the row's share of all tokens, or of all runs when
-// none were recorded, so provider and model bars read on the same scale.
+// what a run costs. A provider's bar is its share of all tokens, a model's bar
+// its share of that provider's, so a provider's models add up to 100%. Shares
+// fall back to runs when no tokens were recorded.
 export function ProviderBreakdown({providers, period}: {providers: StatsProvider[]; period: string}) {
-  const total = providers.reduce((n, p) => n + bucketTokens(p), 0)
-  const runs = providers.reduce((n, p) => n + p.runs, 0)
-  const shareOf = (b: StatsBucket) => (total ? bucketTokens(b) / total : runs ? b.runs / runs : 0)
   return (
     <Section>
       <OverviewCard
@@ -25,13 +23,13 @@ export function ProviderBreakdown({providers, period}: {providers: StatsProvider
         <div className="divide-y divide-border">
           {providers.map((p) => (
             <div key={p.id || '_'} className="py-1">
-              <Row name={p.name || p.id || 'Not recorded'} bucket={p} share={shareOf(p)} />
+              <Row name={p.name || p.id || 'Not recorded'} bucket={p} share={shareOf(p, providers)} />
               {p.models?.map((m) => (
                 <Row
                   key={m.model || '_'}
                   name={m.model || 'Harness default'}
                   bucket={m}
-                  share={shareOf(m)}
+                  share={shareOf(m, p.models ?? [])}
                   nested
                 />
               ))}
@@ -41,6 +39,13 @@ export function ProviderBreakdown({providers, period}: {providers: StatsProvider
       </OverviewCard>
     </Section>
   )
+}
+
+function shareOf(b: StatsBucket, of: StatsBucket[]) {
+  const tokens = of.reduce((n, x) => n + bucketTokens(x), 0)
+  if (tokens) return bucketTokens(b) / tokens
+  const runs = of.reduce((n, x) => n + x.runs, 0)
+  return runs ? b.runs / runs : 0
 }
 
 function Row({

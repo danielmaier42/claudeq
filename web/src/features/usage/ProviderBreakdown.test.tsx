@@ -14,7 +14,8 @@ const bucket = (runs: number, tokens: number): StatsBucket => ({
 })
 
 // Each provider lists the models it ran beneath it, the harness default named
-// as such rather than left blank.
+// as such rather than left blank. A provider's share is of all tokens, its
+// models' shares are of the provider's, so they add up to 100%.
 describe('ProviderBreakdown', () => {
   it('lists each provider with its models beneath it', () => {
     render(
@@ -39,5 +40,7 @@ describe('ProviderBreakdown', () => {
       expect(names[i - 1].compareDocumentPosition(names[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     }
     expect(screen.getByText('75%')).toBeTruthy()
+    expect(screen.getByText('67%')).toBeTruthy()
+    expect(screen.getByText('33%')).toBeTruthy()
   })
 })

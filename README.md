@@ -572,6 +572,10 @@ first. The window opens on the Dashboard:
   figures beside them, below it one row per provider with its runs, outcomes,
   runtime, tokens and cost in that period, and under each provider one row per
   model it ran (as the task named it; *Harness default* when it named none).
+  A provider's bar is its share of all tokens, a model's bar its share of that
+  provider's. Tokens count fresh input and output: Codex's cached input is left
+  out, as Claude Code reports cache reads apart, so providers compare fairly
+  (Codex runs recorded by older versions still include it).
 - **Settings** — global defaults and integrations (below). The custom system
   prompt gets the same review banner as a task prompt. A red badge here means
   an update is available.

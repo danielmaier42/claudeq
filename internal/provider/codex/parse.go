@@ -202,16 +202,17 @@ func summarize(msg string) string {
 	return msg
 }
 
-// metricsOf maps Codex's token counts onto dispatchq's. Cached and reasoning
-// tokens have no field of their own; cached input is part of the input total
-// Codex reports, and reasoning output is counted with the output, so neither is
-// added twice.
+// metricsOf maps Codex's token counts onto dispatchq's. Codex's input total
+// includes the cached input, which re-counts the whole context on every turn;
+// Claude Code reports cache reads apart from its input. Leaving the cached part
+// out makes the input of both mean fresh tokens, so the usage view can set one
+// provider against the other. Reasoning output is counted with the output.
 func metricsOf(u *usage) *provider.Metrics {
 	if u == nil {
 		return nil
 	}
 	return &provider.Metrics{
-		InputTokens:  u.InputTokens,
+		InputTokens:  max(u.InputTokens-u.CachedInputTokens, 0),
 		OutputTokens: u.OutputTokens,
 	}
 }
