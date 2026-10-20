@@ -544,6 +544,13 @@ export interface StatsProvider extends StatsBucket {
   // "" groups runs from before the provider was recorded.
   id: string
   name: string
+  // The provider's runs per model, busiest first.
+  models?: StatsModel[]
+}
+
+export interface StatsModel extends StatsBucket {
+  // As the run recorded it, alias or full id; "" means the harness default.
+  model: string
 }
 
 // GET /api/stats?days= query: a number of calendar days (1..366) or 'all'.
@@ -564,7 +571,8 @@ export interface Stats {
   all?: boolean
   // One entry per day of the window, oldest first, cut to the newest 366.
   per_day: StatsDay[]
-  // The window's split, busiest first; absent when its runs came from one provider.
+  // The window's split per provider and model, busiest first; absent when its
+  // runs came from one provider and one model.
   by_provider?: StatsProvider[]
 }
 

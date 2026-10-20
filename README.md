@@ -570,7 +570,8 @@ first. The window opens on the Dashboard:
   days) with a **Tokens | Runs | Cost** switch; hovering a bar (or the arrow
   keys) shows all three for it. Above it the period's totals with the all-time
   figures beside them, below it one row per provider with its runs, outcomes,
-  runtime, tokens and cost in that period.
+  runtime, tokens and cost in that period, and under each provider one row per
+  model it ran (as the task named it; *Harness default* when it named none).
 - **Settings** — global defaults and integrations (below). The custom system
   prompt gets the same review banner as a task prompt. A red badge here means
   an update is available.

@@ -40,6 +40,17 @@ type ProviderBucket struct {
 	// is what the run says.
 	Name string `json:"name"`
 	Bucket
+	// Models splits the provider's runs per model, busiest first. One provider
+	// often runs several, and the model decides what a run costs.
+	Models []ModelBucket `json:"models,omitempty"`
+}
+
+// ModelBucket is what one model consumed on one provider. Model is the name the
+// run recorded, alias or full id as the task asked for it; empty groups the runs
+// that left the choice to the harness.
+type ModelBucket struct {
+	Model string `json:"model"`
+	Bucket
 }
 
 // Stats is the consumption summary shown in the dashboard.
@@ -57,9 +68,9 @@ type Stats struct {
 	// history is cut to the last maxStatsDays days: a chart of years of days is
 	// unreadable, and the window's totals stay in Period regardless.
 	PerDay []DayBucket `json:"per_day"`
-	// ByProvider splits the period per provider instance, busiest first. It is
-	// omitted while every run in it came from the same one: a breakdown of one
-	// row is not a breakdown.
+	// ByProvider splits the period per provider instance, busiest first, and
+	// each provider per model. It is omitted while every run in it came from the
+	// same provider and model: a breakdown of one row is not a breakdown.
 	ByProvider []ProviderBucket `json:"by_provider,omitempty"`
 }
 
@@ -142,6 +153,7 @@ func computeStats(runs []store.Run, now time.Time, win statsWindow) Stats {
 	}
 
 	byProvider := map[string]*ProviderBucket{}
+	byModel := map[string]map[string]*ModelBucket{}
 	var order []string
 	for _, r := range runs {
 		add(&s.Totals, r)
@@ -167,6 +179,7 @@ func computeStats(runs []store.Run, now time.Time, win statsWindow) Stats {
 		if !ok {
 			b = &ProviderBucket{ID: r.Provider.ID, Name: r.Provider.Name}
 			byProvider[r.Provider.ID] = b
+			byModel[r.Provider.ID] = map[string]*ModelBucket{}
 			order = append(order, r.Provider.ID)
 		}
 		// The newest run's name wins, so a renamed provider reads as it is
@@ -175,11 +188,28 @@ func computeStats(runs []store.Run, now time.Time, win statsWindow) Stats {
 			b.Name = r.Provider.Name
 		}
 		add(&b.Bucket, r)
+		m, ok := byModel[r.Provider.ID][r.Provider.Model]
+		if !ok {
+			m = &ModelBucket{Model: r.Provider.Model}
+			byModel[r.Provider.ID][r.Provider.Model] = m
+		}
+		add(&m.Bucket, r)
 	}
-	if len(order) > 1 {
+	if len(order) > 1 || (len(order) == 1 && len(byModel[order[0]]) > 1) {
 		s.ByProvider = make([]ProviderBucket, 0, len(order))
 		for _, id := range order {
-			s.ByProvider = append(s.ByProvider, *byProvider[id])
+			b := *byProvider[id]
+			for _, m := range byModel[id] {
+				b.Models = append(b.Models, *m)
+			}
+			// Map order is random; the name breaks ties so the rows hold still.
+			sort.Slice(b.Models, func(i, j int) bool {
+				if b.Models[i].Runs != b.Models[j].Runs {
+					return b.Models[i].Runs > b.Models[j].Runs
+				}
+				return b.Models[i].Model < b.Models[j].Model
+			})
+			s.ByProvider = append(s.ByProvider, b)
 		}
 		// Busiest first: the account the work actually went to is the one worth
 		// reading, not whichever happens to sort first.
