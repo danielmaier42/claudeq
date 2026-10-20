@@ -3,6 +3,7 @@ package provider
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/danielmaier42/claudeq/internal/store"
@@ -39,6 +40,10 @@ func TestBackfillReportedModels(t *testing.T) {
 			Provider: store.RunProvider{Kind: "fake"}},
 		{RunID: "nolog", Status: store.StatusFailed, LogPath: filepath.Join(home, "gone.log"),
 			Provider: store.RunProvider{Kind: "fake"}},
+		{RunID: "unreadable", Status: store.StatusSuccess, LogPath: home,
+			Provider: store.RunProvider{Kind: "fake"}},
+		{RunID: "after", Status: store.StatusSuccess, LogPath: logOf("after"),
+			Provider: store.RunProvider{Kind: "fake"}},
 		{RunID: "script", Status: store.StatusSuccess, LogPath: logOf("script"),
 			Provider: store.RunProvider{Kind: store.ScriptRunKind}},
 	}
@@ -48,18 +53,21 @@ func TestBackfillReportedModels(t *testing.T) {
 		}
 	}
 
+	// The unreadable log (a directory) is reported without holding up the
+	// run after it.
 	n, err := BackfillReportedModels(st, reg)
-	if err != nil {
-		t.Fatal(err)
+	if err == nil || !strings.Contains(err.Error(), "unreadable") {
+		t.Fatalf("err = %v, want the unreadable run reported", err)
 	}
-	if n != 1 {
-		t.Fatalf("filled in %d runs, want 1", n)
+	if n != 2 {
+		t.Fatalf("filled in %d runs, want 2", n)
 	}
 	got, err := st.Runs()
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{"old": "fake-full-id", "known": "kept", "running": "", "nolog": "", "script": ""}
+	want := map[string]string{"old": "fake-full-id", "known": "kept", "running": "", "nolog": "",
+		"unreadable": "", "after": "fake-full-id", "script": ""}
 	for _, r := range got {
 		if r.Provider.ReportedModel != want[r.RunID] {
 			t.Errorf("run %s reported model = %q, want %q", r.RunID, r.Provider.ReportedModel, want[r.RunID])
@@ -70,7 +78,7 @@ func TestBackfillReportedModels(t *testing.T) {
 	}
 
 	// A second start finds nothing left to do.
-	if n, err := BackfillReportedModels(st, reg); err != nil || n != 0 {
+	if n, _ := BackfillReportedModels(st, reg); n != 0 {
 		t.Fatalf("second pass filled %d (err %v), want 0", n, err)
 	}
 }

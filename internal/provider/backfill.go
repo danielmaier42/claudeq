@@ -19,7 +19,8 @@ const modelScanLines = 64
 // recorded before dispatchq kept it, by reading the model back out of each run's
 // log with its harness's own parser. It is meant to run at startup, before the
 // engine appends anything. A run whose log names no model is left alone and
-// looked at again next start, which costs a few lines of reading. Returns how
+// looked at again next start, which costs a few lines of reading. A log that
+// cannot be read is skipped and reported in the returned error. Returns how
 // many runs it filled in.
 func BackfillReportedModels(st *store.Store, reg *Registry) (int, error) {
 	runs, err := st.Runs()
@@ -27,6 +28,7 @@ func BackfillReportedModels(st *store.Store, reg *Registry) (int, error) {
 		return 0, err
 	}
 	n := 0
+	var errs []error
 	for _, r := range runs {
 		if r.Provider.ReportedModel != "" || !r.Status.Terminal() || r.LogPath == "" {
 			continue
@@ -37,7 +39,10 @@ func BackfillReportedModels(st *store.Store, reg *Registry) (int, error) {
 		}
 		model, err := reportedModel(r.LogPath, a.NewParser())
 		if err != nil {
-			return n, fmt.Errorf("read model of run %s: %w", r.RunID, err)
+			// One unreadable log must not keep the runs after it unfilled; it
+			// is reported with the rest once the pass is through.
+			errs = append(errs, fmt.Errorf("read model of run %s: %w", r.RunID, err))
+			continue
 		}
 		if model == "" {
 			continue
@@ -48,7 +53,7 @@ func BackfillReportedModels(st *store.Store, reg *Registry) (int, error) {
 		}
 		n++
 	}
-	return n, nil
+	return n, errors.Join(errs...)
 }
 
 // reportedModel returns the model the run log's opening lines name, or "" when
