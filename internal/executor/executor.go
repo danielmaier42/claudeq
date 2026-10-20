@@ -339,6 +339,13 @@ func withLegacyNames(env []string) []string {
 	return append(env, legacy...)
 }
 
+// pipeReleaseDelay is how long a run waits for its output to close once the
+// process is gone (or cancelled). A daemon a tool call started, a build server or
+// a file watcher, inherits the output pipe and can keep it open for hours; past
+// this delay its output is dropped and the run ends anyway. A var so tests can
+// shorten it.
+var pipeReleaseDelay = 5 * time.Second
+
 // Run executes the request, streaming output to req.Log, and returns the
 // classified result. A non-nil error indicates dispatchq failed to run the
 // harness at all (as opposed to the harness reporting a task failure, which is
@@ -369,12 +376,14 @@ func (e *Executor) Run(ctx context.Context, req Request) (provider.Result, error
 	// never sit waiting for input nobody will type.
 	cmd.Stdin = strings.NewReader(invocation.Stdin)
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return provider.Result{}, fmt.Errorf("stdout pipe: %w", err)
-	}
+	// Output goes through exec's own copying, not a pipe read here until EOF:
+	// a daemon a tool call left behind holds the pipe open long after the
+	// harness is gone, and only Wait, bounded by WaitDelay, gives up on it.
+	stdout, stdoutW := io.Pipe()
+	cmd.Stdout = stdoutW
 	log := &syncWriter{w: req.Log}
 	cmd.Stderr = log
+	cmd.WaitDelay = pipeReleaseDelay
 
 	if err := cmd.Start(); err != nil {
 		return provider.Result{}, fmt.Errorf("start %s: %w", invocation.Path, err)
@@ -392,33 +401,46 @@ func (e *Executor) Run(ctx context.Context, req Request) (provider.Result, error
 
 	parser := ad.NewParser()
 	collector := provider.NewCollector(req.SessionID, req.Provider.Name)
-	sc := bufio.NewScanner(stdout)
-	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
-	for sc.Scan() {
-		line := sc.Bytes()
-		lastActivity.Store(time.Now().UnixNano())
-		_, _ = log.Write(append(cloneLine(line), '\n'))
-		collector.AddAll(parser.Parse(line))
-		if collector.CompletedRateLimit() {
-			// Some harnesses emit their final limit result but stay alive with
-			// tool or lock-holder children. Release those before scheduling resume.
-			cancel()
-			break
+	scanned := make(chan error, 1)
+	go func() {
+		sc := bufio.NewScanner(stdout)
+		sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+		for sc.Scan() {
+			line := sc.Bytes()
+			lastActivity.Store(time.Now().UnixNano())
+			_, _ = log.Write(append(cloneLine(line), '\n'))
+			collector.AddAll(parser.Parse(line))
+			if collector.CompletedRateLimit() {
+				// Some harnesses emit their final limit result but stay alive with
+				// tool or lock-holder children. Release those before scheduling resume.
+				cancel()
+				break
+			}
 		}
-	}
-	scanErr := sc.Err()
+		err := sc.Err()
+		// Whatever follows is not read, but it must still be drained, or the
+		// copy into the pipe blocks and Wait with it.
+		_, _ = io.Copy(io.Discard, stdout)
+		scanned <- err
+	}()
 
 	waitErr := cmd.Wait()
+	_ = stdoutW.Close()
+	scanErr := <-scanned
 	exitCode := 0
 	if waitErr != nil {
 		var ee *exec.ExitError
 		if errors.As(waitErr, &ee) {
 			exitCode = ee.ExitCode()
+		} else if errors.Is(waitErr, exec.ErrWaitDelay) {
+			noteOrphanedOutput(log)
 		} else if !idleKilled.Load() && !collector.CompletedRateLimit() {
 			return provider.Result{}, fmt.Errorf("wait %s: %w", invocation.Path, waitErr)
 		}
 	}
-	if idleKilled.Load() && !collector.CompletedRateLimit() {
+	// The watchdog keeps running while Wait gives a held pipe its grace period,
+	// but a harness that had already exited on its own was not hung.
+	if idleKilled.Load() && !collector.CompletedRateLimit() && !errors.Is(waitErr, exec.ErrWaitDelay) {
 		return provider.Result{
 			Status:    store.StatusFailed,
 			SessionID: collector.SessionID(),
@@ -433,6 +455,13 @@ func (e *Executor) Run(ctx context.Context, req Request) (provider.Result, error
 	}
 
 	return collector.Result(exitCode), nil
+}
+
+// noteOrphanedOutput records in the run log that the harness ended but a
+// process it started kept the output open, so whatever that process printed
+// afterwards is not in the log.
+func noteOrphanedOutput(log io.Writer) {
+	_, _ = fmt.Fprintf(log, "dispatchq: a process the run started kept its output open after it ended; stopped reading after %s\n", pipeReleaseDelay)
 }
 
 // idleWatch cancels the run's context (killing the process) when no output has

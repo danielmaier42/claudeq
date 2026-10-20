@@ -72,6 +72,7 @@ func (e *Executor) runScript(ctx context.Context, req Request) (provider.Result,
 	answer := &tailBuffer{max: store.MaxFinalOutput - len(scriptOutputCut)}
 	cmd.Stdout = io.MultiWriter(live, answer)
 	cmd.Stderr = live
+	cmd.WaitDelay = pipeReleaseDelay // a daemon the script left behind must not hold the run open
 
 	if err := cmd.Start(); err != nil {
 		return provider.Result{}, fmt.Errorf("start script: %w", err)
@@ -84,11 +85,16 @@ func (e *Executor) runScript(ctx context.Context, req Request) (provider.Result,
 		go idleWatch(req.IdleTimeout, &lastActivity, &idleKilled, cancel, done)
 	}
 
-	exitCode, err := waitCode(cmd, &idleKilled)
+	exitCode, orphaned, err := waitCode(cmd, &idleKilled)
 	if err != nil {
 		return provider.Result{}, err
 	}
-	if idleKilled.Load() {
+	if orphaned {
+		noteOrphanedOutput(log)
+	}
+	// A script that exited on its own was not hung, even if the watchdog fired
+	// while Wait gave a held pipe its grace period.
+	if idleKilled.Load() && !orphaned {
 		return provider.Result{
 			Status:   store.StatusFailed,
 			ExitCode: exitCode,
@@ -104,22 +110,26 @@ func (e *Executor) runScript(ctx context.Context, req Request) (provider.Result,
 	return res, nil
 }
 
-// waitCode waits for the process and reports its exit status. A failure that is
-// not the process exiting non-zero is a dispatchq-side error, except when the
-// watchdog killed the run — that kill is the answer, not a broken run.
-func waitCode(cmd *exec.Cmd, idleKilled *atomic.Bool) (int, error) {
-	err := cmd.Wait()
+// waitCode waits for the process and reports its exit status, and whether a
+// process the script started kept the output open after it exited. A failure
+// that is not the process exiting non-zero is a dispatchq-side error, except
+// when the watchdog killed the run — that kill is the answer, not a broken run.
+func waitCode(cmd *exec.Cmd, idleKilled *atomic.Bool) (code int, orphaned bool, err error) {
+	err = cmd.Wait()
 	if err == nil {
-		return 0, nil
+		return 0, false, nil
+	}
+	if errors.Is(err, exec.ErrWaitDelay) {
+		return 0, true, nil
 	}
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {
-		return ee.ExitCode(), nil
+		return ee.ExitCode(), false, nil
 	}
 	if idleKilled.Load() {
-		return -1, nil
+		return -1, false, nil
 	}
-	return 0, fmt.Errorf("wait for the script: %w", err)
+	return 0, false, fmt.Errorf("wait for the script: %w", err)
 }
 
 // activityWriter notes the time of every write, which is what tells the idle
