@@ -47,6 +47,34 @@ export async function downloadUpdate() {
   }
 }
 
+// Whether a dev build can go back to the latest release, and why not if it can't.
+// Undefined when there is nothing to offer: a release build, or no release known.
+export function reinstallSummary(u: UpdateStatus): {label: string; description: string} | undefined {
+  if (u.supported || !u.latest) return undefined
+  const label = `Reinstall DispatchQ ${u.latest}`
+  if (u.reinstall)
+    return {
+      label,
+      description: 'Replaces this development build with the latest release. Tasks and history stay.',
+    }
+  if (!u.has_installer) return {label, description: `DispatchQ ${u.latest} has no installer.`}
+  return {
+    label,
+    description: `Not possible: DispatchQ ${u.latest} cannot read this build’s data. ${u.data_floor} or later can.`,
+  }
+}
+
+export async function reinstallRelease(version: string) {
+  try {
+    const r = await post<PathResult>('/api/update/reinstall')
+    toast.success(`DispatchQ ${version} downloaded`, {
+      description: `Follow the prompts to replace this build.${r?.path ? ` Saved to ${r.path}` : ''}`,
+    })
+  } catch (e) {
+    toast.error('Reinstall failed', {description: errorMessage(e)})
+  }
+}
+
 export async function dismissUpdate(version: string) {
   try {
     store(await post<UpdateStatus>('/api/update/dismiss', {version} satisfies UpdateDismissRequest))

@@ -58,6 +58,11 @@ If any gate fails, it is fixed before the work is reported — never reported wi
   never merge (squash, rebase, or otherwise), never push directly to `main`, and never
   auto-merge. Leave the PR ready and hand the decision to the maintainer.
 - **No dead code, no TODO-as-shipping-plan, no commented-out blocks.**
+- **Keep the downgrade floor current.** `update.DataFloor` is the oldest release that runs on
+  the data the current code leaves behind; a development build offers to reinstall the latest
+  release only at or above it. A change that migrates data one way (moves files, rewrites a
+  format or a key older releases rely on, renames the LaunchAgent) raises it to the version
+  the change will ship in, in the same PR.
 - **Concurrency safety:** the daemon runs tasks in parallel — guard shared state, run tests
   with `-race`, avoid data races by design.
 - **Secrets:** Pushover credentials and any tokens live in config/keychain, never in code,

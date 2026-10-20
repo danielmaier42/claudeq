@@ -1,4 +1,4 @@
-import {RefreshCw, Star} from 'lucide-react'
+import {Download, RefreshCw, Star} from 'lucide-react'
 import {useState} from 'react'
 import {Row, RowGroup} from '@/components/layout/settings-row'
 import {Section} from '@/components/layout/view-layout'
@@ -10,13 +10,22 @@ import {relTime, fullTime} from '@/lib/format'
 import {openExternal} from '@/lib/native'
 import {useUpdate} from '@/lib/queries'
 import {UpdateBanner} from '../components/UpdateBanner'
-import {checkForUpdates, updatePending, updateSummary, versionLabel} from '../update'
+import {
+  checkForUpdates,
+  reinstallRelease,
+  reinstallSummary,
+  updatePending,
+  updateSummary,
+  versionLabel,
+} from '../update'
 
 const REPO = 'https://github.com/danielmaier42/claudeq'
 
 export function AboutSection() {
   const update = useUpdate().data
   const [checking, setChecking] = useState(false)
+  const [reinstalling, setReinstalling] = useState(false)
+  const reinstall = update && reinstallSummary(update)
 
   const check = async () => {
     setChecking(true)
@@ -24,6 +33,15 @@ export function AboutSection() {
       await checkForUpdates()
     } finally {
       setChecking(false)
+    }
+  }
+
+  const install = async (version: string) => {
+    setReinstalling(true)
+    try {
+      await reinstallRelease(version)
+    } finally {
+      setReinstalling(false)
     }
   }
 
@@ -78,6 +96,22 @@ export function AboutSection() {
               </Button>
             }
           />
+          {update && reinstall && (
+            <Row
+              label={reinstall.label}
+              description={reinstall.description}
+              control={
+                <Button
+                  disabled={!update.reinstall}
+                  loading={reinstalling || update.downloading}
+                  onClick={() => void install(update.latest)}
+                >
+                  {!(reinstalling || update.downloading) && <Download />}
+                  {reinstalling || update.downloading ? 'Downloading…' : 'Reinstall'}
+                </Button>
+              }
+            />
+          )}
         </RowGroup>
       </Section>
 

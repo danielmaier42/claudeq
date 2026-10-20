@@ -104,7 +104,7 @@ export interface ImportResult {
   unresolved_provider?: string
 }
 
-// POST /api/tasks/{id}/export, POST /api/fs/choose and POST /api/update/download response (200; 204 when the dialog was cancelled).
+// POST /api/tasks/{id}/export, POST /api/fs/choose, POST /api/update/download and POST /api/update/reinstall response (200; 204 when the dialog was cancelled).
 export interface PathResult {
   path: string
 }
@@ -593,6 +593,10 @@ export interface UpdateStatus {
   installed?: string
   // A newer build is installed than the one running; relaunch instead of downloading.
   restart_required?: boolean
+  // Dev build only: the latest release can replace this build.
+  reinstall?: boolean
+  // Dev build only: the oldest release that can run on this build's data.
+  data_floor?: string
   checking: boolean
   downloading: boolean
   last_checked?: ISOTime
@@ -803,6 +807,7 @@ export type UninstallRequest = Record<string, never>
 // POST    /api/update/dismiss                    UpdateDismissRequest         UpdateStatus
 // POST    /api/update/download                   -                            PathResult
 // POST    /api/update/relaunch                   -                            RelaunchResult (202)
+// POST    /api/update/reinstall                  -                            PathResult
 // POST    /api/uninstall                         UninstallRequest             204
 // GET     /api/assistant                         -                            AssistantInfo
 // POST    /api/assistant/turn                    AssistantTurnRequest         AssistantReply

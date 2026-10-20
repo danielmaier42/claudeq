@@ -307,3 +307,84 @@ func TestRelaunchUpdateWithoutInstalledApp(t *testing.T) {
 		t.Fatalf("status = %d, want 503 (%s)", r.Status, r.Body)
 	}
 }
+
+// pinDataFloor moves the oldest release that can run on this build's data for
+// one test, so the cases do not follow the real floor.
+func pinDataFloor(t *testing.T, floor string) {
+	t.Helper()
+	prev := dataFloor
+	dataFloor = floor
+	t.Cleanup(func() { dataFloor = prev })
+}
+
+func TestUpdateStatusReinstallOnDevBuild(t *testing.T) {
+	cases := []struct {
+		name    string
+		current string
+		rel     update.Release
+		want    bool
+	}{
+		{"release at the floor", "dev-main", update.Release{Version: "2.0.0", PkgURL: "x"}, true},
+		{"release above the floor", "dev-main", update.Release{Version: "2.1.0", PkgURL: "x"}, true},
+		{"release below the floor", "dev-main", update.Release{Version: "1.6.2", PkgURL: "x"}, false},
+		{"release without installer", "dev-main", update.Release{Version: "2.1.0"}, false},
+		{"release build", "v2.0.0", update.Release{Version: "2.1.0", PkgURL: "x"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pinDataFloor(t, "2.0.0")
+			st := buildUpdateStatus(tc.current, "", "", update.Snapshot{Releases: []update.Release{tc.rel}})
+			if st.Reinstall != tc.want {
+				t.Errorf("Reinstall = %v, want %v", st.Reinstall, tc.want)
+			}
+			if wantFloor := map[bool]string{true: "", false: "2.0.0"}[st.Supported]; st.DataFloor != wantFloor {
+				t.Errorf("DataFloor = %q, want %q", st.DataFloor, wantFloor)
+			}
+		})
+	}
+}
+
+func TestReinstallReleaseOpensInstaller(t *testing.T) {
+	pinDataFloor(t, "2.0.0")
+	srv, _, opened := newUpdateServer(t, "dev-main", update.Release{
+		Version: "2.0.0", Tag: "v2.0.0", PkgURL: "usePkgSrv", PkgName: "dispatchq-2.0.0.pkg",
+	})
+	var out struct {
+		Path string `json:"path"`
+	}
+	r := do(t, srv, "POST", "/api/update/reinstall", nil)
+	if r.Status != http.StatusOK {
+		t.Fatalf("reinstall status = %d (%s)", r.Status, r.Body)
+	}
+	r.into(t, &out)
+	if out.Path == "" || *opened != out.Path {
+		t.Errorf("installer not opened: opened=%q path=%q", *opened, out.Path)
+	}
+}
+
+func TestReinstallReleaseRefused(t *testing.T) {
+	cases := []struct {
+		name    string
+		current string
+		rels    []update.Release
+		want    string
+	}{
+		{"release build", "v2.0.0", []update.Release{{Version: "2.1.0", PkgURL: "usePkgSrv"}}, "only a development build"},
+		{"nothing checked", "dev-main", nil, "no release is known"},
+		{"no installer", "dev-main", []update.Release{{Version: "2.1.0"}}, "has no installer"},
+		{"below the floor", "dev-main", []update.Release{{Version: "1.6.2", PkgURL: "usePkgSrv"}}, "2.0.0 or later"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pinDataFloor(t, "2.0.0")
+			srv, _, opened := newUpdateServer(t, tc.current, tc.rels...)
+			r := do(t, srv, "POST", "/api/update/reinstall", nil)
+			if r.Status != http.StatusConflict || !strings.Contains(string(r.Body), tc.want) {
+				t.Errorf("reinstall = %d %s, want 409 containing %q", r.Status, r.Body, tc.want)
+			}
+			if *opened != "" {
+				t.Errorf("installer opened despite refusal: %q", *opened)
+			}
+		})
+	}
+}

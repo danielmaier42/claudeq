@@ -13,6 +13,14 @@ import (
 	"time"
 )
 
+// DataFloor is the oldest release that runs on the data this build leaves
+// behind. A development build offers to reinstall the latest release only when
+// that release is at least this version, because an older one finds its data
+// moved or rewritten in a way it cannot read. Raise it to the coming release
+// whenever a change migrates data one way: 2.0.0 moved the ClaudeQ data
+// directory and LaunchAgent, which 1.x would run beside instead of replacing.
+const DataFloor = "2.0.0"
+
 // Release describes a published dispatchq release and its installer asset.
 type Release struct {
 	// Version is the normalized dotted version, e.g. "0.1.4" (no leading "v").

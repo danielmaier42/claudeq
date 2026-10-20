@@ -60,6 +60,12 @@ type updateStatus struct {
 	// service just never switched to it. Downloading it again would not help,
 	// so no update is offered while this is set.
 	RestartRequired bool `json:"restart_required,omitempty"`
+	// Reinstall is true on a development build when the latest release ships
+	// an installer and can run on this build's data (see update.DataFloor).
+	Reinstall bool `json:"reinstall,omitempty"`
+	// DataFloor is the oldest release that can run on this build's data. It is
+	// set only on a development build, to explain a reinstall that is not offered.
+	DataFloor string `json:"data_floor,omitempty"`
 	// Checking / Downloading reflect in-flight background work.
 	Checking    bool `json:"checking"`
 	Downloading bool `json:"downloading"`
@@ -89,6 +95,9 @@ func buildUpdateStatus(current, installed, dismissed string, snap update.Snapsho
 		Downloading:     snap.Downloading,
 		Error:           snap.Err,
 		AllReleasesURL:  update.ReleasesPageURL(""),
+	}
+	if !st.Supported {
+		st.DataFloor = dataFloor
 	}
 	if !snap.CheckedAt.IsZero() {
 		t := snap.CheckedAt
@@ -122,6 +131,11 @@ func buildUpdateStatus(current, installed, dismissed string, snap update.Snapsho
 		rel.Version != update.Normalize(dismissed) {
 		st.Available = true
 	}
+	// A development build is never offered an update, but it can go back to the
+	// latest release, provided that release still reads the data it finds.
+	if !st.Supported && rel.PkgURL != "" && update.Compare(rel.Version, dataFloor) >= 0 {
+		st.Reinstall = true
+	}
 	return st
 }
 
@@ -144,6 +158,9 @@ func aggregateNotes(skipped []update.Release, latest *update.Release) string {
 	}
 	return b.String()
 }
+
+// dataFloor is update.DataFloor, a variable so tests can move it.
+var dataFloor = update.DataFloor
 
 // installedApp is the newest DispatchQ.app on disk, nil when none is found. Its
 // version is what the running daemon's version is compared against to notice
@@ -250,6 +267,33 @@ func (s *server) downloadUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"path": path})
+}
+
+// reinstallRelease replaces a development build with the latest release: it
+// downloads that release's installer and opens it, like downloadUpdate. It
+// refuses when the status does not offer it, so a release that cannot read
+// this build's data is never installed over it.
+func (s *server) reinstallRelease(w http.ResponseWriter, r *http.Request) {
+	if s.d.Updates == nil {
+		writeErr(w, http.StatusServiceUnavailable, errors.New("update downloads are not available"))
+		return
+	}
+	st := s.currentStatus()
+	switch {
+	case st.Supported:
+		writeErr(w, http.StatusConflict, errors.New("only a development build reinstalls the latest release"))
+		return
+	case st.Latest == "":
+		writeErr(w, http.StatusConflict, errors.New("no release is known yet; check for updates first"))
+		return
+	case !st.Reinstall && !st.HasInstaller:
+		writeErr(w, http.StatusConflict, fmt.Errorf("DispatchQ %s has no installer", st.Latest))
+		return
+	case !st.Reinstall:
+		writeErr(w, http.StatusConflict, fmt.Errorf("DispatchQ %s cannot read this build's data; %s or later can", st.Latest, st.DataFloor))
+		return
+	}
+	s.downloadUpdate(w, r)
 }
 
 // relaunchInstalled hands the LaunchAgent over to the DispatchQ.app at path by
