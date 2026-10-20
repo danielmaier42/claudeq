@@ -9,7 +9,8 @@ import {bytes} from '@/lib/format'
 import {openExternal} from '@/lib/native'
 import type {Artifact} from '@/lib/types'
 import {downloadArtifact, openArtifactExternal} from './actions'
-import {artifactKind, contentURL, frameLink} from './logic'
+import {artifactKind, contentURL, frameLink, isMarkdown} from './logic'
+import {MarkdownBody} from './MarkdownBody'
 
 // ViewerBody shows one artifact the way the window can: web pages and PDFs in
 // a frame, images inline, text as text, and for anything else the way out.
@@ -36,7 +37,7 @@ export function ViewerBody({a}: {a: Artifact}) {
         </div>
       )
     case 'text':
-      return <TextBody a={a} />
+      return <TextBody a={a} markdown={isMarkdown(a.file_name, a.content_type)} />
     default:
       // Archives, binaries and anything else the engine cannot render inline:
       // the viewer still opens, so the file can be handed on from here and the
@@ -79,7 +80,8 @@ function HtmlBody({a}: {a: Artifact}) {
   )
 }
 
-function TextBody({a}: {a: Artifact}) {
+// TextBody shows a text file as it is, or rendered when it is Markdown.
+function TextBody({a, markdown}: {a: Artifact; markdown: boolean}) {
   // The stored file never changes, so it is fetched once per artifact.
   const {data, isPending, error} = useQuery({
     queryKey: ['artifact-content', a.id],
@@ -105,6 +107,7 @@ function TextBody({a}: {a: Artifact}) {
       />
     )
   }
+  if (markdown && typeof data === 'string') return <MarkdownBody text={data} />
   return (
     <pre className="size-full overflow-auto bg-surface-2 px-5 py-4 font-mono text-[12.5px] leading-[1.6] break-words whitespace-pre-wrap text-foreground select-text">
       {typeof data === 'string' ? data : JSON.stringify(data, null, 2)}

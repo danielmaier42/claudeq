@@ -4,6 +4,7 @@ import {
   artifactKind,
   extLabel,
   frameLink,
+  isMarkdown,
   neighbours,
   NO_FILTERS,
   NO_GROUP,
@@ -121,5 +122,18 @@ describe('frameLink', () => {
     expect(frameLink({type: 'other', url: 'https://example.com'})).toBeNull()
     expect(frameLink('https://example.com')).toBeNull()
     expect(frameLink(null)).toBeNull()
+  })
+})
+
+describe('isMarkdown', () => {
+  it('knows Markdown by type or by name', () => {
+    expect(isMarkdown('report.md', 'text/plain; charset=utf-8')).toBe(true)
+    expect(isMarkdown('NOTES.MARKDOWN', '')).toBe(true)
+    expect(isMarkdown('report', 'text/markdown')).toBe(true)
+  })
+  it('leaves other text alone', () => {
+    expect(isMarkdown('notes.txt', 'text/plain')).toBe(false)
+    expect(isMarkdown('page.html', 'text/html')).toBe(false)
+    expect(isMarkdown('md', 'text/plain')).toBe(false)
   })
 })

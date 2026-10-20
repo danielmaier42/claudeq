@@ -315,7 +315,7 @@ explains it.
   them and combines the results. See
   [Asking several providers at once](#asking-several-providers-at-once).
 - **Artifacts.** A run publishes a file with `dispatchq publish`; it lands in the
-  Artifacts view with an in-app viewer for HTML, PDF, images and text. See
+  Artifacts view with an in-app viewer for HTML, PDF, images, Markdown and text. See
   [Letting a task publish artifacts](#letting-a-task-publish-artifacts).
 - **Own notifications.** A run sends a message with `dispatchq notify`,
   optionally with a link that opens on click. See
@@ -519,7 +519,10 @@ first. The window opens on the Dashboard:
   inline, anything else (archives, binaries) shows a short note instead of a
   preview. A web link clicked inside an HTML artifact opens in your default
   browser, since the preview cannot load outside pages; links to a spot within
-  the page still scroll there. The viewer names the file and its size under the title and offers
+  the page still scroll there. Markdown files (`.md`) are shown rendered, with
+  headings, tables and checklists; their web links open in your default
+  browser too, and images show only their alt text because the preview loads
+  nothing from outside. The viewer names the file and its size under the title and offers
   **Open externally**, which hands the file to your
   browser to open or save, and — when the run that published the artifact can
   still be resumed — **Continue in Chat…**, the same interactive resume as in
@@ -1342,7 +1345,7 @@ the task and run that produced it, with an unread flag that clears as soon as yo
 open it. Each publish also raises a notification (macOS, plus every remote channel that
 is configured; **Settings → Notifications → Notify about new artifacts** or
 `dispatchq settings --artifact-notify=false` turns it off); clicking the macOS one brings up DispatchQ with that artifact open — in
-the in-app viewer for HTML, PDF, images and text, in your browser for anything
+the in-app viewer for HTML, PDF, images, Markdown and text, in your browser for anything
 else. Artifacts that were already there when this version first ran are not
 announced retroactively. HTML and PDF open in an in-app viewer; any type can be opened in your
 browser. Artifacts are kept until you delete them, independent of run-history
