@@ -1,7 +1,7 @@
 <div align="center">
   <img src="docs/branding/dispatchq/dispatchq-logo.svg" width="96" height="96" alt="DispatchQ">
   <h1>DispatchQ</h1>
-  <p>A queue for unattended coding-agent runs on your Mac.</p>
+  <p>A queue for unattended coding-agents that runs on your Mac</p>
 </div>
 
 <!-- TODO: screenshot of the Queue view goes here (docs/queue.png, light and dark). -->
