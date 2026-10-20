@@ -21,6 +21,5 @@ export function isSpare(u: PoolRanking | undefined, threshold: number): boolean 
 export function urgencyText(u: PoolRanking | undefined): string {
   if (!u) return ''
   if (u.tier > 0) return u.note
-  const shared = u.running ? ` · shared by ${u.running} run${u.running > 1 ? 's' : ''}` : ''
-  return `Urgency ${u.urgency.toFixed(1)}${shared}`
+  return `Urgency ${u.urgency.toFixed(1)}`
 }
