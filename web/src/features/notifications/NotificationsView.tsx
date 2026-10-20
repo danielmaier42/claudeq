@@ -183,7 +183,7 @@ function RowSkeletons() {
   return (
     <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
       {Array.from({length: 7}, (_, i) => (
-        <div key={i} className="flex items-start gap-3 px-3 py-3 pl-8">
+        <div key={i} className="flex items-start gap-3 px-3 py-3">
           <Skeleton className="size-7 rounded-lg" />
           <div className="flex-1 space-y-2 pt-1">
             <Skeleton className="h-3.5 w-2/5" />
