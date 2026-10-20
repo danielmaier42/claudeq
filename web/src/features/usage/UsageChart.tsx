@@ -54,7 +54,7 @@ export function UsageChart({
         style={{height: PLOT_H}}
       >
         {ticks.map((t) => (
-          <span key={t} className="absolute right-0 -translate-y-1/2" style={{bottom: `${(t / top) * 100}%`}}>
+          <span key={t} className="absolute right-0 translate-y-1/2" style={{bottom: `${(t / top) * 100}%`}}>
             {metric.fmt(t)}
           </span>
         ))}
