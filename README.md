@@ -404,8 +404,9 @@ first. The window opens on the Dashboard:
   strip**: one line per enabled provider with its logo, what is left of each
   window (for Claude the 5-hour and the weekly window, for Codex the windows its
   account has) and when each resets; a bar turns orange at 25% left and red at
-  10%, and a green *backfill* badge marks a provider above the
-  [backfill threshold](#backfill-tasks). It is read without spending any usage
+  10%. At the right end of each line sits the provider's urgency on a small
+  gauge with the [backfill threshold](#backfill-tasks) as a tick; it turns
+  green while the provider is above it. It is read without spending any usage
   (see [How much is left](#how-much-is-left)); the strip says how old the
   reading is and **Read now** asks again. An account on an API key has no plan
   limits and says so plainly. Right under it, the **Pool** card puts every
@@ -1537,9 +1538,10 @@ otherwise expire unused.
 
 At 1, spending evenly from now on uses up exactly what is left; a fresh week
 starts there. At 2 it would take twice that pace, so half of what is left is
-at risk. The Dashboard's allowance strip marks the providers above the **backfill
-threshold**, which is the slider at the bottom of **Settings → Providers** (0.5
-to 5, default 1.5); while it moves, each provider's urgency gauge shows whether
+at risk. The Dashboard's allowance strip shows each provider's urgency against the
+**backfill threshold** and turns it green above it. The threshold is the
+slider at the bottom of **Settings → Providers** (0.5 to 5, default 1.5); while
+it moves, each provider's urgency gauge shows whether
 it would qualify, and it applies on release. `dispatchq settings --backfill-urgency X` sets the same
 value.
 

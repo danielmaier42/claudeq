@@ -1,15 +1,15 @@
 import {AlertTriangle, RefreshCw} from 'lucide-react'
 import {openSettings} from '@/app/nav'
 import {ProviderLogo} from '@/components/domain/provider-logo'
-import {Badge} from '@/components/ui/badge'
 import {Button} from '@/components/ui/button'
 import {Card} from '@/components/ui/card'
 import {Meter} from '@/components/ui/progress'
 import {Skeleton} from '@/components/ui/skeleton'
 import {Tooltip} from '@/components/ui/tooltip'
-import {urgencyText} from '@/features/settings/providers/backfill'
+import {backfillThreshold} from '@/features/settings/providers/backfill'
+import {UrgencyGauge} from '@/features/settings/providers/UrgencyGauge'
 import {fullTime, relTime} from '@/lib/format'
-import {useLimits, useProviders} from '@/lib/queries'
+import {useLimits, useProviders, useSettings} from '@/lib/queries'
 import type {LimitWindow, LimitsEntry} from '@/lib/types'
 import {cn} from '@/lib/utils'
 import {
@@ -27,12 +27,13 @@ import {
 const valueTone = {ok: 'text-foreground', warning: 'text-warning-text', danger: 'text-danger'}
 const meterTone = {ok: 'accent', warning: 'warning', danger: 'danger'} as const
 // One template for every row, so the windows line up down a column.
-const row = 'grid grid-cols-[minmax(140px,1fr)_minmax(0,1.5fr)_minmax(0,1.5fr)_88px] items-center gap-x-5'
+const row = 'grid grid-cols-[minmax(140px,1fr)_minmax(0,1.5fr)_minmax(0,1.5fr)_180px] items-center gap-x-5'
 
 // AllowanceStrip is how much of each enabled provider's allowance is left,
 // one line per provider, at the top of the Dashboard because it decides what
-// can run. The daemon reads it without spending any; the threshold that
-// decides backfill lives in Settings → Providers.
+// can run, with each provider's urgency against the backfill threshold. The
+// daemon reads it without spending any; the threshold is set in Settings →
+// Providers.
 export function AllowanceStrip({
   now,
   reading,
@@ -47,6 +48,7 @@ export function AllowanceStrip({
   const kindOf = (id: string) => providers.find((p) => p.id === id)?.kind ?? ''
   const shown = (limits.data ?? []).filter((p) => p.limits.state !== 'disabled')
   const newest = newestReading(shown)
+  const threshold = backfillThreshold(useSettings().data)
 
   return (
     <Card className="mb-4 overflow-hidden">
@@ -85,7 +87,14 @@ export function AllowanceStrip({
       ) : (
         <div className="divide-y divide-border">
           {shown.map((p) => (
-            <ProviderLine key={p.id} p={p} kind={kindOf(p.id)} now={now} newest={newest} />
+            <ProviderLine
+              key={p.id}
+              p={p}
+              kind={kindOf(p.id)}
+              now={now}
+              newest={newest}
+              threshold={threshold}
+            />
           ))}
         </div>
       )}
@@ -93,7 +102,19 @@ export function AllowanceStrip({
   )
 }
 
-function ProviderLine({p, kind, now, newest}: {p: LimitsEntry; kind: string; now: number; newest?: string}) {
+function ProviderLine({
+  p,
+  kind,
+  now,
+  newest,
+  threshold,
+}: {
+  p: LimitsEntry
+  kind: string
+  now: number
+  newest?: string
+  threshold: number
+}) {
   const l = p.limits
   const failed = readFailed(l)
   const [five, week] = windowSlots(l.windows)
@@ -110,15 +131,22 @@ function ProviderLine({p, kind, now, newest}: {p: LimitsEntry; kind: string; now
             {p.name}
           </span>
         </Tooltip>
-        {p.backfill && (
-          <Tooltip
-            content={`${urgencyText(p.urgency)}: above the backfill threshold, so its weekly allowance would otherwise go unused and backfill tasks run on it.`}
-          >
-            <Badge tone="success" dot tabIndex={0} className="shrink-0">
-              backfill
-            </Badge>
-          </Tooltip>
-        )}
+        <div className="ml-auto shrink-0 text-[11.5px] text-subtle-foreground tabular-nums">
+          {failed && hasWindows ? (
+            <Tooltip content={limitStatusText(l, now)}>
+              <span className="inline-flex items-center gap-1 text-warning-text" tabIndex={0}>
+                <AlertTriangle className="size-3.5" />
+                {age ? relTime(age, now) : 'Read failed'}
+              </span>
+            </Tooltip>
+          ) : (
+            age && (
+              <Tooltip content={`Read ${fullTime(age)}`}>
+                <span tabIndex={0}>{relTime(age, now)}</span>
+              </Tooltip>
+            )
+          )}
+        </div>
       </div>
       {hasWindows ? (
         <>
@@ -137,21 +165,8 @@ function ProviderLine({p, kind, now, newest}: {p: LimitsEntry; kind: string; now
           {limitStatusText(l, now)}
         </p>
       )}
-      <div className="flex justify-end text-[11.5px] text-subtle-foreground tabular-nums">
-        {failed && hasWindows ? (
-          <Tooltip content={limitStatusText(l, now)}>
-            <span className={cn('inline-flex items-center gap-1', 'text-warning-text')} tabIndex={0}>
-              <AlertTriangle className="size-3.5" />
-              {age ? relTime(age, now) : 'Read failed'}
-            </span>
-          </Tooltip>
-        ) : (
-          age && (
-            <Tooltip content={`Read ${fullTime(age)}`}>
-              <span tabIndex={0}>{relTime(age, now)}</span>
-            </Tooltip>
-          )
-        )}
+      <div className="flex min-w-0 justify-end">
+        {p.urgency && hasWindows && <UrgencyGauge u={p.urgency} threshold={threshold} spare={p.backfill} />}
       </div>
     </div>
   )
@@ -184,7 +199,9 @@ function WindowCell({w, now, dim}: {w: LimitWindow | null; now: number; dim: boo
         <span className={cn('shrink-0 font-semibold tabular-nums', valueTone[level])}>
           {Math.round(left)}%<span className="font-normal text-muted-foreground"> left</span>
         </span>
-        {reset && <span className="shrink-0 text-[11.5px] text-subtle-foreground tabular-nums">{reset}</span>}
+        {reset && (
+          <span className="min-w-0 truncate text-[11.5px] text-subtle-foreground tabular-nums">{reset}</span>
+        )}
       </div>
     </Tooltip>
   )
