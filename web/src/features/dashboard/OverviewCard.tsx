@@ -4,8 +4,8 @@ import {Card} from '@/components/ui/card'
 import {Skeleton} from '@/components/ui/skeleton'
 import {cn} from '@/lib/utils'
 
-// OverviewCard is one of the Dashboard's summary tiles: a heading with a count,
-// a few rows, and a link into the view that has the full list.
+// OverviewCard is one of the Dashboard's summary tiles: a heading with a count
+// over a rule, as on the allowance strip, then a few rows, and a link into the view that has the full list.
 export function OverviewCard({
   icon,
   title,
@@ -24,8 +24,8 @@ export function OverviewCard({
   children: ReactNode
 }) {
   return (
-    <Card className="flex flex-col">
-      <div className="flex items-center gap-2 px-4 pt-3.5 pb-2">
+    <Card className="flex flex-col overflow-hidden">
+      <div className="flex min-h-10 items-center gap-2 border-b border-border px-4 py-1.5">
         <span className="text-muted-foreground [&_svg]:size-4">{icon}</span>
         <h3 className="text-[13px] font-semibold">{title}</h3>
         {count}
@@ -38,7 +38,7 @@ export function OverviewCard({
           <ChevronRight className="size-3.5" />
         </button>
       </div>
-      <div className="flex flex-col px-2 pb-2">
+      <div className="flex flex-col p-2">
         {loading ? (
           <div className="space-y-2 px-2 pt-1">
             <Skeleton className="h-9" />
