@@ -26,7 +26,9 @@ describe('backfill', () => {
     expect(backfillThreshold(undefined)).toBe(1.5)
   })
   it('words the urgency, or the note of a provider that cannot take work', () => {
-    expect(urgencyText(score({running: 2}))).toBe('Urgency 2.0 · shared by 2 runs')
+    for (const running of [0, 1, 2]) {
+      expect(urgencyText(score({running}))).toBe('Urgency 2.0')
+    }
     expect(urgencyText(score({tier: 3, note: 'Out until Monday'}))).toBe('Out until Monday')
   })
 })
