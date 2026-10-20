@@ -1,8 +1,12 @@
-import {describe, expect, it} from 'vitest'
-import type {Settings} from '@/lib/types'
+import {describe, expect, it, vi} from 'vitest'
+import type {Settings, UpdateStatus} from '@/lib/types'
 import {combineEdits, editedSections, fieldError, hasEdits, mergeSettings, pruneEdits} from './draft'
 import {choiceOptions, IDLE, idleValue} from './options'
 import {pickSection} from './sections'
+import {reinstallSummary} from './update'
+
+// update.ts toasts, and the toaster reads the color scheme jsdom does not have.
+vi.mock('@/components/ui/toaster', () => ({toast: vi.fn()}))
 
 const base: Settings = {
   default_provider: 'claude',
@@ -87,5 +91,39 @@ describe('sections', () => {
     expect(pickSection({requested: '', last: 'notifications', updatePending: true})).toBe('notifications')
     expect(pickSection({requested: '', last: '', updatePending: true})).toBe('about')
     expect(pickSection({requested: 'nope', last: '', updatePending: false})).toBe('general')
+  })
+})
+
+describe('reinstall', () => {
+  const dev: UpdateStatus = {
+    current: 'dev-main',
+    supported: false,
+    available: false,
+    latest: '2.1.0',
+    has_installer: true,
+    reinstall: true,
+    data_floor: '2.0.0',
+    checking: false,
+    downloading: false,
+  }
+
+  it('offers the latest release to a dev build', () => {
+    expect(reinstallSummary(dev)?.label).toBe('Reinstall DispatchQ 2.1.0')
+  })
+
+  it('names the floor when the release cannot read the data', () => {
+    const s = reinstallSummary({...dev, latest: '1.6.2', reinstall: false})
+    expect(s?.description).toContain('2.0.0 or later')
+  })
+
+  it('says so when the release has no installer', () => {
+    expect(reinstallSummary({...dev, reinstall: false, has_installer: false})?.description).toContain(
+      'no installer',
+    )
+  })
+
+  it('offers nothing to a release build or before a check', () => {
+    expect(reinstallSummary({...dev, supported: true, current: '2.0.0'})).toBeUndefined()
+    expect(reinstallSummary({...dev, latest: ''})).toBeUndefined()
   })
 })
