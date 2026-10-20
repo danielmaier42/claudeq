@@ -44,25 +44,25 @@ func TestParseCapturedRuns(t *testing.T) {
 		wantStatus  store.RunStatus
 		wantOutput  string
 		wantMessage string // a fragment the operator-facing message must carry
-		wantInput   int
+		wantInput   int    // fresh input: Codex's input total less its cached input
 		wantOutTok  int
 	}{
 		{
 			name: "a successful run", fixture: "success.jsonl", exitCode: 0,
 			wantStatus: store.StatusSuccess, wantOutput: "SPIKE_OK",
-			wantInput: 15967, wantOutTok: 7,
+			wantInput: 4831, wantOutTok: 7,
 		},
 		{
 			name: "a resumed run", fixture: "resume.jsonl", exitCode: 0,
 			wantStatus: store.StatusSuccess, wantOutput: "RESUME_OK",
-			wantInput: 32176, wantOutTok: 14,
+			wantInput: 9904, wantOutTok: 14,
 		},
 		{
 			// Codex coordinates its own subagents; dispatchq counts the whole thing
 			// as one job and reads only the parent's answer and totals.
 			name: "a run with provider-owned subagents", fixture: "subagent.jsonl", exitCode: 0,
 			wantStatus: store.StatusSuccess, wantOutput: "PARENT_OK",
-			wantInput: 36585, wantOutTok: 62,
+			wantInput: 4457, wantOutTok: 62,
 		},
 		{
 			name: "no credentials", fixture: "auth-error.jsonl", exitCode: 1,

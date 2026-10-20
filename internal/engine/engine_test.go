@@ -226,6 +226,25 @@ func TestTickRunsAsapTaskOnce(t *testing.T) {
 	}
 }
 
+// TestRunRecordsTheReportedModel: the model the harness says answered lands on
+// the run beside the one dispatchq asked for.
+func TestRunRecordsTheReportedModel(t *testing.T) {
+	fc := clock.NewFake(time.Date(2026, 7, 17, 22, 0, 0, 0, time.UTC))
+	r := &stub{result: func(req executor.Request, _ int) provider.Result {
+		return provider.Result{Status: store.StatusSuccess, SessionID: req.SessionID, Model: "claude-opus-5-5"}
+	}}
+	e, st := newTestEngine(t, r, fc)
+	saveTasks(t, st, asapTask("a", false))
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	e.WaitIdle()
+	runs, _ := st.Runs()
+	if len(runs) != 1 || runs[0].Provider.ReportedModel != "claude-opus-5-5" {
+		t.Fatalf("runs = %+v, want the reported model recorded", runs)
+	}
+}
+
 func TestRateLimitBlocksUntilReportedReset(t *testing.T) {
 	// A five-hour session-limit hit reports an absolute reset time but no retry
 	// delay. The gate must block until that reset (plus the safety buffer), not

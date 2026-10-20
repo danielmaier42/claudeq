@@ -115,7 +115,9 @@ function UsageContent({stats}: {stats: Stats}) {
           )}
         </OverviewCard>
       </Section>
-      {!!stats.by_provider?.length && <ProviderBreakdown providers={stats.by_provider} period={label} />}
+      {!!stats.by_provider?.length && (
+        <ProviderBreakdown providers={stats.by_provider} period={label} metric={metric} />
+      )}
       <p className="text-[12px] text-muted-foreground">
         Counts only what dispatchq's own runs consumed (tokens recorded per run), not your overall Claude
         account usage. Cost is the API-equivalent price Claude Code reports: what these requests would cost at

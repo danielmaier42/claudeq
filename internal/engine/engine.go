@@ -1193,6 +1193,9 @@ func (e *Engine) finish(t task.Task, providerID string, rec store.Run, res provi
 	if res.SessionID != "" {
 		rec.SessionID = res.SessionID
 	}
+	if res.Model != "" {
+		rec.Provider.ReportedModel = res.Model
+	}
 	if runErr != nil {
 		rec.Status = store.StatusFailed
 		rec.Error = runErr.Error()

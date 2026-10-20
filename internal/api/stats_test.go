@@ -1,7 +1,9 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -82,6 +84,57 @@ func TestStatsSkipTheSplitForOneProvider(t *testing.T) {
 	}
 	if s := computeStats(runs, now, statsWindow{Days: defaultStatsDays}); s.ByProvider != nil {
 		t.Fatalf("by_provider = %+v, want nothing to break down", s.ByProvider)
+	}
+}
+
+// TestStatsSplitEachProviderByModel: under each provider the runs split per
+// model, busiest first, with the harness default as a model of its own.
+func TestStatsSplitEachProviderByModel(t *testing.T) {
+	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
+	run := func(id, provider, model string, cost float64) store.Run {
+		return store.Run{RunID: id, StartedAt: now, Status: store.StatusSuccess, CostUSD: cost, InputTokens: 10,
+			Provider: store.RunProvider{ID: provider, Name: provider, Model: model}}
+	}
+	runs := []store.Run{
+		run("1", "claude", "sonnet", 1),
+		run("2", "claude", "opus", 2),
+		run("3", "claude", "opus", 4),
+		run("4", "claude", "", 8),
+		run("5", "codex", "gpt", 16),
+	}
+	s := computeStats(runs, now, statsWindow{Days: defaultStatsDays})
+	if len(s.ByProvider) != 2 {
+		t.Fatalf("got %d provider buckets, want 2", len(s.ByProvider))
+	}
+	claude := s.ByProvider[0]
+	if claude.ID != "claude" || claude.CostUSD != 15 {
+		t.Fatalf("first bucket = %+v, want claude with its whole cost", claude)
+	}
+	var got []string
+	for _, m := range claude.Models {
+		got = append(got, fmt.Sprintf("%s:%d:%g", m.Model, m.Runs, m.CostUSD))
+	}
+	if want := []string{"opus:2:6", ":1:8", "sonnet:1:1"}; !slices.Equal(got, want) {
+		t.Fatalf("claude models = %v, want %v", got, want)
+	}
+	if len(s.ByProvider[1].Models) != 1 || s.ByProvider[1].Models[0].Model != "gpt" {
+		t.Fatalf("codex models = %+v, want gpt alone", s.ByProvider[1].Models)
+	}
+}
+
+// TestStatsSplitOneProviderRunningSeveralModels: one provider with several
+// models still has something to break down.
+func TestStatsSplitOneProviderRunningSeveralModels(t *testing.T) {
+	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
+	runs := []store.Run{
+		{RunID: "1", StartedAt: now, Status: store.StatusSuccess,
+			Provider: store.RunProvider{ID: "claude", Model: "opus"}},
+		{RunID: "2", StartedAt: now, Status: store.StatusSuccess,
+			Provider: store.RunProvider{ID: "claude", Model: "sonnet"}},
+	}
+	s := computeStats(runs, now, statsWindow{Days: defaultStatsDays})
+	if len(s.ByProvider) != 1 || len(s.ByProvider[0].Models) != 2 {
+		t.Fatalf("by_provider = %+v, want one provider with two models", s.ByProvider)
 	}
 }
 
@@ -309,5 +362,29 @@ func TestGetStatsDays(t *testing.T) {
 				t.Fatalf("days = %d, per_day = %d, period = %+v; want %d days holding the run", s.Days, len(s.PerDay), s.Period, tt.days)
 			}
 		})
+	}
+}
+
+// TestStatsSplitByTheModelThatRan: a run's reported model wins over the alias it
+// asked for, so an alias and its full id share one row.
+func TestStatsSplitByTheModelThatRan(t *testing.T) {
+	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
+	runs := []store.Run{
+		{RunID: "1", StartedAt: now, Status: store.StatusSuccess,
+			Provider: store.RunProvider{ID: "claude", Model: "opus", ReportedModel: "claude-opus-5-5"}},
+		{RunID: "2", StartedAt: now, Status: store.StatusSuccess,
+			Provider: store.RunProvider{ID: "claude", Model: "claude-opus-5-5"}},
+		{RunID: "3", StartedAt: now, Status: store.StatusSuccess,
+			Provider: store.RunProvider{ID: "claude", ReportedModel: "claude-opus-5-5"}},
+		{RunID: "4", StartedAt: now, Status: store.StatusSuccess,
+			Provider: store.RunProvider{ID: "claude", Model: "sonnet"}},
+	}
+	s := computeStats(runs, now, statsWindow{Days: defaultStatsDays})
+	if len(s.ByProvider) != 1 {
+		t.Fatalf("by_provider = %+v, want one provider", s.ByProvider)
+	}
+	m := s.ByProvider[0].Models
+	if len(m) != 2 || m[0].Model != "claude-opus-5-5" || m[0].Runs != 3 || m[1].Model != "sonnet" {
+		t.Fatalf("models = %+v, want claude-opus-5-5 with 3 runs, then sonnet", m)
 	}
 }

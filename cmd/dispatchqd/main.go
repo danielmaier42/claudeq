@@ -162,6 +162,11 @@ func cmdRun(args []string) error {
 	// job, and is shared with the API so the dashboard's polling costs no extra
 	// processes.
 	registry := adapters.Default()
+	// Runs from before dispatchq kept the model the harness reported get it
+	// read back out of their logs, so usage splits by the model that ran.
+	if _, err := provider.BackfillReportedModels(st, registry); err != nil {
+		fmt.Fprintln(os.Stderr, "dispatchqd: backfill reported models:", err)
+	}
 	checker := provider.NewChecker(registry)
 
 	c := clock.Real{}
