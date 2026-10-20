@@ -6,39 +6,47 @@ import {cn} from '@/lib/utils'
 
 // OverviewCard is one of the Dashboard's summary tiles: a heading with a count
 // over a rule, as on the allowance strip, then a few rows, and a link into the view that has the full list.
+// Other views reuse it for their own tiles, with controls in place of the link.
 export function OverviewCard({
   icon,
   title,
   count,
   link,
   onLink,
+  actions,
   loading,
+  className,
   children,
 }: {
   icon: ReactNode
   title: string
   count?: ReactNode
-  link: string
-  onLink: () => void
+  link?: string
+  onLink?: () => void
+  actions?: ReactNode
   loading?: boolean
+  className?: string
   children: ReactNode
 }) {
   return (
-    <Card className="flex flex-col overflow-hidden">
+    <Card className={cn('flex flex-col overflow-hidden', className)}>
       <div className="flex min-h-10 items-center gap-2 border-b border-border px-4 py-1.5">
         <span className="text-muted-foreground [&_svg]:size-4">{icon}</span>
         <h3 className="text-[13px] font-semibold">{title}</h3>
         {count}
-        <button
-          type="button"
-          onClick={onLink}
-          className="ml-auto inline-flex items-center gap-0.5 rounded-sm text-[12px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent/40"
-        >
-          {link}
-          <ChevronRight className="size-3.5" />
-        </button>
+        {actions && <div className="ml-auto flex shrink-0 items-center gap-2">{actions}</div>}
+        {link && onLink && (
+          <button
+            type="button"
+            onClick={onLink}
+            className="ml-auto inline-flex items-center gap-0.5 rounded-sm text-[12px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent/40"
+          >
+            {link}
+            <ChevronRight className="size-3.5" />
+          </button>
+        )}
       </div>
-      <div className="flex flex-col p-2">
+      <div className="flex flex-1 flex-col p-2">
         {loading ? (
           <div className="space-y-2 px-2 pt-1">
             <Skeleton className="h-9" />

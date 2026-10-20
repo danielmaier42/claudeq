@@ -1,5 +1,6 @@
+import {Activity, Coins} from 'lucide-react'
 import type {ReactNode} from 'react'
-import {Card} from '@/components/ui/card'
+import {OverviewCard} from '@/features/dashboard/OverviewCard'
 import {Tooltip} from '@/components/ui/tooltip'
 import {duration, usd} from '@/lib/format'
 import type {Stats} from '@/lib/types'
@@ -11,8 +12,9 @@ const COST_TIP =
 
 // UsageSummary leads with the one figure that matters most, the tokens
 // dispatchq consumed in the chosen period, and puts how the runs went next to
-// it. The all-time total stays in view as a smaller figure, so a short period
-// never hides how much has gone through dispatchq overall.
+// it, both in the Dashboard's tiles. The all-time total stays in view as a
+// smaller figure, so a short period never hides how much has gone through
+// dispatchq overall.
 export function UsageSummary({stats}: {stats: Stats}) {
   const p = stats.period
   const t = stats.totals
@@ -21,31 +23,31 @@ export function UsageSummary({stats}: {stats: Stats}) {
   const perDay = bucketTokens(p) / Math.max(1, stats.days)
   return (
     <div className="grid gap-3 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-      <Card className="flex flex-col px-5 py-4">
-        <div className="text-[12.5px] text-muted-foreground">Consumed via dispatchq · {label}</div>
-        <div className="mt-1 text-[44px] leading-[1.1] font-semibold tracking-[-0.02em] tabular-nums">
-          {fmtTokens(bucketTokens(p))}
-        </div>
-        <div className="text-[12.5px] text-muted-foreground">tokens</div>
-        <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[12.5px] text-muted-foreground tabular-nums">
-          <span>{fmtTokens(p.input_tokens)} in</span>
-          <span>{fmtTokens(p.output_tokens)} out</span>
-          {stats.days > 1 && <span>{fmtTokens(Math.round(perDay))} per day</span>}
-        </div>
-        {!stats.all && (
-          <div className="mt-auto flex flex-wrap items-baseline gap-x-3 gap-y-1 border-t border-border pt-3 text-[12.5px] text-muted-foreground tabular-nums max-lg:mt-3">
-            <span className="font-medium text-foreground">All time</span>
-            <span>{fmtTokens(bucketTokens(t))} tokens</span>
-            <span>{usd(t.cost_usd)} API-equiv.</span>
-            <span>
-              {t.runs} run{t.runs === 1 ? '' : 's'}
-            </span>
+      <OverviewCard icon={<Coins />} title="Consumed via dispatchq" count={<Period label={label} />}>
+        <div className="flex flex-1 flex-col px-2 pt-1 pb-1">
+          <div className="text-[44px] leading-[1.1] font-semibold tracking-[-0.02em] tabular-nums">
+            {fmtTokens(bucketTokens(p))}
           </div>
-        )}
-      </Card>
-      <Card className="px-5 py-4">
-        <div className="text-[12.5px] text-muted-foreground">Runs · {label}</div>
-        <div className="mt-2 grid grid-cols-3 gap-x-4 gap-y-3">
+          <div className="text-[12.5px] text-muted-foreground">tokens</div>
+          <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[12.5px] text-muted-foreground tabular-nums">
+            <span>{fmtTokens(p.input_tokens)} in</span>
+            <span>{fmtTokens(p.output_tokens)} out</span>
+            {stats.days > 1 && <span>{fmtTokens(Math.round(perDay))} per day</span>}
+          </div>
+          {!stats.all && (
+            <div className="mt-auto flex flex-wrap items-baseline gap-x-3 gap-y-1 pt-3 text-[12.5px] text-muted-foreground tabular-nums">
+              <span className="font-medium text-foreground">All time</span>
+              <span>{fmtTokens(bucketTokens(t))} tokens</span>
+              <span>{usd(t.cost_usd)} API-equiv.</span>
+              <span>
+                {t.runs} run{t.runs === 1 ? '' : 's'}
+              </span>
+            </div>
+          )}
+        </div>
+      </OverviewCard>
+      <OverviewCard icon={<Activity />} title="Runs" count={<Period label={label} />}>
+        <div className="grid grid-cols-3 gap-x-4 gap-y-3 px-2 pt-1 pb-1">
           <Figure label="runs" value={String(p.runs)} />
           <Figure label="succeeded" value={String(p.success)} sub={rate === null ? undefined : `${rate}%`} />
           <Figure label="failed" value={String(p.failed)} danger={p.failed > 0} />
@@ -62,7 +64,7 @@ export function UsageSummary({stats}: {stats: Stats}) {
           <Figure label="runtime" value={duration(p.duration_ms)} />
           <Figure label="per run" value={p.runs ? duration(p.duration_ms / p.runs) : '–'} />
         </div>
-      </Card>
+      </OverviewCard>
     </div>
   )
 }
@@ -89,4 +91,9 @@ function Figure({
       <div className="truncate text-[12px] text-muted-foreground">{label}</div>
     </div>
   )
+}
+
+// Period names the chosen range next to a tile's title.
+export function Period({label}: {label: ReactNode}) {
+  return <span className="min-w-0 truncate text-[12px] text-muted-foreground">{label}</span>
 }

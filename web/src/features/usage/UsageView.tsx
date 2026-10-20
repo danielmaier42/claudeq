@@ -3,10 +3,10 @@ import {useMemo, useState} from 'react'
 import {Section, ViewLayout} from '@/components/layout/view-layout'
 import {Alert} from '@/components/ui/alert'
 import {Button} from '@/components/ui/button'
-import {Card} from '@/components/ui/card'
 import {EmptyState} from '@/components/ui/empty-state'
 import {Segmented} from '@/components/ui/segmented'
 import {Skeleton} from '@/components/ui/skeleton'
+import {OverviewCard, OverviewEmpty} from '@/features/dashboard/OverviewCard'
 import {errorMessage} from '@/lib/api'
 import {useStats} from '@/lib/queries'
 import type {Stats} from '@/lib/types'
@@ -15,7 +15,7 @@ import {bucketTitle, chartBuckets, periodLabel, RANGES, type ChartBucket, type C
 import {ProviderBreakdown} from './ProviderBreakdown'
 import {setUsageRange, useUsageRange} from './store'
 import {UsageChart} from './UsageChart'
-import {UsageSummary} from './UsageSummary'
+import {Period, UsageSummary} from './UsageSummary'
 import {emptyText, METRICS, metricDef, type Metric} from './usage'
 
 // Usage counts only what dispatchq's own runs consumed (tokens recorded per
@@ -86,30 +86,34 @@ function UsageContent({stats}: {stats: Stats}) {
       <Section>
         <UsageSummary stats={stats} />
       </Section>
-      <Section
-        title={unit === 'week' ? 'Per week' : 'Per day'}
-        description={`${chartLabel} · ${def.fmt(total)} ${def.id === 'cost' ? 'API-equiv.' : def.label.toLowerCase()} in total`}
-        actions={
-          <Segmented
-            aria-label="Measure"
-            size="sm"
-            value={metric}
-            onValueChange={setMetric}
-            options={METRICS.map((m) => ({value: m.id, label: m.id === 'cost' ? 'Cost' : m.label}))}
-          />
-        }
-      >
-        {total > 0 ? (
-          <Card className="px-4 pt-5 pb-3">
-            <UsageChart buckets={buckets} unit={unit} metric={def} />
-            <BucketTable buckets={buckets} unit={unit} />
-          </Card>
-        ) : (
-          <Card className="flex items-center gap-2 px-4 py-6 text-[12.5px] text-muted-foreground">
-            <ChartNoAxesColumn className="size-4 text-subtle-foreground" />
-            {emptyText(metric)}
-          </Card>
-        )}
+      <Section>
+        <OverviewCard
+          icon={<ChartNoAxesColumn />}
+          title={unit === 'week' ? 'Per week' : 'Per day'}
+          count={
+            <Period
+              label={`${chartLabel} · ${def.fmt(total)} ${def.id === 'cost' ? 'API-equiv.' : def.label.toLowerCase()} in total`}
+            />
+          }
+          actions={
+            <Segmented
+              aria-label="Measure"
+              size="sm"
+              value={metric}
+              onValueChange={setMetric}
+              options={METRICS.map((m) => ({value: m.id, label: m.id === 'cost' ? 'Cost' : m.label}))}
+            />
+          }
+        >
+          {total > 0 ? (
+            <div className="px-2 pt-4 pb-1">
+              <UsageChart buckets={buckets} unit={unit} metric={def} />
+              <BucketTable buckets={buckets} unit={unit} />
+            </div>
+          ) : (
+            <OverviewEmpty icon={<ChartNoAxesColumn />}>{emptyText(metric)}</OverviewEmpty>
+          )}
+        </OverviewCard>
       </Section>
       {!!stats.by_provider?.length && <ProviderBreakdown providers={stats.by_provider} period={label} />}
       <p className="text-[12px] text-muted-foreground">
