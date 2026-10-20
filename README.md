@@ -517,7 +517,9 @@ first. The window opens on the Dashboard:
   artifact in a full-window viewer; **←** and **→** step to the previous and
   next artifact of the list, like Quick Look: HTML, PDF, images, and text are previewed
   inline, anything else (archives, binaries) shows a short note instead of a
-  preview. The viewer names the file and its size under the title and offers
+  preview. A web link clicked inside an HTML artifact opens in your default
+  browser, since the preview cannot load outside pages; links to a spot within
+  the page still scroll there. The viewer names the file and its size under the title and offers
   **Open externally**, which hands the file to your
   browser to open or save, and — when the run that published the artifact can
   still be resumed — **Continue in Chat…**, the same interactive resume as in

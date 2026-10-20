@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -82,6 +83,35 @@ func TestArtifactContentHeaders(t *testing.T) {
 	}
 	if csp := resp.Header.Get("Content-Security-Policy"); csp == "" {
 		t.Fatal("missing Content-Security-Policy on artifact content")
+	}
+}
+
+func TestArtifactContentFrameAddsLinkScript(t *testing.T) {
+	srv, st := newServer(t, nil)
+	publishTestArtifact(t, st, "a-1", "page.html", "<h1>hi</h1>")
+	publishTestArtifact(t, st, "a-2", "notes.txt", "plain")
+
+	tests := []struct {
+		path       string
+		wantScript bool
+	}{
+		{"/api/artifacts/a-1/content?frame=1", true},
+		{"/api/artifacts/a-1/content", false},
+		{"/api/artifacts/a-1/content?download=1", false},
+		{"/api/artifacts/a-2/content?frame=1", false},
+	}
+	for _, tt := range tests {
+		r := do(t, srv, "GET", tt.path, nil)
+		if r.Status != http.StatusOK {
+			t.Fatalf("%s: status = %d", tt.path, r.Status)
+		}
+		got := strings.Contains(string(r.Body), "dispatchq:open-link")
+		if got != tt.wantScript {
+			t.Fatalf("%s: link script present = %v, want %v (body %q)", tt.path, got, tt.wantScript, r.Body)
+		}
+		if tt.wantScript && !strings.HasPrefix(string(r.Body), "<h1>hi</h1>") {
+			t.Fatalf("%s: page must stay first, got %q", tt.path, r.Body)
+		}
 	}
 }
 

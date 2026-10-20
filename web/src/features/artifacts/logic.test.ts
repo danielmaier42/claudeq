@@ -3,6 +3,7 @@ import type {Artifact} from '@/lib/types'
 import {
   artifactKind,
   extLabel,
+  frameLink,
   neighbours,
   NO_FILTERS,
   NO_GROUP,
@@ -103,5 +104,22 @@ describe('neighbours', () => {
     expect(neighbours(['a', 'b', 'c'], 'b')).toEqual({index: 1, prev: 'a', next: 'c'})
     expect(neighbours(['a', 'b'], 'a')).toEqual({index: 0, prev: null, next: 'b'})
     expect(neighbours(['a'], 'x').index).toBe(-1)
+  })
+})
+
+describe('frameLink', () => {
+  it('passes http(s) links the frame reports', () => {
+    expect(frameLink({type: 'dispatchq:open-link', url: 'https://dev.azure.com/x?a=1'})).toBe(
+      'https://dev.azure.com/x?a=1',
+    )
+    expect(frameLink({type: 'dispatchq:open-link', url: 'http://example.com'})).toBe('http://example.com/')
+  })
+  it('ignores other schemes, other messages and junk', () => {
+    expect(frameLink({type: 'dispatchq:open-link', url: 'javascript:alert(1)'})).toBeNull()
+    expect(frameLink({type: 'dispatchq:open-link', url: 'file:///etc/passwd'})).toBeNull()
+    expect(frameLink({type: 'dispatchq:open-link', url: 'not a url'})).toBeNull()
+    expect(frameLink({type: 'other', url: 'https://example.com'})).toBeNull()
+    expect(frameLink('https://example.com')).toBeNull()
+    expect(frameLink(null)).toBeNull()
   })
 })

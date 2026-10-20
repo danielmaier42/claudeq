@@ -4,6 +4,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1252,8 +1253,39 @@ func (s *server) artifactContent(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("download") != "" {
 		w.Header().Set("Content-Disposition", "attachment; filename="+strconv.Quote(art.FileName))
 	}
+	if r.URL.Query().Get("frame") != "" && strings.HasPrefix(strings.ToLower(ct), "text/html") {
+		page, err := io.ReadAll(f)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, fmt.Errorf("read artifact: %w", err))
+			return
+		}
+		page = append(page, frameLinkScript...)
+		http.ServeContent(w, r, art.FileName, info.ModTime(), bytes.NewReader(page))
+		return
+	}
 	http.ServeContent(w, r, art.FileName, info.ModTime(), f)
 }
+
+// frameLinkScript is appended to an HTML artifact shown in the viewer's frame.
+// The frame is sandboxed and cannot open a link anywhere useful itself, so a
+// click on an http(s) link is handed to the window, which opens it in the
+// browser. Links within the page (#section) keep working in place.
+const frameLinkScript = `
+<script>
+document.addEventListener('click', function (e) {
+  if (e.defaultPrevented || e.button !== 0) return;
+  var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+  if (!a) return;
+  var u;
+  try { u = new URL(a.href); } catch (_) { return; }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return;
+  var here = new URL(location.href);
+  if (u.origin === here.origin && u.pathname === here.pathname && u.search === here.search) return;
+  e.preventDefault();
+  parent.postMessage({type: 'dispatchq:open-link', url: u.href}, '*');
+});
+</script>
+`
 
 func (s *server) getSettings(w http.ResponseWriter, _ *http.Request) {
 	cfg, err := s.d.Store.LoadConfig()
