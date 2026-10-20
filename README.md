@@ -599,7 +599,8 @@ The dashboard is also reachable in a normal browser at
 Settings lists its sections on the left — **General**, **Appearance**,
 **Execution**, **Notifications**, **Providers**, **Pools**, **Assistant**,
 **System** and **About**; **↑**/**↓** step through them. An available update puts a red dot on
-**About**, which is where the update banner and button live.
+**About**, which shows the app's claim, "A queue for unattended coding-agents that
+runs on your Mac", and is where the update banner and button live.
 
 Switches, menus and pickers apply the moment they change. Typed text (the
 custom system prompt and the notification channels) waits for the bar that

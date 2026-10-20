@@ -65,7 +65,7 @@ export function AboutSection() {
                 )}
               </div>
               <div className="text-[12.5px] text-muted-foreground">
-                Queue Claude Code tasks by day, run them by night. Free and open source.
+                A queue for unattended coding-agents that runs on your Mac
               </div>
             </div>
             <Button onClick={() => openExternal(REPO)}>
