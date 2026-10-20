@@ -82,6 +82,15 @@ If any gate fails, it is fixed before the work is reported — never reported wi
 - Surface **process/design choices and trade-offs** for discussion — the maintainer wants
   those. Keep them non-code-level (behaviour, UX, reliability, install experience).
 - Be honest about limitations and anything skipped or deferred.
+- **Every PR link comes with screenshots.** Whenever a message to the maintainer contains a
+  PR link (new PR, follow-up push, status report), the same message embeds screenshots of the
+  changed behaviour as images (`![…](/absolute/path.png)`), not a description of them. Show the
+  real app or the dev UI with real data, cropped to what changed. A change without a visual
+  surface shows its observable result instead (CLI output, a notification, a log excerpt) as a
+  screenshot. A PR link without screenshots is an incomplete report; if a screenshot truly
+  cannot be produced, say why in that message. If the preview tool hangs, headless Chrome works:
+  run `npm run dev` in `web/` against the daemon and take
+  `"Google Chrome" --headless=new --window-size=1300,1650 --virtual-time-budget=8000 --screenshot=<file> <url>`.
 - **Ship an installable dev build with the PR.** When reporting a change via a PR, also
   rebuild the installer package locally (`scripts/build-pkg.sh`, output in `dist/`) so the
   maintainer can install that dev version and confirm the change is correctly implemented in
