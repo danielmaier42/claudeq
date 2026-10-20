@@ -35,8 +35,8 @@ function openNotification(n: AppNotification) {
   openTarget(n)
 }
 
-// One notification as one row: the unread dot, the kind's icon, the title with
-// the message under it, when it was sent and where a click leads; the
+// One notification as one row: the kind's icon with the unread dot on its
+// corner, the title with the message under it, when it was sent and where a click leads; the
 // mark-read eye shows while the pointer or focus is on the row. The whole row
 // opens the notification through a stretched button under the title, so the
 // row holds no button inside a button and the eye stays its own target. The
@@ -55,9 +55,6 @@ export function NotificationRow({n}: {n: AppNotification}) {
       }}
       className="group relative flex cursor-pointer items-start gap-3 px-3 py-2.5 transition-colors focus-within:bg-surface-2 hover:bg-surface-2"
     >
-      <div className="flex w-2 shrink-0 justify-center pt-[11px]">
-        {n.unread && <span aria-label="Unread" className="size-2 rounded-full bg-accent" />}
-      </div>
       <Tooltip content={kindLabel(n.kind)}>
         <div
           className={cn(
@@ -66,6 +63,12 @@ export function NotificationRow({n}: {n: AppNotification}) {
           )}
         >
           <Icon />
+          {n.unread && (
+            <span
+              aria-label="Unread"
+              className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-accent ring-2 ring-surface"
+            />
+          )}
         </div>
       </Tooltip>
       <div className="min-w-0 flex-1">

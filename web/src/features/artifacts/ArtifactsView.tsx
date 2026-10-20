@@ -99,7 +99,7 @@ export function ArtifactsView() {
       ) : (
         <>
           {days.map((d) => (
-            <section key={d.day} className="mb-5 last:mb-0">
+            <section key={d.day} className="mb-4 last:mb-0">
               <DayHeading>{d.label}</DayHeading>
               {layout === 'grid' ? (
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3">
@@ -108,7 +108,7 @@ export function ArtifactsView() {
                   ))}
                 </div>
               ) : (
-                <div className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface shadow-xs">
+                <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface shadow-xs">
                   {d.items.map((a) => (
                     <ArtifactRow key={a.id} a={a} onOpen={() => open(a.id)} />
                   ))}
@@ -116,7 +116,7 @@ export function ArtifactsView() {
               )}
             </section>
           ))}
-          <div className="mt-6 flex items-center justify-between gap-3 border-t border-border pt-3 text-[12.5px] text-muted-foreground">
+          <div className="mt-5 flex items-center justify-between gap-3 text-[12.5px] text-muted-foreground">
             <span>
               {filtered.length} artifact{filtered.length === 1 ? '' : 's'}
               {anyFilter(filters) ? ' matching' : ''}
