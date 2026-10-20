@@ -15,6 +15,12 @@ export function artifactKind(contentType: string): ArtifactKind {
   return 'other'
 }
 
+// isMarkdown tells a Markdown file, which the viewer renders, from other text.
+// The daemon usually types it text/plain, so the file name decides as well.
+export function isMarkdown(fileName: string, contentType: string): boolean {
+  return (contentType || '').toLowerCase().includes('markdown') || /\.(md|markdown)$/i.test(String(fileName))
+}
+
 // extLabel is the short type tag on a card: the file's extension, or the kind
 // when the name has none.
 export function extLabel(fileName: string, contentType: string): string {
