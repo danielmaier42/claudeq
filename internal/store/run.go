@@ -48,6 +48,9 @@ type RunProvider struct {
 	Name string `json:"name,omitempty"`
 	// Model is the effective model; empty means the harness's own default.
 	Model string `json:"model,omitempty"`
+	// ReportedModel is the model the harness said it ran, where it says so: the
+	// full id behind an alias, or the default behind an empty Model.
+	ReportedModel string `json:"reported_model,omitempty"`
 	// ReasoningEffort is what the run asked for, where the harness takes one.
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 	// AccessMode is the authority the run was given.
@@ -60,6 +63,15 @@ type RunProvider struct {
 // ran no harness on no account, so there is no provider identity to record —
 // only the fact that it was a script.
 const ScriptRunKind = "script"
+
+// ModelName is the model the run used as best known: what the harness
+// reported, else what dispatchq asked for. Empty means neither is known.
+func (p RunProvider) ModelName() string {
+	if p.ReportedModel != "" {
+		return p.ReportedModel
+	}
+	return p.Model
+}
 
 // IsScript reports whether the run executed a script rather than an agent
 // harness. Such a run belongs to no provider and spends no allowance, so it is

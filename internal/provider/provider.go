@@ -271,6 +271,10 @@ type Event struct {
 	Type EventType
 	// SessionID is set on EventSessionStarted.
 	SessionID string
+	// Model is the model the harness says it runs, set on EventSessionStarted
+	// by a harness that names it. It resolves an alias or an unset model to the
+	// one that actually answered.
+	Model string
 	// FinalOutput is the harness's final response, set on EventCompleted.
 	FinalOutput string
 	// IsError marks an EventCompleted that reports a failure.
@@ -302,6 +306,8 @@ type Result struct {
 	Status store.RunStatus
 	// SessionID is the session the run actually used.
 	SessionID string
+	// Model is the model the harness reported running; empty when it named none.
+	Model string
 	// ExitCode is the harness process's exit status.
 	ExitCode int
 	// RetryAfter is how long to wait after a rate limit, when reported.

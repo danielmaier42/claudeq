@@ -184,10 +184,12 @@ const orgBlockedDetail = "this organisation has disabled Claude subscription acc
 	"the provider is paused like a rate limit until an admin enables it"
 
 // streamEvent covers the fields dispatchq reads from the CLI's stream-json lines:
-// the final `result` envelope, intermediate `api_retry` system events, and
-// `rate_limit_event`. Unknown fields are ignored.
+// the opening `init` system event, the final `result` envelope, intermediate
+// `api_retry` system events, and `rate_limit_event`. Unknown fields are ignored.
 type streamEvent struct {
 	Type            string         `json:"type"`
+	Subtype         string         `json:"subtype"`
+	Model           string         `json:"model"`
 	ParentToolUseID string         `json:"parent_tool_use_id"`
 	AgentID         string         `json:"agent_id"`
 	IsError         bool           `json:"is_error"`
@@ -253,7 +255,13 @@ func (p *parser) Parse(line []byte) []provider.Event {
 
 	var out []provider.Event
 	if ev.SessionID != "" {
-		out = append(out, provider.Event{Type: provider.EventSessionStarted, SessionID: ev.SessionID})
+		started := provider.Event{Type: provider.EventSessionStarted, SessionID: ev.SessionID}
+		// The run's own init names the model it resolved, alias or default
+		// alike; a subagent's init names the subagent's.
+		if ev.Type == "system" && ev.Subtype == "init" && ev.ParentToolUseID == "" && ev.AgentID == "" {
+			started.Model = ev.Model
+		}
+		out = append(out, started)
 	}
 	if p.isAuthFailure(ev) {
 		out = append(out, provider.Event{Type: provider.EventAuthFailed})

@@ -45,9 +45,9 @@ type ProviderBucket struct {
 	Models []ModelBucket `json:"models,omitempty"`
 }
 
-// ModelBucket is what one model consumed on one provider. Model is the name the
-// run recorded, alias or full id as the task asked for it; empty groups the runs
-// that left the choice to the harness.
+// ModelBucket is what one model consumed on one provider. Model is the one the
+// harness reported running where it did, else the one the task asked for;
+// empty groups the runs where neither is known.
 type ModelBucket struct {
 	Model string `json:"model"`
 	Bucket
@@ -188,10 +188,11 @@ func computeStats(runs []store.Run, now time.Time, win statsWindow) Stats {
 			b.Name = r.Provider.Name
 		}
 		add(&b.Bucket, r)
-		m, ok := byModel[r.Provider.ID][r.Provider.Model]
+		model := r.Provider.ModelName()
+		m, ok := byModel[r.Provider.ID][model]
 		if !ok {
-			m = &ModelBucket{Model: r.Provider.Model}
-			byModel[r.Provider.ID][r.Provider.Model] = m
+			m = &ModelBucket{Model: model}
+			byModel[r.Provider.ID][model] = m
 		}
 		add(&m.Bucket, r)
 	}

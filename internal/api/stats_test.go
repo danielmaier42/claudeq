@@ -364,3 +364,27 @@ func TestGetStatsDays(t *testing.T) {
 		})
 	}
 }
+
+// TestStatsSplitByTheModelThatRan: a run's reported model wins over the alias it
+// asked for, so an alias and its full id share one row.
+func TestStatsSplitByTheModelThatRan(t *testing.T) {
+	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
+	runs := []store.Run{
+		{RunID: "1", StartedAt: now, Status: store.StatusSuccess,
+			Provider: store.RunProvider{ID: "claude", Model: "opus", ReportedModel: "claude-opus-5-5"}},
+		{RunID: "2", StartedAt: now, Status: store.StatusSuccess,
+			Provider: store.RunProvider{ID: "claude", Model: "claude-opus-5-5"}},
+		{RunID: "3", StartedAt: now, Status: store.StatusSuccess,
+			Provider: store.RunProvider{ID: "claude", ReportedModel: "claude-opus-5-5"}},
+		{RunID: "4", StartedAt: now, Status: store.StatusSuccess,
+			Provider: store.RunProvider{ID: "claude", Model: "sonnet"}},
+	}
+	s := computeStats(runs, now, statsWindow{Days: defaultStatsDays})
+	if len(s.ByProvider) != 1 {
+		t.Fatalf("by_provider = %+v, want one provider", s.ByProvider)
+	}
+	m := s.ByProvider[0].Models
+	if len(m) != 2 || m[0].Model != "claude-opus-5-5" || m[0].Runs != 3 || m[1].Model != "sonnet" {
+		t.Fatalf("models = %+v, want claude-opus-5-5 with 3 runs, then sonnet", m)
+	}
+}

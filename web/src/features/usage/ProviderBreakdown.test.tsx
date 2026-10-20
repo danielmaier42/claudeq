@@ -1,5 +1,5 @@
-import {render, screen} from '@testing-library/react'
-import {describe, expect, it} from 'vitest'
+import {cleanup, render, screen} from '@testing-library/react'
+import {afterEach, describe, expect, it} from 'vitest'
 import type {StatsBucket} from '@/lib/types'
 import {ProviderBreakdown} from './ProviderBreakdown'
 
@@ -17,10 +17,13 @@ const bucket = (runs: number, tokens: number): StatsBucket => ({
 // as such rather than left blank. A provider's share is of all tokens, its
 // models' shares are of the provider's, so they add up to 100%.
 describe('ProviderBreakdown', () => {
+  afterEach(cleanup)
+
   it('lists each provider with its models beneath it', () => {
     render(
       <ProviderBreakdown
         period="Last 14 days"
+        metric="tokens"
         providers={[
           {
             id: 'claude',
@@ -42,5 +45,22 @@ describe('ProviderBreakdown', () => {
     expect(screen.getByText('75%')).toBeTruthy()
     expect(screen.getByText('67%')).toBeTruthy()
     expect(screen.getByText('33%')).toBeTruthy()
+  })
+
+  it('follows the measure chosen for the chart', () => {
+    render(
+      <ProviderBreakdown
+        period="Last 14 days"
+        metric="runs"
+        providers={[
+          {id: 'a', name: 'few-tokens', ...bucket(3, 10)},
+          {id: 'b', name: 'many-tokens', ...bucket(1, 1000)},
+        ]}
+      />,
+    )
+    const [first, second] = ['few-tokens', 'many-tokens'].map((n) => screen.getByText(n))
+    expect(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByText('75%')).toBeTruthy()
+    expect(screen.getAllByText('runs')).toHaveLength(2)
   })
 })

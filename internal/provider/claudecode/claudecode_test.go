@@ -269,6 +269,16 @@ func TestParseTranslatesStreamJSON(t *testing.T) {
 			want: []provider.Event{{Type: provider.EventSessionStarted, SessionID: "real-sid"}},
 		},
 		{
+			name: "the run's init names the model that answers",
+			line: `{"type":"system","subtype":"init","session_id":"real-sid","model":"claude-opus-5-5"}`,
+			want: []provider.Event{{Type: provider.EventSessionStarted, SessionID: "real-sid", Model: "claude-opus-5-5"}},
+		},
+		{
+			name: "a subagent's init does not name the run's model",
+			line: `{"type":"system","subtype":"init","session_id":"real-sid","model":"claude-haiku-5-5","parent_tool_use_id":"toolu_1"}`,
+			want: []provider.Event{{Type: provider.EventSessionStarted, SessionID: "real-sid"}},
+		},
+		{
 			name: "successful result carries the final output and metrics",
 			line: `{"type":"result","is_error":false,"result":"All done.","total_cost_usd":0.012,"num_turns":2,"duration_ms":3400,"usage":{"input_tokens":1200,"output_tokens":300}}`,
 			want: []provider.Event{{

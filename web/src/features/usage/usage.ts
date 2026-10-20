@@ -34,6 +34,11 @@ export function fmtTokens(n: number): string {
 
 export const bucketTokens = (b: StatsBucket) => b.input_tokens + b.output_tokens
 
+// bucketValue is a bucket's figure for the chosen measure, as the chart counts it.
+export function bucketValue(m: Metric, b: StatsBucket): number {
+  return m === 'tokens' ? bucketTokens(b) : m === 'runs' ? b.runs : b.cost_usd
+}
+
 export function successRate(b: StatsBucket): number | null {
   const done = b.success + b.failed
   return done ? Math.round((b.success / done) * 100) : null

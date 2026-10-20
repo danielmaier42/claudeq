@@ -15,6 +15,7 @@ type Collector struct {
 	name string
 
 	sessionID   string
+	model       string
 	finalOutput string
 	metrics     *Metrics
 
@@ -43,6 +44,11 @@ func (c *Collector) Add(ev Event) {
 	case EventSessionStarted:
 		if ev.SessionID != "" {
 			c.sessionID = ev.SessionID
+		}
+		// The first model named is the run's own; a later one would belong to
+		// something the run started.
+		if ev.Model != "" && c.model == "" {
+			c.model = ev.Model
 		}
 	case EventCompleted:
 		c.completed = true
@@ -109,6 +115,7 @@ func (c *Collector) CompletedRateLimit() bool {
 func (c *Collector) Result(exitCode int) Result {
 	res := Result{
 		SessionID:   c.sessionID,
+		Model:       c.model,
 		ExitCode:    exitCode,
 		RetryAfter:  c.retryAfter,
 		ResetAt:     c.resetAt,

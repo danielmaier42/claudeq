@@ -569,13 +569,16 @@ first. The window opens on the Dashboard:
   (the default), 30 or 90 days, or All. A bar chart per day (per week beyond 45
   days) with a **Tokens | Runs | Cost** switch; hovering a bar (or the arrow
   keys) shows all three for it. Above it the period's totals with the all-time
-  figures beside them, below it one row per provider with its runs, outcomes,
-  runtime, tokens and cost in that period, and under each provider one row per
-  model it ran (as the task named it; *Harness default* when it named none).
-  A provider's bar is its share of all tokens, a model's bar its share of that
-  provider's. Tokens count fresh input and output: Codex's cached input is left
-  out, as Claude Code reports cache reads apart, so providers compare fairly
-  (Codex runs recorded by older versions still include it).
+  figures beside them, below it one row per provider with its runs, outcomes
+  and runtime in that period, and under each provider one row per model that
+  ran (as the harness reported it, so an alias and its full id share a row;
+  else as the task named it, *Harness default* when neither is known). The rows
+  follow the chart's switch: the bar, the figure on the right and the order
+  show the chosen measure. A provider's bar is its share of the period, a
+  model's bar its share of that provider's. Tokens count fresh input and
+  output: Codex's cached input is left out, as Claude Code reports cache reads
+  apart, so providers compare fairly (Codex runs recorded by older versions
+  still include it).
 - **Settings** — global defaults and integrations (below). The custom system
   prompt gets the same review banner as a task prompt. A red badge here means
   an update is available.
