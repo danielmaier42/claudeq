@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="internal/api/web/logo.svg" width="96" height="96" alt="DispatchQ">
+  <img src="docs/branding/dispatchq/dispatchq-logo.svg" width="96" height="96" alt="DispatchQ">
   <h1>DispatchQ</h1>
   <p>A queue for unattended coding-agent runs on your Mac.</p>
 </div>
