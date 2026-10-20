@@ -24,8 +24,24 @@ export function extLabel(fileName: string, contentType: string): string {
   return k === 'other' ? 'FILE' : k.toUpperCase()
 }
 
-export function contentURL(id: string, download = false): string {
-  return `/api/artifacts/${encodeURIComponent(id)}/content${download ? '?download=1' : ''}`
+// contentURL is where an artifact's file is served: as is, as a download, or
+// for the viewer's frame, where an HTML page reports link clicks to the window.
+export function contentURL(id: string, as?: 'download' | 'frame'): string {
+  return `/api/artifacts/${encodeURIComponent(id)}/content${as ? `?${as}=1` : ''}`
+}
+
+// frameLink is the http(s) link an HTML artifact in the viewer asks the window
+// to open, or null for any other message.
+export function frameLink(data: unknown): string | null {
+  if (typeof data !== 'object' || data === null) return null
+  const {type, url} = data as {type?: unknown; url?: unknown}
+  if (type !== 'dispatchq:open-link' || typeof url !== 'string') return null
+  try {
+    const u = new URL(url)
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : null
+  } catch {
+    return null
+  }
 }
 
 // NO_GROUP stands for "no group" in the group menu: a real group name never

@@ -1,14 +1,15 @@
 import {useQuery} from '@tanstack/react-query'
 import {Download, ExternalLink, FileQuestion, FileWarning} from 'lucide-react'
-import type {ReactNode} from 'react'
+import {type ReactNode, useEffect, useRef} from 'react'
 import {Button} from '@/components/ui/button'
 import {EmptyState} from '@/components/ui/empty-state'
 import {Spinner} from '@/components/ui/spinner'
 import {errorMessage, get} from '@/lib/api'
 import {bytes} from '@/lib/format'
+import {openExternal} from '@/lib/native'
 import type {Artifact} from '@/lib/types'
 import {downloadArtifact, openArtifactExternal} from './actions'
-import {artifactKind, contentURL} from './logic'
+import {artifactKind, contentURL, frameLink} from './logic'
 
 // ViewerBody shows one artifact the way the window can: web pages and PDFs in
 // a frame, images inline, text as text, and for anything else the way out.
@@ -16,12 +17,7 @@ export function ViewerBody({a}: {a: Artifact}) {
   const src = contentURL(a.id)
   switch (artifactKind(a.content_type)) {
     case 'html':
-      // HTML runs in an opaque origin (sandbox without allow-same-origin) so it
-      // cannot reach the loopback API or the parent DOM; the content CSP
-      // additionally blocks any network access, so it cannot phone home.
-      return (
-        <iframe title={a.title} src={src} sandbox="allow-scripts" className="size-full border-0 bg-white" />
-      )
+      return <HtmlBody a={a} />
     case 'pdf':
       // PDFs render in the engine's built-in viewer. Chromium refuses to show a
       // PDF inside a sandboxed iframe, so this one is not sandboxed — safe
@@ -54,6 +50,33 @@ export function ViewerBody({a}: {a: Artifact}) {
         />
       )
   }
+}
+
+// HtmlBody runs the page in an opaque origin (sandbox without
+// allow-same-origin) so it cannot reach the loopback API or the parent DOM; the
+// content CSP additionally blocks any network access, so it cannot phone home.
+// Links cannot open from inside the frame, so the page posts each clicked link
+// here and it goes to the browser.
+function HtmlBody({a}: {a: Artifact}) {
+  const frame = useRef<HTMLIFrameElement>(null)
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      if (e.source !== frame.current?.contentWindow) return
+      const url = frameLink(e.data)
+      if (url) openExternal(url)
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [])
+  return (
+    <iframe
+      ref={frame}
+      title={a.title}
+      src={contentURL(a.id, 'frame')}
+      sandbox="allow-scripts"
+      className="size-full border-0 bg-white"
+    />
+  )
 }
 
 function TextBody({a}: {a: Artifact}) {

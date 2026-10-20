@@ -53,5 +53,5 @@ export function openArtifactExternal(a: Artifact) {
 }
 
 export function downloadArtifact(a: Artifact) {
-  openExternal(location.origin + contentURL(a.id, true))
+  openExternal(location.origin + contentURL(a.id, 'download'))
 }
