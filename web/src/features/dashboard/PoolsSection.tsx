@@ -1,5 +1,4 @@
 import {ArrowRight} from 'lucide-react'
-import {Section} from '@/components/layout/view-layout'
 import {Card} from '@/components/ui/card'
 import {Tooltip} from '@/components/ui/tooltip'
 import {usePools} from '@/lib/queries'
@@ -8,21 +7,25 @@ import {cn} from '@/lib/utils'
 import {fmtWeight} from './limits'
 
 // PoolsSection shows, per pool, where a run started now would go and how the
-// members stand: the same order the daemon takes them in.
+// members stand: the same order the daemon takes them in. It sits right under
+// the allowance strip and wears the same card header, since it reads from it.
 export function PoolsSection() {
   const pools = usePools().data ?? []
   if (!pools.length) return null
   return (
-    <Section
-      title="Pools"
-      description="A pool task runs on the member whose weekly allowance would otherwise expire unused soonest."
-    >
-      <Card className="divide-y divide-border">
+    <Card className="mb-4 overflow-hidden">
+      <div className="flex min-h-10 items-center gap-2 border-b border-border py-1.5 pr-2 pl-4">
+        <h2 className="text-[13px] font-semibold">Pool</h2>
+        <span className="truncate text-[12px] text-muted-foreground">
+          A pool task runs on the member whose weekly allowance would otherwise expire unused soonest.
+        </span>
+      </div>
+      <div className="divide-y divide-border">
         {pools.map((p) => (
           <PoolRow key={p.id} pool={p} />
         ))}
-      </Card>
-    </Section>
+      </div>
+    </Card>
   )
 }
 

@@ -406,14 +406,15 @@ first. The window opens on the Dashboard:
   [backfill threshold](#backfill-tasks). It is read without spending any usage
   (see [How much is left](#how-much-is-left)); the strip says how old the
   reading is and **Read now** asks again. An account on an API key has no plan
-  limits and says so plainly. Below it, cards in the order they need action:
+  limits and says so plainly. Right under it, the **Pool** card puts every
+  [pool](#provider-pools) on one line, its members in the order a run started
+  now would take them. Below that, cards in the order they need action:
   runs that **failed in the last 24 hours** (first while there are any), what
   is **up next** (due tasks first, with the reason a task is held), what is
   **running now** (and runs a rate limit paused, with their resume time), and
   the **last 7 days** (runs, success rate, tokens and cost). Each entry opens
   its log or its task; *+N more* opens the Log filtered to failures, or the
-  Queue. Every [pool](#provider-pools) follows on one line, its members in the
-  order a run started now would take them.
+  Queue.
 - **Queue** — the pending tasks in priority order. Add, edit, delete, enable/pause,
   reorder, or **run now** (a manual test run, independent of the trigger). Each
   row carries its task's name, its schedule in words (*Every day at 03:00*,
