@@ -117,8 +117,16 @@ func (a Agent) Install(ctx context.Context, plist string) error {
 	domain := fmt.Sprintf("gui/%d", a.UID)
 	// Remove any prior instance so bootstrap does not fail on "already loaded".
 	_, _ = a.Runner.Run(ctx, "launchctl", "bootout", domain+"/"+a.label())
+	// A disabled override survives bootout and plist replacement. Bootstrap
+	// alone cannot repair it, so explicitly enable the service on installation.
+	if out, err := a.Runner.Run(ctx, "launchctl", "enable", domain+"/"+a.label()); err != nil {
+		return fmt.Errorf("launchctl enable: %w (%s)", err, string(out))
+	}
 	if out, err := a.Runner.Run(ctx, "launchctl", "bootstrap", domain, path); err != nil {
 		return fmt.Errorf("launchctl bootstrap: %w (%s)", err, string(out))
+	}
+	if out, err := a.Runner.Run(ctx, "launchctl", "kickstart", domain+"/"+a.label()); err != nil {
+		return fmt.Errorf("launchctl kickstart: %w (%s)", err, string(out))
 	}
 	return nil
 }

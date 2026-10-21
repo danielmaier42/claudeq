@@ -2,8 +2,10 @@ package launchd
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -77,14 +79,14 @@ func TestInstallWritesPlistAndBootstraps(t *testing.T) {
 		t.Fatalf("plist content = %q", string(data))
 	}
 
-	if len(r.calls) != 2 {
-		t.Fatalf("expected bootout + bootstrap, got %v", r.calls)
+	wantCalls := [][]string{
+		{"launchctl", "bootout", "gui/501/de.maierdaniel.dispatchq"},
+		{"launchctl", "enable", "gui/501/de.maierdaniel.dispatchq"},
+		{"launchctl", "bootstrap", "gui/501", path},
+		{"launchctl", "kickstart", "gui/501/de.maierdaniel.dispatchq"},
 	}
-	if got := strings.Join(r.calls[0], " "); !strings.Contains(got, "bootout gui/501/de.maierdaniel.dispatchq") {
-		t.Fatalf("first call = %q, want bootout", got)
-	}
-	if got := strings.Join(r.calls[1], " "); !strings.Contains(got, "bootstrap gui/501 "+path) {
-		t.Fatalf("second call = %q, want bootstrap", got)
+	if !reflect.DeepEqual(r.calls, wantCalls) {
+		t.Fatalf("launch sequence = %v, want %v", r.calls, wantCalls)
 	}
 }
 
@@ -107,5 +109,49 @@ func TestUninstallMissingPlistIsOK(t *testing.T) {
 	a := Agent{Runner: &recordRunner{}, Dir: t.TempDir(), UID: 501}
 	if err := a.Uninstall(context.Background()); err != nil {
 		t.Fatalf("Uninstall on missing plist should be nil, got %v", err)
+	}
+}
+
+// Model a persisted disabled override: bootstrap is refused until enable ran,
+// and every failed stage must prevent the subsequent stages from running.
+type installRunner struct {
+	disabled bool
+	fail     string
+	calls    []string
+}
+
+func (r *installRunner) Run(_ context.Context, _ string, args ...string) ([]byte, error) {
+	op := args[0]
+	r.calls = append(r.calls, op)
+	if op == r.fail {
+		return []byte("denied"), fmt.Errorf("injected failure")
+	}
+	if op == "enable" {
+		r.disabled = false
+	}
+	if op == "bootstrap" && r.disabled {
+		return nil, fmt.Errorf("service disabled")
+	}
+	return nil, nil
+}
+func TestInstallRepairsDisabledServiceAndPropagatesFailures(t *testing.T) {
+	for _, stage := range []string{"", "enable", "bootstrap", "kickstart"} {
+		t.Run(stage, func(t *testing.T) {
+			r := &installRunner{disabled: true, fail: stage}
+			a := Agent{Runner: r, Dir: t.TempDir(), UID: 501}
+			err := a.Install(context.Background(), "plist")
+			if stage == "" {
+				if err != nil || r.disabled {
+					t.Fatalf("repair: disabled=%v, err=%v", r.disabled, err)
+				}
+			} else {
+				if err == nil || !strings.Contains(err.Error(), "launchctl "+stage) || !strings.Contains(err.Error(), "denied") {
+					t.Fatalf("lost %s failure: %v", stage, err)
+				}
+				if r.calls[len(r.calls)-1] != stage {
+					t.Fatalf("continued after failure: %v", r.calls)
+				}
+			}
+		})
 	}
 }

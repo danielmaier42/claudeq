@@ -14,6 +14,10 @@
 # looks successful and changed nothing. If the takeover cannot be completed,
 # this script fails the install rather than reporting success.
 set -e
+# Installer helpers must use Apple's utilities, even if the invoking shell
+# exports a PATH containing GNU stat or other incompatible replacements.
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+export PATH
 
 APP="/Applications/DispatchQ.app"
 DAEMON="$APP/Contents/MacOS/dispatchqd"
@@ -33,8 +37,8 @@ LEGACY_APP="/Applications/ClaudeQ.app"
 LEGACY_PORT=8765
 
 if [ ! -x "$DAEMON" ]; then
-	echo "dispatchq: daemon not found at $DAEMON; skipping autostart setup"
-	exit 0
+	echo "dispatchq: FAILED: daemon not found at $DAEMON"
+	exit 1
 fi
 
 # link_claudeq_cli makes ClaudeQ.app a link to DispatchQ.app, so a script that
@@ -50,18 +54,45 @@ link_claudeq_cli() {
 }
 link_claudeq_cli
 
-consoleUser=$(stat -f "%Su" /dev/console 2>/dev/null || echo "")
-if [ -z "$consoleUser" ] || [ "$consoleUser" = "root" ]; then
+# /dev/console alone can report root in the installer context even while a
+# user's GUI and old daemon are running. Ask SystemConfiguration first, then
+# fall back to the console device and login records. Accept only a real GUI
+# domain; never install an agent for root or the login window.
+candidates=$(
+	printf 'show State:/Users/ConsoleUser\n' | scutil 2>/dev/null |
+		sed -n 's/^[[:space:]]*Name[[:space:]]*:[[:space:]]*//p'
+	stat -f "%Su" /dev/console 2>/dev/null || true
+	who 2>/dev/null | awk '$2 == "console" { print $1 }'
+)
+consoleUser=""
+uid=""
+for candidate in $candidates; do
+	case "$candidate" in root|loginwindow|_mbsetupuser) continue ;; esac
+	candidateUID=$(id -u "$candidate" 2>/dev/null || true)
+	case "$candidateUID" in ""|0|*[!0-9]*) continue ;; esac
+	if launchctl print "gui/$candidateUID" >/dev/null 2>&1; then
+		consoleUser="$candidate"
+		uid="$candidateUID"
+		break
+	fi
+done
+if [ -z "$consoleUser" ]; then
+	# A live daemon proves that silently skipping the hand-over is unsafe.
+	# Fail visibly instead of claiming success with the old version still up.
+	if pgrep -x claudeqd >/dev/null 2>&1 || pgrep -x dispatchqd >/dev/null 2>&1; then
+		echo "dispatchq: FAILED: cannot resolve GUI user while a ClaudeQ or DispatchQ daemon is running"
+		exit 1
+	fi
 	# Headless / no GUI login window user — the app will set up autostart on its
 	# first launch instead. Don't fail the install over it.
 	echo "dispatchq: no console user; the app will set up autostart on first launch"
 	exit 0
 fi
-uid=$(id -u "$consoleUser")
+echo "dispatchq: handing over ClaudeQ and DispatchQ services for $consoleUser (uid $uid)"
 # The LaunchAgent plist lives in the console user's home. Resolve it defensively:
 # an empty home would make "$homeDir/Library/..." point at the *system*
 # LaunchAgents directory, which this script must never touch.
-homeDir=$(dscl . -read "/Users/$consoleUser" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+homeDir=$(dscl . -read "/Users/$consoleUser" NFSHomeDirectory 2>/dev/null | sed -n 's/^NFSHomeDirectory: //p')
 plist=""
 if [ -n "$homeDir" ] && [ -d "$homeDir" ]; then
 	plist="$homeDir/Library/LaunchAgents/$LABEL.plist"
@@ -70,12 +101,16 @@ fi
 # The version this package just put in /Applications. The running daemon must
 # report exactly this once the takeover is done.
 want=$("$DAEMON" --version 2>/dev/null | tr -d ' \t\n' | sed 's/^v//' || true)
+if [ -z "$want" ]; then
+	echo "dispatchq: FAILED: installed daemon cannot report its version"
+	exit 1
+fi
 echo "dispatchq: installed version ${want:-unknown}"
 
 # asuser runs a command in the console user's GUI launchd domain; sudo -u adopts
 # their identity and HOME so launchctl and the plist land in the right place.
 as_user() {
-	launchctl asuser "$uid" sudo -u "$consoleUser" "$@"
+	launchctl asuser "$uid" sudo -H -u "$consoleUser" "$@"
 }
 
 # running_version echoes the version the live daemon reports, "" if nothing
@@ -85,19 +120,18 @@ running_version() {
 		sed -n 's/.*"current":"\([^"]*\)".*/\1/p'
 }
 
-# stop_daemons kills every dispatchq daemon, by name and by whoever holds the
-# port. Matching the name alone is not enough: a daemon from an older layout,
-# or one started from a copy of the app somewhere else, still squats the port
-# and would keep serving the old version. `-f 'dispatchqd run'` never matches this
-# script or the `dispatchqd install` we run below.
+# stop_daemons targets only the console user, by exact executable name and
+# listening port. This also catches an old daemon started without a run argument,
+# without matching editors or command lines that merely mention the binary.
 stop_daemons() {
 	sig="$1"
-	pkill "$sig" -f 'dispatchqd run' 2>/dev/null || true
-	pkill "$sig" -f 'claudeqd run' 2>/dev/null || true
+	for name in dispatchqd claudeqd; do
+		pkill "$sig" -u "$uid" -x "$name" 2>/dev/null || true
+	done
 	# -a ANDs the name against the ports (lsof ORs the -c and the -i filters
 	# among themselves): only a *dispatchqd* or *claudeqd* that listens on one
 	# of our ports. An unrelated process holding one is not ours to kill.
-	holders=$(lsof -ti -a -c dispatchqd -c claudeqd -sTCP:LISTEN -i "tcp:$PORT" -i "tcp:$LEGACY_PORT" 2>/dev/null || true)
+	holders=$(lsof -ti -a -u "$uid" -c dispatchqd -c claudeqd -sTCP:LISTEN -i "tcp:$PORT" -i "tcp:$LEGACY_PORT" 2>/dev/null || true)
 	if [ -n "$holders" ]; then
 		# shellcheck disable=SC2086 # deliberate word splitting: one pid per line
 		kill $sig $holders 2>/dev/null || true
@@ -132,7 +166,17 @@ retire_claudeq() {
 
 # takeover points the LaunchAgent at the freshly installed daemon and starts it.
 takeover() {
+	# Stop KeepAlive before killing processes. Otherwise launchd can revive an
+	# old binary between the kill and the new daemon's bootstrap. Do this for
+	# both names, including on retry, and repair root-owned stale plist files.
+	for label in "$LEGACY_LABEL" "$LABEL"; do
+		as_user launchctl bootout "gui/$uid/$label" 2>/dev/null || true
+		if [ -n "$homeDir" ] && [ -d "$homeDir" ]; then
+			rm -f "$homeDir/Library/LaunchAgents/$label.plist" || return 1
+		fi
+	done
 	stop_daemons "-TERM"
+	stop_daemons "-KILL"
 	if ! as_user "$DAEMON" install; then
 		echo "dispatchq: launchctl hand-over failed"
 		return 1
@@ -147,7 +191,7 @@ takeover() {
 settled() {
 	deadline=$(($(date +%s) + 20))
 	while [ "$(date +%s)" -lt "$deadline" ]; do
-		if [ "$(running_version)" = "$want" ]; then
+		if [ "$(running_version)" = "$want" ] && ! pgrep -u "$uid" -x claudeqd >/dev/null 2>&1; then
 			return 0
 		fi
 		sleep 0.2
@@ -155,23 +199,17 @@ settled() {
 	return 1
 }
 
-takeover || true
+handed_over=false
+if takeover; then handed_over=true; fi
 
-if [ -n "$want" ] && ! settled; then
+if [ "$handed_over" != true ] || ! settled; then
 	echo "dispatchq: the running daemon is still $(running_version), not $want — retrying"
-	# A LaunchAgent left over from an older install can point at a copy of the
-	# app somewhere else entirely (a second DispatchQ.app the user kept around).
-	# launchd then keeps restarting *that* binary, and the new one never gets
-	# the port. Drop the stale job and its plist before trying again.
-	as_user launchctl bootout "gui/$uid/$LABEL" 2>/dev/null || true
-	if [ -n "$plist" ] && [ -f "$plist" ]; then
-		rm -f "$plist"
-	fi
-	stop_daemons "-KILL"
-	takeover || true
+	# Repeat the complete hand-over, including both launchd labels.
+	handed_over=false
+	if takeover; then handed_over=true; fi
 fi
 
-if [ -n "$want" ] && ! settled; then
+if [ "$handed_over" != true ] || ! settled; then
 	echo "dispatchq: FAILED to start DispatchQ $want — the machine is still running $(running_version)"
 	echo "dispatchq: LaunchAgent plist: ${plist:-<unknown home>}"
 	[ -n "$plist" ] && grep -A1 'ProgramArguments' "$plist" 2>/dev/null || true

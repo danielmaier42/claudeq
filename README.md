@@ -158,8 +158,22 @@ daemon that answers on `127.0.0.1:10765` reports the version it just installed,
 retries once (dropping a stale LaunchAgent that still points at an old copy of
 the app), and reports the install as *failed* if the new daemon never takes
 over — rather than finishing green while the machine keeps running the old
-version. It also lists any other `DispatchQ.app` copies it finds, since a second
-copy is the usual reason an update looks like it did nothing.
+version. It resolves the logged-in user through macOS SystemConfiguration,
+the console device and console login records, validating that the user's GUI
+session exists. If user detection fails while either daemon is running, the
+install fails instead of silently skipping the update. Before stopping
+processes it unloads both the current LaunchAgent
+and the old ClaudeQ agent, so neither can restart an outdated daemon during
+the update. It replaces stale agent files, re-enables the DispatchQ service
+and explicitly starts it. Remaining daemons are stopped only for the logged-in
+user. An install cannot succeed while that user's old ClaudeQ daemon remains
+running, or if the bundled daemon cannot report its version. It also lists any
+other `DispatchQ.app` copies it finds.
+
+You can update directly from ClaudeQ 1.x to the latest DispatchQ package;
+installing 2.0.0 first is not required. If installation fails, open **Window →
+Installer Log** in macOS Installer, select **Show All Logs** and look for the
+`dispatchq:` messages. Closing the app window alone does not stop its daemon.
 
 > The package is not notarized, so on first launch macOS may warn that it is from
 > an unidentified developer. Right-click **DispatchQ → Open**, then confirm — or
