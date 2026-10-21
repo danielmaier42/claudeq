@@ -158,7 +158,11 @@ daemon that answers on `127.0.0.1:10765` reports the version it just installed,
 retries once (dropping a stale LaunchAgent that still points at an old copy of
 the app), and reports the install as *failed* if the new daemon never takes
 over — rather than finishing green while the machine keeps running the old
-version. Before stopping processes it unloads both the current LaunchAgent
+version. It resolves the logged-in user through macOS SystemConfiguration,
+the console device and console login records, validating that the user's GUI
+session exists. If user detection fails while either daemon is running, the
+install fails instead of silently skipping the update. Before stopping
+processes it unloads both the current LaunchAgent
 and the old ClaudeQ agent, so neither can restart an outdated daemon during
 the update. It replaces stale agent files, re-enables the DispatchQ service
 and explicitly starts it. Remaining daemons are stopped only for the logged-in

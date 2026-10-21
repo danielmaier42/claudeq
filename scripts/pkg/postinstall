@@ -14,6 +14,10 @@
 # looks successful and changed nothing. If the takeover cannot be completed,
 # this script fails the install rather than reporting success.
 set -e
+# Installer helpers must use Apple's utilities, even if the invoking shell
+# exports a PATH containing GNU stat or other incompatible replacements.
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+export PATH
 
 APP="/Applications/DispatchQ.app"
 DAEMON="$APP/Contents/MacOS/dispatchqd"
@@ -50,14 +54,41 @@ link_claudeq_cli() {
 }
 link_claudeq_cli
 
-consoleUser=$(stat -f "%Su" /dev/console 2>/dev/null || echo "")
-if [ -z "$consoleUser" ] || [ "$consoleUser" = "root" ]; then
+# /dev/console alone can report root in the installer context even while a
+# user's GUI and old daemon are running. Ask SystemConfiguration first, then
+# fall back to the console device and login records. Accept only a real GUI
+# domain; never install an agent for root or the login window.
+candidates=$(
+	printf 'show State:/Users/ConsoleUser\n' | scutil 2>/dev/null |
+		sed -n 's/^[[:space:]]*Name[[:space:]]*:[[:space:]]*//p'
+	stat -f "%Su" /dev/console 2>/dev/null || true
+	who 2>/dev/null | awk '$2 == "console" { print $1 }'
+)
+consoleUser=""
+uid=""
+for candidate in $candidates; do
+	case "$candidate" in root|loginwindow|_mbsetupuser) continue ;; esac
+	candidateUID=$(id -u "$candidate" 2>/dev/null || true)
+	case "$candidateUID" in ""|0|*[!0-9]*) continue ;; esac
+	if launchctl print "gui/$candidateUID" >/dev/null 2>&1; then
+		consoleUser="$candidate"
+		uid="$candidateUID"
+		break
+	fi
+done
+if [ -z "$consoleUser" ]; then
+	# A live daemon proves that silently skipping the hand-over is unsafe.
+	# Fail visibly instead of claiming success with the old version still up.
+	if pgrep -x claudeqd >/dev/null 2>&1 || pgrep -x dispatchqd >/dev/null 2>&1; then
+		echo "dispatchq: FAILED: cannot resolve GUI user while a ClaudeQ or DispatchQ daemon is running"
+		exit 1
+	fi
 	# Headless / no GUI login window user — the app will set up autostart on its
 	# first launch instead. Don't fail the install over it.
 	echo "dispatchq: no console user; the app will set up autostart on first launch"
 	exit 0
 fi
-uid=$(id -u "$consoleUser")
+echo "dispatchq: handing over ClaudeQ and DispatchQ services for $consoleUser (uid $uid)"
 # The LaunchAgent plist lives in the console user's home. Resolve it defensively:
 # an empty home would make "$homeDir/Library/..." point at the *system*
 # LaunchAgents directory, which this script must never touch.
