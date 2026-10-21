@@ -209,7 +209,7 @@ What the update does:
 
 | ClaudeQ | DispatchQ | How it moves |
 |---------|-----------|--------------|
-| `/Applications/ClaudeQ.app` | `/Applications/DispatchQ.app` | The installer puts the new app in place and moves the old one to your Bin once DispatchQ runs (only a bundle whose id says it is ClaudeQ). In its place it leaves a link to `DispatchQ.app`. Installed with nobody logged in, the old app stays; delete it yourself. |
+| `/Applications/ClaudeQ.app` | `/Applications/DispatchQ.app` | The installer puts the new app in place and moves the old one to your Bin once DispatchQ runs (only a bundle whose id says it is ClaudeQ). It creates the Bin folder if needed and preserves existing items there. In its place it leaves a verified link to `DispatchQ.app`. Installed with nobody logged in, the old app stays; delete it yourself. |
 | `claudeq`, `claudeqd`, `claudeqapp` | `dispatchq`, `dispatchqd`, `dispatchqapp` | Inside the new app. The app also carries `claudeq` as a link to `dispatchq`, so a script that calls `/Applications/ClaudeQ.app/Contents/MacOS/claudeq` keeps working. That path is deprecated: a later release removes both links, so move scripts to the new path (the check below finds them). |
 | LaunchAgent `de.maierdaniel.claudeq` | `de.maierdaniel.dispatchq` | The old agent is booted out, its daemon stopped and its plist removed before the new one starts, so the queue never runs twice. Installed with nobody logged in, DispatchQ does this the first time you open it. |
 | `~/Library/Application Support/claudeq` | `~/Library/Application Support/dispatchq` | Moved on the first start, tasks, history, logs and artifacts included. The old path stays as a link to the new folder, so log paths in the history and scripts that read the old folder keep working. |
@@ -217,6 +217,11 @@ What the update does:
 | `CLAUDEQ_HOME`, `CLAUDEQ_BIN`, `CLAUDEQ_RUN_ID`, … | `DISPATCHQ_HOME`, `DISPATCHQ_BIN`, `DISPATCHQ_RUN_ID`, … | Every run gets both names for now. `CLAUDEQ_HOME` set in your shell is still honoured when `DISPATCHQ_HOME` is not set. |
 | `.claudeq` task files | `.dispatchq` | Both import. |
 | Webhook default body `"source":"claudeq"` | `"source":"dispatchq"` | Changes with the update. An automation that filters on the old value needs the new one; a webhook with its own template is unaffected. |
+
+With a logged-in user, installation fails if it cannot retire the old app or
+if either compatibility link does not resolve to DispatchQ. A different app
+or an unrelated link at `ClaudeQ.app` is preserved and reported as an error,
+so the installer never replaces something it cannot identify as ClaudeQ.
 
 Your tasks themselves are not rewritten behind your back. The first time
 DispatchQ 2.0 opens, a **What's new** dialog introduces the new name, the
