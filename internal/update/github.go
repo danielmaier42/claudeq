@@ -11,7 +11,7 @@ import (
 )
 
 // DefaultRepo is the GitHub repository dispatchq releases are published to.
-const DefaultRepo = "danielmaier42/claudeq"
+const DefaultRepo = "danielmaier42/dispatchq-macos"
 
 // GitHubFetcher retrieves the latest release from GitHub's public REST API.
 type GitHubFetcher struct {
