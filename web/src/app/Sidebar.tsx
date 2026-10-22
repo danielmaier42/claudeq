@@ -14,7 +14,7 @@ import {navigate, useNav} from './nav'
 import {openPalette} from './palette-store'
 import {VIEWS, type ViewDef} from './views'
 
-const REPO = 'https://github.com/danielmaier42/claudeq'
+const REPO = 'https://github.com/danielmaier42/dispatchq-macos'
 
 export function Sidebar() {
   const view = useNav((s) => s.view)
