@@ -47,8 +47,19 @@ fi
 # The old path is deprecated, not gone; a later release drops the link. It is
 # made only where nothing is: a real ClaudeQ.app waits for retire_claudeq.
 link_claudeq_cli() {
+	if [ -L "$LEGACY_APP" ]; then
+		if [ ! "$LEGACY_APP" -ef "$APP" ]; then
+			echo "dispatchq: FAILED: $LEGACY_APP links somewhere other than $APP"
+			return 1
+		fi
+		return 0
+	fi
 	if [ ! -e "$LEGACY_APP" ] && [ ! -L "$LEGACY_APP" ]; then
-		ln -s "$(basename "$APP")" "$LEGACY_APP" && echo "dispatchq: linked $LEGACY_APP to $APP for old scripts"
+		if ! ln -s "$(basename "$APP")" "$LEGACY_APP"; then
+			echo "dispatchq: FAILED: cannot create compatibility link $LEGACY_APP"
+			return 1
+		fi
+		echo "dispatchq: linked $LEGACY_APP to $APP for old scripts"
 	fi
 	return 0
 }
@@ -147,16 +158,34 @@ stop_daemons() {
 # bundle that says it is ClaudeQ.
 # In its place goes the link_claudeq_cli link.
 retire_claudeq() {
-	if [ -n "$homeDir" ] && [ -d "$homeDir/.Trash" ] && [ -d "$LEGACY_APP" ] && [ ! -L "$LEGACY_APP" ] &&
-		[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$LEGACY_APP/Contents/Info.plist" 2>/dev/null)" = "$LEGACY_LABEL" ]; then
-		dest="$homeDir/.Trash/ClaudeQ.app"
-		[ -e "$dest" ] && dest="$homeDir/.Trash/ClaudeQ $(date +%Y-%m-%d-%H%M%S).app"
-		if mv "$LEGACY_APP" "$dest"; then
-			chown -R "$consoleUser" "$dest" 2>/dev/null || true
-			echo "dispatchq: moved $LEGACY_APP to the Bin"
+	if [ -e "$LEGACY_APP" ] && [ ! -L "$LEGACY_APP" ]; then
+		if [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$LEGACY_APP/Contents/Info.plist" 2>/dev/null)" != "$LEGACY_LABEL" ]; then
+			echo "dispatchq: FAILED: refusing to replace $LEGACY_APP because it is not a ClaudeQ bundle"
+			return 1
 		fi
+		if [ -z "$homeDir" ] || ! as_user mkdir -p "$homeDir/.Trash"; then
+			echo "dispatchq: FAILED: cannot prepare the user's Bin for ClaudeQ"
+			return 1
+		fi
+		dest="$homeDir/.Trash/ClaudeQ.app"
+		n=0
+		while [ -e "$dest" ] || [ -L "$dest" ]; do
+			n=$((n + 1))
+			dest="$homeDir/.Trash/ClaudeQ $n.app"
+		done
+		if ! mv "$LEGACY_APP" "$dest"; then
+			echo "dispatchq: FAILED: cannot move $LEGACY_APP to the Bin"
+			return 1
+		fi
+		chown -R "$consoleUser" "$dest" 2>/dev/null || true
+		echo "dispatchq: moved $LEGACY_APP to the Bin"
 	fi
-	link_claudeq_cli
+	link_claudeq_cli || return 1
+	if [ ! "$LEGACY_APP" -ef "$APP" ] ||
+		[ ! "$APP/Contents/MacOS/claudeq" -ef "$APP/Contents/MacOS/dispatchq" ]; then
+		echo "dispatchq: FAILED: ClaudeQ compatibility links do not resolve to DispatchQ"
+		return 1
+	fi
 	if [ -f /etc/sudoers.d/claudeq ]; then
 		rm -f /etc/sudoers.d/claudeq
 		echo "dispatchq: removed ClaudeQ wake permission"
