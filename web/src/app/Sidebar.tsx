@@ -14,7 +14,7 @@ import {navigate, useNav} from './nav'
 import {openPalette} from './palette-store'
 import {VIEWS, type ViewDef} from './views'
 
-const REPO = 'https://github.com/danielmaier42/dispatchq-macos'
+const WEBSITE = 'https://www.dispatchq.de'
 
 export function Sidebar() {
   const view = useNav((s) => s.view)
@@ -151,11 +151,11 @@ function Footer() {
     <div className="flex items-center gap-2 border-t border-border px-4 py-2.5 text-[12px] text-muted-foreground">
       <span className={cn('size-2 rounded-full', state.dot, fetching && !down && 'animate-pulse-dot')} />
       <span className="flex-1 truncate">{state.text}</span>
-      <Tooltip content="DispatchQ on GitHub">
+      <Tooltip content="DispatchQ website">
         <button
-          onClick={() => openExternal(REPO)}
+          onClick={() => openExternal(WEBSITE)}
           className="rounded p-1 hover:bg-surface-3 hover:text-foreground"
-          aria-label="DispatchQ on GitHub"
+          aria-label="DispatchQ website"
         >
           <ExternalLink className="size-3.5" />
         </button>
